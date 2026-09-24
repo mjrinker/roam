@@ -117,16 +117,37 @@ export function SeamlessPlayer({
   }, [ownerKind, ownerId]);
 
   // ── Initialize playback once the manifest is available ─────────────────
+  // NOTE: this effect re-runs not just on first mount, but also whenever
+  // `ownerId` changes on an ALREADY-MOUNTED player — e.g. clicking "Play
+  // next episode" navigates to a new /watch/episode/[id] URL, but since
+  // it's the same <SeamlessPlayer> component at the same position in the
+  // tree, React reuses the instance and just updates props; it does not
+  // remount. So every reset below is load-bearing, not just first-mount
+  // setup — skipping any of them leaves state from the previous title
+  // bleeding into the next one.
   useEffect(() => {
     if (!manifest) return;
     const { segment, localTime } = findSegment(manifest, manifest.resumeSeconds);
     segIndexRef.current = segment.index;
-    frontSlotRef.current = 0; // frontSlot state already starts at 0
+    frontSlotRef.current = 0;
+    preloadedForRef.current = null;
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setFrontSlot(0);
+    setFinished(false);
+    setScrubTime(null);
     // Seed the scrubber at the resume position before playback starts —
     // after this, `timeupdate` (an external-system subscription, not a
     // render-triggered write) is what keeps globalTime in sync.
-    // eslint-disable-next-line react-hooks/set-state-in-effect
     setGlobalTime(manifest.resumeSeconds);
+
+    // The *other* slot may still hold the previous title's video (mid-watch
+    // or a stale preload) — stop and release it so nothing lingers.
+    const other = videoRefs.current[1];
+    if (other) {
+      other.pause();
+      other.removeAttribute("src");
+      other.load();
+    }
 
     const front = videoRefs.current[0];
     if (!front) return;
