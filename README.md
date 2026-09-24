@@ -34,6 +34,14 @@ cp .env.example .env.local
 Fill in `.env.local` — see the comments in `.env.example` for where to find
 each value.
 
+While you're setting up credentials, you can already sanity-check the parts
+of the app that don't need them — the Box folder/filename convention parser
+and the from-scratch MP4 duration prober both have a unit test suite:
+
+```bash
+npm test
+```
+
 ## 2. Set up Supabase
 
 1. Create a project. Copy the URL, anon key, and service-role key into
