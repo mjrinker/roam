@@ -1,6 +1,6 @@
 import Image from "next/image";
 import Link from "next/link";
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { and, asc, eq } from "drizzle-orm";
 import { db } from "@/lib/db/client";
 import { mediaFiles, titles, watchState } from "@/lib/db/schema";
@@ -23,6 +23,8 @@ export default async function TitleDetailPage({
 
   const [title] = await db.select().from(titles).where(eq(titles.id, id)).limit(1);
   if (!title) notFound();
+  // This page is movie-only; shows have their own season/episode browser.
+  if (title.kind === "show") redirect(`/show/${id}`);
 
   const segments = await db
     .select()
@@ -110,7 +112,7 @@ export default async function TitleDetailPage({
 
           <div className="flex items-center gap-3">
             {ready ? (
-              <Button render={<Link href={`/watch/${title.id}`} />} size="lg">
+              <Button render={<Link href={`/watch/title/${title.id}`} />} size="lg">
                 {hasProgress ? "Resume" : "Play"}
               </Button>
             ) : (

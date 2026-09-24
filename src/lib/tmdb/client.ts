@@ -63,6 +63,7 @@ export interface TmdbTvDetails extends TmdbTvSearchResult {
 }
 
 export interface TmdbEpisode {
+  id: number;
   episode_number: number;
   name: string;
   overview?: string;

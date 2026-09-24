@@ -1,5 +1,7 @@
 /** Shared between the /api/play route and the client-side player. */
 
+export type PlayOwnerKind = "title" | "episode";
+
 export interface PlaySegment {
   index: number;
   url: string;
@@ -8,7 +10,8 @@ export interface PlaySegment {
 }
 
 export interface PlayManifest {
-  titleId: string;
+  ownerKind: PlayOwnerKind;
+  ownerId: string;
   durationSeconds: number;
   segments: PlaySegment[];
   resumeSeconds: number;

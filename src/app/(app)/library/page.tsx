@@ -7,11 +7,9 @@ import { TitleCard, type TitleCardData } from "@/components/library/title-card";
 export default async function LibraryPage() {
   const profile = await requireProfile();
 
-  const allTitles = await db
-    .select()
-    .from(titles)
-    .where(eq(titles.kind, "movie"))
-    .orderBy(desc(titles.addedAt));
+  const allTitles = await db.select().from(titles).orderBy(desc(titles.addedAt));
+  const movies = allTitles.filter((t) => t.kind === "movie");
+  const shows = allTitles.filter((t) => t.kind === "show");
 
   const inProgress = await db
     .select()
@@ -30,11 +28,14 @@ export default async function LibraryPage() {
       .map((w) => [w.ownerId, w.positionSeconds / w.durationSeconds!])
   );
 
-  const continueWatching = allTitles.filter((t) => progressByTitleId.has(t.id));
+  // Movies only for now — continuing an in-progress episode would need a
+  // richer card (show name, season/episode) that TitleCard doesn't render.
+  const continueWatching = movies.filter((t) => progressByTitleId.has(t.id));
 
   function toCard(t: (typeof allTitles)[number]): TitleCardData {
     return {
       id: t.id,
+      kind: t.kind,
       name: t.name,
       year: t.year,
       posterUrl: t.posterUrl,
@@ -58,7 +59,7 @@ export default async function LibraryPage() {
 
       <section className="flex flex-col gap-3">
         <h2 className="text-lg font-semibold">Movies</h2>
-        {allTitles.length === 0 ? (
+        {movies.length === 0 ? (
           <p className="text-sm text-muted-foreground">
             No movies yet.{" "}
             {profile.role === "admin"
@@ -67,12 +68,23 @@ export default async function LibraryPage() {
           </p>
         ) : (
           <div className="grid grid-cols-3 gap-4 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-8">
-            {allTitles.map((t) => (
+            {movies.map((t) => (
               <TitleCard key={t.id} title={toCard(t)} />
             ))}
           </div>
         )}
       </section>
+
+      {shows.length > 0 && (
+        <section className="flex flex-col gap-3">
+          <h2 className="text-lg font-semibold">TV Shows</h2>
+          <div className="grid grid-cols-3 gap-4 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-8">
+            {shows.map((t) => (
+              <TitleCard key={t.id} title={toCard(t)} />
+            ))}
+          </div>
+        </section>
+      )}
     </div>
   );
 }

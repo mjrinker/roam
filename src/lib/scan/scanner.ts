@@ -259,7 +259,7 @@ async function syncShowFolder(
           number: parsed.episode,
           name: parsed.name ?? tmdbEp?.name ?? null,
           boxFolderId: seasonFolder.id,
-          tmdbId: null,
+          tmdbId: tmdbEp?.id ?? null,
           overview: tmdbEp?.overview ?? null,
           stillUrl: tmdbImageUrl(tmdbEp?.still_path, "w500"),
           runtimeSeconds: tmdbEp?.runtime ? tmdbEp.runtime * 60 : null,
@@ -268,6 +268,7 @@ async function syncShowFolder(
           target: [episodes.seasonId, episodes.number],
           set: {
             name: parsed.name ?? tmdbEp?.name ?? null,
+            tmdbId: tmdbEp?.id ?? null,
             overview: tmdbEp?.overview ?? null,
             stillUrl: tmdbImageUrl(tmdbEp?.still_path, "w500"),
           },

@@ -5,11 +5,16 @@ import { useRouter } from "next/navigation";
 import { Pause, Play, Maximize, Minimize, Volume2, VolumeX } from "lucide-react";
 import { Slider } from "@/components/ui/slider";
 import { Button } from "@/components/ui/button";
-import type { PlayManifest } from "@/lib/player/types";
+import Link from "next/link";
+import type { PlayManifest, PlayOwnerKind } from "@/lib/player/types";
 
 interface SeamlessPlayerProps {
-  titleId: string;
+  ownerKind: PlayOwnerKind;
+  ownerId: string;
   title: string;
+  /** Shown as a button on the finished screen, e.g. linking to the next episode. */
+  nextHref?: string;
+  nextLabel?: string;
 }
 
 const PRELOAD_THRESHOLD_SECONDS = 15;
@@ -56,7 +61,13 @@ function formatTime(totalSeconds: number) {
  * back element is already buffered, so the swap is instant. This needs no
  * CORS on the Box URLs (plain `src` playback), unlike an MSE-based approach.
  */
-export function SeamlessPlayer({ titleId, title }: SeamlessPlayerProps) {
+export function SeamlessPlayer({
+  ownerKind,
+  ownerId,
+  title,
+  nextHref,
+  nextLabel,
+}: SeamlessPlayerProps) {
   const router = useRouter();
   const containerRef = useRef<HTMLDivElement>(null);
   const videoRefs = useRef<[HTMLVideoElement | null, HTMLVideoElement | null]>([
@@ -89,11 +100,11 @@ export function SeamlessPlayer({ titleId, title }: SeamlessPlayerProps) {
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      const res = await fetch(`/api/play/${titleId}`);
+      const res = await fetch(`/api/play/${ownerKind}/${ownerId}`);
       if (cancelled) return;
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
-        setError(body.error ?? "This title can't be played right now.");
+        setError(body.error ?? "This can't be played right now.");
         return;
       }
       const data: PlayManifest = await res.json();
@@ -103,7 +114,7 @@ export function SeamlessPlayer({ titleId, title }: SeamlessPlayerProps) {
     return () => {
       cancelled = true;
     };
-  }, [titleId]);
+  }, [ownerKind, ownerId]);
 
   // ── Initialize playback once the manifest is available ─────────────────
   useEffect(() => {
@@ -133,8 +144,8 @@ export function SeamlessPlayer({ titleId, title }: SeamlessPlayerProps) {
       const m = manifestRef.current;
       if (!m) return;
       const payload = JSON.stringify({
-        ownerKind: "title",
-        ownerId: m.titleId,
+        ownerKind: m.ownerKind,
+        ownerId: m.ownerId,
         positionSeconds: Math.floor(positionSeconds),
         durationSeconds: Math.floor(m.durationSeconds),
         finished: isFinished,
@@ -251,7 +262,7 @@ export function SeamlessPlayer({ titleId, title }: SeamlessPlayerProps) {
         // Segment URL likely expired mid-playback — re-fetch a fresh
         // manifest and resume from the current global position.
         setError("Reconnecting…");
-        fetch(`/api/play/${titleId}`)
+        fetch(`/api/play/${ownerKind}/${ownerId}`)
           .then((r) => r.json())
           .then((data: PlayManifest) => {
             manifestRef.current = data;
@@ -276,7 +287,7 @@ export function SeamlessPlayer({ titleId, title }: SeamlessPlayerProps) {
     });
 
     return () => cleanups.forEach((fn) => fn());
-  }, [advanceToNextSegment, maybePreloadNext, saveProgress, titleId]);
+  }, [advanceToNextSegment, maybePreloadNext, saveProgress, ownerKind, ownerId]);
 
   // Manifest URLs expire — proactively refresh a bit before they do, so a
   // long first segment doesn't run into an expired *next* segment URL.
@@ -288,7 +299,7 @@ export function SeamlessPlayer({ titleId, title }: SeamlessPlayerProps) {
       const currentGlobal =
         manifestRef.current!.segments[segIndexRef.current].startSeconds +
         (videoRefs.current[frontSlotRef.current]?.currentTime ?? 0);
-      const res = await fetch(`/api/play/${titleId}`).catch(() => null);
+      const res = await fetch(`/api/play/${ownerKind}/${ownerId}`).catch(() => null);
       if (!res?.ok) return;
       const fresh: PlayManifest = await res.json();
       fresh.resumeSeconds = currentGlobal;
@@ -297,7 +308,7 @@ export function SeamlessPlayer({ titleId, title }: SeamlessPlayerProps) {
       // valid); this just refreshes the URLs used for the *next* preload.
     }, refreshInMs);
     return () => clearTimeout(timer);
-  }, [manifest, titleId]);
+  }, [manifest, ownerKind, ownerId]);
 
   // ── Controls ─────────────────────────────────────────────────────────
   const togglePlay = useCallback(() => {
@@ -403,7 +414,16 @@ export function SeamlessPlayer({ titleId, title }: SeamlessPlayerProps) {
       {finished && (
         <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-black/80">
           <p className="text-lg font-medium text-white">{title}</p>
-          <Button onClick={() => router.back()}>Back to details</Button>
+          <div className="flex gap-2">
+            <Button variant="secondary" onClick={() => router.back()}>
+              Back to details
+            </Button>
+            {nextHref && (
+              <Button render={<Link href={nextHref} />}>
+                {nextLabel ?? "Play next"}
+              </Button>
+            )}
+          </div>
         </div>
       )}
 

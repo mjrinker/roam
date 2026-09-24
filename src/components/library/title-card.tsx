@@ -4,6 +4,7 @@ import { Badge } from "@/components/ui/badge";
 
 export interface TitleCardData {
   id: string;
+  kind: "movie" | "show";
   name: string;
   year: number | null;
   posterUrl: string | null;
@@ -12,8 +13,9 @@ export interface TitleCardData {
 }
 
 export function TitleCard({ title }: { title: TitleCardData }) {
+  const href = title.kind === "show" ? `/show/${title.id}` : `/title/${title.id}`;
   return (
-    <Link href={`/title/${title.id}`} className="group flex flex-col gap-2">
+    <Link href={href} className="group flex flex-col gap-2">
       <div className="relative aspect-[2/3] overflow-hidden rounded-md bg-muted">
         {title.posterUrl ? (
           <Image
