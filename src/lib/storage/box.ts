@@ -105,10 +105,26 @@ async function listFolder(folderId: string): Promise<StorageEntry[]> {
   return entries;
 }
 
+// Short-lived cache so probing one file's MP4 duration (several small
+// byte-range reads per file — see mp4-duration.ts) doesn't mint a brand
+// new downscoped Box token + download URL for every single range request.
+// A fresh play-manifest request always bypasses this (callers wanting a
+// guaranteed-fresh URL should mint directly), so it's only ever reused
+// within a short window — mainly the scanner's own hot path.
+const STREAMING_URL_CACHE = new Map<string, StreamingUrl>();
+const REUSE_MARGIN_MS = 15_000; // don't hand out a URL expiring this soon
+
 async function getStreamingUrl(fileId: string): Promise<StreamingUrl> {
+  const cached = STREAMING_URL_CACHE.get(fileId);
+  if (cached && cached.expiresAt.getTime() - Date.now() > REUSE_MARGIN_MS) {
+    return cached;
+  }
+
   const { client, expiresAt } = await getScopedFileClient(fileId);
   const url = await client.downloads.getDownloadFileUrl(fileId);
-  return { url, expiresAt };
+  const streamingUrl: StreamingUrl = { url, expiresAt };
+  STREAMING_URL_CACHE.set(fileId, streamingUrl);
+  return streamingUrl;
 }
 
 async function fetchByteRange(
