@@ -151,8 +151,8 @@ byte-range read of the MP4 `moov` atom — no ffmpeg, no full download).
 ```
 src/
   app/
-    (app)/            # authenticated shell: library, title, watch, admin
-    api/               # control-plane routes (play manifest, scan, invites…)
+    (app)/            # authenticated shell: library, title, show, watch, admin
+    api/               # control-plane routes (play manifest, scan, invites, tmdb match…)
     sign-in/, invite/[token]/, auth/callback/
   components/
     player/            # the seamless dual-video player
@@ -161,6 +161,7 @@ src/
     db/                # Drizzle schema + client
     storage/           # StorageProvider interface + Box implementation
     scan/               # folder-convention parser, MP4 duration probe, scanner
+    player/             # shared play-manifest builder + types (used by movies and episodes)
     tmdb/               # TMDB client
     auth/               # profile/role guards, invite handling
     supabase/           # browser/server/service-role Supabase clients
@@ -169,9 +170,6 @@ src/
 
 ## Known limitations / next steps
 
-- **Movies only in the browsing UI.** The data model already supports TV
-  shows/seasons/episodes and the scanner indexes them, but there's no
-  browse UI for them yet.
 - **Box streaming spike not yet run against a real account.** The play
   manifest mints downscoped, single-file Box download URLs and assumes they
   support HTTP range requests (needed for seeking) with a workable TTL —
@@ -182,4 +180,11 @@ src/
 - **No open self-signup** — by design; everyone needs an admin-issued
   invite.
 - **Box webhooks** (near-real-time re-scan on upload) aren't implemented;
-  only manual Rescan + the 6-hourly cron.
+  only manual Rescan + the 6-hourly cron. `box-node-sdk`'s
+  `WebhooksManager.validateMessage()` (signature verification) is confirmed
+  available in the installed SDK version for when this gets built.
+- **Invites are copy/paste links**, not sent by email automatically — the
+  admin has to send the link themselves. Supabase Auth's admin API can send
+  its own invite emails (`auth.admin.inviteUserByEmail`), which would be a
+  cleaner flow, but wiring that in changes the auth handshake in ways worth
+  testing against a real Supabase project first rather than building blind.
