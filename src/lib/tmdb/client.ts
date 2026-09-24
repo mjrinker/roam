@@ -76,24 +76,40 @@ export function tmdbImageUrl(path: string | null | undefined, size: "w342" | "w5
   return `${TMDB_IMAGE_BASE}/${size}${path}`;
 }
 
-export async function searchMovie(title: string, year: number | null): Promise<TmdbMovieSearchResult | null> {
+export async function searchMovies(
+  query: string,
+  year: number | null = null
+): Promise<TmdbMovieSearchResult[]> {
   const data = await tmdbFetch<{ results: TmdbMovieSearchResult[] }>("/search/movie", {
-    query: title,
+    query,
     year: year ?? undefined,
   });
-  return data.results[0] ?? null;
+  return data.results;
+}
+
+export async function searchMovie(title: string, year: number | null): Promise<TmdbMovieSearchResult | null> {
+  const results = await searchMovies(title, year);
+  return results[0] ?? null;
 }
 
 export async function getMovieDetails(tmdbId: number): Promise<TmdbMovieDetails> {
   return tmdbFetch<TmdbMovieDetails>(`/movie/${tmdbId}`);
 }
 
-export async function searchTvShow(name: string, year: number | null): Promise<TmdbTvSearchResult | null> {
+export async function searchTvShows(
+  query: string,
+  year: number | null = null
+): Promise<TmdbTvSearchResult[]> {
   const data = await tmdbFetch<{ results: TmdbTvSearchResult[] }>("/search/tv", {
-    query: name,
+    query,
     first_air_date_year: year ?? undefined,
   });
-  return data.results[0] ?? null;
+  return data.results;
+}
+
+export async function searchTvShow(name: string, year: number | null): Promise<TmdbTvSearchResult | null> {
+  const results = await searchTvShows(name, year);
+  return results[0] ?? null;
 }
 
 export async function getTvShowDetails(tmdbId: number): Promise<TmdbTvDetails> {

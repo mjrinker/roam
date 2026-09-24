@@ -1,15 +1,21 @@
-import { desc } from "drizzle-orm";
+import { desc, inArray } from "drizzle-orm";
 import { db } from "@/lib/db/client";
-import { invites, libraries, scanRuns } from "@/lib/db/schema";
+import { invites, libraries, scanRuns, titles } from "@/lib/db/schema";
 import { requireAdmin } from "@/lib/auth/guards";
 import { LibraryManager } from "@/components/admin/library-manager";
 import { InviteManager } from "@/components/admin/invite-manager";
+import { UnmatchedTitles } from "@/components/admin/unmatched-titles";
 
 export default async function AdminPage() {
   await requireAdmin();
 
   const allLibraries = await db.select().from(libraries).orderBy(desc(libraries.createdAt));
   const allInvites = await db.select().from(invites).orderBy(desc(invites.createdAt));
+  const unmatchedTitles = await db
+    .select()
+    .from(titles)
+    .where(inArray(titles.metadataStatus, ["pending", "not_found"]))
+    .orderBy(desc(titles.addedAt));
 
   // Most-recent scan_runs rows, enough to find the latest one per library.
   const recentScans = await db
@@ -41,6 +47,15 @@ export default async function AdminPage() {
               : null,
           };
         })}
+      />
+      <UnmatchedTitles
+        titles={unmatchedTitles.map((t) => ({
+          id: t.id,
+          name: t.name,
+          year: t.year,
+          kind: t.kind,
+          metadataStatus: t.metadataStatus as "pending" | "not_found",
+        }))}
       />
       <InviteManager
         invites={allInvites.map((i) => ({

@@ -282,6 +282,43 @@ async function syncShowFolder(
   return !existing;
 }
 
+/**
+ * Re-fetches episode metadata (name fallback, overview, still, tmdbId,
+ * runtime) for a show's EXISTING seasons/episodes from a given TMDB show
+ * id — no Box calls, so it's cheap enough to run right after an admin picks
+ * a corrected TMDB match. Does not add/remove episodes (that only happens
+ * via a real folder scan); it only refreshes metadata on rows that already
+ * exist.
+ */
+export async function refreshShowEpisodesFromTmdb(showId: string, tmdbShowId: number) {
+  const showSeasons = await db.select().from(seasons).where(eq(seasons.titleId, showId));
+
+  for (const season of showSeasons) {
+    const tmdbEpisodes = await getSeasonEpisodes(tmdbShowId, season.number).catch(() => []);
+    if (tmdbEpisodes.length === 0) continue;
+
+    const existingEpisodes = await db
+      .select()
+      .from(episodes)
+      .where(eq(episodes.seasonId, season.id));
+
+    for (const ep of existingEpisodes) {
+      const tmdbEp = tmdbEpisodes.find((e) => e.episode_number === ep.number);
+      if (!tmdbEp) continue;
+      await db
+        .update(episodes)
+        .set({
+          name: ep.name ?? tmdbEp.name ?? null,
+          tmdbId: tmdbEp.id,
+          overview: tmdbEp.overview ?? null,
+          stillUrl: tmdbImageUrl(tmdbEp.still_path, "w500"),
+          runtimeSeconds: tmdbEp.runtime ? tmdbEp.runtime * 60 : ep.runtimeSeconds,
+        })
+        .where(eq(episodes.id, ep.id));
+    }
+  }
+}
+
 // ── Media file segments ──────────────────────────────────────────────────
 
 async function upsertMediaSegments(
