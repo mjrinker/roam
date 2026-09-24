@@ -66,6 +66,27 @@ export function orderMediaSegments<T extends { name: string }>(files: T[]): T[] 
   });
 }
 
+/**
+ * Groups a season folder's video files by episode number, so multi-part
+ * episodes (S01E01 - part1.mp4 / part2.mp4) collapse into one episode with
+ * ordered segments instead of one row overwriting another. Files that
+ * don't match the SxxExx convention are dropped (same as the scanner
+ * silently skipping them file-by-file previously).
+ */
+export function groupFilesByEpisodeNumber<T extends { name: string }>(
+  files: T[]
+): Map<number, T[]> {
+  const grouped = new Map<number, T[]>();
+  for (const file of files) {
+    const parsed = parseEpisodeFileName(file.name);
+    if (!parsed) continue;
+    const list = grouped.get(parsed.episode) ?? [];
+    list.push(file);
+    grouped.set(parsed.episode, list);
+  }
+  return grouped;
+}
+
 const VIDEO_EXTENSIONS = new Set([".mp4", ".m4v", ".mov"]);
 
 export function isVideoFile(fileName: string): boolean {

@@ -1,4 +1,4 @@
-import { and, eq, notInArray } from "drizzle-orm";
+import { and, eq, inArray, notInArray } from "drizzle-orm";
 import { db } from "@/lib/db/client";
 import {
   episodes,
@@ -11,6 +11,7 @@ import {
 import { boxProvider } from "@/lib/storage/box";
 import type { StorageEntry } from "@/lib/storage/provider";
 import {
+  groupFilesByEpisodeNumber,
   isVideoFile,
   orderMediaSegments,
   parseEpisodeFileName,
@@ -246,18 +247,27 @@ async function syncShowFolder(
       (e) => e.kind === "file" && isVideoFile(e.name)
     );
 
-    for (const file of episodeFiles) {
-      const parsed = parseEpisodeFileName(file.name);
-      if (!parsed) continue;
+    // Group files by episode number first (mirroring how a movie's segments
+    // are grouped) rather than upserting per-file. Processing one file at a
+    // time here would (a) let a second part's upsert delete the first
+    // part's media_files row, since each call would see only itself as
+    // "current", and (b) never detect a removed/renamed episode file, since
+    // a missing file just never appears in the loop at all.
+    const filesByEpisodeNumber = groupFilesByEpisodeNumber(episodeFiles);
 
-      const tmdbEp = tmdbEpisodes.find((e) => e.episode_number === parsed.episode);
+    const currentEpisodeRows: { id: string }[] = [];
+
+    for (const [episodeNumber, files] of filesByEpisodeNumber) {
+      const orderedFiles = orderMediaSegments(files);
+      const parsedName = parseEpisodeFileName(orderedFiles[0].name)?.name ?? null;
+      const tmdbEp = tmdbEpisodes.find((e) => e.episode_number === episodeNumber);
 
       const [episode] = await db
         .insert(episodes)
         .values({
           seasonId: season.id,
-          number: parsed.episode,
-          name: parsed.name ?? tmdbEp?.name ?? null,
+          number: episodeNumber,
+          name: parsedName ?? tmdbEp?.name ?? null,
           boxFolderId: seasonFolder.id,
           tmdbId: tmdbEp?.id ?? null,
           overview: tmdbEp?.overview ?? null,
@@ -267,7 +277,7 @@ async function syncShowFolder(
         .onConflictDoUpdate({
           target: [episodes.seasonId, episodes.number],
           set: {
-            name: parsed.name ?? tmdbEp?.name ?? null,
+            name: parsedName ?? tmdbEp?.name ?? null,
             tmdbId: tmdbEp?.id ?? null,
             overview: tmdbEp?.overview ?? null,
             stillUrl: tmdbImageUrl(tmdbEp?.still_path, "w500"),
@@ -275,7 +285,27 @@ async function syncShowFolder(
         })
         .returning();
 
-      await upsertMediaSegments("episode", episode.id, [file]);
+      currentEpisodeRows.push({ id: episode.id });
+      await upsertMediaSegments("episode", episode.id, orderedFiles);
+    }
+
+    // Remove episodes whose files are no longer present in this season's
+    // Box folder, and their now-orphaned media_files rows.
+    const currentEpisodeIds = currentEpisodeRows.map((e) => e.id);
+    const staleEpisodes = await db
+      .select({ id: episodes.id })
+      .from(episodes)
+      .where(
+        currentEpisodeIds.length > 0
+          ? and(eq(episodes.seasonId, season.id), notInArray(episodes.id, currentEpisodeIds))
+          : eq(episodes.seasonId, season.id)
+      );
+    if (staleEpisodes.length > 0) {
+      const staleIds = staleEpisodes.map((e) => e.id);
+      await db
+        .delete(mediaFiles)
+        .where(and(eq(mediaFiles.ownerKind, "episode"), inArray(mediaFiles.ownerId, staleIds)));
+      await db.delete(episodes).where(inArray(episodes.id, staleIds));
     }
   }
 

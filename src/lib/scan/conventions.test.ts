@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  groupFilesByEpisodeNumber,
   isVideoFile,
   orderMediaSegments,
   parseEpisodeFileName,
@@ -122,6 +123,33 @@ describe("orderMediaSegments", () => {
     const original = [...files];
     orderMediaSegments(files);
     expect(files).toEqual(original);
+  });
+});
+
+describe("groupFilesByEpisodeNumber", () => {
+  it("groups a multi-part episode's files together under one key", () => {
+    const files = [
+      { name: "S01E01 - part2.mp4" },
+      { name: "S01E01 - part1.mp4" },
+      { name: "S01E02.mp4" },
+    ];
+    const grouped = groupFilesByEpisodeNumber(files);
+    expect([...grouped.keys()].sort()).toEqual([1, 2]);
+    expect(grouped.get(1)?.map((f) => f.name)).toEqual([
+      "S01E01 - part2.mp4",
+      "S01E01 - part1.mp4",
+    ]);
+    expect(grouped.get(2)?.map((f) => f.name)).toEqual(["S01E02.mp4"]);
+  });
+
+  it("drops files that don't match the SxxExx convention", () => {
+    const files = [{ name: "S01E01.mp4" }, { name: "folder.jpg" }, { name: "random.mp4" }];
+    const grouped = groupFilesByEpisodeNumber(files);
+    expect([...grouped.keys()]).toEqual([1]);
+  });
+
+  it("returns an empty map for no matching files", () => {
+    expect(groupFilesByEpisodeNumber([{ name: "nope.mp4" }]).size).toBe(0);
   });
 });
 
