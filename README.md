@@ -147,10 +147,15 @@ byte-range read of the MP4 `moov` atom — no ffmpeg, no full download).
 
 1. Import the repo into Vercel, add all the env vars from `.env.example`
    (use the **pooled** `POSTGRES_URL`).
-2. `vercel.json` already defines a Cron job hitting `/api/cron/scan` every 6
-   hours — Vercel picks this up automatically on deploy. Make sure
+2. `vercel.json` already defines a Cron job hitting `/api/cron/scan` daily
+   at 9am UTC — Vercel picks this up automatically on deploy. Make sure
    `CRON_SECRET` is set; the route rejects requests without the matching
    `Authorization: Bearer` header.
+   **Note:** Vercel's Hobby plan caps cron jobs at once per day — a more
+   frequent schedule fails deployment outright with "Hobby accounts are
+   limited to daily cron jobs" (this bit us once already). If you upgrade
+   to Pro, you can safely tighten this back up (e.g. every 6 hours) for
+   faster pickup of new media.
 3. Update Supabase's Redirect URLs to include your production
    `/auth/callback` URL.
 
