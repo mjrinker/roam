@@ -3,7 +3,7 @@
 --
 -- IMPORTANT — read this before assuming RLS is what's protecting your data:
 -- The app server (Next.js Route Handlers / Server Components) talks to
--- Postgres directly via Drizzle over DATABASE_URL, not through Supabase's
+-- Postgres directly via Drizzle over POSTGRES_URL, not through Supabase's
 -- PostgREST API — so these policies do NOT gate the app's own queries.
 -- The app's actual authorization boundary is the `requireProfile()` /
 -- `requireAdmin()` / `getCurrentProfile()` checks in every route (see

@@ -47,9 +47,9 @@ npm test
 1. Create a project. Copy the URL, anon key, and service-role key into
    `.env.local`.
 2. Grab the **direct** connection string (Project Settings → Database →
-   Connection string → URI, port `5432`) for `DATABASE_URL` while running
+   Connection string → URI, port `5432`) for `POSTGRES_URL` while running
    migrations. Switch to the **pooled** connection (port `6543`, "Transaction"
-   mode) for `DATABASE_URL` in your actual deployment — serverless functions
+   mode) for `POSTGRES_URL` in your actual deployment — serverless functions
    need a pooler, not a direct connection.
 3. Enable the auth providers you want under Authentication → Providers:
    Email (magic link is on by default; enable "Email + Password" too) and
@@ -146,7 +146,7 @@ byte-range read of the MP4 `moov` atom — no ffmpeg, no full download).
 ## Deploying to Vercel
 
 1. Import the repo into Vercel, add all the env vars from `.env.example`
-   (use the **pooled** `DATABASE_URL`).
+   (use the **pooled** `POSTGRES_URL`).
 2. `vercel.json` already defines a Cron job hitting `/api/cron/scan` every 6
    hours — Vercel picks this up automatically on deploy. Make sure
    `CRON_SECRET` is set; the route rejects requests without the matching
