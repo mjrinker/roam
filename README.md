@@ -147,16 +147,19 @@ byte-range read of the MP4 `moov` atom — no ffmpeg, no full download).
 
 1. Import the repo into Vercel, add all the env vars from `.env.example`
    (use the **pooled** `POSTGRES_URL`).
-2. `vercel.json` already defines a Cron job hitting `/api/cron/scan` daily
-   at 9am UTC — Vercel picks this up automatically on deploy. Make sure
-   `CRON_SECRET` is set; the route rejects requests without the matching
-   `Authorization: Bearer` header.
-   **Note:** Vercel's Hobby plan caps cron jobs at once per day — a more
-   frequent schedule fails deployment outright with "Hobby accounts are
-   limited to daily cron jobs" (this bit us once already). If you upgrade
-   to Pro, you can safely tighten this back up (e.g. every 6 hours) for
-   faster pickup of new media.
-3. Update Supabase's Redirect URLs to include your production
+2. Make sure `vercel.json`'s `git.deploymentEnabled` includes your
+   production branch (`master` here) set to `true`. If it's missing or
+   `false`, Vercel silently never deploys on push or even on a manual
+   "Deploy" click — no build error, nothing in the Deployments tab. This
+   bit us once already; it's a separate switch from the branch shown under
+   Project Settings → Git.
+3. There's currently no scheduled rescan — `vercel.json` had a daily Cron
+   job hitting `/api/cron/scan`, but it was dropped in favor of the manual
+   **Rescan** button in Admin. If you want automatic periodic rescanning
+   back, add a `crons` entry to `vercel.json` (Vercel's Hobby plan caps
+   cron jobs at once per day — a more frequent schedule fails deployment
+   outright with "Hobby accounts are limited to daily cron jobs").
+4. Update Supabase's Redirect URLs to include your production
    `/auth/callback` URL.
 
 ## Project structure
