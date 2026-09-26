@@ -16,6 +16,7 @@ import {
   isExtraFile,
   isVideoFile,
   orderMediaSegments,
+  parseEditionTag,
   parseEpisodeFileName,
   parseSeasonFolderName,
   parseTitleFolderName,
@@ -172,7 +173,12 @@ async function syncMovieFolder(
   libraryId: string,
   folder: StorageEntry
 ): Promise<boolean> {
-  const { name, year } = parseTitleFolderName(folder.name);
+  const { name, year, tmdbId, edition } = parseTitleFolderName(folder.name);
+  // Plex's directory-level {edition-...} convention gives each edition its
+  // own folder, which already becomes its own separate title here — fold
+  // the edition into the display name so two same-named titles are still
+  // distinguishable in the UI.
+  const displayName = edition ? `${name} (${edition})` : name;
 
   const [existing] = await db
     .select({ id: titles.id })
@@ -185,31 +191,57 @@ async function syncMovieFolder(
     .values({
       libraryId,
       kind: "movie",
-      name,
+      name: displayName,
       year,
       boxFolderId: folder.id,
     })
     .onConflictDoUpdate({
       target: titles.boxFolderId,
-      set: { name, year, updatedAt: new Date() },
+      set: { name: displayName, year, updatedAt: new Date() },
     })
     .returning();
 
   const children = await provider.listFolder(folder.id);
-  const videoFiles = orderMediaSegments(
-    children.filter((c) => c.kind === "file" && isVideoFile(c.name) && !isExtraFile(c.name))
+  const candidateFiles = children.filter(
+    (c) => c.kind === "file" && isVideoFile(c.name) && !isExtraFile(c.name)
   );
+  const videoFiles = orderMediaSegments(selectPrimaryEdition(candidateFiles));
 
   await upsertMediaSegments("title", title.id, videoFiles);
-  await enrichMovieMetadataIfNeeded(title.id, name, year);
+  await enrichMovieMetadataIfNeeded(title.id, name, year, tmdbId);
 
   return !existing;
+}
+
+/**
+ * Plex allows multiple full-length editions of a movie to sit in one
+ * folder, each file tagged with a file-level {edition-...} suffix. Roam
+ * has no concept of alternate versions of a title — only ordered SEGMENTS
+ * of one continuous playback — so naively treating every file as a segment
+ * would concatenate two unrelated cuts of the movie back-to-back. Pick one
+ * edition's files (the untagged/default group if one exists, otherwise the
+ * alphabetically-first tagged edition) and ignore the rest.
+ */
+function selectPrimaryEdition(files: StorageEntry[]): StorageEntry[] {
+  const groups = new Map<string, StorageEntry[]>();
+  for (const file of files) {
+    const edition = parseEditionTag(file.name) ?? "";
+    const list = groups.get(edition) ?? [];
+    list.push(file);
+    groups.set(edition, list);
+  }
+  if (groups.size <= 1) return files;
+  const defaultGroup = groups.get("");
+  if (defaultGroup) return defaultGroup;
+  const firstKey = [...groups.keys()].sort()[0];
+  return groups.get(firstKey)!;
 }
 
 async function enrichMovieMetadataIfNeeded(
   titleId: string,
   name: string,
-  year: number | null
+  year: number | null,
+  tmdbId: number | null = null
 ) {
   const [current] = await db
     .select({ metadataStatus: titles.metadataStatus })
@@ -219,15 +251,22 @@ async function enrichMovieMetadataIfNeeded(
   if (!current || current.metadataStatus !== "pending") return;
 
   try {
-    const match = await searchMovie(name, year);
-    if (!match) {
-      await db
-        .update(titles)
-        .set({ metadataStatus: "not_found" })
-        .where(eq(titles.id, titleId));
-      return;
+    // A {tmdb-...} folder tag lets us skip fuzzy search entirely; fall
+    // back to search if the tagged id turns out to be stale/wrong.
+    let details = tmdbId ? await getMovieDetails(tmdbId).catch(() => null) : null;
+    let matchedId = tmdbId;
+    if (!details) {
+      const match = await searchMovie(name, year);
+      if (!match) {
+        await db
+          .update(titles)
+          .set({ metadataStatus: "not_found" })
+          .where(eq(titles.id, titleId));
+        return;
+      }
+      matchedId = match.id;
+      details = await getMovieDetails(matchedId);
     }
-    const details = await getMovieDetails(match.id);
     await db
       .update(titles)
       .set({
@@ -251,7 +290,7 @@ async function syncShowFolder(
   libraryId: string,
   folder: StorageEntry
 ): Promise<boolean> {
-  const { name, year } = parseTitleFolderName(folder.name);
+  const { name, year, tmdbId } = parseTitleFolderName(folder.name);
 
   const [existing] = await db
     .select({ id: titles.id })
@@ -270,23 +309,29 @@ async function syncShowFolder(
 
   let tmdbShowId: number | null = null;
   if (!existing) {
-    const match = await searchTvShow(name, year).catch(() => null);
-    if (match) {
-      const details = await getTvShowDetails(match.id).catch(() => null);
-      tmdbShowId = match.id;
-      if (details) {
-        await db
-          .update(titles)
-          .set({
-            tmdbId: details.id,
-            overview: details.overview ?? null,
-            posterUrl: tmdbImageUrl(details.poster_path, "w500"),
-            backdropUrl: tmdbImageUrl(details.backdrop_path, "w1280"),
-            genres: details.genres?.map((g) => g.name) ?? [],
-            metadataStatus: "matched",
-          })
-          .where(eq(titles.id, title.id));
+    // A {tmdb-...} folder tag lets us skip fuzzy search entirely; fall
+    // back to search if the tagged id turns out to be stale/wrong.
+    let details = tmdbId ? await getTvShowDetails(tmdbId).catch(() => null) : null;
+    if (details) tmdbShowId = tmdbId;
+    if (!details) {
+      const match = await searchTvShow(name, year).catch(() => null);
+      if (match) {
+        details = await getTvShowDetails(match.id).catch(() => null);
+        tmdbShowId = match.id;
       }
+    }
+    if (details) {
+      await db
+        .update(titles)
+        .set({
+          tmdbId: details.id,
+          overview: details.overview ?? null,
+          posterUrl: tmdbImageUrl(details.poster_path, "w500"),
+          backdropUrl: tmdbImageUrl(details.backdrop_path, "w1280"),
+          genres: details.genres?.map((g) => g.name) ?? [],
+          metadataStatus: "matched",
+        })
+        .where(eq(titles.id, title.id));
     } else {
       await db
         .update(titles)
@@ -319,7 +364,7 @@ async function syncShowFolder(
       : [];
 
     const episodeFiles = (await provider.listFolder(seasonFolder.id)).filter(
-      (e) => e.kind === "file" && isVideoFile(e.name)
+      (e) => e.kind === "file" && isVideoFile(e.name) && !isExtraFile(e.name)
     );
 
     // Group files by episode number first (mirroring how a movie's segments

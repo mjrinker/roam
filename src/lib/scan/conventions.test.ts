@@ -4,6 +4,7 @@ import {
   isExtraFile,
   isVideoFile,
   orderMediaSegments,
+  parseEditionTag,
   parseEpisodeFileName,
   parseSeasonFolderName,
   parseTitleFolderName,
@@ -14,6 +15,8 @@ describe("parseTitleFolderName", () => {
     expect(parseTitleFolderName("The Matrix (1999)")).toEqual({
       name: "The Matrix",
       year: 1999,
+      tmdbId: null,
+      edition: null,
     });
   });
 
@@ -21,6 +24,8 @@ describe("parseTitleFolderName", () => {
     expect(parseTitleFolderName("Some Home Video")).toEqual({
       name: "Some Home Video",
       year: null,
+      tmdbId: null,
+      edition: null,
     });
   });
 
@@ -28,6 +33,8 @@ describe("parseTitleFolderName", () => {
     expect(parseTitleFolderName("  The Matrix (1999)  ")).toEqual({
       name: "The Matrix",
       year: 1999,
+      tmdbId: null,
+      edition: null,
     });
   });
 
@@ -35,6 +42,63 @@ describe("parseTitleFolderName", () => {
     expect(parseTitleFolderName("Se7en (a.k.a. Seven) (1995)")).toEqual({
       name: "Se7en (a.k.a. Seven)",
       year: 1995,
+      tmdbId: null,
+      edition: null,
+    });
+  });
+
+  it("extracts a {tmdb-...} id tag and strips it from the name", () => {
+    expect(parseTitleFolderName("The Matrix (1999) {tmdb-603}")).toEqual({
+      name: "The Matrix",
+      year: 1999,
+      tmdbId: 603,
+      edition: null,
+    });
+  });
+
+  it("extracts a {tmdb-...} tag on a show folder with no year", () => {
+    expect(parseTitleFolderName("John Adams {tmdb-15114}")).toEqual({
+      name: "John Adams",
+      year: null,
+      tmdbId: 15114,
+      edition: null,
+    });
+  });
+
+  it("strips {imdb-...}/{tvdb-...} tags without resolving them", () => {
+    expect(parseTitleFolderName("The Matrix (1999) {imdb-tt0133093}")).toEqual({
+      name: "The Matrix",
+      year: 1999,
+      tmdbId: null,
+      edition: null,
+    });
+    expect(parseTitleFolderName("John Adams (2008) {tvdb-81547}")).toEqual({
+      name: "John Adams",
+      year: 2008,
+      tmdbId: null,
+      edition: null,
+    });
+  });
+
+  it("extracts a directory-level {edition-...} tag", () => {
+    expect(
+      parseTitleFolderName("Star Wars - Episode 4 (1977) {edition-Original Theatrical Release}")
+    ).toEqual({
+      name: "Star Wars - Episode 4",
+      year: 1977,
+      tmdbId: null,
+      edition: "Original Theatrical Release",
+    });
+  });
+
+  it("handles both an id tag and an edition tag together", () => {
+    expect(
+      parseTitleFolderName("The Matrix (1999) {tmdb-603} {edition-Extended Cut}")
+    ).toEqual({
+      name: "The Matrix",
+      year: 1999,
+      tmdbId: 603,
+      edition: "Extended Cut",
     });
   });
 });
@@ -52,6 +116,18 @@ describe("parseSeasonFolderName", () => {
   it("returns null for non-matching folder names", () => {
     expect(parseSeasonFolderName("Extras")).toBeNull();
     expect(parseSeasonFolderName("Specials")).toBeNull();
+  });
+});
+
+describe("parseEditionTag", () => {
+  it("extracts a file-level {edition-...} tag", () => {
+    expect(
+      parseEditionTag("Star Wars - Episode 4 (1977).1080p.h264 {edition-Blu-ray Release}.mp4")
+    ).toBe("Blu-ray Release");
+  });
+
+  it("returns null when there's no edition tag", () => {
+    expect(parseEditionTag("The Matrix (1999).mp4")).toBeNull();
   });
 });
 
@@ -83,6 +159,32 @@ describe("parseEpisodeFileName", () => {
   it("returns null when there's no SxxExx pattern", () => {
     expect(parseEpisodeFileName("random-clip.mp4")).toBeNull();
   });
+
+  it("doesn't treat a split-file suffix as the episode title", () => {
+    expect(parseEpisodeFileName("John Adams - s01e02 - pt1.mp4")).toEqual({
+      season: 1,
+      episode: 2,
+      name: null,
+    });
+    expect(parseEpisodeFileName("Show - S01E03 - disc2.mp4")).toEqual({
+      season: 1,
+      episode: 3,
+      name: null,
+    });
+  });
+
+  it("doesn't treat a multi-episode range suffix as the episode title", () => {
+    expect(parseEpisodeFileName("John Adams - s01e05-e06.mp4")).toEqual({
+      season: 1,
+      episode: 5,
+      name: null,
+    });
+    expect(parseEpisodeFileName("John Adams - s01e05-06.mp4")).toEqual({
+      season: 1,
+      episode: 5,
+      name: null,
+    });
+  });
 });
 
 describe("orderMediaSegments", () => {
@@ -104,6 +206,25 @@ describe("orderMediaSegments", () => {
       "Movie Title - Part 1.mp4",
       "Movie Title - Part 2.mp4",
     ]);
+  });
+
+  it.each(["pt", "cd", "disc", "disk", "dvd"])(
+    "recognizes Plex's %s split-file keyword",
+    (keyword) => {
+      const files = [
+        { name: `Movie Title (2001) - ${keyword}2.mp4` },
+        { name: `Movie Title (2001) - ${keyword}1.mp4` },
+      ];
+      expect(orderMediaSegments(files).map((f) => f.name)).toEqual([
+        `Movie Title (2001) - ${keyword}1.mp4`,
+        `Movie Title (2001) - ${keyword}2.mp4`,
+      ]);
+    }
+  );
+
+  it("doesn't false-positive on a title that happens to contain a split keyword as a substring", () => {
+    const files = [{ name: "The Apartment (1960).mp4" }];
+    expect(orderMediaSegments(files).map((f) => f.name)).toEqual(["The Apartment (1960).mp4"]);
   });
 
   it("falls back to alphabetical order when there are no part markers", () => {
@@ -173,13 +294,14 @@ describe("isVideoFile", () => {
 describe("isExtraFile", () => {
   it.each([
     "Trailer 1-trailer.mov",
-    "Movie.Trailer.mp4",
-    "Sample.mp4",
-    "Featurette.mov",
-    "Deleted Scene 1.mp4",
-    "Behind The Scenes.mp4",
-    "Interview with the cast.mp4",
-    "Extras.mp4",
+    "Teaser Trailer-trailer.mp4",
+    "Bar Fight-deleted.mp4",
+    "Performance Capture-behindthescenes.mkv",
+    "Convention Panel-featurette.mp4",
+    "Director Q&A-interview.mp4",
+    "Alternate Ending-scene.mp4",
+    "Animated Short-short.mp4",
+    "Bonus Content-other.mp4",
   ])("flags %s as an extra", (name) => {
     expect(isExtraFile(name)).toBe(true);
   });
@@ -189,6 +311,9 @@ describe("isExtraFile", () => {
     "Extraordinary Machine (2019).mp4",
     "part1.mp4",
     "S01E01 - Pilot.mp4",
+    "Short Circuit (1986).mp4",
+    "The Deleted (2010).mp4",
+    "Movie.Trailer.mp4",
   ])("does not flag %s as an extra", (name) => {
     expect(isExtraFile(name)).toBe(false);
   });
