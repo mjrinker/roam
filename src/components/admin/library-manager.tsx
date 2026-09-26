@@ -197,6 +197,8 @@ export function LibraryManager({
     const result = body.results?.[0];
     if (result?.errors?.length) {
       toast.warning(`Scan finished with ${result.errors.length} error(s) — see details below.`);
+    } else if (result?.incomplete) {
+      toast.info("Scan is continuing in the background — progress is shown below.");
     } else {
       toast.success(`Scan complete — ${result?.titlesAdded ?? 0} new title(s).`);
     }

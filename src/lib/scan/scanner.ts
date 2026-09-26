@@ -36,6 +36,8 @@ export interface ScanResult {
   filesSeen: number;
   titlesAdded: number;
   errors: string[];
+  /** True when this pass hit its time budget; another pass has been scheduled to continue it. */
+  incomplete: boolean;
 }
 
 // A large library (hundreds of titles, each needing a Box folder listing,
@@ -47,16 +49,20 @@ export interface ScanResult {
 // before it would be at risk of being killed mid-write. The scan_runs
 // bookkeeping always completes correctly either way (a real filesSeen/
 // titlesAdded/finishedAt gets written even on an early stop) — a
-// still-incomplete library just needs another Rescan (or the next
-// scheduled cron run) to keep making progress, exactly like the cron
-// batching in api/cron/scan already does across libraries.
+// still-incomplete library chains straight into another pass (see
+// continueScanInBackground), with page-load resume and the scheduled cron
+// scan as fallbacks if the chain is ever broken.
 const SCAN_TIME_BUDGET_MS = 40_000;
+// Safety cap on back-to-back passes (~30 min of scanning) so a library that
+// can never finish can't chain forever; the fallbacks above pick it back up.
+const MAX_CHAIN_DEPTH = 40;
 const FOLDER_SYNC_TIME_BUDGET_MS = 24_000; // ~60% of the budget — leaves room for probing to run every pass too, so titles start becoming playable before the whole library has even finished being discovered
 
 /** Scans one library's Box folder tree (using its server's own connected Box account) and syncs it into Postgres. */
 export async function scanLibrary(
   libraryId: string,
-  trigger: "manual" | "cron" | "webhook" | "resume"
+  trigger: "manual" | "cron" | "webhook" | "resume",
+  chainDepth = 0
 ): Promise<ScanResult> {
   const startedAt = Date.now();
   const [library] = await db
@@ -124,12 +130,6 @@ export async function scanLibrary(
     }
   }
 
-  if (incomplete) {
-    errors.push(
-      "This library is large enough that one scan couldn't finish everything — it'll resume automatically (on the next page load, or the scheduled scan) to keep making progress."
-    );
-  }
-
   await db
     .update(scanRuns)
     .set({ finishedAt: new Date(), filesSeen, titlesAdded, errors })
@@ -139,7 +139,33 @@ export async function scanLibrary(
     .set({ lastScannedAt: new Date(), scanIncomplete: incomplete })
     .where(eq(libraries.id, library.id));
 
-  return { scanRunId: run.id, filesSeen, titlesAdded, errors };
+  if (incomplete && chainDepth < MAX_CHAIN_DEPTH) {
+    await continueScanInBackground(library.id, chainDepth + 1);
+  }
+
+  return { scanRunId: run.id, filesSeen, titlesAdded, errors, incomplete };
+}
+
+/**
+ * Starts the next pass of an incomplete scan as its own function invocation
+ * (a fresh time budget). The endpoint replies immediately and does the work
+ * in the background, so this only waits for the handoff. Failure is fine:
+ * scan_incomplete stays set, so the next page load or cron run resumes it.
+ */
+async function continueScanInBackground(libraryId: string, depth: number) {
+  const baseUrl = process.env.NEXT_PUBLIC_APP_URL;
+  const secret = process.env.CRON_SECRET;
+  if (!baseUrl || !secret) return;
+  try {
+    await fetch(new URL("/api/scan/continue", baseUrl), {
+      method: "POST",
+      headers: { authorization: `Bearer ${secret}`, "content-type": "application/json" },
+      body: JSON.stringify({ libraryId, depth }),
+      signal: AbortSignal.timeout(10_000),
+    });
+  } catch (err) {
+    console.error(`Couldn't chain the next scan pass for library ${libraryId}:`, err);
+  }
 }
 
 // Skip auto-resuming a library whose last scan attempt was very recent —

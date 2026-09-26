@@ -24,6 +24,7 @@ export interface LibraryStatusDto {
 // almost certainly a crashed/killed invocation, not a real 40s-budgeted
 // scan — treat it as stale rather than showing "scanning…" forever.
 const SCAN_STALE_MS = 5 * 60 * 1000;
+const CONTINUING_GRACE_MS = 45 * 1000;
 
 /** Polled by the admin library manager for a live progress readout while a scan is in flight. */
 export async function GET(
@@ -52,10 +53,18 @@ export async function GET(
     .where(eq(scanRuns.libraryId, libraryId))
     .orderBy(desc(scanRuns.startedAt))
     .limit(1);
-  const scanning =
+  const running =
     !!latestRun &&
     latestRun.finishedAt === null &&
     Date.now() - latestRun.startedAt.getTime() < SCAN_STALE_MS;
+  // Between chained passes there's a brief moment with no run in flight;
+  // count that as still scanning. If the chain broke, this lapses after
+  // CONTINUING_GRACE_MS and the admin can rescan.
+  const continuing =
+    library.scanIncomplete &&
+    !!latestRun?.finishedAt &&
+    Date.now() - latestRun.finishedAt.getTime() < CONTINUING_GRACE_MS;
+  const scanning = running || continuing;
 
   const { titleIds, episodeIds } = await resolveLibraryOwnerIds(libraryId);
 
