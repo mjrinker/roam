@@ -1,4 +1,4 @@
-import { and, eq, inArray, notInArray } from "drizzle-orm";
+import { and, eq, inArray, isNull, lt, notInArray, or } from "drizzle-orm";
 import { db } from "@/lib/db/client";
 import {
   episodes,
@@ -13,6 +13,7 @@ import { BoxReauthRequiredError } from "@/lib/storage/box-token-storage";
 import type { StorageEntry, StorageProvider } from "@/lib/storage/provider";
 import {
   groupFilesByEpisodeNumber,
+  isExtraFile,
   isVideoFile,
   orderMediaSegments,
   parseEpisodeFileName,
@@ -54,7 +55,7 @@ const FOLDER_SYNC_TIME_BUDGET_MS = 24_000; // ~60% of the budget — leaves room
 /** Scans one library's Box folder tree (using its server's own connected Box account) and syncs it into Postgres. */
 export async function scanLibrary(
   libraryId: string,
-  trigger: "manual" | "cron" | "webhook"
+  trigger: "manual" | "cron" | "webhook" | "resume"
 ): Promise<ScanResult> {
   const startedAt = Date.now();
   const [library] = await db
@@ -124,7 +125,7 @@ export async function scanLibrary(
 
   if (incomplete) {
     errors.push(
-      "This library is large enough that one scan couldn't finish everything — rescan again (or wait for the next scheduled scan) to keep making progress."
+      "This library is large enough that one scan couldn't finish everything — it'll resume automatically (on the next page load, or the scheduled scan) to keep making progress."
     );
   }
 
@@ -134,10 +135,34 @@ export async function scanLibrary(
     .where(eq(scanRuns.id, run.id));
   await db
     .update(libraries)
-    .set({ lastScannedAt: new Date() })
+    .set({ lastScannedAt: new Date(), scanIncomplete: incomplete })
     .where(eq(libraries.id, library.id));
 
   return { scanRunId: run.id, filesSeen, titlesAdded, errors };
+}
+
+// Skip auto-resuming a library whose last scan attempt was very recent —
+// a page load from another tab/user may have already kicked one off, and
+// since scanLibrary can legitimately run for most of its own time budget,
+// this just avoids piling up redundant concurrent scans of the same
+// library (harmless either way, since every write in the scanner is an
+// idempotent upsert, just wasted Box/TMDB calls).
+const RESUME_COOLDOWN_MS = 60_000;
+
+/** Libraries in this server whose last scan stopped early and are safe to auto-resume right now. */
+export async function findResumableLibraries(serverId: string): Promise<string[]> {
+  const cutoff = new Date(Date.now() - RESUME_COOLDOWN_MS);
+  const rows = await db
+    .select({ id: libraries.id })
+    .from(libraries)
+    .where(
+      and(
+        eq(libraries.serverId, serverId),
+        eq(libraries.scanIncomplete, true),
+        or(isNull(libraries.lastScanAttemptAt), lt(libraries.lastScanAttemptAt, cutoff))
+      )
+    );
+  return rows.map((r) => r.id);
 }
 
 // ── Movies ───────────────────────────────────────────────────────────────
@@ -172,7 +197,7 @@ async function syncMovieFolder(
 
   const children = await provider.listFolder(folder.id);
   const videoFiles = orderMediaSegments(
-    children.filter((c) => c.kind === "file" && isVideoFile(c.name))
+    children.filter((c) => c.kind === "file" && isVideoFile(c.name) && !isExtraFile(c.name))
   );
 
   await upsertMediaSegments("title", title.id, videoFiles);

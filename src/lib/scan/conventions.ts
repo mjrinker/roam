@@ -94,3 +94,19 @@ export function isVideoFile(fileName: string): boolean {
   if (dot === -1) return false;
   return VIDEO_EXTENSIONS.has(fileName.slice(dot).toLowerCase());
 }
+
+// Matches the same "extras" naming Plex itself recognizes (trailers,
+// featurettes, deleted scenes, etc.) — word-bounded so a movie legitimately
+// titled e.g. "Extraordinary Machine (2019)" doesn't get caught by "extra".
+const EXTRA_FILE_RE =
+  /\b(trailer|sample|featurette|deleted scene|behind the scenes|interview|extras?)\b/i;
+
+/**
+ * A movie folder's video files are otherwise all treated as playback
+ * segments of the same movie (there's no per-file naming convention like
+ * shows have) — without this, a "Trailer-trailer.mp4" sitting alongside
+ * the real movie file gets appended to it as if it were another part.
+ */
+export function isExtraFile(fileName: string): boolean {
+  return EXTRA_FILE_RE.test(fileName);
+}

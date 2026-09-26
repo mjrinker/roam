@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   groupFilesByEpisodeNumber,
+  isExtraFile,
   isVideoFile,
   orderMediaSegments,
   parseEpisodeFileName,
@@ -167,4 +168,28 @@ describe("isVideoFile", () => {
       expect(isVideoFile(name)).toBe(false);
     }
   );
+});
+
+describe("isExtraFile", () => {
+  it.each([
+    "Trailer 1-trailer.mov",
+    "Movie.Trailer.mp4",
+    "Sample.mp4",
+    "Featurette.mov",
+    "Deleted Scene 1.mp4",
+    "Behind The Scenes.mp4",
+    "Interview with the cast.mp4",
+    "Extras.mp4",
+  ])("flags %s as an extra", (name) => {
+    expect(isExtraFile(name)).toBe(true);
+  });
+
+  it.each([
+    "The Matrix (1999).mp4",
+    "Extraordinary Machine (2019).mp4",
+    "part1.mp4",
+    "S01E01 - Pilot.mp4",
+  ])("does not flag %s as an extra", (name) => {
+    expect(isExtraFile(name)).toBe(false);
+  });
 });

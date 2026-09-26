@@ -34,6 +34,7 @@ export const scanTriggerEnum = pgEnum("scan_trigger", [
   "manual",
   "cron",
   "webhook",
+  "resume",
 ]);
 export const boxAuthStatusEnum = pgEnum("box_auth_status", [
   "disconnected",
@@ -153,6 +154,12 @@ export const libraries = pgTable(
     lastScanAttemptAt: timestamp("last_scan_attempt_at", {
       withTimezone: true,
     }),
+    // Set whenever a scan stops early because it hit its time budget
+    // (see scanLibrary), cleared once a scan finishes with nothing left
+    // pending. Drives auto-resume: any page load in this server checks
+    // for libraries with this set and kicks off a background scan to
+    // continue, instead of requiring an admin to notice and click Rescan.
+    scanIncomplete: boolean("scan_incomplete").notNull().default(false),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),

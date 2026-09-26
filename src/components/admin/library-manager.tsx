@@ -18,7 +18,7 @@ import { Badge } from "@/components/ui/badge";
 import { FolderBrowser } from "@/components/admin/folder-browser";
 
 export interface LastScanInfo {
-  trigger: "manual" | "cron" | "webhook";
+  trigger: "manual" | "cron" | "webhook" | "resume";
   finishedAt: string | null;
   filesSeen: number;
   titlesAdded: number;
