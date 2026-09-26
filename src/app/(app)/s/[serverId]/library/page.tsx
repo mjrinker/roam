@@ -2,7 +2,6 @@ import { and, desc, eq, inArray } from "drizzle-orm";
 import { db } from "@/lib/db/client";
 import { episodes, libraries, seasons, titles, watchState } from "@/lib/db/schema";
 import { requireServerMember } from "@/lib/auth/guards";
-import { TitleCard, type TitleCardData } from "@/components/library/title-card";
 import {
   ContinueWatchingCard,
   type ContinueWatchingItem,
@@ -10,45 +9,44 @@ import {
 
 const CONTINUE_WATCHING_LIMIT = 16;
 
-export default async function LibraryPage({
+export default async function LibraryHomePage({
   params,
 }: PageProps<"/s/[serverId]/library">) {
   const { serverId } = await params;
   const { profile } = await requireServerMember(serverId);
 
-  const allTitles = await db
-    .select({
-      id: titles.id,
-      kind: titles.kind,
-      name: titles.name,
-      year: titles.year,
-      posterUrl: titles.posterUrl,
-      runtimeSeconds: titles.runtimeSeconds,
-      addedAt: titles.addedAt,
-    })
-    .from(titles)
-    .innerJoin(libraries, eq(titles.libraryId, libraries.id))
+  const hasAnyLibrary = await db
+    .select({ id: libraries.id })
+    .from(libraries)
     .where(eq(libraries.serverId, serverId))
-    .orderBy(desc(titles.addedAt));
-  const movies = allTitles.filter((t) => t.kind === "movie");
-  const shows = allTitles.filter((t) => t.kind === "show");
+    .limit(1);
 
   const inProgress = await db
     .select()
     .from(watchState)
-    .where(
-      and(eq(watchState.profileId, profile.id), eq(watchState.finished, false))
-    )
+    .where(and(eq(watchState.profileId, profile.id), eq(watchState.finished, false)))
     .orderBy(desc(watchState.updatedAt))
     .limit(CONTINUE_WATCHING_LIMIT);
 
+  const inProgressMovies = inProgress.filter(
+    (w) => w.ownerKind === "title" && w.durationSeconds && w.positionSeconds > 0
+  );
   const inProgressEpisodes = inProgress.filter(
     (w) => w.ownerKind === "episode" && w.durationSeconds && w.positionSeconds > 0
   );
 
-  // Resolve episode display info (show name, season/episode, artwork) for
-  // in-progress episodes — scoped to THIS server's shows, so a profile
-  // watching something on a different server never bleeds into this page.
+  // Resolve display info scoped to THIS server, so a profile in progress
+  // on a different server never bleeds into this page.
+  const movieIds = inProgressMovies.map((w) => w.ownerId);
+  const movieDetails = movieIds.length
+    ? await db
+        .select({ title: titles })
+        .from(titles)
+        .innerJoin(libraries, eq(titles.libraryId, libraries.id))
+        .where(and(inArray(titles.id, movieIds), eq(libraries.serverId, serverId)))
+    : [];
+  const movieById = new Map(movieDetails.map((d) => [d.title.id, d.title]));
+
   const episodeIds = inProgressEpisodes.map((w) => w.ownerId);
   const episodeDetails = episodeIds.length
     ? await db
@@ -61,12 +59,6 @@ export default async function LibraryPage({
     : [];
   const episodeDetailsById = new Map(episodeDetails.map((d) => [d.episode.id, d]));
 
-  const movieById = new Map(movies.map((m) => [m.id, m]));
-
-  // inProgress is already sorted by updatedAt desc, across both kinds — map
-  // each row to a display item in that same recency order. A row whose
-  // owner isn't found in either map belongs to a different server (this
-  // profile can be a member of several) and is silently skipped.
   const continueWatching: ContinueWatchingItem[] = inProgress
     .map((w): ContinueWatchingItem | null => {
       if (!w.durationSeconds || w.positionSeconds <= 0) return null;
@@ -97,17 +89,6 @@ export default async function LibraryPage({
     })
     .filter((x): x is ContinueWatchingItem => x !== null);
 
-  function toCard(t: (typeof allTitles)[number]): TitleCardData {
-    return {
-      id: t.id,
-      kind: t.kind,
-      name: t.name,
-      year: t.year,
-      posterUrl: t.posterUrl,
-      runtimeSeconds: t.runtimeSeconds,
-    };
-  }
-
   return (
     <div className="flex flex-col gap-10 px-6 py-8">
       {continueWatching.length > 0 && (
@@ -121,31 +102,15 @@ export default async function LibraryPage({
         </section>
       )}
 
-      <section className="flex flex-col gap-3">
-        <h2 className="text-lg font-semibold">Movies</h2>
-        {movies.length === 0 ? (
-          <p className="text-sm text-muted-foreground">
-            No movies yet. Head to Admin to add a library and scan it.
-          </p>
-        ) : (
-          <div className="grid grid-cols-3 gap-4 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-8">
-            {movies.map((t) => (
-              <TitleCard key={t.id} title={toCard(t)} serverId={serverId} />
-            ))}
-          </div>
-        )}
-      </section>
-
-      {shows.length > 0 && (
-        <section className="flex flex-col gap-3">
-          <h2 className="text-lg font-semibold">TV Shows</h2>
-          <div className="grid grid-cols-3 gap-4 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-8">
-            {shows.map((t) => (
-              <TitleCard key={t.id} title={toCard(t)} serverId={serverId} />
-            ))}
-          </div>
-        </section>
-      )}
+      {hasAnyLibrary.length === 0 ? (
+        <p className="text-sm text-muted-foreground">
+          No libraries yet. Head to Admin to connect Box and add one.
+        </p>
+      ) : continueWatching.length === 0 ? (
+        <p className="text-sm text-muted-foreground">
+          Pick a library from the sidebar to start browsing.
+        </p>
+      ) : null}
     </div>
   );
 }
