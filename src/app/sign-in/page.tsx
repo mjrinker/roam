@@ -1,4 +1,5 @@
 import { AuthForm } from "@/components/auth/auth-form";
+import { AuthShell } from "@/components/auth/auth-shell";
 
 const ERROR_MESSAGES: Record<string, string> = {
   "auth-failed": "Sign-in failed. Please try again.",
@@ -11,19 +12,12 @@ export default async function SignInPage({
   const errorParam = typeof params.error === "string" ? params.error : null;
 
   return (
-    <main className="flex flex-1 flex-col items-center justify-center gap-8 px-4 py-16">
-      <div className="text-center">
-        <h1 className="text-2xl font-semibold tracking-tight">Roam</h1>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Join a server you&apos;ve been invited to, or start your own.
-        </p>
-      </div>
-      {errorParam && (
-        <p className="text-sm text-destructive">
-          {ERROR_MESSAGES[errorParam] ?? "Something went wrong."}
-        </p>
-      )}
+    <AuthShell
+      title="Welcome to Roam"
+      description="Sign in to join a server you've been invited to, or start your own."
+      notice={errorParam ? (ERROR_MESSAGES[errorParam] ?? "Something went wrong.") : undefined}
+    >
       <AuthForm mode="sign-in" />
-    </main>
+    </AuthShell>
   );
 }

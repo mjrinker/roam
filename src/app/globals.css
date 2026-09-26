@@ -49,72 +49,41 @@
 }
 
 :root {
-  --background: oklch(1 0 0);
-  --foreground: oklch(0.145 0 0);
-  --card: oklch(1 0 0);
-  --card-foreground: oklch(0.145 0 0);
-  --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.145 0 0);
-  --primary: oklch(0.205 0 0);
-  --primary-foreground: oklch(0.985 0 0);
-  --secondary: oklch(0.97 0 0);
-  --secondary-foreground: oklch(0.205 0 0);
-  --muted: oklch(0.97 0 0);
-  --muted-foreground: oklch(0.556 0 0);
-  --accent: oklch(0.97 0 0);
-  --accent-foreground: oklch(0.205 0 0);
-  --destructive: oklch(0.577 0.245 27.325);
-  --border: oklch(0.922 0 0);
-  --input: oklch(0.922 0 0);
-  --ring: oklch(0.708 0 0);
-  --chart-1: oklch(0.87 0 0);
-  --chart-2: oklch(0.556 0 0);
-  --chart-3: oklch(0.439 0 0);
-  --chart-4: oklch(0.371 0 0);
-  --chart-5: oklch(0.269 0 0);
-  --radius: 0.625rem;
-  --sidebar: oklch(0.985 0 0);
-  --sidebar-foreground: oklch(0.145 0 0);
-  --sidebar-primary: oklch(0.205 0 0);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.97 0 0);
-  --sidebar-accent-foreground: oklch(0.205 0 0);
-  --sidebar-border: oklch(0.922 0 0);
-  --sidebar-ring: oklch(0.708 0 0);
-}
-
-.dark {
-  --background: oklch(0.145 0 0);
-  --foreground: oklch(0.985 0 0);
-  --card: oklch(0.205 0 0);
-  --card-foreground: oklch(0.985 0 0);
-  --popover: oklch(0.205 0 0);
-  --popover-foreground: oklch(0.985 0 0);
-  --primary: oklch(0.922 0 0);
-  --primary-foreground: oklch(0.205 0 0);
-  --secondary: oklch(0.269 0 0);
-  --secondary-foreground: oklch(0.985 0 0);
-  --muted: oklch(0.269 0 0);
-  --muted-foreground: oklch(0.708 0 0);
-  --accent: oklch(0.269 0 0);
-  --accent-foreground: oklch(0.985 0 0);
-  --destructive: oklch(0.704 0.191 22.216);
-  --border: oklch(1 0 0 / 10%);
-  --input: oklch(1 0 0 / 15%);
-  --ring: oklch(0.556 0 0);
-  --chart-1: oklch(0.87 0 0);
-  --chart-2: oklch(0.556 0 0);
-  --chart-3: oklch(0.439 0 0);
-  --chart-4: oklch(0.371 0 0);
-  --chart-5: oklch(0.269 0 0);
-  --sidebar: oklch(0.205 0 0);
-  --sidebar-foreground: oklch(0.985 0 0);
-  --sidebar-primary: oklch(0.488 0.243 264.376);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.269 0 0);
-  --sidebar-accent-foreground: oklch(0.985 0 0);
-  --sidebar-border: oklch(1 0 0 / 10%);
-  --sidebar-ring: oklch(0.556 0 0);
+  /* Roam is dark-only: a near-black, faintly blue-tinted canvas with a warm
+     gold accent (the same family Plex uses), so posters and backdrops are
+     the most colorful thing on screen. */
+  --background: oklch(0.155 0.008 265);
+  --foreground: oklch(0.975 0.003 265);
+  --card: oklch(0.2 0.01 265);
+  --card-foreground: oklch(0.975 0.003 265);
+  --popover: oklch(0.2 0.01 265);
+  --popover-foreground: oklch(0.975 0.003 265);
+  --primary: oklch(0.79 0.16 78);
+  --primary-foreground: oklch(0.2 0.03 70);
+  --secondary: oklch(0.255 0.012 265);
+  --secondary-foreground: oklch(0.975 0.003 265);
+  --muted: oklch(0.225 0.011 265);
+  --muted-foreground: oklch(0.7 0.012 265);
+  --accent: oklch(0.27 0.014 265);
+  --accent-foreground: oklch(0.975 0.003 265);
+  --destructive: oklch(0.68 0.2 25);
+  --border: oklch(1 0 0 / 8%);
+  --input: oklch(1 0 0 / 12%);
+  --ring: oklch(0.79 0.16 78);
+  --chart-1: oklch(0.79 0.16 78);
+  --chart-2: oklch(0.7 0.12 200);
+  --chart-3: oklch(0.65 0.15 300);
+  --chart-4: oklch(0.72 0.14 150);
+  --chart-5: oklch(0.68 0.2 25);
+  --radius: 0.75rem;
+  --sidebar: oklch(0.125 0.008 265);
+  --sidebar-foreground: oklch(0.975 0.003 265);
+  --sidebar-primary: oklch(0.79 0.16 78);
+  --sidebar-primary-foreground: oklch(0.2 0.03 70);
+  --sidebar-accent: oklch(0.225 0.011 265);
+  --sidebar-accent-foreground: oklch(0.975 0.003 265);
+  --sidebar-border: oklch(1 0 0 / 7%);
+  --sidebar-ring: oklch(0.79 0.16 78);
 }
 
 @layer base {
@@ -126,5 +95,34 @@
   }
   html {
     @apply font-sans;
+  }
+}
+
+@layer utilities {
+  .scrollbar-none {
+    scrollbar-width: none;
+  }
+  .scrollbar-none::-webkit-scrollbar {
+    display: none;
+  }
+  .text-balance {
+    text-wrap: balance;
+  }
+}
+
+@layer base {
+  ::selection {
+    background: color-mix(in oklch, var(--primary) 35%, transparent);
+  }
+  html {
+    color-scheme: dark;
+  }
+  body {
+    -webkit-font-smoothing: antialiased;
+  }
+  /* Slim, unobtrusive scrollbars that match the dark UI. */
+  * {
+    scrollbar-color: oklch(1 0 0 / 18%) transparent;
+    scrollbar-width: thin;
   }
 }

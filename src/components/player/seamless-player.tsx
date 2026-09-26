@@ -1,17 +1,33 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
-import { Pause, Play, Maximize, Minimize, Volume2, VolumeX } from "lucide-react";
+import {
+  ArrowLeft,
+  Loader2,
+  Maximize,
+  Minimize,
+  Pause,
+  Play,
+  RotateCcw,
+  RotateCw,
+  SkipForward,
+  Volume2,
+  VolumeX,
+} from "lucide-react";
 import { Slider } from "@/components/ui/slider";
 import { Button } from "@/components/ui/button";
 import Link from "next/link";
+import { cn } from "@/lib/utils";
 import type { PlayManifest, PlayOwnerKind } from "@/lib/player/types";
 
 interface SeamlessPlayerProps {
   ownerKind: PlayOwnerKind;
   ownerId: string;
   title: string;
+  /** Secondary line under the title, e.g. "S1 · E3 · Pilot". */
+  subtitle?: string | null;
+  /** Where the back arrow (and the finished screen's back button) goes. */
+  backHref: string;
   /** Shown as a button on the finished screen, e.g. linking to the next episode. */
   nextHref?: string;
   nextLabel?: string;
@@ -19,6 +35,8 @@ interface SeamlessPlayerProps {
 
 const PRELOAD_THRESHOLD_SECONDS = 15;
 const PROGRESS_SAVE_INTERVAL_MS = 10_000;
+const CONTROLS_HIDE_MS = 3000;
+const SKIP_SECONDS = 10;
 
 // The shadcn/Base UI Slider wrapper isn't generic over single vs. range
 // values, so its callbacks are typed `number | readonly number[]`; both of
@@ -65,10 +83,11 @@ export function SeamlessPlayer({
   ownerKind,
   ownerId,
   title,
+  subtitle,
+  backHref,
   nextHref,
   nextLabel,
 }: SeamlessPlayerProps) {
-  const router = useRouter();
   const containerRef = useRef<HTMLDivElement>(null);
   const videoRefs = useRef<[HTMLVideoElement | null, HTMLVideoElement | null]>([
     null,
@@ -93,8 +112,26 @@ export function SeamlessPlayer({
   const [muted, setMuted] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [finished, setFinished] = useState(false);
+  const [buffering, setBuffering] = useState(false);
+  const [controlsVisible, setControlsVisible] = useState(true);
+  const [hoverRatio, setHoverRatio] = useState<number | null>(null);
 
   const lastSavedAtRef = useRef(0);
+  const scrubBarRef = useRef<HTMLDivElement>(null);
+  const hideTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+
+  // Show the controls, then hide them again after a beat of inactivity —
+  // but only while actually playing (paused = controls stay put).
+  const showControls = useCallback(() => {
+    setControlsVisible(true);
+    clearTimeout(hideTimerRef.current);
+    hideTimerRef.current = setTimeout(() => {
+      const front = videoRefs.current[frontSlotRef.current];
+      if (front && !front.paused) setControlsVisible(false);
+    }, CONTROLS_HIDE_MS);
+  }, []);
+
+  useEffect(() => () => clearTimeout(hideTimerRef.current), []);
 
   // ── Load the manifest ─────────────────────────────────────────────────
   useEffect(() => {
@@ -273,10 +310,18 @@ export function SeamlessPlayer({
         advanceToNextSegment();
       };
       const onPlay = () => {
-        if (frontSlotRef.current === slot) setPlaying(true);
+        if (frontSlotRef.current !== slot) return;
+        setPlaying(true);
+        showControls();
       };
       const onPause = () => {
         if (frontSlotRef.current === slot) setPlaying(false);
+      };
+      const onWaiting = () => {
+        if (frontSlotRef.current === slot) setBuffering(true);
+      };
+      const onReady = () => {
+        if (frontSlotRef.current === slot) setBuffering(false);
       };
       const onError = () => {
         if (frontSlotRef.current !== slot) return;
@@ -298,7 +343,15 @@ export function SeamlessPlayer({
       el.addEventListener("play", onPlay);
       el.addEventListener("pause", onPause);
       el.addEventListener("error", onError);
+      el.addEventListener("waiting", onWaiting);
+      el.addEventListener("playing", onReady);
+      el.addEventListener("canplay", onReady);
+      el.addEventListener("seeked", onReady);
       cleanups.push(() => {
+        el.removeEventListener("waiting", onWaiting);
+        el.removeEventListener("playing", onReady);
+        el.removeEventListener("canplay", onReady);
+        el.removeEventListener("seeked", onReady);
         el.removeEventListener("timeupdate", onTimeUpdate);
         el.removeEventListener("ended", onEnded);
         el.removeEventListener("play", onPlay);
@@ -308,7 +361,7 @@ export function SeamlessPlayer({
     });
 
     return () => cleanups.forEach((fn) => fn());
-  }, [advanceToNextSegment, maybePreloadNext, saveProgress, ownerKind, ownerId]);
+  }, [advanceToNextSegment, maybePreloadNext, saveProgress, showControls, ownerKind, ownerId]);
 
   // Manifest URLs expire — proactively refresh a bit before they do, so a
   // long first segment doesn't run into an expired *next* segment URL.
@@ -383,18 +436,45 @@ export function SeamlessPlayer({
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
       if (["INPUT", "TEXTAREA"].includes((e.target as HTMLElement)?.tagName)) return;
-      if (e.code === "Space") {
-        e.preventDefault();
-        togglePlay();
-      } else if (e.code === "ArrowRight") {
-        seekTo(globalTime + 10);
-      } else if (e.code === "ArrowLeft") {
-        seekTo(Math.max(0, globalTime - 10));
+      const duration = manifestRef.current?.durationSeconds ?? 0;
+      const clampTime = (t: number) => Math.max(0, Math.min(t, Math.max(duration - 0.5, 0)));
+      switch (e.code) {
+        case "Space":
+        case "KeyK":
+          e.preventDefault();
+          togglePlay();
+          break;
+        case "ArrowRight":
+        case "KeyL":
+          seekTo(clampTime(globalTime + SKIP_SECONDS));
+          break;
+        case "ArrowLeft":
+        case "KeyJ":
+          seekTo(clampTime(globalTime - SKIP_SECONDS));
+          break;
+        case "ArrowUp":
+          e.preventDefault();
+          setMuted(false);
+          setVolume((v) => Math.min(1, Math.round((v + 0.1) * 10) / 10));
+          break;
+        case "ArrowDown":
+          e.preventDefault();
+          setVolume((v) => Math.max(0, Math.round((v - 0.1) * 10) / 10));
+          break;
+        case "KeyM":
+          setMuted((m) => !m);
+          break;
+        case "KeyF":
+          toggleFullscreen();
+          break;
+        default:
+          return;
       }
+      showControls();
     }
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [globalTime, seekTo, togglePlay]);
+  }, [globalTime, seekTo, togglePlay, toggleFullscreen, showControls]);
 
   useEffect(() => {
     videoRefs.current.forEach((el) => {
@@ -406,10 +486,10 @@ export function SeamlessPlayer({
 
   if (error && !manifest) {
     return (
-      <div className="flex h-full flex-col items-center justify-center gap-3 text-center">
-        <p className="text-sm text-destructive">{error}</p>
-        <Button variant="secondary" onClick={() => router.back()}>
-          Go back
+      <div className="flex h-dvh flex-col items-center justify-center gap-4 bg-black px-6 text-center">
+        <p className="max-w-sm text-sm text-white/80">{error}</p>
+        <Button render={<Link href={backHref} />} variant="secondary" className="rounded-xl">
+          <ArrowLeft /> Go back
         </Button>
       </div>
     );
@@ -417,9 +497,26 @@ export function SeamlessPlayer({
 
   const duration = manifest?.durationSeconds ?? 0;
   const displayTime = scrubTime ?? globalTime;
+  const progressPct = duration > 0 ? Math.min(100, (displayTime / duration) * 100) : 0;
+  const controlsShown = controlsVisible || !playing || finished;
+  const hideCursor = playing && !controlsShown && !finished;
+
+  function ratioFromPointer(e: React.PointerEvent) {
+    const rect = scrubBarRef.current?.getBoundingClientRect();
+    if (!rect || rect.width === 0) return 0;
+    return Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+  }
 
   return (
-    <div ref={containerRef} className="group relative aspect-video w-full bg-black">
+    <div
+      ref={containerRef}
+      onMouseMove={showControls}
+      onPointerDown={showControls}
+      className={cn(
+        "relative h-dvh w-full overflow-hidden bg-black select-none",
+        hideCursor && "cursor-none"
+      )}
+    >
       {[0, 1].map((slot) => (
         <video
           key={slot}
@@ -427,20 +524,85 @@ export function SeamlessPlayer({
             videoRefs.current[slot as 0 | 1] = el;
           }}
           playsInline
-          className="absolute inset-0 h-full w-full"
+          className="absolute inset-0 h-full w-full object-contain"
           style={{ visibility: frontSlot === slot ? "visible" : "hidden" }}
         />
       ))}
 
+      {/* Click anywhere on the picture to play/pause; double-click for fullscreen. */}
+      <div
+        className="absolute inset-0"
+        onClick={manifest && !finished ? togglePlay : undefined}
+        onDoubleClick={manifest ? toggleFullscreen : undefined}
+      />
+
+      {/* Top bar */}
+      <div
+        className={cn(
+          "pointer-events-none absolute inset-x-0 top-0 flex items-start gap-3 bg-gradient-to-b from-black/85 via-black/40 to-transparent px-4 pt-4 pb-14 transition-opacity duration-300 sm:px-6",
+          controlsShown ? "opacity-100" : "opacity-0"
+        )}
+      >
+        <Link
+          href={backHref}
+          aria-label="Back"
+          tabIndex={controlsShown ? 0 : -1}
+          className={cn(
+            "flex size-10 shrink-0 items-center justify-center rounded-full bg-white/10 text-white backdrop-blur transition hover:bg-white/25",
+            controlsShown && "pointer-events-auto"
+          )}
+        >
+          <ArrowLeft className="size-5" />
+        </Link>
+        <div className="min-w-0 pt-0.5">
+          <p className="truncate text-base font-semibold text-white drop-shadow sm:text-lg">
+            {title}
+          </p>
+          {subtitle && (
+            <p className="truncate text-sm text-white/70 drop-shadow">{subtitle}</p>
+          )}
+        </div>
+      </div>
+
+      {/* Center: loading / buffering / big play */}
+      {!manifest && !error && (
+        <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
+          <Loader2 className="size-10 animate-spin text-white/70" />
+        </div>
+      )}
+      {manifest && buffering && playing && !finished && (
+        <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
+          <Loader2 className="size-12 animate-spin text-white/80 drop-shadow-lg" />
+        </div>
+      )}
+      {manifest && !playing && !finished && (
+        <button
+          type="button"
+          onClick={togglePlay}
+          aria-label="Play"
+          className="absolute top-1/2 left-1/2 flex size-20 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-[0_10px_50px_-6px_oklch(0.79_0.16_78/0.7)] transition-transform hover:scale-105"
+        >
+          <Play className="ml-1 size-9" fill="currentColor" />
+        </button>
+      )}
+
       {finished && (
-        <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-black/80">
-          <p className="text-lg font-medium text-white">{title}</p>
-          <div className="flex gap-2">
-            <Button variant="secondary" onClick={() => router.back()}>
-              Back to details
+        <div className="absolute inset-0 flex flex-col items-center justify-center gap-5 bg-black/85 px-6 text-center backdrop-blur-sm">
+          <div>
+            <p className="text-2xl font-semibold text-white">{title}</p>
+            {subtitle && <p className="mt-1 text-white/60">{subtitle}</p>}
+          </div>
+          <div className="flex flex-wrap justify-center gap-3">
+            <Button
+              render={<Link href={backHref} />}
+              variant="secondary"
+              className="h-11 gap-2 rounded-xl bg-white/10 px-5 hover:bg-white/20"
+            >
+              <ArrowLeft /> Back to details
             </Button>
             {nextHref && (
-              <Button render={<Link href={nextHref} />}>
+              <Button render={<Link href={nextHref} />} className="h-11 gap-2 rounded-xl px-6">
+                <SkipForward />
                 {nextLabel ?? "Play next"}
               </Button>
             )}
@@ -448,65 +610,167 @@ export function SeamlessPlayer({
         </div>
       )}
 
-      {!manifest && !error && (
-        <div className="absolute inset-0 flex items-center justify-center text-sm text-white/70">
-          Loading…
-        </div>
-      )}
-
-      {manifest && !playing && !finished && (
-        <button
-          type="button"
-          onClick={togglePlay}
-          aria-label="Play"
-          className="absolute inset-0 flex items-center justify-center"
-        >
-          <span className="flex size-16 items-center justify-center rounded-full bg-white/90 text-black transition-transform hover:scale-105">
-            <Play className="ml-1 size-7" fill="currentColor" />
-          </span>
-        </button>
-      )}
-
-      {/* Controls */}
+      {/* Bottom controls */}
       <div
-        className="absolute inset-x-0 bottom-0 flex flex-col gap-2 bg-gradient-to-t from-black/90 to-transparent px-4 pb-3 pt-8 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100"
-        onClick={(e) => e.stopPropagation()}
+        className={cn(
+          "pointer-events-none absolute inset-x-0 bottom-0 flex flex-col gap-1 bg-gradient-to-t from-black/90 via-black/55 to-transparent px-4 pt-20 pb-4 transition-opacity duration-300 sm:px-6",
+          controlsShown ? "opacity-100" : "opacity-0",
+          controlsShown && "[&>*]:pointer-events-auto"
+        )}
       >
-        <Slider
-          value={[displayTime]}
-          max={Math.max(duration, 1)}
-          step={1}
-          onValueChange={(v) => setScrubTime(firstValue(v))}
-          onValueCommitted={(v) => {
-            seekTo(firstValue(v));
+        {/* Scrubber */}
+        <div
+          ref={scrubBarRef}
+          role="slider"
+          aria-label="Seek"
+          aria-valuemin={0}
+          aria-valuemax={Math.round(duration)}
+          aria-valuenow={Math.round(displayTime)}
+          tabIndex={-1}
+          className="group/scrub relative flex h-6 cursor-pointer touch-none items-center"
+          onPointerDown={(e) => {
+            if (!manifest) return;
+            e.currentTarget.setPointerCapture(e.pointerId);
+            setScrubTime(ratioFromPointer(e) * duration);
+          }}
+          onPointerMove={(e) => {
+            const ratio = ratioFromPointer(e);
+            setHoverRatio(ratio);
+            if (scrubTime !== null) setScrubTime(ratio * duration);
+          }}
+          onPointerUp={(e) => {
+            if (scrubTime === null) return;
+            e.currentTarget.releasePointerCapture(e.pointerId);
+            seekTo(ratioFromPointer(e) * duration);
             setScrubTime(null);
           }}
-        />
-        <div className="flex items-center gap-3 text-white">
-          <Button variant="ghost" size="icon" onClick={togglePlay}>
-            {playing ? <Pause /> : <Play />}
-          </Button>
-          <Button variant="ghost" size="icon" onClick={() => setMuted((m) => !m)}>
-            {muted || volume === 0 ? <VolumeX /> : <Volume2 />}
-          </Button>
-          <div className="w-24">
-            <Slider
-              value={[muted ? 0 : volume]}
-              max={1}
-              step={0.05}
-              onValueChange={(v) => {
-                const next = firstValue(v);
-                setVolume(next);
-                setMuted(next === 0);
-              }}
+          onPointerLeave={() => setHoverRatio(null)}
+        >
+          <div
+            className={cn(
+              "relative w-full rounded-full bg-white/25 transition-[height] duration-150",
+              scrubTime !== null ? "h-2" : "h-1 group-hover/scrub:h-2"
+            )}
+          >
+            <div
+              className="absolute inset-y-0 left-0 rounded-full bg-primary"
+              style={{ width: `${progressPct}%` }}
+            />
+            {/* Where a multi-part title's files join — they play as one, but it's a nice landmark. */}
+            {manifest?.segments.slice(1).map((seg) => (
+              <span
+                key={seg.index}
+                className="absolute inset-y-0 w-0.5 bg-black/60"
+                style={{ left: `${(seg.startSeconds / duration) * 100}%` }}
+              />
+            ))}
+            <span
+              className={cn(
+                "absolute top-1/2 size-4 -translate-x-1/2 -translate-y-1/2 rounded-full bg-primary shadow-lg ring-4 ring-primary/30 transition-transform",
+                scrubTime !== null ? "scale-100" : "scale-0 group-hover/scrub:scale-100"
+              )}
+              style={{ left: `${progressPct}%` }}
             />
           </div>
-          <span className="text-xs tabular-nums text-white/80">
-            {formatTime(displayTime)} / {formatTime(duration)}
+          {hoverRatio !== null && duration > 0 && (
+            <span
+              className="pointer-events-none absolute -top-7 -translate-x-1/2 rounded-md bg-black/85 px-2 py-0.5 text-xs font-medium tabular-nums text-white ring-1 ring-white/15"
+              style={{ left: `${hoverRatio * 100}%` }}
+            >
+              {formatTime(hoverRatio * duration)}
+            </span>
+          )}
+        </div>
+
+        <div className="flex items-center gap-1 text-white sm:gap-2">
+          <Button
+            variant="ghost"
+            size="icon-lg"
+            onClick={togglePlay}
+            aria-label={playing ? "Pause" : "Play"}
+            className="size-11 rounded-full hover:bg-white/15"
+          >
+            {playing ? (
+              <Pause className="size-6" fill="currentColor" />
+            ) : (
+              <Play className="size-6" fill="currentColor" />
+            )}
+          </Button>
+
+          <Button
+            variant="ghost"
+            size="icon-lg"
+            aria-label="Back 10 seconds"
+            onClick={() => seekTo(Math.max(0, globalTime - SKIP_SECONDS))}
+            className="relative size-10 rounded-full hover:bg-white/15"
+          >
+            <RotateCcw className="size-[22px]" />
+            <span className="absolute text-[9px] font-bold">10</span>
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon-lg"
+            aria-label="Forward 10 seconds"
+            onClick={() => seekTo(Math.min(duration - 0.5, globalTime + SKIP_SECONDS))}
+            className="relative size-10 rounded-full hover:bg-white/15"
+          >
+            <RotateCw className="size-[22px]" />
+            <span className="absolute text-[9px] font-bold">10</span>
+          </Button>
+
+          <div className="group/vol flex items-center">
+            <Button
+              variant="ghost"
+              size="icon-lg"
+              aria-label={muted ? "Unmute" : "Mute"}
+              onClick={() => setMuted((m) => !m)}
+              className="size-10 rounded-full hover:bg-white/15"
+            >
+              {muted || volume === 0 ? (
+                <VolumeX className="size-5" />
+              ) : (
+                <Volume2 className="size-5" />
+              )}
+            </Button>
+            <div className="w-0 overflow-hidden px-0 transition-all duration-200 group-hover/vol:w-24 group-hover/vol:px-2 group-focus-within/vol:w-24 group-focus-within/vol:px-2">
+              <Slider
+                value={[muted ? 0 : volume]}
+                max={1}
+                step={0.05}
+                onValueChange={(v) => {
+                  const next = firstValue(v);
+                  setVolume(next);
+                  setMuted(next === 0);
+                }}
+              />
+            </div>
+          </div>
+
+          <span className="ml-1 text-sm tabular-nums text-white/85">
+            {formatTime(displayTime)}
+            <span className="text-white/45"> / {formatTime(duration)}</span>
           </span>
+
           <div className="flex-1" />
-          <Button variant="ghost" size="icon" onClick={toggleFullscreen}>
-            {isFullscreen ? <Minimize /> : <Maximize />}
+
+          {nextHref && (
+            <Button
+              render={<Link href={nextHref} />}
+              variant="ghost"
+              className="hidden h-10 gap-2 rounded-full px-4 text-white hover:bg-white/15 sm:inline-flex"
+            >
+              <SkipForward className="size-4" />
+              Next
+            </Button>
+          )}
+          <Button
+            variant="ghost"
+            size="icon-lg"
+            aria-label={isFullscreen ? "Exit fullscreen" : "Fullscreen"}
+            onClick={toggleFullscreen}
+            className="size-10 rounded-full hover:bg-white/15"
+          >
+            {isFullscreen ? <Minimize className="size-5" /> : <Maximize className="size-5" />}
           </Button>
         </div>
       </div>

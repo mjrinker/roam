@@ -7,7 +7,6 @@ import { LibraryManager } from "@/components/admin/library-manager";
 import { InviteManager } from "@/components/admin/invite-manager";
 import { UnmatchedTitles } from "@/components/admin/unmatched-titles";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 
 const BOX_ERROR_MESSAGES: Record<string, string> = {
@@ -69,9 +68,17 @@ export default async function AdminPage({
   }
 
   return (
-    <div className="flex flex-col gap-10 px-6 py-8">
+    <div className="mx-auto flex w-full max-w-4xl flex-col gap-10 px-4 py-8 sm:px-8">
+      <div>
+        <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">Server settings</h1>
+        <p className="mt-1 text-sm text-muted-foreground">
+          Manage <span className="font-medium text-foreground">{server?.name}</span> — its Box
+          connection, libraries, and who can watch.
+        </p>
+      </div>
+
       {errorParam && (
-        <p className="text-sm text-destructive">
+        <p className="rounded-xl bg-destructive/10 px-4 py-3 text-sm text-destructive ring-1 ring-destructive/20">
           {BOX_ERROR_MESSAGES[errorParam] ?? "Something went wrong."}
         </p>
       )}
@@ -79,19 +86,35 @@ export default async function AdminPage({
       <section className="flex flex-col gap-3">
         <h2 className="text-lg font-semibold">Box connection</h2>
         <Card>
-          <CardContent className="flex items-center justify-between py-4">
-            <div className="flex items-center gap-2">
-              {server?.boxAuthStatus === "connected" && (
-                <Badge variant="secondary">Connected</Badge>
-              )}
-              {server?.boxAuthStatus === "needs_reauth" && (
-                <Badge variant="destructive">Needs reconnecting</Badge>
-              )}
-              {server?.boxAuthStatus === "disconnected" && (
-                <Badge variant="outline">Not connected</Badge>
-              )}
+          <CardContent className="flex flex-wrap items-center justify-between gap-3 py-4">
+            <div className="flex items-center gap-3">
+              <span
+                className={`size-2.5 rounded-full ${
+                  server?.boxAuthStatus === "connected"
+                    ? "bg-emerald-400 shadow-[0_0_10px_oklch(0.75_0.17_160/0.7)]"
+                    : server?.boxAuthStatus === "needs_reauth"
+                      ? "bg-destructive"
+                      : "bg-muted-foreground/50"
+                }`}
+              />
+              <div>
+                <p className="text-sm font-medium">
+                  {server?.boxAuthStatus === "connected" && "Connected to Box"}
+                  {server?.boxAuthStatus === "needs_reauth" && "Box needs reconnecting"}
+                  {server?.boxAuthStatus === "disconnected" && "Not connected"}
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  {boxConnected
+                    ? "Roam reads your media straight from your Box account."
+                    : "Connect your Box account to pick folders to share."}
+                </p>
+              </div>
             </div>
-            <Button render={<Link href={`/api/box/connect?serverId=${serverId}`} />} size="sm">
+            <Button
+              render={<Link href={`/api/box/connect?serverId=${serverId}`} />}
+              variant={boxConnected ? "secondary" : "default"}
+              className="rounded-lg"
+            >
               {boxConnected ? "Reconnect Box" : "Connect Box"}
             </Button>
           </CardContent>

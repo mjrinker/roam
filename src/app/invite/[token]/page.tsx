@@ -2,6 +2,7 @@ import { and, eq, gt, isNull } from "drizzle-orm";
 import { db } from "@/lib/db/client";
 import { invites, servers } from "@/lib/db/schema";
 import { AuthForm } from "@/components/auth/auth-form";
+import { AuthShell } from "@/components/auth/auth-shell";
 
 export default async function InvitePage({
   params,
@@ -23,28 +24,35 @@ export default async function InvitePage({
 
   if (!invite) {
     return (
-      <main className="flex flex-1 flex-col items-center justify-center gap-3 px-4 py-16 text-center">
-        <h1 className="text-xl font-semibold">Invite not found</h1>
-        <p className="text-sm text-muted-foreground">
-          This invite link is invalid, expired, or has already been used. Ask
-          whoever invited you to send a new one.
-        </p>
-      </main>
+      <AuthShell
+        title="Invite not found"
+        description="This invite link is invalid, expired, or has already been used. Ask whoever invited you to send a new one."
+      >
+        <a
+          href="/sign-in"
+          className="flex h-11 items-center justify-center rounded-xl bg-white/[0.06] text-sm font-medium ring-1 ring-white/10 transition-colors hover:bg-white/10"
+        >
+          Go to sign in
+        </a>
+      </AuthShell>
     );
   }
 
   return (
-    <main className="flex flex-1 flex-col items-center justify-center gap-8 px-4 py-16">
-      <div className="text-center">
-        <h1 className="text-2xl font-semibold tracking-tight">
-          You&apos;re invited to {invite.serverName}
-        </h1>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Finish setting up <span className="font-medium">{invite.email}</span>{" "}
+    <AuthShell
+      title={
+        <>
+          You&apos;re invited to <span className="text-primary">{invite.serverName}</span>
+        </>
+      }
+      description={
+        <>
+          Finish setting up <span className="font-medium text-foreground">{invite.email}</span>{" "}
           to get started.
-        </p>
-      </div>
+        </>
+      }
+    >
       <AuthForm mode="invite" initialEmail={invite.email} inviteToken={token} />
-    </main>
+    </AuthShell>
   );
 }

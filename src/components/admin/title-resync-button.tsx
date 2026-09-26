@@ -37,7 +37,13 @@ export function TitleResyncButton({
   }
 
   return (
-    <Button variant="outline" size="lg" disabled={syncing} onClick={resync}>
+    <Button
+      variant="secondary"
+      disabled={syncing}
+      onClick={resync}
+      title="Re-read this title's folder from Box"
+      className="h-11 gap-2 rounded-xl bg-white/10 px-4 backdrop-blur hover:bg-white/20"
+    >
       <RefreshCw className={syncing ? "animate-spin" : ""} />
       {syncing ? "Syncing…" : "Resync"}
     </Button>

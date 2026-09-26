@@ -1,0 +1,49 @@
+import { asc, eq } from "drizzle-orm";
+import { db } from "@/lib/db/client";
+import { libraries } from "@/lib/db/schema";
+import { requireServerMember } from "@/lib/auth/guards";
+import { listServerMemberships } from "@/lib/auth/servers";
+import { AppSidebar } from "@/components/shell/app-sidebar";
+import { ShellProvider } from "@/components/shell/shell-context";
+import { TopBar } from "@/components/shell/top-bar";
+
+/** The browsing chrome: persistent sidebar (a drawer on mobile) + top bar with search and account menu. */
+export default async function BrowseLayout({
+  children,
+  params,
+}: LayoutProps<"/s/[serverId]">) {
+  const { serverId } = await params;
+  const { profile, role } = await requireServerMember(serverId);
+
+  const [memberships, serverLibraries] = await Promise.all([
+    listServerMemberships(profile.id),
+    db
+      .select({ id: libraries.id, name: libraries.name, kind: libraries.kind })
+      .from(libraries)
+      .where(eq(libraries.serverId, serverId))
+      .orderBy(asc(libraries.name)),
+  ]);
+  const current = memberships.find((m) => m.serverId === serverId);
+
+  return (
+    <ShellProvider>
+      <div className="flex min-h-dvh">
+        <AppSidebar
+          serverId={serverId}
+          serverName={current?.serverName ?? "Server"}
+          libraries={serverLibraries}
+          memberships={memberships}
+          isAdmin={role === "admin"}
+        />
+        <div className="flex min-w-0 flex-1 flex-col">
+          <TopBar
+            serverId={serverId}
+            email={profile.email}
+            displayName={profile.displayName}
+          />
+          <main className="flex-1">{children}</main>
+        </div>
+      </div>
+    </ShellProvider>
+  );
+}

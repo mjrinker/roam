@@ -16,7 +16,13 @@ async function loadMovie(serverId: string, id: string) {
     .limit(1)
     .then((rows) => rows.map((r) => r.title));
   if (!title) return null;
-  return { displayTitle: title.name, nextHref: undefined, nextLabel: undefined };
+  return {
+    displayTitle: title.name,
+    subtitle: title.year ? String(title.year) : null,
+    backHref: `/s/${serverId}/title/${title.id}`,
+    nextHref: undefined,
+    nextLabel: undefined,
+  };
 }
 
 async function loadEpisode(serverId: string, id: string) {
@@ -34,8 +40,9 @@ async function loadEpisode(serverId: string, id: string) {
     .limit(1);
   if (!row) return null;
 
-  const displayTitle = `${row.show.name} — S${row.season.number}E${row.episode.number}${
-    row.episode.name ? ` "${row.episode.name}"` : ""
+  const displayTitle = row.show.name;
+  const subtitle = `S${row.season.number} · E${row.episode.number}${
+    row.episode.name ? ` · ${row.episode.name}` : ""
   }`;
 
   // Next episode: same season, next number; else first episode of the next season.
@@ -70,6 +77,8 @@ async function loadEpisode(serverId: string, id: string) {
 
   return {
     displayTitle,
+    subtitle,
+    backHref: `/s/${serverId}/show/${row.show.id}`,
     nextHref: nextEpisodeId ? `/s/${serverId}/watch/episode/${nextEpisodeId}` : undefined,
     nextLabel,
   };
@@ -90,14 +99,14 @@ export default async function WatchPage({
   if (!loaded) notFound();
 
   return (
-    <div className="flex flex-col">
-      <SeamlessPlayer
-        ownerKind={ownerKind}
-        ownerId={ownerId}
-        title={loaded.displayTitle}
-        nextHref={loaded.nextHref}
-        nextLabel={loaded.nextLabel}
-      />
-    </div>
+    <SeamlessPlayer
+      ownerKind={ownerKind}
+      ownerId={ownerId}
+      title={loaded.displayTitle}
+      subtitle={loaded.subtitle}
+      backHref={loaded.backHref}
+      nextHref={loaded.nextHref}
+      nextLabel={loaded.nextLabel}
+    />
   );
 }
