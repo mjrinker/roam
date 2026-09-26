@@ -1,4 +1,4 @@
-import { and, eq, inArray, isNull, lt, notInArray, or } from "drizzle-orm";
+import { and, eq, inArray, isNull, lt, notInArray, or, sql } from "drizzle-orm";
 import { db } from "@/lib/db/client";
 import {
   episodes,
@@ -476,39 +476,43 @@ async function upsertMediaSegments(
   ownerId: string,
   files: StorageEntry[]
 ) {
-  for (let i = 0; i < files.length; i++) {
-    const file = files[i];
-    await db
-      .insert(mediaFiles)
-      .values({
-        ownerKind,
-        ownerId,
-        partIndex: i,
-        boxFileId: file.id,
-        filename: file.name,
-        sizeBytes: file.sizeBytes,
-        container: file.name.slice(file.name.lastIndexOf(".") + 1).toLowerCase(),
-      })
-      .onConflictDoUpdate({
-        target: mediaFiles.boxFileId,
-        set: { partIndex: i, filename: file.name, sizeBytes: file.sizeBytes },
-      });
-  }
-
-  // Drop rows for files that no longer exist under this owner (removed or
-  // renamed in Box since the last scan).
+  if (files.length === 0) return;
   const currentIds = files.map((f) => f.id);
-  if (currentIds.length > 0) {
-    await db
-      .delete(mediaFiles)
-      .where(
-        and(
-          eq(mediaFiles.ownerKind, ownerKind),
-          eq(mediaFiles.ownerId, ownerId),
-          notInArray(mediaFiles.boxFileId, currentIds)
-        )
-      );
-  }
+
+  // (owner_kind, owner_id, part_index) is unique, so stale rows (removed,
+  // renamed, or now-excluded extras like trailers) must go before the
+  // upserts: a surviving file moving into a stale row's part_index would
+  // otherwise violate the index. Surviving rows are also parked at negative
+  // indexes first so files that swap or shift positions can't collide with
+  // each other mid-update.
+  await db.transaction(async (tx) => {
+    const owned = and(eq(mediaFiles.ownerKind, ownerKind), eq(mediaFiles.ownerId, ownerId));
+
+    await tx.delete(mediaFiles).where(and(owned, notInArray(mediaFiles.boxFileId, currentIds)));
+    await tx
+      .update(mediaFiles)
+      .set({ partIndex: sql`-${mediaFiles.partIndex} - 1` })
+      .where(and(owned, inArray(mediaFiles.boxFileId, currentIds)));
+
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i];
+      await tx
+        .insert(mediaFiles)
+        .values({
+          ownerKind,
+          ownerId,
+          partIndex: i,
+          boxFileId: file.id,
+          filename: file.name,
+          sizeBytes: file.sizeBytes,
+          container: file.name.slice(file.name.lastIndexOf(".") + 1).toLowerCase(),
+        })
+        .onConflictDoUpdate({
+          target: mediaFiles.boxFileId,
+          set: { partIndex: i, filename: file.name, sizeBytes: file.sizeBytes },
+        });
+    }
+  });
 }
 
 // ── Duration probing ─────────────────────────────────────────────────────
