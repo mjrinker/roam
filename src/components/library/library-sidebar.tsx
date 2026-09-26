@@ -1,12 +1,12 @@
 "use client";
 
-import { useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Menu, X } from "lucide-react";
+import { X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { useLibrarySidebar } from "@/components/nav/library-sidebar-context";
 
 export interface LibraryNavItem {
   id: string;
@@ -22,10 +22,7 @@ export function LibrarySidebar({
   libraries: LibraryNavItem[];
 }) {
   const pathname = usePathname();
-  // Collapsed by default on mobile (a drawer toggled open/closed); on
-  // desktop (md: and up) the sidebar ignores this and is always visible —
-  // see the responsive classes below.
-  const [open, setOpen] = useState(false);
+  const { open, setOpen } = useLibrarySidebar();
   const homeHref = `/s/${serverId}/library`;
 
   function linkClasses(active: boolean) {
@@ -39,17 +36,14 @@ export function LibrarySidebar({
 
   return (
     <>
-      {/* Mobile-only bar with the toggle — desktop shows the sidebar directly. */}
-      <div className="flex items-center gap-2 border-b border-border px-3 py-2 md:hidden">
-        <Button variant="ghost" size="icon" onClick={() => setOpen(true)} aria-label="Open libraries menu">
-          <Menu className="size-5" />
-        </Button>
-        <span className="text-sm font-medium text-muted-foreground">Libraries</span>
-      </div>
-
+      {/* Backdrop + drawer both start below the sticky h-14 header (not
+          inset-y-0 / the full viewport), so the header stays visible and
+          usable — including its own toggle button — while this is open,
+          and only the content area gets covered. Desktop (md:) ignores
+          all of this and shows the sidebar inline, always. */}
       {open && (
         <div
-          className="fixed inset-0 z-30 bg-black/40 md:hidden"
+          className="fixed inset-x-0 top-14 bottom-0 z-30 bg-black/40 md:hidden"
           onClick={() => setOpen(false)}
           aria-hidden="true"
         />
@@ -57,8 +51,8 @@ export function LibrarySidebar({
 
       <nav
         className={cn(
-          "fixed inset-y-0 left-0 z-40 flex w-64 shrink-0 flex-col gap-1 overflow-y-auto border-r border-border bg-background px-3 py-6 transition-transform duration-200",
-          "md:static md:z-auto md:w-52 md:translate-x-0 md:transition-none",
+          "fixed top-14 bottom-0 left-0 z-30 flex w-64 shrink-0 flex-col gap-1 overflow-y-auto border-r border-border bg-background px-3 py-6 transition-transform duration-200",
+          "md:static md:inset-auto md:z-auto md:w-52 md:translate-x-0 md:transition-none",
           open ? "translate-x-0" : "-translate-x-full"
         )}
       >

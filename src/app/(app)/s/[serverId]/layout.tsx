@@ -3,6 +3,8 @@ import { requireServerMember } from "@/lib/auth/guards";
 import { listServerMemberships } from "@/lib/auth/servers";
 import { SignOutButton } from "@/components/nav/sign-out-button";
 import { ServerSwitcher } from "@/components/nav/server-switcher";
+import { LibrarySidebarProvider } from "@/components/nav/library-sidebar-context";
+import { LibraryMenuButton } from "@/components/nav/library-menu-button";
 
 export default async function ServerLayout({
   children,
@@ -14,40 +16,46 @@ export default async function ServerLayout({
   const current = memberships.find((m) => m.serverId === serverId);
 
   return (
-    <div className="flex min-h-full flex-col">
-      <header className="sticky top-0 z-10 flex items-center justify-between border-b border-border bg-background/95 px-6 py-3 backdrop-blur">
-        <nav className="flex items-center gap-6">
-          <Link href={`/s/${serverId}/library`} className="text-lg font-semibold tracking-tight">
-            Roam
-          </Link>
-          <ServerSwitcher
-            memberships={memberships}
-            currentServerId={serverId}
-            currentServerName={current?.serverName ?? "Server"}
-          />
-          <Link
-            href={`/s/${serverId}/library`}
-            className="text-sm text-muted-foreground transition-colors hover:text-foreground"
-          >
-            Library
-          </Link>
-          {role === "admin" && (
+    <LibrarySidebarProvider>
+      <div className="flex min-h-full flex-col">
+        {/* h-14 is explicit (not content-driven) so the mobile library
+            drawer can offset itself to start exactly below this header —
+            see top-14 in LibrarySidebar. */}
+        <header className="sticky top-0 z-20 flex h-14 items-center justify-between border-b border-border bg-background/95 px-6 backdrop-blur">
+          <nav className="flex items-center gap-6">
+            <LibraryMenuButton serverId={serverId} />
+            <Link href={`/s/${serverId}/library`} className="text-lg font-semibold tracking-tight">
+              Roam
+            </Link>
+            <ServerSwitcher
+              memberships={memberships}
+              currentServerId={serverId}
+              currentServerName={current?.serverName ?? "Server"}
+            />
             <Link
-              href={`/s/${serverId}/admin`}
+              href={`/s/${serverId}/library`}
               className="text-sm text-muted-foreground transition-colors hover:text-foreground"
             >
-              Admin
+              Library
             </Link>
-          )}
-        </nav>
-        <div className="flex items-center gap-3">
-          <span className="text-sm text-muted-foreground">
-            {profile.displayName ?? profile.email}
-          </span>
-          <SignOutButton />
-        </div>
-      </header>
-      <main className="flex-1">{children}</main>
-    </div>
+            {role === "admin" && (
+              <Link
+                href={`/s/${serverId}/admin`}
+                className="text-sm text-muted-foreground transition-colors hover:text-foreground"
+              >
+                Admin
+              </Link>
+            )}
+          </nav>
+          <div className="flex items-center gap-3">
+            <span className="text-sm text-muted-foreground">
+              {profile.displayName ?? profile.email}
+            </span>
+            <SignOutButton />
+          </div>
+        </header>
+        <main className="flex-1">{children}</main>
+      </div>
+    </LibrarySidebarProvider>
   );
 }
