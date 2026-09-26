@@ -1,4 +1,4 @@
-import { and, desc, eq } from "drizzle-orm";
+import { and, asc, eq } from "drizzle-orm";
 import { notFound } from "next/navigation";
 import { db } from "@/lib/db/client";
 import { libraries, titles } from "@/lib/db/schema";
@@ -27,7 +27,7 @@ export default async function LibraryDetailPage({
     .select()
     .from(titles)
     .where(eq(titles.libraryId, libraryId))
-    .orderBy(desc(titles.addedAt));
+    .orderBy(asc(titles.name));
 
   function toCard(t: (typeof libraryTitles)[number]): TitleCardData {
     return {
