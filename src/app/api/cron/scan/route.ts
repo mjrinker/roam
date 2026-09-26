@@ -7,6 +7,14 @@ import { cleanupOldRateLimitBuckets } from "@/lib/rate-limit";
 
 const BATCH_SIZE = Number(process.env.CRON_SCAN_BATCH_SIZE ?? 20);
 
+// Each scanLibrary call self-limits to ~40s; most libraries finish in well
+// under a second, so a batch of 20 ordinarily fits easily inside this. If
+// several large libraries land in the same batch, the platform's hard
+// timeout may still cut the loop short — the untouched libraries'
+// lastScanAttemptAt is simply never advanced, so they stay at the head of
+// tomorrow's queue rather than being skipped or starved.
+export const maxDuration = 60;
+
 /**
  * Vercel Cron target — see vercel.json for the schedule. Vercel sends
  * `Authorization: Bearer $CRON_SECRET` on its own scheduled invocations;

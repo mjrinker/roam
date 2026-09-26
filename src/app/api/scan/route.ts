@@ -7,6 +7,12 @@ import { getCurrentServerAdmin } from "@/lib/auth/guards";
 import { resolveServerIdForLibrary } from "@/lib/auth/resolve-server";
 import { scanLibrary } from "@/lib/scan/scanner";
 
+// scanLibrary self-limits to a ~40s budget per library, but grant the full
+// Hobby-plan ceiling anyway so a request with a large library (or, when no
+// libraryId is given, several of them back to back) has room to actually
+// use that budget instead of being killed by a shorter platform default.
+export const maxDuration = 60;
+
 const bodySchema = z.object({
   serverId: z.string().uuid(),
   libraryId: z.string().uuid().optional(),

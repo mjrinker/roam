@@ -36,11 +36,27 @@ export interface ScanResult {
   errors: string[];
 }
 
+// A large library (hundreds of titles, each needing a Box folder listing,
+// possibly a TMDB lookup, and multiple byte-range probes) can easily take
+// longer than a serverless function is allowed to run — Vercel's Hobby
+// plan caps at 60s (up to 300s with Fluid Compute, which isn't guaranteed
+// enabled). Rather than assume any specific ceiling, scanLibrary bounds
+// its own work by a conservative wall-clock budget and stops cleanly
+// before it would be at risk of being killed mid-write. The scan_runs
+// bookkeeping always completes correctly either way (a real filesSeen/
+// titlesAdded/finishedAt gets written even on an early stop) — a
+// still-incomplete library just needs another Rescan (or the next
+// scheduled cron run) to keep making progress, exactly like the cron
+// batching in api/cron/scan already does across libraries.
+const SCAN_TIME_BUDGET_MS = 40_000;
+const FOLDER_SYNC_TIME_BUDGET_MS = 24_000; // ~60% of the budget — leaves room for probing to run every pass too, so titles start becoming playable before the whole library has even finished being discovered
+
 /** Scans one library's Box folder tree (using its server's own connected Box account) and syncs it into Postgres. */
 export async function scanLibrary(
   libraryId: string,
   trigger: "manual" | "cron" | "webhook"
 ): Promise<ScanResult> {
+  const startedAt = Date.now();
   const [library] = await db
     .select()
     .from(libraries)
@@ -64,6 +80,7 @@ export async function scanLibrary(
 
   let filesSeen = 0;
   let titlesAdded = 0;
+  let incomplete = false;
   const errors: string[] = [];
   const provider = createBoxProviderForServer(library.serverId);
 
@@ -72,6 +89,10 @@ export async function scanLibrary(
     const titleFolders = topLevel.filter((e) => e.kind === "folder");
 
     for (const folder of titleFolders) {
+      if (Date.now() - startedAt > FOLDER_SYNC_TIME_BUDGET_MS) {
+        incomplete = true;
+        break;
+      }
       try {
         if (library.kind === "movies") {
           const added = await syncMovieFolder(provider, library.id, folder);
@@ -90,13 +111,21 @@ export async function scanLibrary(
       }
     }
 
-    await probePendingDurations(provider, library.id, errors);
+    const probeDeadline = startedAt + SCAN_TIME_BUDGET_MS;
+    const probeIncomplete = await probePendingDurations(provider, library.id, probeDeadline, errors);
+    incomplete = incomplete || probeIncomplete;
   } catch (err) {
     if (err instanceof BoxReauthRequiredError) {
       errors.push("This server's Box connection needs to be reconnected by an admin.");
     } else {
       errors.push((err as Error).message);
     }
+  }
+
+  if (incomplete) {
+    errors.push(
+      "This library is large enough that one scan couldn't finish everything — rescan again (or wait for the next scheduled scan) to keep making progress."
+    );
   }
 
   await db
@@ -426,8 +455,9 @@ async function upsertMediaSegments(
 async function probePendingDurations(
   provider: StorageProvider,
   libraryId: string,
+  deadline: number,
   errors: string[]
-) {
+): Promise<boolean> {
   const libraryTitles = await db
     .select({ id: titles.id })
     .from(titles)
@@ -471,8 +501,13 @@ async function probePendingDurations(
       : Promise.resolve([]),
   ]);
   const pending = [...pendingTitleFiles, ...pendingEpisodeFiles];
+  let incomplete = false;
 
   for (const file of pending) {
+    if (Date.now() > deadline) {
+      incomplete = true;
+      break;
+    }
     if (!file.sizeBytes) continue;
     try {
       const durationSeconds = await probeMp4DurationSeconds(
@@ -513,4 +548,6 @@ async function probePendingDurations(
     const total = segments.reduce((sum, s) => sum + (s.durationSeconds ?? 0), 0);
     await db.update(titles).set({ runtimeSeconds: total }).where(eq(titles.id, t.id));
   }
+
+  return incomplete;
 }
