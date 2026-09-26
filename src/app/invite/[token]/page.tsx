@@ -1,6 +1,6 @@
 import { and, eq, gt, isNull } from "drizzle-orm";
 import { db } from "@/lib/db/client";
-import { invites } from "@/lib/db/schema";
+import { invites, servers } from "@/lib/db/schema";
 import { AuthForm } from "@/components/auth/auth-form";
 
 export default async function InvitePage({
@@ -9,8 +9,9 @@ export default async function InvitePage({
   const { token } = await params;
 
   const [invite] = await db
-    .select()
+    .select({ email: invites.email, serverName: servers.name })
     .from(invites)
+    .innerJoin(servers, eq(invites.serverId, servers.id))
     .where(
       and(
         eq(invites.token, token),
@@ -36,14 +37,14 @@ export default async function InvitePage({
     <main className="flex flex-1 flex-col items-center justify-center gap-8 px-4 py-16">
       <div className="text-center">
         <h1 className="text-2xl font-semibold tracking-tight">
-          You&apos;re invited to Roam
+          You&apos;re invited to {invite.serverName}
         </h1>
         <p className="mt-1 text-sm text-muted-foreground">
           Finish setting up <span className="font-medium">{invite.email}</span>{" "}
           to get started.
         </p>
       </div>
-      <AuthForm mode="invite" initialEmail={invite.email} />
+      <AuthForm mode="invite" initialEmail={invite.email} inviteToken={token} />
     </main>
   );
 }

@@ -1,11 +1,16 @@
 import { redirect } from "next/navigation";
 import { db } from "@/lib/db/client";
-import { profiles } from "@/lib/db/schema";
-import { eq } from "drizzle-orm";
+import { profiles, serverMembers } from "@/lib/db/schema";
+import { and, eq } from "drizzle-orm";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import type { profiles as ProfilesTable } from "@/lib/db/schema";
 
 export type Profile = typeof ProfilesTable.$inferSelect;
+export type ServerRole = "admin" | "viewer";
+export interface ServerMembership {
+  profile: Profile;
+  role: ServerRole;
+}
 
 /**
  * Resolves the current session's profile row, or null if signed out.
@@ -34,20 +39,57 @@ export async function requireProfile(): Promise<Profile> {
   return profile;
 }
 
-/** Requires an admin profile, redirecting non-admins to the library. */
-export async function requireAdmin(): Promise<Profile> {
+/** Looks up a profile's role on a given server, or null if not a member. */
+export async function getServerMembership(
+  profileId: string,
+  serverId: string
+): Promise<{ role: ServerRole } | null> {
+  const [membership] = await db
+    .select({ role: serverMembers.role })
+    .from(serverMembers)
+    .where(
+      and(eq(serverMembers.profileId, profileId), eq(serverMembers.serverId, serverId))
+    )
+    .limit(1);
+  return membership ?? null;
+}
+
+/** Requires the signed-in profile to be a member of `serverId`, redirecting to /servers otherwise. */
+export async function requireServerMember(serverId: string): Promise<ServerMembership> {
   const profile = await requireProfile();
-  if (profile.role !== "admin") redirect("/library");
-  return profile;
+  const membership = await getServerMembership(profile.id, serverId);
+  if (!membership) redirect("/servers");
+  return { profile, role: membership.role };
+}
+
+/** Requires the signed-in profile to be an admin of `serverId`, redirecting non-admins into that server's library. */
+export async function requireServerAdmin(serverId: string): Promise<ServerMembership> {
+  const result = await requireServerMember(serverId);
+  if (result.role !== "admin") redirect(`/s/${serverId}/library`);
+  return result;
 }
 
 /**
- * Route Handler variant: resolves the admin profile or null, with no
- * redirect side effect (a `redirect()` thrown outside page rendering is
- * just an uncaught error). Callers return their own 401/403 JSON response.
+ * Route Handler variant: resolves the member/role for `serverId`, or null,
+ * with no redirect side effect (a `redirect()` thrown outside page
+ * rendering is just an uncaught error). Callers return their own
+ * 401/403 JSON response.
  */
-export async function getCurrentAdminProfile(): Promise<Profile | null> {
+export async function getCurrentServerMember(
+  serverId: string
+): Promise<ServerMembership | null> {
   const profile = await getCurrentProfile();
-  if (!profile || profile.role !== "admin") return null;
-  return profile;
+  if (!profile) return null;
+  const membership = await getServerMembership(profile.id, serverId);
+  if (!membership) return null;
+  return { profile, role: membership.role };
+}
+
+/** Route Handler variant of requireServerAdmin — returns null instead of redirecting. */
+export async function getCurrentServerAdmin(
+  serverId: string
+): Promise<ServerMembership | null> {
+  const result = await getCurrentServerMember(serverId);
+  if (!result || result.role !== "admin") return null;
+  return result;
 }

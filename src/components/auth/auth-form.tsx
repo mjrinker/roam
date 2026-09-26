@@ -10,33 +10,55 @@ import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 interface AuthFormProps {
-  /** "invite" locks the email field and creates a new password account; "sign-in" is for returning users. */
+  /** "invite" locks the email field to the invited address; "sign-in" is the general entry point (open sign-up). */
   mode: "sign-in" | "invite";
   initialEmail?: string;
+  /** Carried through the whole auth flow so the right invite gets redeemed once signed in. */
+  inviteToken?: string;
 }
 
-async function bindInvitedProfileOrSignOut(router: ReturnType<typeof useRouter>) {
-  const res = await fetch("/api/auth/ensure-profile", { method: "POST" });
+const INVITE_ERROR_MESSAGES: Record<string, string> = {
+  "invite-not-found": "That invite link is invalid or has expired.",
+  "invite-email-mismatch": "That invite was sent to a different email address.",
+};
+
+async function completeSignIn(
+  router: ReturnType<typeof useRouter>,
+  inviteToken?: string
+) {
+  const res = await fetch("/api/auth/ensure-profile", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ inviteToken }),
+  });
   if (!res.ok) {
-    const supabase = createSupabaseBrowserClient();
-    await supabase.auth.signOut();
-    const body = await res.json().catch(() => ({}));
-    toast.error(body.error ?? "This account hasn't been invited.");
+    toast.error("Something went wrong signing you in.");
     return;
   }
-  toast.success("Signed in.");
-  router.push("/library");
+  const body: { redirectTo: string; error?: string } = await res.json();
+  if (body.error) {
+    toast.error(INVITE_ERROR_MESSAGES[body.error] ?? "Something went wrong.");
+  } else {
+    toast.success("Signed in.");
+  }
+  router.push(body.redirectTo);
   router.refresh();
 }
 
-export function AuthForm({ mode, initialEmail = "" }: AuthFormProps) {
+export function AuthForm({ mode, initialEmail = "", inviteToken }: AuthFormProps) {
   const router = useRouter();
   const [email, setEmail] = useState(initialEmail);
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState<string | null>(null);
+  // Sign-up is open to anyone; "sign-in" mode defaults to returning-user
+  // sign-in but can toggle to create-account. "invite" mode is always
+  // create-account, with the email locked to the invited address.
+  const [creatingAccount, setCreatingAccount] = useState(mode === "invite");
 
   const supabase = createSupabaseBrowserClient();
-  const redirectTo = `${process.env.NEXT_PUBLIC_APP_URL}/auth/callback`;
+  const callbackUrl = new URL(`${process.env.NEXT_PUBLIC_APP_URL}/auth/callback`);
+  if (inviteToken) callbackUrl.searchParams.set("invite_token", inviteToken);
+  const redirectTo = callbackUrl.toString();
 
   async function handleMagicLink(e: React.FormEvent) {
     e.preventDefault();
@@ -67,7 +89,7 @@ export function AuthForm({ mode, initialEmail = "" }: AuthFormProps) {
     e.preventDefault();
     setLoading("password");
 
-    if (mode === "invite") {
+    if (creatingAccount) {
       const { data, error } = await supabase.auth.signUp({ email, password });
       if (error) {
         setLoading(null);
@@ -79,7 +101,7 @@ export function AuthForm({ mode, initialEmail = "" }: AuthFormProps) {
         toast.success("Check your email to confirm your account, then sign in.");
         return;
       }
-      await bindInvitedProfileOrSignOut(router);
+      await completeSignIn(router, inviteToken);
     } else {
       const { error } = await supabase.auth.signInWithPassword({ email, password });
       if (error) {
@@ -87,7 +109,7 @@ export function AuthForm({ mode, initialEmail = "" }: AuthFormProps) {
         toast.error(error.message);
         return;
       }
-      await bindInvitedProfileOrSignOut(router);
+      await completeSignIn(router, inviteToken);
     }
     setLoading(null);
   }
@@ -152,10 +174,21 @@ export function AuthForm({ mode, initialEmail = "" }: AuthFormProps) {
           <Button type="submit" disabled={loading === "password"}>
             {loading === "password"
               ? "Please wait…"
-              : mode === "invite"
+              : creatingAccount
                 ? "Create account"
                 : "Sign in"}
           </Button>
+          {mode === "sign-in" && (
+            <button
+              type="button"
+              onClick={() => setCreatingAccount((c) => !c)}
+              className="text-xs text-muted-foreground underline underline-offset-2"
+            >
+              {creatingAccount
+                ? "Already have an account? Sign in"
+                : "Don't have an account? Create one"}
+            </button>
+          )}
         </form>
       </TabsContent>
     </Tabs>

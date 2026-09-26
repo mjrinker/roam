@@ -35,33 +35,130 @@ export const scanTriggerEnum = pgEnum("scan_trigger", [
   "cron",
   "webhook",
 ]);
+export const boxAuthStatusEnum = pgEnum("box_auth_status", [
+  "disconnected",
+  "connected",
+  "needs_reauth",
+]);
 
 // ── profiles ─────────────────────────────────────────────────────────────
 // One row per authenticated user. `id` matches the Supabase auth.users id.
+// No role here — sign-in is open to anyone; role is per-server, on
+// server_members.
 
 export const profiles = pgTable("profiles", {
   id: uuid("id").primaryKey(),
   email: text("email").notNull(),
   displayName: text("display_name"),
-  role: userRoleEnum("role").notNull().default("viewer"),
   createdAt: timestamp("created_at", { withTimezone: true })
     .notNull()
     .defaultNow(),
 });
 
-// ── libraries ────────────────────────────────────────────────────────────
-// A scanned Box root folder (e.g. "Movies", "TV Shows").
+// ── servers ──────────────────────────────────────────────────────────────
+// A tenant. Owns exactly one Box OAuth connection (its own end-user's Box
+// account, not a shared service account). ownerId is onDelete: "restrict"
+// — deleting a profile must never silently orphan a server; there's no
+// server-deletion/ownership-transfer flow yet (see plan's fast-follows).
 
-export const libraries = pgTable("libraries", {
+export const servers = pgTable("servers", {
   id: uuid("id").primaryKey().defaultRandom(),
   name: text("name").notNull(),
-  kind: libraryKindEnum("kind").notNull(),
-  boxFolderId: text("box_folder_id").notNull().unique(),
-  lastScannedAt: timestamp("last_scanned_at", { withTimezone: true }),
+  ownerId: uuid("owner_id")
+    .notNull()
+    .references(() => profiles.id, { onDelete: "restrict" }),
+  boxAccessTokenEncrypted: text("box_access_token_encrypted"),
+  boxRefreshTokenEncrypted: text("box_refresh_token_encrypted"),
+  boxTokenExpiresAt: timestamp("box_token_expires_at", { withTimezone: true }),
+  boxAuthStatus: boxAuthStatusEnum("box_auth_status")
+    .notNull()
+    .default("disconnected"),
   createdAt: timestamp("created_at", { withTimezone: true })
     .notNull()
     .defaultNow(),
 });
+
+// ── server_members ───────────────────────────────────────────────────────
+// Per-server role. A profile can belong to multiple servers.
+
+export const serverMembers = pgTable(
+  "server_members",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    serverId: uuid("server_id")
+      .notNull()
+      .references(() => servers.id, { onDelete: "cascade" }),
+    profileId: uuid("profile_id")
+      .notNull()
+      .references(() => profiles.id, { onDelete: "cascade" }),
+    role: userRoleEnum("role").notNull().default("viewer"),
+    joinedAt: timestamp("joined_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("server_members_server_profile_idx").on(
+      t.serverId,
+      t.profileId
+    ),
+    index("server_members_profile_idx").on(t.profileId),
+  ]
+);
+
+// ── rate_limit_buckets ───────────────────────────────────────────────────
+// Fixed-window rate limiting, shared across serverless instances via
+// Postgres. windowStart is computed deterministically by the caller
+// (floor(now/windowSeconds)*windowSeconds) so concurrent requests in the
+// same window collide on one row. See lib/rate-limit.ts.
+
+export const rateLimitBuckets = pgTable(
+  "rate_limit_buckets",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    profileId: uuid("profile_id")
+      .notNull()
+      .references(() => profiles.id, { onDelete: "cascade" }),
+    bucket: text("bucket").notNull(),
+    windowStart: timestamp("window_start", { withTimezone: true }).notNull(),
+    count: integer("count").notNull().default(0),
+  },
+  (t) => [
+    uniqueIndex("rate_limit_buckets_profile_bucket_window_idx").on(
+      t.profileId,
+      t.bucket,
+      t.windowStart
+    ),
+  ]
+);
+
+// ── libraries ────────────────────────────────────────────────────────────
+// A scanned Box root folder (e.g. "Movies", "TV Shows"), owned by a server.
+
+export const libraries = pgTable(
+  "libraries",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    serverId: uuid("server_id")
+      .notNull()
+      .references(() => servers.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    kind: libraryKindEnum("kind").notNull(),
+    boxFolderId: text("box_folder_id").notNull().unique(),
+    lastScannedAt: timestamp("last_scanned_at", { withTimezone: true }),
+    // Updated at the START of every scan attempt, success or failure —
+    // distinct from lastScannedAt (which only advances on completion, and
+    // is what the admin UI shows). The cron scheduler orders by this one
+    // so a library whose scans keep failing doesn't camp at the head of
+    // the "oldest scanned" queue forever and starve out healthy libraries.
+    lastScanAttemptAt: timestamp("last_scan_attempt_at", {
+      withTimezone: true,
+    }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [index("libraries_server_idx").on(t.serverId)]
+);
 
 // ── titles ───────────────────────────────────────────────────────────────
 // A movie, or a show's top-level record.
@@ -208,19 +305,30 @@ export const watchState = pgTable(
 );
 
 // ── invites ──────────────────────────────────────────────────────────────
+// Grants a server_members row on acceptance, not a profiles row — accounts
+// exist independent of invites now that sign-in is open.
 
-export const invites = pgTable("invites", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  email: text("email").notNull(),
-  role: userRoleEnum("role").notNull().default("viewer"),
-  token: text("token").notNull().unique(),
-  invitedBy: uuid("invited_by").references(() => profiles.id),
-  acceptedAt: timestamp("accepted_at", { withTimezone: true }),
-  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
-  createdAt: timestamp("created_at", { withTimezone: true })
-    .notNull()
-    .defaultNow(),
-});
+export const invites = pgTable(
+  "invites",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    serverId: uuid("server_id")
+      .notNull()
+      .references(() => servers.id, { onDelete: "cascade" }),
+    email: text("email").notNull(),
+    role: userRoleEnum("role").notNull().default("viewer"),
+    token: text("token").notNull().unique(),
+    invitedBy: uuid("invited_by").references(() => profiles.id, {
+      onDelete: "set null",
+    }),
+    acceptedAt: timestamp("accepted_at", { withTimezone: true }),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [index("invites_server_idx").on(t.serverId)]
+);
 
 // ── scan_runs ────────────────────────────────────────────────────────────
 
@@ -241,7 +349,29 @@ export const scanRuns = pgTable("scan_runs", {
 
 // ── relations ────────────────────────────────────────────────────────────
 
-export const librariesRelations = relations(libraries, ({ many }) => ({
+export const serversRelations = relations(servers, ({ one, many }) => ({
+  owner: one(profiles, { fields: [servers.ownerId], references: [profiles.id] }),
+  members: many(serverMembers),
+  libraries: many(libraries),
+  invites: many(invites),
+}));
+
+export const serverMembersRelations = relations(serverMembers, ({ one }) => ({
+  server: one(servers, {
+    fields: [serverMembers.serverId],
+    references: [servers.id],
+  }),
+  profile: one(profiles, {
+    fields: [serverMembers.profileId],
+    references: [profiles.id],
+  }),
+}));
+
+export const librariesRelations = relations(libraries, ({ one, many }) => ({
+  server: one(servers, {
+    fields: [libraries.serverId],
+    references: [servers.id],
+  }),
   titles: many(titles),
   scanRuns: many(scanRuns),
 }));
@@ -268,11 +398,24 @@ export const episodesRelations = relations(episodes, ({ one }) => ({
 
 export const profilesRelations = relations(profiles, ({ many }) => ({
   watchState: many(watchState),
+  serverMemberships: many(serverMembers),
+  ownedServers: many(servers),
 }));
 
 export const watchStateRelations = relations(watchState, ({ one }) => ({
   profile: one(profiles, {
     fields: [watchState.profileId],
+    references: [profiles.id],
+  }),
+}));
+
+export const invitesRelations = relations(invites, ({ one }) => ({
+  server: one(servers, {
+    fields: [invites.serverId],
+    references: [servers.id],
+  }),
+  invitedByProfile: one(profiles, {
+    fields: [invites.invitedBy],
     references: [profiles.id],
   }),
 }));

@@ -1,21 +1,25 @@
 import { notFound } from "next/navigation";
 import { and, asc, eq, gt } from "drizzle-orm";
 import { db } from "@/lib/db/client";
-import { episodes, seasons, titles } from "@/lib/db/schema";
-import { requireProfile } from "@/lib/auth/guards";
+import { episodes, libraries, seasons, titles } from "@/lib/db/schema";
+import { requireServerMember } from "@/lib/auth/guards";
 import { SeamlessPlayer } from "@/components/player/seamless-player";
 
-async function loadMovie(id: string) {
+async function loadMovie(serverId: string, id: string) {
   const [title] = await db
-    .select()
+    .select({ title: titles })
     .from(titles)
-    .where(and(eq(titles.id, id), eq(titles.kind, "movie")))
-    .limit(1);
+    .innerJoin(libraries, eq(titles.libraryId, libraries.id))
+    .where(
+      and(eq(titles.id, id), eq(titles.kind, "movie"), eq(libraries.serverId, serverId))
+    )
+    .limit(1)
+    .then((rows) => rows.map((r) => r.title));
   if (!title) return null;
   return { displayTitle: title.name, nextHref: undefined, nextLabel: undefined };
 }
 
-async function loadEpisode(id: string) {
+async function loadEpisode(serverId: string, id: string) {
   const [row] = await db
     .select({
       episode: episodes,
@@ -25,7 +29,8 @@ async function loadEpisode(id: string) {
     .from(episodes)
     .innerJoin(seasons, eq(episodes.seasonId, seasons.id))
     .innerJoin(titles, eq(seasons.titleId, titles.id))
-    .where(eq(episodes.id, id))
+    .innerJoin(libraries, eq(titles.libraryId, libraries.id))
+    .where(and(eq(episodes.id, id), eq(libraries.serverId, serverId)))
     .limit(1);
   if (!row) return null;
 
@@ -65,20 +70,23 @@ async function loadEpisode(id: string) {
 
   return {
     displayTitle,
-    nextHref: nextEpisodeId ? `/watch/episode/${nextEpisodeId}` : undefined,
+    nextHref: nextEpisodeId ? `/s/${serverId}/watch/episode/${nextEpisodeId}` : undefined,
     nextLabel,
   };
 }
 
 export default async function WatchPage({
   params,
-}: PageProps<"/watch/[ownerKind]/[ownerId]">) {
-  const { ownerKind, ownerId } = await params;
-  await requireProfile();
+}: PageProps<"/s/[serverId]/watch/[ownerKind]/[ownerId]">) {
+  const { serverId, ownerKind, ownerId } = await params;
+  await requireServerMember(serverId);
 
   if (ownerKind !== "title" && ownerKind !== "episode") notFound();
 
-  const loaded = ownerKind === "title" ? await loadMovie(ownerId) : await loadEpisode(ownerId);
+  const loaded =
+    ownerKind === "title"
+      ? await loadMovie(serverId, ownerId)
+      : await loadEpisode(serverId, ownerId);
   if (!loaded) notFound();
 
   return (

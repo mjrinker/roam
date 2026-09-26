@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
-import { getCurrentAdminProfile } from "@/lib/auth/guards";
+import { getCurrentProfile } from "@/lib/auth/guards";
+import { checkRateLimit } from "@/lib/rate-limit";
 import { searchMovies, searchTvShows, tmdbImageUrl } from "@/lib/tmdb/client";
 
 export interface TmdbSearchResultDto {
@@ -9,11 +10,21 @@ export interface TmdbSearchResultDto {
   posterUrl: string | null;
 }
 
-/** Admin-only search proxy — keeps the TMDB token server-side. */
+/**
+ * Any signed-in profile can search — it's a read-only proxy over public
+ * TMDB results, nothing tenant-private to protect, so "admin of some
+ * server" isn't a meaningful check here. Rate-limited per-user since it's
+ * a proxy on our own TMDB API quota and sign-up is open to anyone.
+ */
 export async function GET(request: Request) {
-  const admin = await getCurrentAdminProfile();
-  if (!admin) {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  const profile = await getCurrentProfile();
+  if (!profile) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  const withinLimit = await checkRateLimit(profile.id, "tmdb_search", 20, 60);
+  if (!withinLimit) {
+    return NextResponse.json({ error: "Too many searches — try again in a minute." }, { status: 429 });
   }
 
   const { searchParams } = new URL(request.url);

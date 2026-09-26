@@ -17,7 +17,13 @@ export interface InviteRow {
   expiresAt: string;
 }
 
-export function InviteManager({ invites }: { invites: InviteRow[] }) {
+export function InviteManager({
+  serverId,
+  invites,
+}: {
+  serverId: string;
+  invites: InviteRow[];
+}) {
   const router = useRouter();
   const [email, setEmail] = useState("");
   const [role, setRole] = useState<"admin" | "viewer">("viewer");
@@ -28,10 +34,11 @@ export function InviteManager({ invites }: { invites: InviteRow[] }) {
     const res = await fetch("/api/invites", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ email, role }),
+      body: JSON.stringify({ serverId, email, role }),
     });
     if (!res.ok) {
-      toast.error("Couldn't create invite.");
+      const body = await res.json().catch(() => ({}));
+      toast.error(typeof body.error === "string" ? body.error : "Couldn't create invite.");
       return;
     }
     const { inviteUrl } = await res.json();

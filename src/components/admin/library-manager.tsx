@@ -15,6 +15,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { FolderBrowser } from "@/components/admin/folder-browser";
 
 export interface LastScanInfo {
   trigger: "manual" | "cron" | "webhook";
@@ -65,29 +66,44 @@ function ScanErrors({ errors }: { errors: string[] }) {
   );
 }
 
-export function LibraryManager({ libraries }: { libraries: LibraryRow[] }) {
+export function LibraryManager({
+  serverId,
+  libraries,
+  boxConnected,
+}: {
+  serverId: string;
+  libraries: LibraryRow[];
+  boxConnected: boolean;
+}) {
   const router = useRouter();
   const [scanningId, setScanningId] = useState<string | null>(null);
   const [showForm, setShowForm] = useState(libraries.length === 0);
   const [name, setName] = useState("");
   const [kind, setKind] = useState<"movies" | "shows">("movies");
-  const [boxFolderId, setBoxFolderId] = useState("");
+  const [selectedFolder, setSelectedFolder] = useState<{ id: string; name: string } | null>(
+    null
+  );
   const [isPending, startTransition] = useTransition();
+  const [creating, setCreating] = useState(false);
 
   async function createLibrary(e: React.FormEvent) {
     e.preventDefault();
+    if (!selectedFolder) return;
+    setCreating(true);
     const res = await fetch("/api/libraries", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name, kind, boxFolderId }),
+      body: JSON.stringify({ serverId, name, kind, boxFolderId: selectedFolder.id }),
     });
+    setCreating(false);
     if (!res.ok) {
-      toast.error("Couldn't create library.");
+      const body = await res.json().catch(() => ({}));
+      toast.error(typeof body.error === "string" ? body.error : "Couldn't create library.");
       return;
     }
     toast.success(`Library "${name}" created.`);
     setName("");
-    setBoxFolderId("");
+    setSelectedFolder(null);
     setShowForm(false);
     startTransition(() => router.refresh());
   }
@@ -97,7 +113,7 @@ export function LibraryManager({ libraries }: { libraries: LibraryRow[] }) {
     const res = await fetch("/api/scan", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ libraryId }),
+      body: JSON.stringify({ serverId, libraryId }),
     });
     setScanningId(null);
     if (!res.ok) {
@@ -119,19 +135,26 @@ export function LibraryManager({ libraries }: { libraries: LibraryRow[] }) {
     <section className="flex flex-col gap-4">
       <div className="flex items-center justify-between">
         <h2 className="text-lg font-semibold">Libraries</h2>
-        <Button variant="outline" size="sm" onClick={() => setShowForm((s) => !s)}>
-          {showForm ? "Cancel" : "Add library"}
-        </Button>
+        {boxConnected && (
+          <Button variant="outline" size="sm" onClick={() => setShowForm((s) => !s)}>
+            {showForm ? "Cancel" : "Add library"}
+          </Button>
+        )}
       </div>
 
-      {showForm && (
+      {!boxConnected && (
+        <p className="text-sm text-muted-foreground">
+          Connect Box above before adding a library.
+        </p>
+      )}
+
+      {showForm && boxConnected && (
         <Card>
           <form onSubmit={createLibrary}>
             <CardHeader>
               <CardTitle className="text-base">New library</CardTitle>
               <CardDescription>
-                Points at a root folder in your Box account. Right-click the folder
-                in Box and copy the ID from its URL.
+                Browse your connected Box account and pick the folder to share.
               </CardDescription>
             </CardHeader>
             <CardContent className="flex flex-col gap-3">
@@ -158,18 +181,25 @@ export function LibraryManager({ libraries }: { libraries: LibraryRow[] }) {
                 </select>
               </div>
               <div className="grid gap-1.5">
-                <Label htmlFor="lib-folder">Box folder ID</Label>
-                <Input
-                  id="lib-folder"
-                  value={boxFolderId}
-                  onChange={(e) => setBoxFolderId(e.target.value)}
-                  placeholder="123456789"
-                  required
-                />
+                <Label>Box folder</Label>
+                {selectedFolder ? (
+                  <div className="flex items-center gap-2 text-sm">
+                    <Badge variant="secondary">{selectedFolder.name}</Badge>
+                    <button
+                      type="button"
+                      className="text-xs text-muted-foreground underline"
+                      onClick={() => setSelectedFolder(null)}
+                    >
+                      Change
+                    </button>
+                  </div>
+                ) : (
+                  <FolderBrowser serverId={serverId} onSelect={setSelectedFolder} />
+                )}
               </div>
             </CardContent>
             <CardFooter>
-              <Button type="submit" disabled={isPending}>
+              <Button type="submit" disabled={creating || isPending || !selectedFolder}>
                 Create library
               </Button>
             </CardFooter>
@@ -188,7 +218,7 @@ export function LibraryManager({ libraries }: { libraries: LibraryRow[] }) {
                     <Badge variant="secondary">{lib.kind}</Badge>
                   </div>
                   <p className="text-xs text-muted-foreground">
-                    Box folder {lib.boxFolderId} &middot; last scanned{" "}
+                    last scanned{" "}
                     {lib.lastScannedAt
                       ? new Date(lib.lastScannedAt).toLocaleString()
                       : "never"}
@@ -204,7 +234,7 @@ export function LibraryManager({ libraries }: { libraries: LibraryRow[] }) {
                 <Button
                   variant="secondary"
                   size="sm"
-                  disabled={scanningId === lib.id}
+                  disabled={scanningId === lib.id || !boxConnected}
                   onClick={() => rescan(lib.id)}
                 >
                   {scanningId === lib.id ? "Scanning…" : "Rescan"}

@@ -3,7 +3,8 @@ import { z } from "zod";
 import { and, eq } from "drizzle-orm";
 import { db } from "@/lib/db/client";
 import { watchState } from "@/lib/db/schema";
-import { getCurrentProfile } from "@/lib/auth/guards";
+import { getCurrentServerMember } from "@/lib/auth/guards";
+import { resolveServerIdForOwner } from "@/lib/auth/resolve-server";
 
 const patchSchema = z.object({
   ownerKind: z.enum(["title", "episode"]),
@@ -13,23 +14,33 @@ const patchSchema = z.object({
   finished: z.boolean().optional(),
 });
 
-/** Upserts the current profile's resume position. Called by the player. */
+/**
+ * Upserts the current profile's resume position. Called by the player.
+ * Same server-membership check as GET below (and as /api/play) — a write
+ * needs the same authorization as a read, otherwise anyone signed in
+ * could pollute another tenant's watch_state rows even if they can't
+ * read them.
+ */
 export async function PATCH(request: Request) {
-  const profile = await getCurrentProfile();
-  if (!profile) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
-
   const parsed = patchSchema.safeParse(await request.json().catch(() => null));
   if (!parsed.success) {
     return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
   }
   const { ownerKind, ownerId, positionSeconds, durationSeconds, finished } = parsed.data;
 
+  const serverId = await resolveServerIdForOwner(ownerKind, ownerId);
+  if (!serverId) {
+    return NextResponse.json({ error: "Not found" }, { status: 404 });
+  }
+  const member = await getCurrentServerMember(serverId);
+  if (!member) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
+
   await db
     .insert(watchState)
     .values({
-      profileId: profile.id,
+      profileId: member.profile.id,
       ownerKind,
       ownerId,
       positionSeconds,
@@ -56,11 +67,6 @@ const querySchema = z.object({
 });
 
 export async function GET(request: Request) {
-  const profile = await getCurrentProfile();
-  if (!profile) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
-
   const { searchParams } = new URL(request.url);
   const parsed = querySchema.safeParse({
     ownerKind: searchParams.get("ownerKind"),
@@ -70,12 +76,21 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
   }
 
+  const serverId = await resolveServerIdForOwner(parsed.data.ownerKind, parsed.data.ownerId);
+  if (!serverId) {
+    return NextResponse.json({ error: "Not found" }, { status: 404 });
+  }
+  const member = await getCurrentServerMember(serverId);
+  if (!member) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
+
   const [state] = await db
     .select()
     .from(watchState)
     .where(
       and(
-        eq(watchState.profileId, profile.id),
+        eq(watchState.profileId, member.profile.id),
         eq(watchState.ownerKind, parsed.data.ownerKind),
         eq(watchState.ownerId, parsed.data.ownerId)
       )

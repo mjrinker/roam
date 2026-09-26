@@ -3,8 +3,8 @@ import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { and, asc, eq } from "drizzle-orm";
 import { db } from "@/lib/db/client";
-import { mediaFiles, titles, watchState } from "@/lib/db/schema";
-import { requireProfile } from "@/lib/auth/guards";
+import { libraries, mediaFiles, titles, watchState } from "@/lib/db/schema";
+import { requireServerMember } from "@/lib/auth/guards";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 
@@ -17,14 +17,22 @@ function formatRuntime(totalSeconds: number | null) {
 
 export default async function TitleDetailPage({
   params,
-}: PageProps<"/title/[id]">) {
-  const { id } = await params;
-  const profile = await requireProfile();
+}: PageProps<"/s/[serverId]/title/[id]">) {
+  const { serverId, id } = await params;
+  const { profile } = await requireServerMember(serverId);
 
-  const [title] = await db.select().from(titles).where(eq(titles.id, id)).limit(1);
+  // Join through libraries so a title id from a DIFFERENT server 404s here,
+  // rather than trusting the bare id from the URL.
+  const [title] = await db
+    .select({ title: titles })
+    .from(titles)
+    .innerJoin(libraries, eq(titles.libraryId, libraries.id))
+    .where(and(eq(titles.id, id), eq(libraries.serverId, serverId)))
+    .limit(1)
+    .then((rows) => rows.map((r) => r.title));
   if (!title) notFound();
   // This page is movie-only; shows have their own season/episode browser.
-  if (title.kind === "show") redirect(`/show/${id}`);
+  if (title.kind === "show") redirect(`/s/${serverId}/show/${id}`);
 
   const segments = await db
     .select()
@@ -112,7 +120,10 @@ export default async function TitleDetailPage({
 
           <div className="flex items-center gap-3">
             {ready ? (
-              <Button render={<Link href={`/watch/title/${title.id}`} />} size="lg">
+              <Button
+                render={<Link href={`/s/${serverId}/watch/title/${title.id}`} />}
+                size="lg"
+              >
                 {hasProgress ? "Resume" : "Play"}
               </Button>
             ) : (

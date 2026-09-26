@@ -12,8 +12,11 @@ export interface TitleCardData {
   progressFraction?: number | null;
 }
 
-export function TitleCard({ title }: { title: TitleCardData }) {
-  const href = title.kind === "show" ? `/show/${title.id}` : `/title/${title.id}`;
+export function TitleCard({ title, serverId }: { title: TitleCardData; serverId: string }) {
+  const href =
+    title.kind === "show"
+      ? `/s/${serverId}/show/${title.id}`
+      : `/s/${serverId}/title/${title.id}`;
   return (
     <Link href={href} className="group flex flex-col gap-2">
       <div className="relative aspect-[2/3] overflow-hidden rounded-md bg-muted">

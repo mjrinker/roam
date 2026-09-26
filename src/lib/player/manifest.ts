@@ -1,23 +1,27 @@
 import { and, asc, eq } from "drizzle-orm";
 import { db } from "@/lib/db/client";
 import { mediaFiles, watchState } from "@/lib/db/schema";
-import { boxProvider } from "@/lib/storage/box";
+import { createBoxProviderForServer } from "@/lib/storage/box";
+import { BoxReauthRequiredError } from "@/lib/storage/box-token-storage";
 import type { PlayManifest, PlayOwnerKind, PlaySegment } from "@/lib/player/types";
 
 export type BuildManifestResult =
   | { ok: true; manifest: PlayManifest }
-  | { ok: false; status: 404 | 409; error: string };
+  | { ok: false; status: 404 | 409 | 424; error: string };
 
 /**
  * Builds a play manifest for a movie (ownerKind="title") or an episode
  * (ownerKind="episode") — same logic either way, since both are just an
  * ordered list of media_files. Mints a fresh, short-lived Box streaming URL
- * per segment; never caches URLs across requests.
+ * per segment; never caches URLs across requests. `serverId` must already
+ * be resolved+authorized by the caller (see resolveServerIdForOwner +
+ * requireServerMember in the route) — this function trusts it.
  */
 export async function buildPlayManifest(
   ownerKind: PlayOwnerKind,
   ownerId: string,
-  profileId: string
+  profileId: string,
+  serverId: string
 ): Promise<BuildManifestResult> {
   const segmentRows = await db
     .select()
@@ -34,19 +38,32 @@ export async function buildPlayManifest(
     };
   }
 
+  const provider = createBoxProviderForServer(serverId);
+
   let cursor = 0;
   let earliestExpiry: Date | null = null;
   const segments: PlaySegment[] = [];
-  for (const [index, row] of segmentRows.entries()) {
-    const { url, expiresAt } = await boxProvider.getStreamingUrl(row.boxFileId);
-    if (!earliestExpiry || expiresAt < earliestExpiry) earliestExpiry = expiresAt;
-    segments.push({
-      index,
-      url,
-      durationSeconds: row.durationSeconds!,
-      startSeconds: cursor,
-    });
-    cursor += row.durationSeconds!;
+  try {
+    for (const [index, row] of segmentRows.entries()) {
+      const { url, expiresAt } = await provider.getStreamingUrl(row.boxFileId);
+      if (!earliestExpiry || expiresAt < earliestExpiry) earliestExpiry = expiresAt;
+      segments.push({
+        index,
+        url,
+        durationSeconds: row.durationSeconds!,
+        startSeconds: cursor,
+      });
+      cursor += row.durationSeconds!;
+    }
+  } catch (err) {
+    if (err instanceof BoxReauthRequiredError) {
+      return {
+        ok: false,
+        status: 424,
+        error: "This server's Box connection needs to be reconnected by an admin.",
+      };
+    }
+    throw err;
   }
 
   const [existingState] = await db

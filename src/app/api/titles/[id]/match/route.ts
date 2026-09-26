@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { eq } from "drizzle-orm";
-import { getCurrentAdminProfile } from "@/lib/auth/guards";
+import { getCurrentServerAdmin } from "@/lib/auth/guards";
+import { resolveServerIdForTitle } from "@/lib/auth/resolve-server";
 import { db } from "@/lib/db/client";
 import { titles } from "@/lib/db/schema";
 import { getMovieDetails, getTvShowDetails, tmdbImageUrl } from "@/lib/tmdb/client";
@@ -14,12 +15,17 @@ export async function POST(
   request: Request,
   ctx: RouteContext<"/api/titles/[id]/match">
 ) {
-  const admin = await getCurrentAdminProfile();
+  const { id } = await ctx.params;
+
+  const serverId = await resolveServerIdForTitle(id);
+  if (!serverId) {
+    return NextResponse.json({ error: "Not found" }, { status: 404 });
+  }
+  const admin = await getCurrentServerAdmin(serverId);
   if (!admin) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
-  const { id } = await ctx.params;
   const parsed = bodySchema.safeParse(await request.json().catch(() => null));
   if (!parsed.success) {
     return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });

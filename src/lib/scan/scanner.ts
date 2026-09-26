@@ -8,8 +8,9 @@ import {
   seasons,
   titles,
 } from "@/lib/db/schema";
-import { boxProvider } from "@/lib/storage/box";
-import type { StorageEntry } from "@/lib/storage/provider";
+import { createBoxProviderForServer } from "@/lib/storage/box";
+import { BoxReauthRequiredError } from "@/lib/storage/box-token-storage";
+import type { StorageEntry, StorageProvider } from "@/lib/storage/provider";
 import {
   groupFilesByEpisodeNumber,
   isVideoFile,
@@ -35,7 +36,7 @@ export interface ScanResult {
   errors: string[];
 }
 
-/** Scans one library's Box folder tree and syncs it into Postgres. */
+/** Scans one library's Box folder tree (using its server's own connected Box account) and syncs it into Postgres. */
 export async function scanLibrary(
   libraryId: string,
   trigger: "manual" | "cron" | "webhook"
@@ -47,6 +48,15 @@ export async function scanLibrary(
     .limit(1);
   if (!library) throw new Error(`Library ${libraryId} not found`);
 
+  // Written BEFORE any Box calls, success or failure — not in a finally
+  // block, since a function timeout or hard crash never reaches finally,
+  // which would silently reintroduce the exact starvation bug this column
+  // exists to prevent (see the cron batching query in api/cron/scan).
+  await db
+    .update(libraries)
+    .set({ lastScanAttemptAt: new Date() })
+    .where(eq(libraries.id, libraryId));
+
   const [run] = await db
     .insert(scanRuns)
     .values({ libraryId, trigger })
@@ -55,29 +65,38 @@ export async function scanLibrary(
   let filesSeen = 0;
   let titlesAdded = 0;
   const errors: string[] = [];
+  const provider = createBoxProviderForServer(library.serverId);
 
   try {
-    const topLevel = await boxProvider.listFolder(library.boxFolderId);
+    const topLevel = await provider.listFolder(library.boxFolderId);
     const titleFolders = topLevel.filter((e) => e.kind === "folder");
 
     for (const folder of titleFolders) {
       try {
         if (library.kind === "movies") {
-          const added = await syncMovieFolder(library.id, folder);
+          const added = await syncMovieFolder(provider, library.id, folder);
           if (added) titlesAdded++;
           filesSeen += 1;
         } else {
-          const added = await syncShowFolder(library.id, folder);
+          const added = await syncShowFolder(provider, library.id, folder);
           if (added) titlesAdded++;
         }
       } catch (err) {
+        // A single title's own Box connection dying mid-scan means every
+        // OTHER title will fail the same way — short-circuit with one
+        // clear error instead of one near-identical message per folder.
+        if (err instanceof BoxReauthRequiredError) throw err;
         errors.push(`${folder.name}: ${(err as Error).message}`);
       }
     }
 
-    await probePendingDurations(errors);
+    await probePendingDurations(provider, library.id, errors);
   } catch (err) {
-    errors.push((err as Error).message);
+    if (err instanceof BoxReauthRequiredError) {
+      errors.push("This server's Box connection needs to be reconnected by an admin.");
+    } else {
+      errors.push((err as Error).message);
+    }
   }
 
   await db
@@ -95,6 +114,7 @@ export async function scanLibrary(
 // ── Movies ───────────────────────────────────────────────────────────────
 
 async function syncMovieFolder(
+  provider: StorageProvider,
   libraryId: string,
   folder: StorageEntry
 ): Promise<boolean> {
@@ -121,7 +141,7 @@ async function syncMovieFolder(
     })
     .returning();
 
-  const children = await boxProvider.listFolder(folder.id);
+  const children = await provider.listFolder(folder.id);
   const videoFiles = orderMediaSegments(
     children.filter((c) => c.kind === "file" && isVideoFile(c.name))
   );
@@ -173,6 +193,7 @@ async function enrichMovieMetadataIfNeeded(
 // ── Shows ────────────────────────────────────────────────────────────────
 
 async function syncShowFolder(
+  provider: StorageProvider,
   libraryId: string,
   folder: StorageEntry
 ): Promise<boolean> {
@@ -222,7 +243,7 @@ async function syncShowFolder(
     tmdbShowId = title.tmdbId;
   }
 
-  const seasonFolders = (await boxProvider.listFolder(folder.id)).filter(
+  const seasonFolders = (await provider.listFolder(folder.id)).filter(
     (e) => e.kind === "folder"
   );
 
@@ -243,7 +264,7 @@ async function syncShowFolder(
       ? await getSeasonEpisodes(tmdbShowId, seasonNumber).catch(() => [])
       : [];
 
-    const episodeFiles = (await boxProvider.listFolder(seasonFolder.id)).filter(
+    const episodeFiles = (await provider.listFolder(seasonFolder.id)).filter(
       (e) => e.kind === "file" && isVideoFile(e.name)
     );
 
@@ -393,17 +414,69 @@ async function upsertMediaSegments(
 
 // ── Duration probing ─────────────────────────────────────────────────────
 
-async function probePendingDurations(errors: string[]) {
-  const pending = await db
-    .select()
-    .from(mediaFiles)
-    .where(eq(mediaFiles.probeStatus, "pending"));
+/**
+ * Scoped to THIS library only — not every pending media_file in the whole
+ * database. Before multi-tenancy this was harmless (only one library ever
+ * existed); now, an unscoped query here would try to probe another
+ * server's files using the current server's Box connection, which would
+ * simply fail (wrong Box account), pollute this scan's errors with
+ * irrelevant failures, and never actually get the other server's files
+ * probed (since a scan only ever passes the CURRENT library's provider).
+ */
+async function probePendingDurations(
+  provider: StorageProvider,
+  libraryId: string,
+  errors: string[]
+) {
+  const libraryTitles = await db
+    .select({ id: titles.id })
+    .from(titles)
+    .where(eq(titles.libraryId, libraryId));
+  const titleIds = libraryTitles.map((t) => t.id);
+
+  const librarySeasons = titleIds.length
+    ? await db.select({ id: seasons.id }).from(seasons).where(inArray(seasons.titleId, titleIds))
+    : [];
+  const seasonIds = librarySeasons.map((s) => s.id);
+
+  const libraryEpisodes = seasonIds.length
+    ? await db.select({ id: episodes.id }).from(episodes).where(inArray(episodes.seasonId, seasonIds))
+    : [];
+  const episodeIds = libraryEpisodes.map((e) => e.id);
+
+  const [pendingTitleFiles, pendingEpisodeFiles] = await Promise.all([
+    titleIds.length
+      ? db
+          .select()
+          .from(mediaFiles)
+          .where(
+            and(
+              eq(mediaFiles.probeStatus, "pending"),
+              eq(mediaFiles.ownerKind, "title"),
+              inArray(mediaFiles.ownerId, titleIds)
+            )
+          )
+      : Promise.resolve([]),
+    episodeIds.length
+      ? db
+          .select()
+          .from(mediaFiles)
+          .where(
+            and(
+              eq(mediaFiles.probeStatus, "pending"),
+              eq(mediaFiles.ownerKind, "episode"),
+              inArray(mediaFiles.ownerId, episodeIds)
+            )
+          )
+      : Promise.resolve([]),
+  ]);
+  const pending = [...pendingTitleFiles, ...pendingEpisodeFiles];
 
   for (const file of pending) {
     if (!file.sizeBytes) continue;
     try {
       const durationSeconds = await probeMp4DurationSeconds(
-        (start, end) => boxProvider.fetchByteRange(file.boxFileId, start, end),
+        (start, end) => provider.fetchByteRange(file.boxFileId, start, end),
         file.sizeBytes
       );
       await db
@@ -414,6 +487,7 @@ async function probePendingDurations(errors: string[]) {
         })
         .where(eq(mediaFiles.id, file.id));
     } catch (err) {
+      if (err instanceof BoxReauthRequiredError) throw err;
       errors.push(`probe ${file.filename}: ${(err as Error).message}`);
       await db
         .update(mediaFiles)
@@ -422,8 +496,14 @@ async function probePendingDurations(errors: string[]) {
     }
   }
 
-  // Roll up movie runtimes from their segments' probed durations.
-  const movieTitles = await db.select({ id: titles.id }).from(titles).where(eq(titles.kind, "movie"));
+  // Roll up movie runtimes from their segments' probed durations — this
+  // library's movies only.
+  const movieTitles = titleIds.length
+    ? await db
+        .select({ id: titles.id })
+        .from(titles)
+        .where(and(inArray(titles.id, titleIds), eq(titles.kind, "movie")))
+    : [];
   for (const t of movieTitles) {
     const segments = await db
       .select({ durationSeconds: mediaFiles.durationSeconds })

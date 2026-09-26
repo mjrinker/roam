@@ -1,7 +1,6 @@
 import { AuthForm } from "@/components/auth/auth-form";
 
 const ERROR_MESSAGES: Record<string, string> = {
-  "not-invited": "That account hasn't been invited to this server.",
   "auth-failed": "Sign-in failed. Please try again.",
 };
 
@@ -16,7 +15,7 @@ export default async function SignInPage({
       <div className="text-center">
         <h1 className="text-2xl font-semibold tracking-tight">Roam</h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          Sign in to your family&apos;s media server.
+          Join a server you&apos;ve been invited to, or start your own.
         </p>
       </div>
       {errorParam && (

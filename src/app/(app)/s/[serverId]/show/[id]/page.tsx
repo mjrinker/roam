@@ -3,8 +3,8 @@ import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { and, asc, eq, inArray } from "drizzle-orm";
 import { db } from "@/lib/db/client";
-import { episodes, mediaFiles, seasons, titles, watchState } from "@/lib/db/schema";
-import { requireProfile } from "@/lib/auth/guards";
+import { episodes, libraries, mediaFiles, seasons, titles, watchState } from "@/lib/db/schema";
+import { requireServerMember } from "@/lib/auth/guards";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
@@ -15,14 +15,22 @@ function formatRuntime(totalSeconds: number | null) {
   return `${minutes}m`;
 }
 
-export default async function ShowDetailPage({ params }: PageProps<"/show/[id]">) {
-  const { id } = await params;
-  const profile = await requireProfile();
+export default async function ShowDetailPage({
+  params,
+}: PageProps<"/s/[serverId]/show/[id]">) {
+  const { serverId, id } = await params;
+  const { profile } = await requireServerMember(serverId);
 
-  const [show] = await db.select().from(titles).where(eq(titles.id, id)).limit(1);
+  const [show] = await db
+    .select({ show: titles })
+    .from(titles)
+    .innerJoin(libraries, eq(titles.libraryId, libraries.id))
+    .where(and(eq(titles.id, id), eq(libraries.serverId, serverId)))
+    .limit(1)
+    .then((rows) => rows.map((r) => r.show));
   if (!show) notFound();
   // Symmetric with the movie page redirecting the other way.
-  if (show.kind === "movie") redirect(`/title/${id}`);
+  if (show.kind === "movie") redirect(`/s/${serverId}/title/${id}`);
 
   const allSeasons = await db
     .select()
@@ -179,7 +187,7 @@ export default async function ShowDetailPage({ params }: PageProps<"/show/[id]">
                       <Button
                         variant="secondary"
                         size="sm"
-                        render={<Link href={`/watch/episode/${ep.id}`} />}
+                        render={<Link href={`/s/${serverId}/watch/episode/${ep.id}`} />}
                       >
                         {hasProgress ? "Resume" : "Play"}
                       </Button>
