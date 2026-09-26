@@ -580,7 +580,7 @@ export function SeamlessPlayer({
           type="button"
           onClick={togglePlay}
           aria-label="Play"
-          className="absolute top-1/2 left-1/2 flex size-20 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-[0_10px_50px_-6px_oklch(0.79_0.16_78/0.7)] transition-transform hover:scale-105"
+          className="absolute top-1/2 left-1/2 flex size-20 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-[0_10px_50px_-6px_oklch(0.853_0.163_169/0.6)] transition-transform hover:scale-105"
         >
           <Play className="ml-1 size-9" fill="currentColor" />
         </button>

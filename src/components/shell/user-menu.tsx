@@ -38,7 +38,7 @@ export function UserMenu({ email, displayName }: { email: string; displayName: s
         className="rounded-full outline-none ring-offset-background transition focus-visible:ring-2 focus-visible:ring-ring"
       >
         <Avatar size="lg" className="ring-1 ring-white/15">
-          <AvatarFallback className="bg-gradient-to-br from-primary/90 to-[oklch(0.68_0.16_55)] text-sm font-semibold text-primary-foreground">
+          <AvatarFallback className="bg-gradient-to-br from-primary/90 to-[oklch(0.72_0.14_195)] text-sm font-semibold text-primary-foreground">
             {initials(label)}
           </AvatarFallback>
         </Avatar>

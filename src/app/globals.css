@@ -49,8 +49,8 @@
 }
 
 :root {
-  /* Roam is dark-only: a near-black, faintly blue-tinted canvas with a warm
-     gold accent (the same family Plex uses), so posters and backdrops are
+  /* Roam is dark-only: a near-black, faintly blue-tinted canvas with a
+     light-teal accent (#2ef0bc), so posters and backdrops are
      the most colorful thing on screen. */
   --background: oklch(0.155 0.008 265);
   --foreground: oklch(0.975 0.003 265);
@@ -58,8 +58,8 @@
   --card-foreground: oklch(0.975 0.003 265);
   --popover: oklch(0.2 0.01 265);
   --popover-foreground: oklch(0.975 0.003 265);
-  --primary: oklch(0.79 0.16 78);
-  --primary-foreground: oklch(0.2 0.03 70);
+  --primary: oklch(0.853 0.163 169);
+  --primary-foreground: oklch(0.2 0.045 175);
   --secondary: oklch(0.255 0.012 265);
   --secondary-foreground: oklch(0.975 0.003 265);
   --muted: oklch(0.225 0.011 265);
@@ -69,8 +69,8 @@
   --destructive: oklch(0.68 0.2 25);
   --border: oklch(1 0 0 / 8%);
   --input: oklch(1 0 0 / 12%);
-  --ring: oklch(0.79 0.16 78);
-  --chart-1: oklch(0.79 0.16 78);
+  --ring: oklch(0.853 0.163 169);
+  --chart-1: oklch(0.853 0.163 169);
   --chart-2: oklch(0.7 0.12 200);
   --chart-3: oklch(0.65 0.15 300);
   --chart-4: oklch(0.72 0.14 150);
@@ -78,12 +78,12 @@
   --radius: 0.75rem;
   --sidebar: oklch(0.125 0.008 265);
   --sidebar-foreground: oklch(0.975 0.003 265);
-  --sidebar-primary: oklch(0.79 0.16 78);
-  --sidebar-primary-foreground: oklch(0.2 0.03 70);
+  --sidebar-primary: oklch(0.853 0.163 169);
+  --sidebar-primary-foreground: oklch(0.2 0.045 175);
   --sidebar-accent: oklch(0.225 0.011 265);
   --sidebar-accent-foreground: oklch(0.975 0.003 265);
   --sidebar-border: oklch(1 0 0 / 7%);
-  --sidebar-ring: oklch(0.79 0.16 78);
+  --sidebar-ring: oklch(0.853 0.163 169);
 }
 
 @layer base {
