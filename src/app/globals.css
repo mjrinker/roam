@@ -127,3 +127,95 @@
     scrollbar-width: thin;
   }
 }
+
+/* ── Splash screen (see components/shell/splash-screen.tsx) ───────────────
+   Timeline: letters fly in (0.15–1.1s) → sheen sweeps across (1.1–1.9s) →
+   the whole overlay fades and drifts away (2.2–2.8s), ending visibility:hidden
+   so it can never block the page even if scripts fail. */
+.splash {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: oklch(0.13 0.008 265);
+  animation: splash-out 0.6s cubic-bezier(0.4, 0, 0.2, 1) 2.2s forwards;
+}
+html[data-splash="skip"] .splash {
+  display: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  .splash {
+    display: none;
+  }
+}
+.splash-glow {
+  position: absolute;
+  width: min(120vw, 900px);
+  aspect-ratio: 1;
+  border-radius: 50%;
+  background: radial-gradient(closest-side, oklch(0.853 0.163 169 / 0.22), transparent);
+  opacity: 0;
+  animation: splash-glow 2.4s ease-out 0.2s forwards;
+}
+.splash-logo {
+  position: relative;
+  width: min(72vw, 560px);
+  height: auto;
+  overflow: visible;
+  animation: splash-logo-out 0.6s cubic-bezier(0.4, 0, 0.2, 1) 2.2s forwards;
+}
+.splash-letter {
+  transform-box: fill-box;
+  transform-origin: center;
+  opacity: 0;
+  animation: splash-letter 0.75s cubic-bezier(0.22, 1.2, 0.36, 1) calc(0.15s + var(--i) * 0.13s) forwards;
+}
+.splash-sheen {
+  transform: skewX(-20deg);
+  animation: splash-sheen 0.85s ease-in-out 1.1s forwards;
+}
+@keyframes splash-letter {
+  from {
+    opacity: 0;
+    transform: var(--from);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes splash-sheen {
+  from {
+    transform: translateX(0) skewX(-20deg);
+  }
+  to {
+    transform: translateX(2600px) skewX(-20deg);
+  }
+}
+@keyframes splash-glow {
+  0% {
+    opacity: 0;
+    transform: scale(0.6);
+  }
+  50% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0.7;
+    transform: scale(1.1);
+  }
+}
+@keyframes splash-logo-out {
+  to {
+    transform: scale(1.08);
+  }
+}
+@keyframes splash-out {
+  to {
+    opacity: 0;
+    visibility: hidden;
+    pointer-events: none;
+  }
+}
