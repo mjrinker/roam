@@ -3,7 +3,7 @@ import { ArrowRight, TriangleAlert } from "lucide-react";
 import { requireProfile } from "@/lib/auth/guards";
 import { listServerMemberships } from "@/lib/auth/servers";
 import { CreateServerForm } from "@/components/servers/create-server-form";
-import { BrandMark, BrandWordmark } from "@/components/shell/brand";
+import { BrandLogo } from "@/components/shell/brand";
 import { ServerTile } from "@/components/nav/server-switcher";
 import { SignOutButton } from "@/components/nav/sign-out-button";
 
@@ -25,14 +25,11 @@ export default async function ServersPage({
     <div className="relative flex flex-1 flex-col overflow-hidden">
       <div
         aria-hidden="true"
-        className="pointer-events-none absolute inset-0 -z-10 bg-[radial-gradient(55%_40%_at_50%_0%,oklch(0.79_0.16_78/0.14),transparent)]"
+        className="pointer-events-none absolute inset-0 -z-10 bg-[radial-gradient(55%_40%_at_50%_0%,oklch(0.853_0.163_169/0.14),transparent)]"
       />
 
       <header className="flex items-center justify-between px-5 py-5 sm:px-10">
-        <div className="flex items-center gap-2.5">
-          <BrandMark />
-          <BrandWordmark />
-        </div>
+        <BrandLogo variant="muted" className="h-5" />
         <div className="flex items-center gap-2 text-sm text-muted-foreground">
           <span className="hidden sm:inline">{profile.email}</span>
           <SignOutButton />

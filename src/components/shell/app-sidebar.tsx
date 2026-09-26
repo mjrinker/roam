@@ -5,7 +5,7 @@ import { usePathname } from "next/navigation";
 import { Clapperboard, Film, House, Settings, Tv, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { ServerSwitcher } from "@/components/nav/server-switcher";
-import { BrandMark, BrandWordmark } from "@/components/shell/brand";
+import { BrandLogo } from "@/components/shell/brand";
 import { useShell } from "@/components/shell/shell-context";
 import type { ServerMembershipSummary } from "@/lib/auth/servers";
 
@@ -90,9 +90,8 @@ export function AppSidebar({
         )}
       >
         <div className="flex items-center justify-between px-1">
-          <Link href={home} onClick={close} className="flex items-center gap-2.5">
-            <BrandMark />
-            <BrandWordmark />
+          <Link href={home} onClick={close} aria-label="Roam home" className="flex items-center">
+            <BrandLogo variant="teal" className="h-5" />
           </Link>
           <button
             type="button"

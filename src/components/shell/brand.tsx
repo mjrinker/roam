@@ -1,24 +1,51 @@
+import { useId } from "react";
 import { cn } from "@/lib/utils";
 
-/** The Roam mark: a teal rounded tile with a stylised play-triangle orbiting ring. */
-export function BrandMark({ className }: { className?: string }) {
-  return (
-    <span
-      className={cn(
-        "relative inline-flex size-8 items-center justify-center rounded-[10px] bg-gradient-to-br from-[oklch(0.9_0.15_170)] to-[oklch(0.75_0.15_185)] shadow-[0_4px_18px_-4px_oklch(0.853_0.163_169/0.55)]",
-        className
-      )}
-      aria-hidden="true"
-    >
-      <svg viewBox="0 0 24 24" className="size-[55%] text-[oklch(0.2_0.045_175)]" fill="currentColor">
-        <path d="M8 5.5v13a1 1 0 0 0 1.5.86l10.4-6.5a1 1 0 0 0 0-1.72L9.5 4.64A1 1 0 0 0 8 5.5Z" />
-      </svg>
-    </span>
-  );
-}
+const LOGO_PATH =
+  "M139 505H330C390 505 435 562 435 632C435 700 388 755 328 759L483 938H139Z M484 721.5a216 216 0 1 0 432 0a216 216 0 1 0-432 0Z M1153 505L1400 938H907Z M1450 505L1665 721L1881 505V938H1450Z";
 
-export function BrandWordmark({ className }: { className?: string }) {
+const VARIANT_CLASS = {
+  gradient: "",
+  teal: "text-primary",
+  muted: "text-muted-foreground",
+} as const;
+
+/** The ROAM wordmark. Use "gradient" where it's large, "teal" or "muted" where it's small. */
+export function BrandLogo({
+  variant = "teal",
+  className,
+}: {
+  variant?: keyof typeof VARIANT_CLASS;
+  className?: string;
+}) {
+  const gradientId = useId();
   return (
-    <span className={cn("text-lg font-semibold tracking-tight", className)}>Roam</span>
+    <svg
+      viewBox="139 505 1742 433"
+      role="img"
+      aria-label="Roam"
+      className={cn("h-6 w-auto shrink-0", VARIANT_CLASS[variant], className)}
+    >
+      {variant === "gradient" && (
+        <defs>
+          <linearGradient
+            id={gradientId}
+            gradientUnits="userSpaceOnUse"
+            x1="139"
+            y1="505"
+            x2="1881"
+            y2="938"
+          >
+            <stop offset="0" stopColor="#8bf9e0" />
+            <stop offset="0.5" stopColor="#2ef0bc" />
+            <stop offset="1" stopColor="#1fb5cc" />
+          </linearGradient>
+        </defs>
+      )}
+      <path
+        fill={variant === "gradient" ? `url(#${gradientId})` : "currentColor"}
+        d={LOGO_PATH}
+      />
+    </svg>
   );
 }

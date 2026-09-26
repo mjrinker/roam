@@ -60,7 +60,7 @@ export function HeroBanner({ hero }: { hero: HeroBannerData }) {
         <div className="mt-2 flex flex-wrap items-center gap-3">
           <Button
             render={<Link href={hero.primaryHref} />}
-            className="h-11 gap-2 rounded-xl px-6 text-[15px] font-semibold shadow-[0_8px_30px_-8px_oklch(0.79_0.16_78/0.7)]"
+            className="h-11 gap-2 rounded-xl px-6 text-[15px] font-semibold shadow-[0_8px_30px_-8px_oklch(0.853_0.163_169/0.7)]"
           >
             <Play className="size-4" fill="currentColor" />
             {hero.primaryLabel}

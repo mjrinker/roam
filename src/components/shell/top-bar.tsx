@@ -1,7 +1,7 @@
 "use client";
 
 import { Menu } from "lucide-react";
-import { BrandMark } from "@/components/shell/brand";
+import { BrandLogo } from "@/components/shell/brand";
 import { SearchBox } from "@/components/shell/search-box";
 import { UserMenu } from "@/components/shell/user-menu";
 import { useShell } from "@/components/shell/shell-context";
@@ -27,7 +27,7 @@ export function TopBar({
       >
         <Menu className="size-5" />
       </button>
-      <BrandMark className="size-7 md:hidden" />
+      <BrandLogo variant="teal" className="h-4 md:hidden" />
 
       <div className="flex flex-1 justify-center md:justify-start">
         <SearchBox serverId={serverId} />

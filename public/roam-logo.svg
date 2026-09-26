@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="139 505 1742 433" role="img" aria-label="Roam">
+  <defs>
+    <linearGradient id="g" gradientUnits="userSpaceOnUse" x1="139" y1="505" x2="1881" y2="938">
+      <stop offset="0" stop-color="#8bf9e0"/>
+      <stop offset="0.5" stop-color="#2ef0bc"/>
+      <stop offset="1" stop-color="#1fb5cc"/>
+    </linearGradient>
+  </defs>
+  <path fill="url(#g)" d="M139 505H330C390 505 435 562 435 632C435 700 388 755 328 759L483 938H139Z M484 721.5a216 216 0 1 0 432 0a216 216 0 1 0-432 0Z M1153 505L1400 938H907Z M1450 505L1665 721L1881 505V938H1450Z"/>
+</svg>

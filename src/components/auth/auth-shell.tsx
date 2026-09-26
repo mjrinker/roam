@@ -1,4 +1,4 @@
-import { BrandMark, BrandWordmark } from "@/components/shell/brand";
+import { BrandLogo } from "@/components/shell/brand";
 
 /** Cinematic full-screen backdrop + centered glass card shared by sign-in and invite pages. */
 export function AuthShell({
@@ -16,7 +16,7 @@ export function AuthShell({
     <main className="relative flex flex-1 flex-col items-center justify-center overflow-hidden px-4 py-16">
       <div
         aria-hidden="true"
-        className="pointer-events-none absolute inset-0 -z-10 bg-[radial-gradient(60%_50%_at_50%_0%,oklch(0.79_0.16_78/0.18),transparent),radial-gradient(45%_40%_at_100%_100%,oklch(0.55_0.15_290/0.14),transparent),radial-gradient(40%_35%_at_0%_90%,oklch(0.6_0.12_220/0.1),transparent)]"
+        className="pointer-events-none absolute inset-0 -z-10 bg-[radial-gradient(60%_50%_at_50%_0%,oklch(0.853_0.163_169/0.18),transparent),radial-gradient(45%_40%_at_100%_100%,oklch(0.55_0.15_290/0.14),transparent),radial-gradient(40%_35%_at_0%_90%,oklch(0.6_0.12_220/0.1),transparent)]"
       />
       <div
         aria-hidden="true"
@@ -24,10 +24,7 @@ export function AuthShell({
       />
 
       <div className="flex w-full max-w-md flex-col items-center gap-8">
-        <div className="flex items-center gap-3">
-          <BrandMark className="size-11 rounded-[14px]" />
-          <BrandWordmark className="text-3xl" />
-        </div>
+        <BrandLogo variant="gradient" className="h-14" />
 
         <div className="w-full rounded-3xl bg-card/70 p-7 shadow-[0_30px_80px_-20px_rgba(0,0,0,0.8)] ring-1 ring-white/10 backdrop-blur-xl sm:p-9">
           <div className="mb-6 text-center">

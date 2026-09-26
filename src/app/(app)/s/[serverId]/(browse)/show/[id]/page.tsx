@@ -140,7 +140,7 @@ export default async function ShowDetailPage({
         {nextRow?.ready && nextLabel && (
           <Button
             render={<Link href={`/s/${serverId}/watch/episode/${nextRow.id}`} />}
-            className="h-12 gap-2.5 rounded-xl px-8 text-base font-semibold shadow-[0_10px_34px_-8px_oklch(0.79_0.16_78/0.7)]"
+            className="h-12 gap-2.5 rounded-xl px-8 text-base font-semibold shadow-[0_10px_34px_-8px_oklch(0.853_0.163_169/0.7)]"
           >
             <Play className="size-5" fill="currentColor" />
             {nextLabel}
