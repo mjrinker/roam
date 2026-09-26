@@ -23,6 +23,9 @@ export interface StorageProvider {
   /** Lists the direct children of a folder (files and subfolders), fully paginated. */
   listFolder(folderId: string): Promise<StorageEntry[]>;
 
+  /** Fetches a single folder's current metadata (e.g. to pick up a rename). Null if it no longer exists. */
+  getFolder(folderId: string): Promise<StorageEntry | null>;
+
   /** Mints a short-lived direct-download URL for a single file. */
   getStreamingUrl(fileId: string): Promise<StreamingUrl>;
 

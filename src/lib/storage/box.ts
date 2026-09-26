@@ -1,4 +1,4 @@
-import { BoxClient, BoxDeveloperTokenAuth } from "box-node-sdk";
+import { BoxApiError, BoxClient, BoxDeveloperTokenAuth } from "box-node-sdk";
 import type { StorageEntry, StorageProvider, StreamingUrl } from "./provider";
 import { withBoxClient } from "./box-token-storage";
 
@@ -49,6 +49,21 @@ async function listFolder(serverId: string, folderId: string): Promise<StorageEn
     }
 
     return entries;
+  });
+}
+
+/** Used by a single-title resync to re-derive the current name/tags directly from Box, so a rename or an added/edited {tmdb-...}/{edition-...} tag is picked up without a full library rescan. */
+async function getFolder(serverId: string, folderId: string): Promise<StorageEntry | null> {
+  return withBoxClient(serverId, async (client) => {
+    try {
+      const folder = await client.folders.getFolderById(folderId, {
+        queryParams: { fields: ["name"] },
+      });
+      return { id: folder.id, name: folder.name ?? folder.id, kind: "folder" };
+    } catch (err) {
+      if (err instanceof BoxApiError && err.responseInfo?.statusCode === 404) return null;
+      throw err;
+    }
   });
 }
 
@@ -109,6 +124,7 @@ async function fetchByteRange(
 export function createBoxProviderForServer(serverId: string): StorageProvider {
   return {
     listFolder: (folderId) => listFolder(serverId, folderId),
+    getFolder: (folderId) => getFolder(serverId, folderId),
     getStreamingUrl: (fileId) => getStreamingUrl(serverId, fileId),
     fetchByteRange: (fileId, startByte, endByte) =>
       fetchByteRange(serverId, fileId, startByte, endByte),

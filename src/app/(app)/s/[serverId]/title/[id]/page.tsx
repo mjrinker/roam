@@ -7,6 +7,7 @@ import { libraries, mediaFiles, titles, watchState } from "@/lib/db/schema";
 import { requireServerMember } from "@/lib/auth/guards";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { TitleResyncButton } from "@/components/admin/title-resync-button";
 
 function formatRuntime(totalSeconds: number | null) {
   if (!totalSeconds) return null;
@@ -19,7 +20,7 @@ export default async function TitleDetailPage({
   params,
 }: PageProps<"/s/[serverId]/title/[id]">) {
   const { serverId, id } = await params;
-  const { profile } = await requireServerMember(serverId);
+  const { profile, role } = await requireServerMember(serverId);
 
   // Join through libraries so a title id from a DIFFERENT server 404s here,
   // rather than trusting the bare id from the URL.
@@ -131,6 +132,7 @@ export default async function TitleDetailPage({
                 Still processing…
               </Button>
             )}
+            {role === "admin" && <TitleResyncButton titleId={title.id} titleName={title.name} />}
           </div>
         </div>
       </div>

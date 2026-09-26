@@ -1,8 +1,9 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
+import type { LibraryStatusDto } from "@/app/api/libraries/[id]/status/route";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -35,6 +36,38 @@ export interface LibraryRow {
 }
 
 const ERRORS_SHOWN = 10;
+const STATUS_POLL_MS = 3000;
+
+function ScanProgress({ status }: { status: LibraryStatusDto }) {
+  const { pending, ok, failed } = status.probeCounts;
+  const total = pending + ok + failed;
+  if (total === 0 && !status.scanning) return null;
+  const done = ok + failed;
+  const pct = total > 0 ? Math.round((done / total) * 100) : 0;
+
+  return (
+    <div className="mt-3 flex flex-col gap-1.5">
+      <div className="flex items-center justify-between text-xs text-muted-foreground">
+        <span>
+          {status.scanning ? "Scanning… " : ""}
+          {status.titleCount.toLocaleString()} title{status.titleCount === 1 ? "" : "s"}
+          {" · "}
+          {done.toLocaleString()} / {total.toLocaleString()} files processed
+          {failed > 0 ? ` (${failed} failed)` : ""}
+        </span>
+        <span>{pct}%</span>
+      </div>
+      <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted">
+        <div
+          className={`h-full rounded-full bg-primary transition-all duration-500 ${
+            status.scanning ? "animate-pulse" : ""
+          }`}
+          style={{ width: `${pct}%` }}
+        />
+      </div>
+    </div>
+  );
+}
 
 function ScanErrors({ errors }: { errors: string[] }) {
   const [expanded, setExpanded] = useState(false);
@@ -85,6 +118,45 @@ export function LibraryManager({
   );
   const [isPending, startTransition] = useTransition();
   const [creating, setCreating] = useState(false);
+  const [statusById, setStatusById] = useState<Record<string, LibraryStatusDto>>({});
+
+  // Poll each library's live status. The Rescan button's own request only
+  // resolves once the whole scan finishes, but the DB is updated as the
+  // scan goes — so polling separately shows real progress during that
+  // wait, and also picks up scans the admin didn't click (auto-resume,
+  // cron) that happen to be running when the page is open.
+  const libraryIds = libraries.map((l) => l.id).join(",");
+  useEffect(() => {
+    const ids = libraryIds ? libraryIds.split(",") : [];
+    let cancelled = false;
+
+    async function poll() {
+      const results = await Promise.all(
+        ids.map(async (id) => {
+          try {
+            const res = await fetch(`/api/libraries/${id}/status`);
+            if (!res.ok) return null;
+            return [id, (await res.json()) as LibraryStatusDto] as const;
+          } catch {
+            return null;
+          }
+        })
+      );
+      if (cancelled) return;
+      setStatusById((prev) => {
+        const next = { ...prev };
+        for (const r of results) if (r) next[r[0]] = r[1];
+        return next;
+      });
+    }
+
+    poll();
+    const interval = setInterval(poll, STATUS_POLL_MS);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, [libraryIds]);
 
   async function createLibrary(e: React.FormEvent) {
     e.preventDefault();
@@ -234,12 +306,13 @@ export function LibraryManager({
                 <Button
                   variant="secondary"
                   size="sm"
-                  disabled={scanningId === lib.id || !boxConnected}
+                  disabled={scanningId === lib.id || statusById[lib.id]?.scanning || !boxConnected}
                   onClick={() => rescan(lib.id)}
                 >
-                  {scanningId === lib.id ? "Scanning…" : "Rescan"}
+                  {scanningId === lib.id || statusById[lib.id]?.scanning ? "Scanning…" : "Rescan"}
                 </Button>
               </div>
+              {statusById[lib.id] && <ScanProgress status={statusById[lib.id]} />}
               {lib.lastScan && <ScanErrors errors={lib.lastScan.errors} />}
             </CardContent>
           </Card>

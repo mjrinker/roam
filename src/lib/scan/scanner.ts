@@ -514,20 +514,14 @@ async function upsertMediaSegments(
 // ── Duration probing ─────────────────────────────────────────────────────
 
 /**
- * Scoped to THIS library only — not every pending media_file in the whole
- * database. Before multi-tenancy this was harmless (only one library ever
- * existed); now, an unscoped query here would try to probe another
- * server's files using the current server's Box connection, which would
- * simply fail (wrong Box account), pollute this scan's errors with
- * irrelevant failures, and never actually get the other server's files
- * probed (since a scan only ever passes the CURRENT library's provider).
+ * Expands a library to every title/episode id under it — the unit that
+ * media_files rows are actually owned by (ownerKind/ownerId). Shared by
+ * the library-wide prober and the admin status endpoint (which reports
+ * live probe-completion counts for the progress indicator).
  */
-async function probePendingDurations(
-  provider: StorageProvider,
-  libraryId: string,
-  deadline: number,
-  errors: string[]
-): Promise<boolean> {
+export async function resolveLibraryOwnerIds(
+  libraryId: string
+): Promise<{ titleIds: string[]; episodeIds: string[] }> {
   const libraryTitles = await db
     .select({ id: titles.id })
     .from(titles)
@@ -543,6 +537,80 @@ async function probePendingDurations(
     ? await db.select({ id: episodes.id }).from(episodes).where(inArray(episodes.seasonId, seasonIds))
     : [];
   const episodeIds = libraryEpisodes.map((e) => e.id);
+
+  return { titleIds, episodeIds };
+}
+
+/**
+ * Probes each file's duration, updating probeStatus as it goes. Shared by
+ * the library-wide prober and the single-title resync. Stops early (and
+ * reports incomplete) if the deadline is hit mid-list, same reasoning as
+ * the folder-sync loop in scanLibrary.
+ */
+async function probeFiles(
+  provider: StorageProvider,
+  files: (typeof mediaFiles.$inferSelect)[],
+  deadline: number,
+  errors: string[]
+): Promise<boolean> {
+  let incomplete = false;
+  for (const file of files) {
+    if (Date.now() > deadline) {
+      incomplete = true;
+      break;
+    }
+    if (!file.sizeBytes) continue;
+    try {
+      const durationSeconds = await probeMp4DurationSeconds(
+        (start, end) => provider.fetchByteRange(file.boxFileId, start, end),
+        file.sizeBytes
+      );
+      await db
+        .update(mediaFiles)
+        .set({
+          durationSeconds: Math.round(durationSeconds),
+          probeStatus: "ok",
+        })
+        .where(eq(mediaFiles.id, file.id));
+    } catch (err) {
+      if (err instanceof BoxReauthRequiredError) throw err;
+      errors.push(`probe ${file.filename}: ${(err as Error).message}`);
+      await db
+        .update(mediaFiles)
+        .set({ probeStatus: "failed" })
+        .where(eq(mediaFiles.id, file.id));
+    }
+  }
+  return incomplete;
+}
+
+/** Recomputes a movie's total runtime from its segments, once every segment has a probed duration. */
+async function rollupMovieRuntime(titleId: string) {
+  const segments = await db
+    .select({ durationSeconds: mediaFiles.durationSeconds })
+    .from(mediaFiles)
+    .where(and(eq(mediaFiles.ownerKind, "title"), eq(mediaFiles.ownerId, titleId)));
+  if (segments.length === 0 || segments.some((s) => s.durationSeconds == null)) return;
+  const total = segments.reduce((sum, s) => sum + (s.durationSeconds ?? 0), 0);
+  await db.update(titles).set({ runtimeSeconds: total }).where(eq(titles.id, titleId));
+}
+
+/**
+ * Scoped to THIS library only — not every pending media_file in the whole
+ * database. Before multi-tenancy this was harmless (only one library ever
+ * existed); now, an unscoped query here would try to probe another
+ * server's files using the current server's Box connection, which would
+ * simply fail (wrong Box account), pollute this scan's errors with
+ * irrelevant failures, and never actually get the other server's files
+ * probed (since a scan only ever passes the CURRENT library's provider).
+ */
+async function probePendingDurations(
+  provider: StorageProvider,
+  libraryId: string,
+  deadline: number,
+  errors: string[]
+): Promise<boolean> {
+  const { titleIds, episodeIds } = await resolveLibraryOwnerIds(libraryId);
 
   const [pendingTitleFiles, pendingEpisodeFiles] = await Promise.all([
     titleIds.length
@@ -571,35 +639,7 @@ async function probePendingDurations(
       : Promise.resolve([]),
   ]);
   const pending = [...pendingTitleFiles, ...pendingEpisodeFiles];
-  let incomplete = false;
-
-  for (const file of pending) {
-    if (Date.now() > deadline) {
-      incomplete = true;
-      break;
-    }
-    if (!file.sizeBytes) continue;
-    try {
-      const durationSeconds = await probeMp4DurationSeconds(
-        (start, end) => provider.fetchByteRange(file.boxFileId, start, end),
-        file.sizeBytes
-      );
-      await db
-        .update(mediaFiles)
-        .set({
-          durationSeconds: Math.round(durationSeconds),
-          probeStatus: "ok",
-        })
-        .where(eq(mediaFiles.id, file.id));
-    } catch (err) {
-      if (err instanceof BoxReauthRequiredError) throw err;
-      errors.push(`probe ${file.filename}: ${(err as Error).message}`);
-      await db
-        .update(mediaFiles)
-        .set({ probeStatus: "failed" })
-        .where(eq(mediaFiles.id, file.id));
-    }
-  }
+  const incomplete = await probeFiles(provider, pending, deadline, errors);
 
   // Roll up movie runtimes from their segments' probed durations — this
   // library's movies only.
@@ -610,14 +650,102 @@ async function probePendingDurations(
         .where(and(inArray(titles.id, titleIds), eq(titles.kind, "movie")))
     : [];
   for (const t of movieTitles) {
-    const segments = await db
-      .select({ durationSeconds: mediaFiles.durationSeconds })
-      .from(mediaFiles)
-      .where(and(eq(mediaFiles.ownerKind, "title"), eq(mediaFiles.ownerId, t.id)));
-    if (segments.length === 0 || segments.some((s) => s.durationSeconds == null)) continue;
-    const total = segments.reduce((sum, s) => sum + (s.durationSeconds ?? 0), 0);
-    await db.update(titles).set({ runtimeSeconds: total }).where(eq(titles.id, t.id));
+    await rollupMovieRuntime(t.id);
   }
 
   return incomplete;
+}
+
+const SINGLE_TITLE_TIME_BUDGET_MS = 40_000;
+
+/**
+ * Resyncs one title's Box folder — for when a file was added/fixed on just
+ * this one title and rescanning the whole (possibly huge) library isn't
+ * worth the wait. Re-lists the folder's current contents (picking up
+ * added/removed/renamed files and any {tmdb-...}/{edition-...} tag
+ * changes via a fresh Box lookup of the folder's own name) and probes any
+ * of its files still pending.
+ */
+export async function syncSingleTitle(titleId: string): Promise<{ errors: string[] }> {
+  const startedAt = Date.now();
+  const [title] = await db.select().from(titles).where(eq(titles.id, titleId)).limit(1);
+  if (!title) throw new Error(`Title ${titleId} not found`);
+  const [library] = await db
+    .select()
+    .from(libraries)
+    .where(eq(libraries.id, title.libraryId))
+    .limit(1);
+  if (!library) throw new Error(`Library ${title.libraryId} not found`);
+
+  const provider = createBoxProviderForServer(library.serverId);
+  const errors: string[] = [];
+
+  try {
+    const folderInfo = await provider.getFolder(title.boxFolderId);
+    if (!folderInfo) {
+      errors.push("This title's folder no longer exists in Box — it may have been moved or deleted.");
+      return { errors };
+    }
+
+    if (title.kind === "movie") {
+      await syncMovieFolder(provider, library.id, folderInfo);
+    } else {
+      await syncShowFolder(provider, library.id, folderInfo);
+    }
+
+    const deadline = startedAt + SINGLE_TITLE_TIME_BUDGET_MS;
+    await probeTitlePendingDurations(provider, titleId, title.kind, deadline, errors);
+  } catch (err) {
+    if (err instanceof BoxReauthRequiredError) {
+      errors.push("This server's Box connection needs to be reconnected by an admin.");
+    } else {
+      errors.push((err as Error).message);
+    }
+  }
+
+  return { errors };
+}
+
+async function probeTitlePendingDurations(
+  provider: StorageProvider,
+  titleId: string,
+  kind: "movie" | "show",
+  deadline: number,
+  errors: string[]
+) {
+  let pending: (typeof mediaFiles.$inferSelect)[];
+  if (kind === "movie") {
+    pending = await db
+      .select()
+      .from(mediaFiles)
+      .where(
+        and(
+          eq(mediaFiles.probeStatus, "pending"),
+          eq(mediaFiles.ownerKind, "title"),
+          eq(mediaFiles.ownerId, titleId)
+        )
+      );
+  } else {
+    const titleSeasons = await db.select({ id: seasons.id }).from(seasons).where(eq(seasons.titleId, titleId));
+    const seasonIds = titleSeasons.map((s) => s.id);
+    const titleEpisodes = seasonIds.length
+      ? await db.select({ id: episodes.id }).from(episodes).where(inArray(episodes.seasonId, seasonIds))
+      : [];
+    const episodeIds = titleEpisodes.map((e) => e.id);
+    pending = episodeIds.length
+      ? await db
+          .select()
+          .from(mediaFiles)
+          .where(
+            and(
+              eq(mediaFiles.probeStatus, "pending"),
+              eq(mediaFiles.ownerKind, "episode"),
+              inArray(mediaFiles.ownerId, episodeIds)
+            )
+          )
+      : [];
+  }
+
+  await probeFiles(provider, pending, deadline, errors);
+  if (kind === "movie") await rollupMovieRuntime(titleId);
 }

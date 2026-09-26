@@ -8,6 +8,7 @@ import { requireServerMember } from "@/lib/auth/guards";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
+import { TitleResyncButton } from "@/components/admin/title-resync-button";
 
 function formatRuntime(totalSeconds: number | null) {
   if (!totalSeconds) return null;
@@ -19,7 +20,7 @@ export default async function ShowDetailPage({
   params,
 }: PageProps<"/s/[serverId]/show/[id]">) {
   const { serverId, id } = await params;
-  const { profile } = await requireServerMember(serverId);
+  const { profile, role } = await requireServerMember(serverId);
 
   const [show] = await db
     .select({ show: titles })
@@ -136,6 +137,11 @@ export default async function ShowDetailPage({
           </div>
           {show.overview && (
             <p className="text-sm leading-relaxed text-muted-foreground">{show.overview}</p>
+          )}
+          {role === "admin" && (
+            <div>
+              <TitleResyncButton titleId={show.id} titleName={show.name} />
+            </div>
           )}
         </div>
       </div>
