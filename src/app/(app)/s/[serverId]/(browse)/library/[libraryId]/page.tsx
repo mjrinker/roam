@@ -15,7 +15,7 @@ export default async function LibraryDetailPage({
   params,
 }: PageProps<"/s/[serverId]/library/[libraryId]">) {
   const { serverId, libraryId } = await params;
-  const { profile, role } = await requireServerMember(serverId);
+  const { viewer, role } = await requireServerMember(serverId);
 
   // Confirm the library actually belongs to this server before showing
   // anything — don't trust the bare id from the URL.
@@ -45,7 +45,7 @@ export default async function LibraryDetailPage({
           .from(watchState)
           .where(
             and(
-              eq(watchState.profileId, profile.id),
+              eq(watchState.viewerId, viewer.id),
               eq(watchState.ownerKind, "title"),
               inArray(watchState.ownerId, movieIds)
             )

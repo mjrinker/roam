@@ -8,6 +8,7 @@ export function SignOutButton() {
   const router = useRouter();
 
   async function handleSignOut() {
+    await fetch("/api/viewers/deselect", { method: "POST" }).catch(() => {});
     const supabase = createSupabaseBrowserClient();
     await supabase.auth.signOut();
     router.push("/sign-in");

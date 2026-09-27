@@ -1,10 +1,11 @@
 import Link from "next/link";
 import { ArrowRight, TriangleAlert } from "lucide-react";
-import { requireProfile } from "@/lib/auth/guards";
+import { requireViewer } from "@/lib/auth/guards";
 import { listServerMemberships } from "@/lib/auth/servers";
 import { CreateServerForm } from "@/components/servers/create-server-form";
 import { BrandLogo } from "@/components/shell/brand";
 import { ServerTile } from "@/components/nav/server-switcher";
+import { ViewerAvatar } from "@/components/profiles/viewer-avatar";
 import { SignOutButton } from "@/components/nav/sign-out-button";
 
 const INVITE_ERROR_MESSAGES: Record<string, string> = {
@@ -15,7 +16,7 @@ const INVITE_ERROR_MESSAGES: Record<string, string> = {
 export default async function ServersPage({
   searchParams,
 }: PageProps<"/servers">) {
-  const profile = await requireProfile();
+  const { account: profile, viewer } = await requireViewer();
   const params = await searchParams;
   const errorParam = typeof params.error === "string" ? params.error : null;
 
@@ -31,6 +32,14 @@ export default async function ServersPage({
       <header className="flex items-center justify-between px-5 py-5 sm:px-10">
         <BrandLogo variant="muted" className="h-5" />
         <div className="flex items-center gap-2 text-sm text-muted-foreground">
+          <Link
+            href="/profiles"
+            className="flex items-center gap-2 rounded-full py-1 pr-3 pl-1 transition-colors hover:bg-white/10 hover:text-foreground"
+            title="Switch profile"
+          >
+            <ViewerAvatar avatarKey={viewer.avatarKey} size="xs" />
+            <span className="max-w-32 truncate">{viewer.name}</span>
+          </Link>
           <span className="hidden sm:inline">{profile.email}</span>
           <SignOutButton />
         </div>

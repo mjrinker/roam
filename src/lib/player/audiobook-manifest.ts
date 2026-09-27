@@ -19,7 +19,7 @@ const REAUTH_ERROR = "This server's Box connection needs to be reconnected by an
  */
 export async function buildAudiobookManifest(
   titleId: string,
-  profileId: string,
+  viewerId: string,
   serverId: string
 ): Promise<AudiobookResult<AudiobookManifest>> {
   const [title] = await db.select().from(titles).where(eq(titles.id, titleId)).limit(1);
@@ -51,7 +51,7 @@ export async function buildAudiobookManifest(
     .from(watchState)
     .where(
       and(
-        eq(watchState.profileId, profileId),
+        eq(watchState.viewerId, viewerId),
         eq(watchState.ownerKind, "title"),
         eq(watchState.ownerId, titleId)
       )

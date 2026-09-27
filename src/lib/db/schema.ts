@@ -61,6 +61,43 @@ export const profiles = pgTable("profiles", {
     .defaultNow(),
 });
 
+// ── viewers ──────────────────────────────────────────────────────────────
+// A person using an account: Netflix-style "profiles" (UI copy says profile;
+// the table is `viewers` because `profiles` above is the ACCOUNT). Per-person
+// data (watch history, playback speed) and restrictions live here. Each
+// account's default viewer reuses the account's own id, which makes the
+// original backfill and any later re-creation idempotent.
+
+export const viewers = pgTable(
+  "viewers",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    accountId: uuid("account_id")
+      .notNull()
+      .references(() => profiles.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    // Key into the built-in avatar gallery (lib/viewers/avatars).
+    avatarKey: text("avatar_key").notNull().default("teal-user"),
+    // BCP-47 tag. Its region also picks the rating country.
+    locale: text("locale").notNull().default("en-US"),
+    // Highest minimum age this viewer may watch; null = no limit.
+    maxAge: integer("max_age"),
+    allowUnrated: boolean("allow_unrated").notNull().default(false),
+    // scrypt hash of a 4-digit PIN; null = no PIN. Changing it bumps
+    // pinVersion, which invalidates existing selection cookies.
+    pinHash: text("pin_hash"),
+    pinVersion: integer("pin_version").notNull().default(0),
+    playbackRate: real("playback_rate").notNull().default(1),
+    sortOrder: integer("sort_order").notNull().default(0),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [index("viewers_account_idx").on(t.accountId)]
+);
+
+export type Viewer = typeof viewers.$inferSelect;
+
 // ── servers ──────────────────────────────────────────────────────────────
 // A tenant. Owns exactly one Box OAuth connection (its own end-user's Box
 // account, not a shared service account). ownerId is onDelete: "restrict"
@@ -329,6 +366,9 @@ export const watchState = pgTable(
     profileId: uuid("profile_id")
       .notNull()
       .references(() => profiles.id, { onDelete: "cascade" }),
+    // The viewer this progress belongs to. Nullable only until the contract
+    // migration; profileId (the account) is then dropped.
+    viewerId: uuid("viewer_id").references(() => viewers.id, { onDelete: "cascade" }),
     ownerKind: ownerKindEnum("owner_kind").notNull(),
     ownerId: uuid("owner_id").notNull(),
     positionSeconds: integer("position_seconds").notNull().default(0),
@@ -341,6 +381,11 @@ export const watchState = pgTable(
   (t) => [
     uniqueIndex("watch_state_profile_owner_idx").on(
       t.profileId,
+      t.ownerKind,
+      t.ownerId
+    ),
+    uniqueIndex("watch_state_viewer_owner_idx").on(
+      t.viewerId,
       t.ownerKind,
       t.ownerId
     ),
@@ -450,6 +495,18 @@ export const watchStateRelations = relations(watchState, ({ one }) => ({
     fields: [watchState.profileId],
     references: [profiles.id],
   }),
+  viewer: one(viewers, {
+    fields: [watchState.viewerId],
+    references: [viewers.id],
+  }),
+}));
+
+export const viewersRelations = relations(viewers, ({ one, many }) => ({
+  account: one(profiles, {
+    fields: [viewers.accountId],
+    references: [profiles.id],
+  }),
+  watchState: many(watchState),
 }));
 
 export const invitesRelations = relations(invites, ({ one }) => ({

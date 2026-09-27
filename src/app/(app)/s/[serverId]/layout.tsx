@@ -18,7 +18,7 @@ export default async function ServerLayout({
   params,
 }: LayoutProps<"/s/[serverId]">) {
   const { serverId } = await params;
-  const { profile } = await requireServerMember(serverId);
+  const { viewer } = await requireServerMember(serverId);
 
   // Auto-resume any library whose last scan stopped early due to its time
   // budget — runs after the response is sent, so it never delays the page.
@@ -33,5 +33,5 @@ export default async function ServerLayout({
 
   // Mounted here (not in the browse group) so an audiobook keeps playing
   // across browse pages, and can be paused when a video starts.
-  return <AudioPlayerProvider initialRate={profile.playbackRate}>{children}</AudioPlayerProvider>;
+  return <AudioPlayerProvider initialRate={viewer.playbackRate} viewerId={viewer.id}>{children}</AudioPlayerProvider>;
 }

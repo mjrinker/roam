@@ -26,7 +26,7 @@ export async function GET(
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
-  const result = await buildPlayManifest(ownerKind, ownerId, member.profile.id, serverId);
+  const result = await buildPlayManifest(ownerKind, ownerId, member.viewer.id, serverId);
   if (!result.ok) {
     return NextResponse.json({ error: result.error }, { status: result.status });
   }

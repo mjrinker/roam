@@ -20,7 +20,7 @@ export type BuildManifestResult =
 export async function buildPlayManifest(
   ownerKind: PlayOwnerKind,
   ownerId: string,
-  profileId: string,
+  viewerId: string,
   serverId: string
 ): Promise<BuildManifestResult> {
   const segmentRows = await db
@@ -71,7 +71,7 @@ export async function buildPlayManifest(
     .from(watchState)
     .where(
       and(
-        eq(watchState.profileId, profileId),
+        eq(watchState.viewerId, viewerId),
         eq(watchState.ownerKind, ownerKind),
         eq(watchState.ownerId, ownerId)
       )

@@ -33,6 +33,7 @@
 -- app doesn't even use, not a substitute for those checks.
 
 alter table profiles enable row level security;
+alter table viewers enable row level security;
 alter table servers enable row level security;
 alter table server_members enable row level security;
 alter table libraries enable row level security;

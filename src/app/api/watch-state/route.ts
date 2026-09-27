@@ -41,6 +41,7 @@ export async function PATCH(request: Request) {
     .insert(watchState)
     .values({
       profileId: member.profile.id,
+      viewerId: member.viewer.id,
       ownerKind,
       ownerId,
       positionSeconds,
@@ -51,6 +52,7 @@ export async function PATCH(request: Request) {
     .onConflictDoUpdate({
       target: [watchState.profileId, watchState.ownerKind, watchState.ownerId],
       set: {
+        viewerId: member.viewer.id,
         positionSeconds,
         durationSeconds,
         finished: finished ?? false,
@@ -94,7 +96,7 @@ export async function GET(request: Request) {
     .from(watchState)
     .where(
       and(
-        eq(watchState.profileId, member.profile.id),
+        eq(watchState.viewerId, member.viewer.id),
         eq(watchState.ownerKind, parsed.data.ownerKind),
         eq(watchState.ownerId, parsed.data.ownerId)
       )

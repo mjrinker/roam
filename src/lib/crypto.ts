@@ -81,27 +81,33 @@ export function decrypt(packed: string): string {
  * `state` param (see lib/storage/box-oauth-state.ts). Never used for
  * AES — a distinct derived key for a distinct purpose.
  */
-function deriveStateKey(): Buffer {
+function deriveKey(info: string): Buffer {
   const derived = hkdfSync(
     "sha256",
     getKey(),
     Buffer.alloc(0), // no salt — the input key material is already a high-entropy secret
-    "box-oauth-state",
+    info,
     32
   );
   return Buffer.from(derived);
 }
 
-export function hmacState(payload: string): string {
-  return createHmac("sha256", deriveStateKey())
-    .update(payload)
-    .digest("base64url");
+/** HMAC-SHA256 (base64url) under a key derived for `info`, so each purpose gets its own key. */
+export function hmacSign(info: string, payload: string): string {
+  return createHmac("sha256", deriveKey(info)).update(payload).digest("base64url");
 }
 
-export function verifyHmacState(payload: string, signature: string): boolean {
-  const expected = hmacState(payload);
-  const expectedBuf = Buffer.from(expected);
+export function hmacVerify(info: string, payload: string, signature: string): boolean {
+  const expectedBuf = Buffer.from(hmacSign(info, payload));
   const actualBuf = Buffer.from(signature);
   if (expectedBuf.length !== actualBuf.length) return false;
   return timingSafeEqual(expectedBuf, actualBuf);
+}
+
+export function hmacState(payload: string): string {
+  return hmacSign("box-oauth-state", payload);
+}
+
+export function verifyHmacState(payload: string, signature: string): boolean {
+  return hmacVerify("box-oauth-state", payload, signature);
 }

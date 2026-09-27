@@ -34,7 +34,8 @@ const PRELOAD_NEXT_URL_SECONDS = 30; // mint the next part's URL this early
 const PROGRESS_SAVE_INTERVAL_MS = 15_000;
 const POSITION_STATE_INTERVAL_MS = 5_000;
 const MAX_RECOVERY_ATTEMPTS = 3;
-const RATE_STORAGE_KEY = "roam-playback-rate";
+// Per profile, so two people on one device don't share a speed.
+const rateStorageKey = (viewerId: string) => `roam-playback-rate:${viewerId}`;
 
 export type AudioBook = Omit<AudiobookManifest, "urls" | "resumeSeconds">;
 export type SleepTimer =
@@ -137,7 +138,8 @@ interface Engine {
 
 function createPlayer(
   setState: Dispatch<SetStateAction<AudioPlayerState>>,
-  initialRate: number
+  initialRate: number,
+  viewerId: string
 ): { actions: AudioPlayerActions; internals: EngineInternals } {
   const e: Engine = {
     book: null,
@@ -414,13 +416,13 @@ function createPlayer(
       patch({ rate: e.rate });
       updatePositionState();
       try {
-        localStorage.setItem(RATE_STORAGE_KEY, String(e.rate));
+        localStorage.setItem(rateStorageKey(viewerId), String(e.rate));
       } catch {
         // storage can be unavailable; the profile copy below still saves
       }
       if (e.rateSaveTimeout) clearTimeout(e.rateSaveTimeout);
       e.rateSaveTimeout = setTimeout(() => {
-        fetch("/api/profile/playback-rate", {
+        fetch("/api/viewers/current/playback-rate", {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ rate: e.rate }),
@@ -470,10 +472,13 @@ function createPlayer(
 
 export function AudioPlayerProvider({
   initialRate,
+  viewerId,
   children,
 }: {
-  /** The user's saved speed (from their profile); authoritative on load. */
+  /** The selected profile's saved speed; authoritative on load. */
   initialRate?: number;
+  /** Keys this device's cached speed to the profile. */
+  viewerId: string;
   children: ReactNode;
 }) {
   const startRate = clampRate(initialRate ?? 1);
@@ -490,7 +495,7 @@ export function AudioPlayerProvider({
     chapterIndex: -1,
   });
 
-  const [{ actions, internals }] = useState(() => createPlayer(setState, startRate));
+  const [{ actions, internals }] = useState(() => createPlayer(setState, startRate, viewerId));
   const attachAudio = useCallback((node: MediaEl | null) => internals.attach(node), [internals]);
 
   // Element events and page lifecycle.
@@ -613,12 +618,12 @@ export function AudioPlayerProvider({
   useEffect(() => {
     if (initialRate !== undefined) return;
     try {
-      const saved = Number(localStorage.getItem(RATE_STORAGE_KEY));
+      const saved = Number(localStorage.getItem(rateStorageKey(viewerId)));
       if (saved) actions.setRate(saved);
     } catch {
       // ignore
     }
-  }, [initialRate, actions]);
+  }, [initialRate, actions, viewerId]);
 
   // Lock-screen / headset / notification controls.
   const book = state.book;

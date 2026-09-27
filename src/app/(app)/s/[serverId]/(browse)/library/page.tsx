@@ -19,7 +19,7 @@ export default async function LibraryHomePage({
   params,
 }: PageProps<"/s/[serverId]/library">) {
   const { serverId } = await params;
-  const { profile, role } = await requireServerMember(serverId);
+  const { viewer, role } = await requireServerMember(serverId);
 
   const serverLibraries = await db
     .select()
@@ -30,7 +30,7 @@ export default async function LibraryHomePage({
   const inProgress = await db
     .select()
     .from(watchState)
-    .where(and(eq(watchState.profileId, profile.id), eq(watchState.finished, false)))
+    .where(and(eq(watchState.viewerId, viewer.id), eq(watchState.finished, false)))
     .orderBy(desc(watchState.updatedAt))
     .limit(CONTINUE_WATCHING_LIMIT);
 

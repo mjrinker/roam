@@ -14,7 +14,7 @@ export default async function TitleDetailPage({
   params,
 }: PageProps<"/s/[serverId]/title/[id]">) {
   const { serverId, id } = await params;
-  const { profile, role } = await requireServerMember(serverId);
+  const { viewer, role } = await requireServerMember(serverId);
 
   // Join through libraries so a title id from a DIFFERENT server 404s here,
   // rather than trusting the bare id from the URL.
@@ -40,7 +40,7 @@ export default async function TitleDetailPage({
     .from(watchState)
     .where(
       and(
-        eq(watchState.profileId, profile.id),
+        eq(watchState.viewerId, viewer.id),
         eq(watchState.ownerKind, "title"),
         eq(watchState.ownerId, id)
       )

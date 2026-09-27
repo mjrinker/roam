@@ -15,7 +15,7 @@ export default async function ShowDetailPage({
   params,
 }: PageProps<"/s/[serverId]/show/[id]">) {
   const { serverId, id } = await params;
-  const { profile, role } = await requireServerMember(serverId);
+  const { viewer, role } = await requireServerMember(serverId);
 
   const [show] = await db
     .select({ show: titles })
@@ -57,7 +57,7 @@ export default async function ShowDetailPage({
           .from(watchState)
           .where(
             and(
-              eq(watchState.profileId, profile.id),
+              eq(watchState.viewerId, viewer.id),
               eq(watchState.ownerKind, "episode"),
               inArray(watchState.ownerId, episodeIds)
             )

@@ -9,11 +9,13 @@ import { useShell } from "@/components/shell/shell-context";
 export function TopBar({
   serverId,
   email,
-  displayName,
+  profileName,
+  avatarKey,
 }: {
   serverId: string;
   email: string;
-  displayName: string | null;
+  profileName: string;
+  avatarKey: string;
 }) {
   const { setDrawerOpen } = useShell();
 
@@ -33,7 +35,7 @@ export function TopBar({
         <SearchBox serverId={serverId} />
       </div>
 
-      <UserMenu email={email} displayName={displayName} />
+      <UserMenu email={email} profileName={profileName} avatarKey={avatarKey} />
     </header>
   );
 }

@@ -2,9 +2,9 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { LayoutGrid, LogOut } from "lucide-react";
+import { LayoutGrid, LogOut, Settings2, Users } from "lucide-react";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { ViewerAvatar } from "@/components/profiles/viewer-avatar";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -13,18 +13,20 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 
-function initials(nameOrEmail: string) {
-  const base = nameOrEmail.split("@")[0];
-  const parts = base.split(/[\s._-]+/).filter(Boolean);
-  const letters = (parts.length > 1 ? parts[0][0] + parts[1][0] : base.slice(0, 2)) || "?";
-  return letters.toUpperCase();
-}
-
-export function UserMenu({ email, displayName }: { email: string; displayName: string | null }) {
+export function UserMenu({
+  email,
+  profileName,
+  avatarKey,
+}: {
+  email: string;
+  profileName: string;
+  avatarKey: string;
+}) {
   const router = useRouter();
-  const label = displayName ?? email;
 
   async function signOut() {
+    // Forget the selected profile too, so the next person to sign in on this device is asked who they are.
+    await fetch("/api/viewers/deselect", { method: "POST" }).catch(() => {});
     const supabase = createSupabaseBrowserClient();
     await supabase.auth.signOut();
     router.push("/sign-in");
@@ -34,20 +36,28 @@ export function UserMenu({ email, displayName }: { email: string; displayName: s
   return (
     <DropdownMenu>
       <DropdownMenuTrigger
-        aria-label="Account menu"
+        aria-label="Profile menu"
         className="rounded-full outline-none ring-offset-background transition focus-visible:ring-2 focus-visible:ring-ring"
       >
-        <Avatar size="lg" className="ring-1 ring-white/15">
-          <AvatarFallback className="bg-gradient-to-br from-primary/90 to-[oklch(0.72_0.14_195)] text-sm font-semibold text-primary-foreground">
-            {initials(label)}
-          </AvatarFallback>
-        </Avatar>
+        <ViewerAvatar avatarKey={avatarKey} size="sm" />
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="min-w-60">
-        <div className="px-2.5 py-2">
-          <p className="truncate text-sm font-medium">{label}</p>
-          {displayName && <p className="truncate text-xs text-muted-foreground">{email}</p>}
+        <div className="flex items-center gap-3 px-2.5 py-2">
+          <ViewerAvatar avatarKey={avatarKey} size="md" />
+          <div className="min-w-0">
+            <p className="truncate text-sm font-medium">{profileName}</p>
+            <p className="truncate text-xs text-muted-foreground">{email}</p>
+          </div>
         </div>
+        <DropdownMenuSeparator />
+        <DropdownMenuItem render={<Link href="/profiles" />} className="gap-2.5">
+          <Users className="size-4 text-muted-foreground" />
+          Switch profile
+        </DropdownMenuItem>
+        <DropdownMenuItem render={<Link href="/profiles?manage=1" />} className="gap-2.5">
+          <Settings2 className="size-4 text-muted-foreground" />
+          Manage profiles
+        </DropdownMenuItem>
         <DropdownMenuSeparator />
         <DropdownMenuItem render={<Link href="/servers" />} className="gap-2.5">
           <LayoutGrid className="size-4 text-muted-foreground" />

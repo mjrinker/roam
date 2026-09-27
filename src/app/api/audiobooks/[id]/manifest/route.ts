@@ -14,7 +14,7 @@ export async function GET(_request: Request, ctx: RouteContext<"/api/audiobooks/
   const member = await getCurrentServerMember(serverId);
   if (!member) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
-  const result = await buildAudiobookManifest(id, member.profile.id, serverId);
+  const result = await buildAudiobookManifest(id, member.viewer.id, serverId);
   if (!result.ok) return NextResponse.json({ error: result.error }, { status: result.status });
   return NextResponse.json(result.value);
 }

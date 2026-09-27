@@ -3,6 +3,7 @@ import { and, count, eq, gt, isNull } from "drizzle-orm";
 import { db } from "@/lib/db/client";
 import { invites, profiles, serverMembers } from "@/lib/db/schema";
 import { checkRateLimit } from "@/lib/rate-limit";
+import { ensureDefaultViewer } from "@/lib/auth/viewer";
 
 const INVITE_TTL_DAYS = 7;
 const MAX_PENDING_INVITES_PER_SERVER = Number(
@@ -24,10 +25,12 @@ export async function ensureProfile(userId: string, email: string) {
     .onConflictDoNothing({ target: profiles.id })
     .returning();
 
-  return (
+  const account =
     profile ??
-    (await db.select().from(profiles).where(eq(profiles.id, userId)).limit(1))[0]
-  );
+    (await db.select().from(profiles).where(eq(profiles.id, userId)).limit(1))[0];
+  // Every account starts with one profile of its own.
+  await ensureDefaultViewer(account);
+  return account;
 }
 
 export interface CreateInviteResult {

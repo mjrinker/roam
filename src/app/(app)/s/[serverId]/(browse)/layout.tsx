@@ -15,7 +15,7 @@ export default async function BrowseLayout({
   params,
 }: LayoutProps<"/s/[serverId]">) {
   const { serverId } = await params;
-  const { profile, role } = await requireServerMember(serverId);
+  const { profile, viewer, role } = await requireServerMember(serverId);
 
   const [memberships, serverLibraries] = await Promise.all([
     listServerMemberships(profile.id),
@@ -41,7 +41,8 @@ export default async function BrowseLayout({
           <TopBar
             serverId={serverId}
             email={profile.email}
-            displayName={profile.displayName}
+            profileName={viewer.name}
+            avatarKey={viewer.avatarKey}
           />
           <main className="flex-1">{children}</main>
           <PlayerErrorBoundary>
