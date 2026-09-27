@@ -79,9 +79,11 @@ export function ProfileEditorDialog({
   // gets the extended fields when the owner is acting, or when acting on
   // one's own admin profile.
   const canExtend = !profile || canEditExtended(actor, profile.id);
-  // The owner assigns a role only when editing someone ELSE — its own role,
-  // and anyone editing themselves, never changes here.
-  const showRolePicker = isOwnerActing && !!profile && profile.id !== actor.id;
+  // The owner picks a role when creating a profile, or editing someone ELSE's
+  // — never its own (self-editing, including the owner, never changes this
+  // here). Creating is always an owner action (the route enforces it), so no
+  // extra isOwnerActing check is needed for that branch.
+  const showRolePicker = !profile || (isOwnerActing && profile.id !== actor.id);
 
   async function request(method: "POST" | "PATCH" | "DELETE", body?: object) {
     setBusy(true);
