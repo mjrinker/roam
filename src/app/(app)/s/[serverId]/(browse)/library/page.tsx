@@ -11,6 +11,7 @@ import { LandscapeCard, type LandscapeCardData } from "@/components/library/land
 import { MediaRow } from "@/components/library/media-row";
 import { PosterCard, type PosterCardData } from "@/components/library/poster-card";
 import { CONTINUE_LISTENING_MIN_SECONDS } from "@/lib/player/timeline";
+import { contentFilter } from "@/lib/content/access";
 
 const CONTINUE_WATCHING_LIMIT = 16;
 const RECENTLY_ADDED_LIMIT = 20;
@@ -49,7 +50,9 @@ export default async function LibraryHomePage({
         .select({ title: titles })
         .from(titles)
         .innerJoin(libraries, eq(titles.libraryId, libraries.id))
-        .where(and(inArray(titles.id, movieIds), eq(libraries.serverId, serverId)))
+        .where(
+          and(inArray(titles.id, movieIds), eq(libraries.serverId, serverId), contentFilter(viewer, titles.ratingAges))
+        )
     : [];
   const movieById = new Map(movieDetails.map((d) => [d.title.id, d.title]));
 
@@ -61,7 +64,13 @@ export default async function LibraryHomePage({
         .innerJoin(seasons, eq(episodes.seasonId, seasons.id))
         .innerJoin(titles, eq(seasons.titleId, titles.id))
         .innerJoin(libraries, eq(titles.libraryId, libraries.id))
-        .where(and(inArray(episodes.id, episodeIds), eq(libraries.serverId, serverId)))
+        .where(
+          and(
+            inArray(episodes.id, episodeIds),
+            eq(libraries.serverId, serverId),
+            contentFilter(viewer, titles.ratingAges)
+          )
+        )
     : [];
   const episodeDetailsById = new Map(episodeDetails.map((d) => [d.episode.id, d]));
 
@@ -148,7 +157,7 @@ export default async function LibraryHomePage({
       items: await db
         .select()
         .from(titles)
-        .where(eq(titles.libraryId, library.id))
+        .where(and(eq(titles.libraryId, library.id), contentFilter(viewer, titles.ratingAges)))
         .orderBy(desc(titles.addedAt))
         .limit(RECENTLY_ADDED_LIMIT),
     }))

@@ -38,10 +38,14 @@ export default async function ProfilesPage({ searchParams }: PageProps<"/profile
             name: v.name,
             avatarKey: v.avatarKey,
             locale: v.locale,
+            maxAge: v.maxAge,
+            allowUnrated: v.allowUnrated,
             hasPin: v.pinHash !== null,
           }))}
+          currentViewerId={resolved.viewer?.id ?? null}
+          isManager={resolved.viewer?.maxAge === null}
+          managerHasPin={!!resolved.viewer?.pinHash}
           canAdd={MULTIPLE_VIEWERS_ENABLED}
-          canDelete={MULTIPLE_VIEWERS_ENABLED}
           next={next}
           startInManage={manage}
         />

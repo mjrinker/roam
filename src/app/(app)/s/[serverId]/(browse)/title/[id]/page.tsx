@@ -5,6 +5,7 @@ import { Loader2, Play } from "lucide-react";
 import { db } from "@/lib/db/client";
 import { libraries, mediaFiles, titles, watchState } from "@/lib/db/schema";
 import { requireServerMember } from "@/lib/auth/guards";
+import { isAllowed } from "@/lib/content/access";
 import { formatRemaining, formatRuntime } from "@/lib/format";
 import { countryFromLocale, displayCertification } from "@/lib/content/ratings";
 import { Button } from "@/components/ui/button";
@@ -26,7 +27,7 @@ export default async function TitleDetailPage({
     .where(and(eq(titles.id, id), eq(libraries.serverId, serverId)))
     .limit(1)
     .then((rows) => rows.map((r) => r.title));
-  if (!title) notFound();
+  if (!title || !isAllowed(viewer, title.ratingAges)) notFound();
   // This page is movie-only; shows have their own season/episode browser.
   if (title.kind === "show") redirect(`/s/${serverId}/show/${id}`);
 

@@ -5,6 +5,7 @@ import { Film, Headphones, Tv } from "lucide-react";
 import { db } from "@/lib/db/client";
 import { libraries, mediaFiles, titles, watchState } from "@/lib/db/schema";
 import { requireServerMember } from "@/lib/auth/guards";
+import { contentFilter } from "@/lib/content/access";
 import { Button } from "@/components/ui/button";
 import {
   LibraryBrowser,
@@ -31,7 +32,7 @@ export default async function LibraryDetailPage({
   const libraryTitles = await db
     .select()
     .from(titles)
-    .where(eq(titles.libraryId, libraryId))
+    .where(and(eq(titles.libraryId, libraryId), contentFilter(viewer, titles.ratingAges)))
     .orderBy(asc(titles.name));
 
   // Per-profile watch progress and "still processing" flags — for titles that

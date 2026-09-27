@@ -1,16 +1,22 @@
 import { NextResponse } from "next/server";
 import { eq, sql } from "drizzle-orm";
-import { getCurrentProfile } from "@/lib/auth/guards";
+import { getCurrentViewer } from "@/lib/auth/viewer";
 import { db } from "@/lib/db/client";
 import { profiles, viewers } from "@/lib/db/schema";
 import { MAX_VIEWERS_PER_ACCOUNT, MULTIPLE_VIEWERS_ENABLED } from "@/lib/viewers/config";
 import { DEFAULT_LOCALE } from "@/lib/viewers/locales";
 import { createViewerSchema } from "@/lib/viewers/validation";
+import { hashPin } from "@/lib/viewers/pin";
 
-/** Add a profile to the signed-in account. */
+/** Add a profile to the signed-in account — manager-only (see PATCH .../[id] for why). */
 export async function POST(request: Request) {
-  const account = await getCurrentProfile();
-  if (!account) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const resolved = await getCurrentViewer();
+  if (!resolved) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  if (!resolved.viewer) return NextResponse.json({ error: "viewer_required" }, { status: 403 });
+  if (resolved.viewer.maxAge !== null) {
+    return NextResponse.json({ error: "Only an unrestricted profile can add profiles." }, { status: 403 });
+  }
+  const account = resolved.account;
   if (!MULTIPLE_VIEWERS_ENABLED) {
     return NextResponse.json({ error: "Adding profiles isn't available yet." }, { status: 403 });
   }
@@ -36,6 +42,9 @@ export async function POST(request: Request) {
         name: parsed.data.name,
         avatarKey: parsed.data.avatarKey,
         locale: parsed.data.locale ?? DEFAULT_LOCALE,
+        maxAge: parsed.data.maxAge ?? null,
+        allowUnrated: parsed.data.allowUnrated ?? false,
+        pinHash: parsed.data.pin ? hashPin(parsed.data.pin) : null,
         sortOrder: nextOrder,
       })
       .returning();

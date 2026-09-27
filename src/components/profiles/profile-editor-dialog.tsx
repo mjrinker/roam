@@ -18,24 +18,41 @@ import { ViewerAvatar } from "@/components/profiles/viewer-avatar";
 import { DEFAULT_AVATAR_KEY } from "@/lib/viewers/avatars";
 import { VIEWER_NAME_MAX_LENGTH } from "@/lib/viewers/config";
 import { DEFAULT_LOCALE, LOCALES } from "@/lib/viewers/locales";
+import { RATING_LEVELS } from "@/lib/content/access";
 
 export interface EditableProfile {
   id: string;
   name: string;
   avatarKey: string;
   locale: string;
+  maxAge: number | null;
+  allowUnrated: boolean;
   hasPin: boolean;
 }
 
-/** Create a profile (`profile` null) or edit one. */
+const RATING_SELECT_VALUE = (v: number | null) => (v === null ? "none" : String(v));
+
+/**
+ * Create a profile (`profile` null) or edit one.
+ *
+ * `isManager` is whether the profile CURRENTLY IN USE on this device — not
+ * necessarily the one being edited — is unrestricted. Only a manager can
+ * touch language, rating limit, PIN, or another profile's anything; a
+ * restricted profile editing itself only ever sees name and avatar. See the
+ * PATCH /api/viewers/[id] route, which enforces the same rule server-side.
+ */
 export function ProfileEditorDialog({
   profile,
+  isManager,
+  managerHasPin,
   canDelete,
   open,
   onOpenChange,
   onSaved,
 }: {
   profile: EditableProfile | null;
+  isManager: boolean;
+  managerHasPin: boolean;
   canDelete: boolean;
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -44,7 +61,13 @@ export function ProfileEditorDialog({
   const [name, setName] = useState(profile?.name ?? "");
   const [avatarKey, setAvatarKey] = useState(profile?.avatarKey ?? DEFAULT_AVATAR_KEY);
   const [locale, setLocale] = useState(profile?.locale ?? DEFAULT_LOCALE);
+  const [maxAge, setMaxAge] = useState(profile?.maxAge ?? null);
+  const [allowUnrated, setAllowUnrated] = useState(profile?.allowUnrated ?? false);
+  const [newPin, setNewPin] = useState("");
+  const [currentPin, setCurrentPin] = useState("");
   const [busy, setBusy] = useState(false);
+
+  const canEditRestricted = isManager; // language, rating, PIN, or any field on someone else
 
   async function request(method: "POST" | "PATCH" | "DELETE", body?: object) {
     setBusy(true);
@@ -64,9 +87,40 @@ export function ProfileEditorDialog({
 
   async function save(e: React.FormEvent) {
     e.preventDefault();
-    const ok = await request(profile ? "PATCH" : "POST", { name, avatarKey, locale });
+    const body: Record<string, unknown> = canEditRestricted
+      ? {
+          name,
+          avatarKey,
+          locale,
+          maxAge,
+          allowUnrated,
+          ...(newPin.trim() ? { pin: newPin } : {}),
+          ...(managerHasPin && profile ? { currentPin } : {}),
+        }
+      : { name, avatarKey };
+
+    const ok = await request(profile ? "PATCH" : "POST", body);
     if (!ok) return;
     toast.success(profile ? "Profile saved." : "Profile created.");
+    onOpenChange(false);
+    onSaved();
+  }
+
+  async function removePin() {
+    if (!profile) return;
+    setBusy(true);
+    const res = await fetch(`/api/viewers/${profile.id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ pin: null, ...(managerHasPin ? { currentPin } : {}) }),
+    });
+    setBusy(false);
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      toast.error(typeof data.error === "string" ? data.error : "Couldn't remove the PIN.");
+      return;
+    }
+    toast.success("PIN removed.");
     onOpenChange(false);
     onSaved();
   }
@@ -81,7 +135,7 @@ export function ProfileEditorDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-md">
+      <DialogContent className="max-h-[92dvh] overflow-y-auto sm:max-w-md">
         <form onSubmit={save} className="grid gap-5">
           <DialogHeader>
             <DialogTitle>{profile ? "Edit profile" : "Add profile"}</DialogTitle>
@@ -108,21 +162,97 @@ export function ProfileEditorDialog({
             <AvatarPicker value={avatarKey} onChange={setAvatarKey} />
           </div>
 
-          <div className="grid gap-1.5">
-            <Label htmlFor="profile-locale">Language and region</Label>
-            <select
-              id="profile-locale"
-              value={locale}
-              onChange={(e) => setLocale(e.target.value)}
-              className="h-9 rounded-md border border-input bg-transparent px-3 text-sm"
-            >
-              {LOCALES.map((l) => (
-                <option key={l.tag} value={l.tag} className="bg-popover">
-                  {l.label}
-                </option>
-              ))}
-            </select>
-          </div>
+          {canEditRestricted && (
+            <>
+              <div className="grid gap-1.5">
+                <Label htmlFor="profile-locale">Language and region</Label>
+                <select
+                  id="profile-locale"
+                  value={locale}
+                  onChange={(e) => setLocale(e.target.value)}
+                  className="h-9 rounded-md border border-input bg-transparent px-3 text-sm"
+                >
+                  {LOCALES.map((l) => (
+                    <option key={l.tag} value={l.tag} className="bg-popover">
+                      {l.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="grid gap-1.5">
+                <Label htmlFor="profile-rating">Allowed ratings up to</Label>
+                <select
+                  id="profile-rating"
+                  value={RATING_SELECT_VALUE(maxAge)}
+                  onChange={(e) => setMaxAge(e.target.value === "none" ? null : Number(e.target.value))}
+                  className="h-9 rounded-md border border-input bg-transparent px-3 text-sm"
+                >
+                  {RATING_LEVELS.map((l) => (
+                    <option key={RATING_SELECT_VALUE(l.value)} value={RATING_SELECT_VALUE(l.value)} className="bg-popover">
+                      {l.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {maxAge !== null && (
+                <label className="flex items-center gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={allowUnrated}
+                    onChange={(e) => setAllowUnrated(e.target.checked)}
+                    className="size-4 rounded border-input"
+                  />
+                  Allow titles with no rating on file
+                </label>
+              )}
+
+              <div className="grid gap-1.5">
+                <Label htmlFor="profile-pin">{profile?.hasPin ? "Change PIN" : "PIN (optional)"}</Label>
+                <div className="flex items-center gap-2">
+                  <Input
+                    id="profile-pin"
+                    value={newPin}
+                    onChange={(e) => setNewPin(e.target.value.replace(/\D/g, "").slice(0, 4))}
+                    inputMode="numeric"
+                    autoComplete="off"
+                    type="password"
+                    maxLength={4}
+                    placeholder="4 digits"
+                    className="max-w-32 text-center tracking-[0.3em]"
+                  />
+                  {profile?.hasPin && (
+                    <Button type="button" variant="ghost" size="sm" onClick={removePin} disabled={busy}>
+                      Remove PIN
+                    </Button>
+                  )}
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  {profile?.hasPin
+                    ? "A PIN is required to open this profile."
+                    : "Require a 4-digit PIN to open this profile."}
+                </p>
+              </div>
+
+              {managerHasPin && profile && (
+                <div className="grid gap-1.5 rounded-lg bg-white/[0.04] p-3">
+                  <Label htmlFor="manager-pin">Confirm your PIN to save</Label>
+                  <Input
+                    id="manager-pin"
+                    value={currentPin}
+                    onChange={(e) => setCurrentPin(e.target.value.replace(/\D/g, "").slice(0, 4))}
+                    inputMode="numeric"
+                    autoComplete="off"
+                    type="password"
+                    maxLength={4}
+                    required
+                    className="max-w-32 text-center tracking-[0.3em]"
+                  />
+                </div>
+              )}
+            </>
+          )}
 
           <DialogFooter className="gap-2 sm:justify-between">
             {profile && canDelete ? (
@@ -132,7 +262,10 @@ export function ProfileEditorDialog({
             ) : (
               <span />
             )}
-            <Button type="submit" disabled={busy || !name.trim()}>
+            <Button
+              type="submit"
+              disabled={busy || !name.trim() || (canEditRestricted && managerHasPin && !!profile && currentPin.length !== 4)}
+            >
               {profile ? "Save" : "Create profile"}
             </Button>
           </DialogFooter>

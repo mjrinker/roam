@@ -5,6 +5,7 @@ import { Play } from "lucide-react";
 import { db } from "@/lib/db/client";
 import { episodes, libraries, mediaFiles, seasons, titles, watchState } from "@/lib/db/schema";
 import { requireServerMember } from "@/lib/auth/guards";
+import { isAllowed } from "@/lib/content/access";
 import { formatRuntime } from "@/lib/format";
 import { countryFromLocale, displayCertification } from "@/lib/content/ratings";
 import { Button } from "@/components/ui/button";
@@ -25,7 +26,7 @@ export default async function ShowDetailPage({
     .where(and(eq(titles.id, id), eq(libraries.serverId, serverId)))
     .limit(1)
     .then((rows) => rows.map((r) => r.show));
-  if (!show) notFound();
+  if (!show || !isAllowed(viewer, show.ratingAges)) notFound();
   // Symmetric with the movie page redirecting the other way.
   if (show.kind === "movie") redirect(`/s/${serverId}/title/${id}`);
 

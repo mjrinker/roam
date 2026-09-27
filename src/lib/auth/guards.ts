@@ -78,10 +78,16 @@ export async function requireServerMember(serverId: string): Promise<ServerMembe
   return { profile, viewer, role: membership.role };
 }
 
-/** Requires the signed-in profile to be an admin of `serverId`, redirecting non-admins into that server's library. */
+/**
+ * Requires the signed-in profile to be an admin of `serverId`, redirecting
+ * non-admins into that server's library. Also requires an UNRESTRICTED
+ * profile — admin pages list every title regardless of rating (unmatched
+ * titles, match dialogs), so a profile with a rating limit must never reach
+ * them even on an account that is a server admin.
+ */
 export async function requireServerAdmin(serverId: string): Promise<ServerMembership> {
   const result = await requireServerMember(serverId);
-  if (result.role !== "admin") redirect(`/s/${serverId}/library`);
+  if (result.role !== "admin" || result.viewer.maxAge !== null) redirect(`/s/${serverId}/library`);
   return result;
 }
 
@@ -106,6 +112,6 @@ export async function getCurrentServerAdmin(
   serverId: string
 ): Promise<ServerMembership | null> {
   const result = await getCurrentServerMember(serverId);
-  if (!result || result.role !== "admin") return null;
+  if (!result || result.role !== "admin" || result.viewer.maxAge !== null) return null;
   return result;
 }

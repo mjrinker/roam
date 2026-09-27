@@ -3,6 +3,7 @@ import { and, asc, eq, gt } from "drizzle-orm";
 import { db } from "@/lib/db/client";
 import { episodes, libraries, seasons, titles } from "@/lib/db/schema";
 import { requireServerMember } from "@/lib/auth/guards";
+import { isAllowed } from "@/lib/content/access";
 import { SeamlessPlayer } from "@/components/player/seamless-player";
 
 async function loadMovie(serverId: string, id: string) {
@@ -22,6 +23,7 @@ async function loadMovie(serverId: string, id: string) {
     backHref: `/s/${serverId}/title/${title.id}`,
     nextHref: undefined,
     nextLabel: undefined,
+    ratingAges: title.ratingAges,
   };
 }
 
@@ -40,6 +42,7 @@ async function loadEpisode(serverId: string, id: string) {
     .limit(1);
   if (!row) return null;
 
+  const ratingAges = row.show.ratingAges;
   const displayTitle = row.show.name;
   const subtitle = `S${row.season.number} · E${row.episode.number}${
     row.episode.name ? ` · ${row.episode.name}` : ""
@@ -81,6 +84,7 @@ async function loadEpisode(serverId: string, id: string) {
     backHref: `/s/${serverId}/show/${row.show.id}`,
     nextHref: nextEpisodeId ? `/s/${serverId}/watch/episode/${nextEpisodeId}` : undefined,
     nextLabel,
+    ratingAges,
   };
 }
 
@@ -88,7 +92,7 @@ export default async function WatchPage({
   params,
 }: PageProps<"/s/[serverId]/watch/[ownerKind]/[ownerId]">) {
   const { serverId, ownerKind, ownerId } = await params;
-  await requireServerMember(serverId);
+  const { viewer } = await requireServerMember(serverId);
 
   if (ownerKind !== "title" && ownerKind !== "episode") notFound();
 
@@ -96,7 +100,8 @@ export default async function WatchPage({
     ownerKind === "title"
       ? await loadMovie(serverId, ownerId)
       : await loadEpisode(serverId, ownerId);
-  if (!loaded) notFound();
+  // A blocked title 404s exactly like a nonexistent one — see lib/content/access.
+  if (!loaded || !isAllowed(viewer, loaded.ratingAges)) notFound();
 
   return (
     <SeamlessPlayer

@@ -3,8 +3,7 @@ import { z } from "zod";
 import { and, eq } from "drizzle-orm";
 import { db } from "@/lib/db/client";
 import { watchState } from "@/lib/db/schema";
-import { getCurrentServerMember } from "@/lib/auth/guards";
-import { resolveServerIdForOwner } from "@/lib/auth/resolve-server";
+import { authorizeOwner } from "@/lib/auth/resolve-server";
 
 const patchSchema = z.object({
   ownerKind: z.enum(["title", "episode"]),
@@ -28,19 +27,15 @@ export async function PATCH(request: Request) {
   }
   const { ownerKind, ownerId, positionSeconds, durationSeconds, finished } = parsed.data;
 
-  const serverId = await resolveServerIdForOwner(ownerKind, ownerId);
-  if (!serverId) {
-    return NextResponse.json({ error: "Not found" }, { status: 404 });
-  }
-  const member = await getCurrentServerMember(serverId);
-  if (!member) {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  const auth = await authorizeOwner(ownerKind, ownerId);
+  if (!auth.ok) {
+    return NextResponse.json({ error: auth.status === 403 ? "Forbidden" : "Not found" }, { status: auth.status });
   }
 
   await db
     .insert(watchState)
     .values({
-      viewerId: member.viewer.id,
+      viewerId: auth.member.viewer.id,
       ownerKind,
       ownerId,
       positionSeconds,
@@ -80,13 +75,9 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
   }
 
-  const serverId = await resolveServerIdForOwner(parsed.data.ownerKind, parsed.data.ownerId);
-  if (!serverId) {
-    return NextResponse.json({ error: "Not found" }, { status: 404 });
-  }
-  const member = await getCurrentServerMember(serverId);
-  if (!member) {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  const auth = await authorizeOwner(parsed.data.ownerKind, parsed.data.ownerId);
+  if (!auth.ok) {
+    return NextResponse.json({ error: auth.status === 403 ? "Forbidden" : "Not found" }, { status: auth.status });
   }
 
   const [state] = await db
@@ -94,7 +85,7 @@ export async function GET(request: Request) {
     .from(watchState)
     .where(
       and(
-        eq(watchState.viewerId, member.viewer.id),
+        eq(watchState.viewerId, auth.member.viewer.id),
         eq(watchState.ownerKind, parsed.data.ownerKind),
         eq(watchState.ownerId, parsed.data.ownerId)
       )

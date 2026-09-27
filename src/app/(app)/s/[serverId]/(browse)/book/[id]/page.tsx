@@ -5,6 +5,7 @@ import { Headphones, Loader2 } from "lucide-react";
 import { db } from "@/lib/db/client";
 import { libraries, mediaFiles, titles, watchState } from "@/lib/db/schema";
 import { requireServerMember } from "@/lib/auth/guards";
+import { isAllowed } from "@/lib/content/access";
 import { formatRemaining, formatRuntime } from "@/lib/format";
 import { Badge } from "@/components/ui/badge";
 import { AudibleMatchButton } from "@/components/admin/audible-match-dialog";
@@ -24,7 +25,7 @@ export default async function BookDetailPage({ params }: PageProps<"/s/[serverId
     .where(and(eq(titles.id, id), eq(libraries.serverId, serverId)))
     .limit(1)
     .then((rows) => rows.map((r) => r.title));
-  if (!book) notFound();
+  if (!book || !isAllowed(viewer, book.ratingAges)) notFound();
   if (book.kind === "show") redirect(`/s/${serverId}/show/${id}`);
   if (book.kind === "movie") redirect(`/s/${serverId}/title/${id}`);
 

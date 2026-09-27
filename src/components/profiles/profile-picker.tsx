@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { Lock, Pencil, Plus } from "lucide-react";
+import { Lock, Pencil, Plus, TriangleAlert } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -18,14 +18,20 @@ function safeNext(next: string | null): string {
 /** The "Who's watching?" tiles, with a manage mode for editing and adding profiles. */
 export function ProfilePicker({
   profiles,
+  currentViewerId,
+  isManager,
+  managerHasPin,
   canAdd,
-  canDelete,
   next,
   startInManage,
 }: {
   profiles: EditableProfile[];
+  /** The profile currently in use on this device, if any (may be null before a choice is made). */
+  currentViewerId: string | null;
+  /** Whether that profile is unrestricted — see profile-editor-dialog for what this unlocks. */
+  isManager: boolean;
+  managerHasPin: boolean;
   canAdd: boolean;
-  canDelete: boolean;
   next: string | null;
   startInManage: boolean;
 }) {
@@ -54,14 +60,29 @@ export function ProfilePicker({
   }
 
   async function onTileClick(profile: EditableProfile) {
-    if (managing) return setEditing(profile);
+    if (managing) {
+      if (isManager || profile.id === currentViewerId) return setEditing(profile);
+      toast.error("Ask an unrestricted profile to edit this profile.");
+      return;
+    }
     if (profile.hasPin) return setPinFor(profile);
     const error = await choose(profile);
     if (error) toast.error(error);
   }
 
+  const hasRestrictedProfile = profiles.some((p) => p.maxAge !== null);
+  const hasUnprotectedManager = profiles.some((p) => p.maxAge === null && !p.hasPin);
+  const showPinWarning = managing && isManager && hasRestrictedProfile && hasUnprotectedManager;
+
   return (
     <div className="flex flex-col items-center gap-10">
+      {showPinWarning && (
+        <p className="flex max-w-md items-start gap-2.5 rounded-xl bg-amber-500/10 px-4 py-3 text-left text-sm text-amber-200 ring-1 ring-amber-500/20">
+          <TriangleAlert className="mt-0.5 size-4 shrink-0" />
+          A restricted profile can switch to an unrestricted one with no PIN — add a PIN to keep restrictions in
+          place on a shared device.
+        </p>
+      )}
       <ul className="flex flex-wrap items-start justify-center gap-6 sm:gap-8">
         {profiles.map((p) => (
           <li key={p.id}>
@@ -95,7 +116,7 @@ export function ProfilePicker({
           </li>
         ))}
 
-        {canAdd && managing && profiles.length < 6 && (
+        {canAdd && isManager && managing && profiles.length < 6 && (
           <li>
             <button
               type="button"
@@ -127,7 +148,9 @@ export function ProfilePicker({
       {editing && (
         <ProfileEditorDialog
           profile={editing === "new" ? null : editing}
-          canDelete={canDelete && profiles.length > 1}
+          isManager={isManager}
+          managerHasPin={managerHasPin}
+          canDelete={isManager && profiles.length > 1}
           open
           onOpenChange={(open) => !open && setEditing(null)}
           onSaved={() => router.refresh()}

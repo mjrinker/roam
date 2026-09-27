@@ -4,6 +4,7 @@ import { asc, desc, eq, ilike, and, or, sql } from "drizzle-orm";
 import { db } from "@/lib/db/client";
 import { libraries, titles, type TitleKind } from "@/lib/db/schema";
 import { getCurrentServerMember } from "@/lib/auth/guards";
+import { contentFilter } from "@/lib/content/access";
 
 export interface SearchResultDto {
   id: string;
@@ -61,7 +62,8 @@ export async function GET(request: Request) {
           ilike(titles.name, `%${escaped}%`),
           ilike(titles.folderAuthor, `%${escaped}%`),
           sql`${titles.authors}::text ilike ${`%${escaped}%`}`
-        )
+        ),
+        contentFilter(member.viewer, titles.ratingAges)
       )
     )
     // Titles that START with the query first, then alphabetical.

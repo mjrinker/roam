@@ -1,12 +1,10 @@
 import { NextResponse } from "next/server";
-import { getCurrentServerMember } from "@/lib/auth/guards";
-import { resolveServerIdForOwner } from "@/lib/auth/resolve-server";
+import { authorizeOwner } from "@/lib/auth/resolve-server";
 import { buildPlayManifest } from "@/lib/player/manifest";
 
-// Any member of the server that owns this title/episode can play it — the
-// server is resolved server-side from the owner id (globally unique,
-// never reused across tenants), never trusted from the client, so this
-// can't be spoofed by a signed-in member of a DIFFERENT server.
+// authorizeOwner covers server membership AND the profile's rating limit —
+// see lib/content/access. A title blocked by the limit 404s exactly like a
+// nonexistent one, so its existence isn't leaked to a restricted profile.
 export async function GET(
   _request: Request,
   ctx: RouteContext<"/api/play/[ownerKind]/[ownerId]">
@@ -16,17 +14,12 @@ export async function GET(
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
 
-  const serverId = await resolveServerIdForOwner(ownerKind, ownerId);
-  if (!serverId) {
-    return NextResponse.json({ error: "Not found" }, { status: 404 });
+  const auth = await authorizeOwner(ownerKind, ownerId);
+  if (!auth.ok) {
+    return NextResponse.json({ error: auth.status === 403 ? "Forbidden" : "Not found" }, { status: auth.status });
   }
 
-  const member = await getCurrentServerMember(serverId);
-  if (!member) {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-  }
-
-  const result = await buildPlayManifest(ownerKind, ownerId, member.viewer.id, serverId);
+  const result = await buildPlayManifest(ownerKind, ownerId, auth.member.viewer.id, auth.serverId);
   if (!result.ok) {
     return NextResponse.json({ error: result.error }, { status: result.status });
   }
