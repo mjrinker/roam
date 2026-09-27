@@ -18,6 +18,7 @@ import { Slider } from "@/components/ui/slider";
 import { Button } from "@/components/ui/button";
 import Link from "next/link";
 import { cn } from "@/lib/utils";
+import { useAudioActions } from "@/components/audio/audio-player-provider";
 import type { PlayManifest, PlayOwnerKind } from "@/lib/player/types";
 
 interface SeamlessPlayerProps {
@@ -88,6 +89,12 @@ export function SeamlessPlayer({
   nextHref,
   nextLabel,
 }: SeamlessPlayerProps) {
+  // A movie takes over: pause any audiobook that's playing in the background.
+  const audioActions = useAudioActions();
+  useEffect(() => {
+    audioActions?.pause();
+  }, [audioActions]);
+
   const containerRef = useRef<HTMLDivElement>(null);
   const videoRefs = useRef<[HTMLVideoElement | null, HTMLVideoElement | null]>([
     null,

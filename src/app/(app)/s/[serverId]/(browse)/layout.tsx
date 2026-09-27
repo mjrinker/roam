@@ -3,6 +3,7 @@ import { db } from "@/lib/db/client";
 import { libraries } from "@/lib/db/schema";
 import { requireServerMember } from "@/lib/auth/guards";
 import { listServerMemberships } from "@/lib/auth/servers";
+import { MiniPlayer } from "@/components/audio/mini-player";
 import { AppSidebar } from "@/components/shell/app-sidebar";
 import { ShellProvider } from "@/components/shell/shell-context";
 import { TopBar } from "@/components/shell/top-bar";
@@ -42,6 +43,7 @@ export default async function BrowseLayout({
             displayName={profile.displayName}
           />
           <main className="flex-1">{children}</main>
+          <MiniPlayer serverId={serverId} />
         </div>
       </div>
     </ShellProvider>

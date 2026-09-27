@@ -9,7 +9,8 @@ import { Button } from "@/components/ui/button";
 import { HeroBanner, type HeroBannerData } from "@/components/library/hero-banner";
 import { LandscapeCard, type LandscapeCardData } from "@/components/library/landscape-card";
 import { MediaRow } from "@/components/library/media-row";
-import { PosterCard } from "@/components/library/poster-card";
+import { PosterCard, type PosterCardData } from "@/components/library/poster-card";
+import { CONTINUE_LISTENING_MIN_SECONDS } from "@/lib/player/timeline";
 
 const CONTINUE_WATCHING_LIMIT = 16;
 const RECENTLY_ADDED_LIMIT = 20;
@@ -73,6 +74,8 @@ export default async function LibraryHomePage({
     if (w.ownerKind === "title") {
       const movie = movieById.get(w.ownerId);
       if (!movie) continue;
+      // Audiobooks have their own "Continue Listening" row below.
+      if (movie.kind === "audiobook") continue;
       const href = `/s/${serverId}/watch/title/${movie.id}`;
       continueWatching.push({
         href,
@@ -120,6 +123,22 @@ export default async function LibraryHomePage({
         detailsHref: `/s/${serverId}/show/${details.show.id}`,
         progressFraction,
       },
+    });
+  }
+
+  const continueListening: PosterCardData[] = [];
+  for (const w of inProgress) {
+    if (w.ownerKind !== "title" || !w.durationSeconds || w.positionSeconds < CONTINUE_LISTENING_MIN_SECONDS) continue;
+    const book = movieById.get(w.ownerId);
+    if (!book || book.kind !== "audiobook") continue;
+    continueListening.push({
+      id: book.id,
+      kind: book.kind,
+      name: book.name,
+      year: book.year,
+      subtitle: formatRemaining(w.durationSeconds, w.positionSeconds),
+      posterUrl: book.posterUrl,
+      progressFraction: w.positionSeconds / w.durationSeconds,
     });
   }
 
@@ -177,6 +196,14 @@ export default async function LibraryHomePage({
           </MediaRow>
         )}
 
+        {continueListening.length > 0 && (
+          <MediaRow title="Continue Listening">
+            {continueListening.map((book) => (
+              <PosterCard key={book.id} serverId={serverId} title={book} className="w-36 sm:w-40 lg:w-44" />
+            ))}
+          </MediaRow>
+        )}
+
         {recentByLibrary
           .filter((r) => r.items.length > 0)
           .map(({ library, items }) => (
@@ -195,6 +222,10 @@ export default async function LibraryHomePage({
                     kind: t.kind,
                     name: t.name,
                     year: t.year,
+                    subtitle:
+                      t.kind === "audiobook"
+                        ? ((t.authors?.length ? t.authors : [t.folderAuthor]).filter(Boolean).join(", ") || null)
+                        : null,
                     posterUrl: t.posterUrl,
                   }}
                 />

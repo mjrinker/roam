@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { and, asc, count, eq, inArray } from "drizzle-orm";
 import { notFound } from "next/navigation";
-import { Film, Tv } from "lucide-react";
+import { Film, Headphones, Tv } from "lucide-react";
 import { db } from "@/lib/db/client";
 import { libraries, mediaFiles, titles, watchState } from "@/lib/db/schema";
 import { requireServerMember } from "@/lib/auth/guards";
@@ -34,9 +34,10 @@ export default async function LibraryDetailPage({
     .where(eq(titles.libraryId, libraryId))
     .orderBy(asc(titles.name));
 
-  // Per-profile watch progress and "still processing" flags — movies only;
-  // a show's status depends on its episodes and isn't summarized here.
-  const movieIds = library.kind === "movies" ? libraryTitles.map((t) => t.id) : [];
+  // Per-profile watch progress and "still processing" flags — for titles that
+  // own their files directly (movies, audiobooks); a show's status depends on
+  // its episodes and isn't summarized here.
+  const movieIds = library.kind !== "shows" ? libraryTitles.map((t) => t.id) : [];
   const [states, fileStats] = movieIds.length
     ? await Promise.all([
         db
@@ -71,6 +72,10 @@ export default async function LibraryDetailPage({
       kind: t.kind,
       name: t.name,
       year: t.year,
+      subtitle:
+        t.kind === "audiobook"
+          ? ((t.authors?.length ? t.authors : [t.folderAuthor]).filter(Boolean).join(", ") || null)
+          : null,
       posterUrl: t.posterUrl,
       addedAtMs: t.addedAt.getTime(),
       watched: state?.finished ?? false,
@@ -82,7 +87,7 @@ export default async function LibraryDetailPage({
     };
   });
 
-  const Icon = library.kind === "movies" ? Film : Tv;
+  const Icon = library.kind === "movies" ? Film : library.kind === "audiobooks" ? Headphones : Tv;
 
   return (
     <div className="flex flex-col gap-6 px-4 py-8 sm:px-8">
@@ -93,7 +98,7 @@ export default async function LibraryDetailPage({
         <div>
           <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">{library.name}</h1>
           <p className="text-sm text-muted-foreground">
-            {library.kind === "movies" ? "Movies" : "TV Shows"}
+            {library.kind === "movies" ? "Movies" : library.kind === "audiobooks" ? "Audiobooks" : "TV Shows"}
           </p>
         </div>
       </div>

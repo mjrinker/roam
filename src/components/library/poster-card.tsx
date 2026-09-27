@@ -9,6 +9,8 @@ export interface PosterCardData {
   kind: TitleKind;
   name: string;
   year: number | null;
+  /** Overrides the "year · kind" line (e.g. an audiobook's author). */
+  subtitle?: string | null;
   posterUrl: string | null;
   /** 0..1 — shows a resume bar along the bottom edge. */
   progressFraction?: number | null;
@@ -49,7 +51,7 @@ export function PosterCard({
 
   return (
     <Link href={href} className={cn("group/card block min-w-0 outline-none", className)}>
-      <div className="relative aspect-[2/3] overflow-hidden rounded-xl bg-muted ring-1 ring-white/[0.08] transition duration-300 ease-out group-hover/card:-translate-y-1 group-hover/card:shadow-[0_20px_40px_-14px_rgba(0,0,0,0.9)] group-hover/card:ring-white/25 group-focus-visible/card:ring-2 group-focus-visible/card:ring-primary">
+      <div className={cn("relative overflow-hidden rounded-xl bg-muted ring-1 ring-white/[0.08] transition duration-300 ease-out group-hover/card:-translate-y-1 group-hover/card:shadow-[0_20px_40px_-14px_rgba(0,0,0,0.9)] group-hover/card:ring-white/25 group-focus-visible/card:ring-2 group-focus-visible/card:ring-primary", title.kind === "audiobook" ? "aspect-square" : "aspect-[2/3]")}>
         {title.posterUrl ? (
           <Image
             src={title.posterUrl}
@@ -93,7 +95,10 @@ export function PosterCard({
           {title.name}
         </p>
         <p className="mt-0.5 truncate text-xs text-muted-foreground">
-          {[title.year, title.kind === "show" ? "TV Show" : title.kind === "audiobook" ? "Audiobook" : null].filter(Boolean).join(" · ") ||
+          {title.subtitle ||
+            [title.year, title.kind === "show" ? "TV Show" : title.kind === "audiobook" ? "Audiobook" : null]
+              .filter(Boolean)
+              .join(" · ") ||
             " "}
         </p>
       </div>

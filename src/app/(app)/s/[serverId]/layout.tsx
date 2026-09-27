@@ -1,5 +1,6 @@
 import { after } from "next/server";
 import { requireServerMember } from "@/lib/auth/guards";
+import { AudioPlayerProvider } from "@/components/audio/audio-player-provider";
 import { findResumableLibraries, scanLibrary } from "@/lib/scan/scanner";
 
 // Gives the after() background resume-scan below (see findResumableLibraries)
@@ -17,7 +18,7 @@ export default async function ServerLayout({
   params,
 }: LayoutProps<"/s/[serverId]">) {
   const { serverId } = await params;
-  await requireServerMember(serverId);
+  const { profile } = await requireServerMember(serverId);
 
   // Auto-resume any library whose last scan stopped early due to its time
   // budget — runs after the response is sent, so it never delays the page.
@@ -30,5 +31,7 @@ export default async function ServerLayout({
     );
   }
 
-  return <>{children}</>;
+  // Mounted here (not in the browse group) so an audiobook keeps playing
+  // across browse pages, and can be paused when a video starts.
+  return <AudioPlayerProvider initialRate={profile.playbackRate}>{children}</AudioPlayerProvider>;
 }

@@ -10,7 +10,7 @@ const MAX_LIBRARIES_PER_SERVER = Number(process.env.MAX_LIBRARIES_PER_SERVER ?? 
 const bodySchema = z.object({
   serverId: z.string().uuid(),
   name: z.string().min(1),
-  kind: z.enum(["movies", "shows"]),
+  kind: z.enum(["movies", "shows", "audiobooks"]),
   boxFolderId: z.string().min(1),
 });
 

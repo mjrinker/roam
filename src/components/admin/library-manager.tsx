@@ -113,7 +113,7 @@ export function LibraryManager({
   const [scanningId, setScanningId] = useState<string | null>(null);
   const [showForm, setShowForm] = useState(libraries.length === 0);
   const [name, setName] = useState("");
-  const [kind, setKind] = useState<"movies" | "shows">("movies");
+  const [kind, setKind] = useState<LibraryKind>("movies");
   const [selectedFolder, setSelectedFolder] = useState<{ id: string; name: string } | null>(
     null
   );
@@ -249,10 +249,11 @@ export function LibraryManager({
                   id="lib-kind"
                   className="h-9 rounded-md border border-input bg-transparent px-3 text-sm"
                   value={kind}
-                  onChange={(e) => setKind(e.target.value as "movies" | "shows")}
+                  onChange={(e) => setKind(e.target.value as LibraryKind)}
                 >
                   <option value="movies">Movies</option>
                   <option value="shows">TV Shows</option>
+                  <option value="audiobooks">Audiobooks</option>
                 </select>
               </div>
               <div className="grid gap-1.5">
