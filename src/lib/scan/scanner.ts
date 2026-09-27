@@ -51,6 +51,7 @@ import {
 } from "@/lib/tmdb/client";
 import { ratingsFromMovieDetails, ratingsFromTvDetails } from "@/lib/content/ratings";
 import { backfillRatings } from "@/lib/content/ratings-backfill";
+import { backfillExternalRatings } from "@/lib/content/external-ratings-backfill";
 
 function assertNever(value: never): never {
   throw new Error(`Unhandled kind: ${String(value)}`);
@@ -226,7 +227,8 @@ export async function scanLibrary(
         incomplete = incomplete || moreToMatch;
       } else {
         const moreRatings = await backfillRatings(library.id, enrichDeadline);
-        incomplete = incomplete || moreRatings;
+        const moreExternalRatings = await backfillExternalRatings(library.id, enrichDeadline);
+        incomplete = incomplete || moreRatings || moreExternalRatings;
       }
       const audibleRegion = library.kind === "audiobooks" ? library.audibleRegion : null;
       const probeIncomplete = await probePendingDurations(provider, library.id, probeDeadline, errors, audibleRegion);
@@ -447,6 +449,7 @@ async function enrichMovieMetadataIfNeeded(
         certifications,
         ratingAges,
         ratingsAttemptedAt: new Date(),
+        imdbId: details.imdb_id ?? null,
       })
       .where(eq(titles.id, titleId));
   } catch {
@@ -482,12 +485,12 @@ async function syncShowFolder(
   if (!existing) {
     // A {tmdb-...} folder tag lets us skip fuzzy search entirely; fall
     // back to search if the tagged id turns out to be stale/wrong.
-    let details = tmdbId ? await getTvShowDetails(tmdbId, { append: ["content_ratings"] }).catch(() => null) : null;
+    let details = tmdbId ? await getTvShowDetails(tmdbId, { append: ["content_ratings", "external_ids"] }).catch(() => null) : null;
     if (details) tmdbShowId = tmdbId;
     if (!details) {
       const match = await searchTvShow(name, year).catch(() => null);
       if (match) {
-        details = await getTvShowDetails(match.id, { append: ["content_ratings"] }).catch(() => null);
+        details = await getTvShowDetails(match.id, { append: ["content_ratings", "external_ids"] }).catch(() => null);
         tmdbShowId = match.id;
       }
     }
@@ -505,6 +508,7 @@ async function syncShowFolder(
           certifications,
           ratingAges,
           ratingsAttemptedAt: new Date(),
+          imdbId: details.external_ids?.imdb_id ?? null,
         })
         .where(eq(titles.id, title.id));
     } else {

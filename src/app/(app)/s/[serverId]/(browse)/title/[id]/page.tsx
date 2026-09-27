@@ -65,6 +65,7 @@ export default async function TitleDetailPage({
       title={title.name}
       backdropUrl={title.backdropUrl}
       posterUrl={title.posterUrl}
+      externalRatings={{ imdbRating: title.imdbRating, rottenTomatoesScore: title.rottenTomatoesScore }}
       genres={title.genres}
       overview={title.overview}
       meta={[

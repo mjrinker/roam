@@ -131,6 +131,7 @@ export default async function ShowDetailPage({
         title={show.name}
         backdropUrl={show.backdropUrl}
         posterUrl={show.posterUrl}
+        externalRatings={{ imdbRating: show.imdbRating, rottenTomatoesScore: show.rottenTomatoesScore }}
         genres={show.genres}
         overview={show.overview}
         meta={[

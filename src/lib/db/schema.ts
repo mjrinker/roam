@@ -276,6 +276,21 @@ export const titles = pgTable(
     ratingAges: jsonb("rating_ages").$type<Record<string, number>>(),
     ratingsAttemptedAt: timestamp("ratings_attempted_at", { withTimezone: true }),
 
+    // External scores (movies/shows only), from OMDb keyed by IMDb id — see
+    // lib/omdb. imdbId comes from TMDB's external_ids, fetched alongside the
+    // certification data above; the OMDb call itself is a separate backfill
+    // pass (lib/content/external-ratings-backfill) since it's a different
+    // API/key that can fail or rate-limit independently. Rotten Tomatoes has
+    // no free API for its audience score, so only the critics' Tomatometer
+    // is stored. metascore is captured because OMDb returns it for free but
+    // isn't shown anywhere yet.
+    imdbId: text("imdb_id"),
+    imdbRating: real("imdb_rating"),
+    imdbVotes: integer("imdb_votes"),
+    rottenTomatoesScore: integer("rotten_tomatoes_score"),
+    metascore: integer("metascore"),
+    externalRatingsAttemptedAt: timestamp("external_ratings_attempted_at", { withTimezone: true }),
+
     addedAt: timestamp("added_at", { withTimezone: true })
       .notNull()
       .defaultNow(),

@@ -1,6 +1,7 @@
 import Image from "next/image";
 import { Film, Headphones, Tv } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
+import { ExternalRatings, type ExternalRatingsData } from "@/components/library/external-ratings";
 import type { TitleKind } from "@/lib/db/schema";
 
 /** Plex-style title header: full-bleed blurred backdrop, poster, metadata, and an actions slot. */
@@ -10,6 +11,7 @@ export function DetailHero({
   backdropUrl,
   posterUrl,
   meta,
+  externalRatings,
   genres,
   overview,
   children,
@@ -19,6 +21,7 @@ export function DetailHero({
   backdropUrl: string | null;
   posterUrl: string | null;
   meta: (string | null | undefined | false)[];
+  externalRatings?: ExternalRatingsData;
   genres?: string[] | null;
   overview?: string | null;
   children?: React.ReactNode;
@@ -77,6 +80,8 @@ export function DetailHero({
               ))}
             </div>
           )}
+
+          {externalRatings && <ExternalRatings {...externalRatings} />}
 
           {genres && genres.length > 0 && (
             <div className="flex flex-wrap justify-center gap-1.5 md:justify-start">

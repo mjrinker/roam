@@ -44,6 +44,7 @@ export async function POST(
   if (title.kind === "movie") {
     const details = await getMovieDetails(parsed.data.tmdbId, { append: ["release_dates"] });
     const { certifications, ratingAges } = ratingsFromMovieDetails(details);
+    const imdbId = details.imdb_id ?? null;
     await db
       .update(titles)
       .set({
@@ -56,12 +57,19 @@ export async function POST(
         certifications,
         ratingAges,
         ratingsAttemptedAt: new Date(),
+        imdbId,
+        // A new match means any previously-fetched OMDb data belongs to the
+        // wrong film; clear it and let the backfill re-fetch for the new id.
+        ...(imdbId !== title.imdbId
+          ? { imdbRating: null, imdbVotes: null, rottenTomatoesScore: null, metascore: null, externalRatingsAttemptedAt: null }
+          : {}),
         updatedAt: new Date(),
       })
       .where(eq(titles.id, id));
   } else {
-    const details = await getTvShowDetails(parsed.data.tmdbId, { append: ["content_ratings"] });
+    const details = await getTvShowDetails(parsed.data.tmdbId, { append: ["content_ratings", "external_ids"] });
     const { certifications, ratingAges } = ratingsFromTvDetails(details);
+    const imdbId = details.external_ids?.imdb_id ?? null;
     await db
       .update(titles)
       .set({
@@ -74,6 +82,10 @@ export async function POST(
         certifications,
         ratingAges,
         ratingsAttemptedAt: new Date(),
+        imdbId,
+        ...(imdbId !== title.imdbId
+          ? { imdbRating: null, imdbVotes: null, rottenTomatoesScore: null, metascore: null, externalRatingsAttemptedAt: null }
+          : {}),
         updatedAt: new Date(),
       })
       .where(eq(titles.id, id));

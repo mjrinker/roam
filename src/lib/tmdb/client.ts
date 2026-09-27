@@ -61,6 +61,8 @@ export interface TmdbMovieDetails extends TmdbMovieSearchResult {
   runtime?: number | null;
   genres?: { id: number; name: string }[];
   adult?: boolean;
+  // Already on the base movie response — no append_to_response needed.
+  imdb_id?: string | null;
   // Present only when fetched with `append: ["release_dates"]`.
   release_dates?: { results: TmdbReleaseDatesResult[] };
 }
@@ -70,6 +72,9 @@ export interface TmdbTvDetails extends TmdbTvSearchResult {
   number_of_seasons?: number;
   // Present only when fetched with `append: ["content_ratings"]`.
   content_ratings?: { results: TmdbContentRatingsResult[] };
+  // Present only when fetched with `append: ["external_ids"]` — unlike
+  // movies, a TV show's imdb_id isn't on the base response.
+  external_ids?: { imdb_id?: string | null };
 }
 
 export interface TmdbEpisode {
