@@ -7,6 +7,7 @@ import {
   boolean,
   timestamp,
   jsonb,
+  real,
   pgEnum,
   uniqueIndex,
   index,
@@ -16,8 +17,10 @@ import { relations } from "drizzle-orm";
 // ── Enums ────────────────────────────────────────────────────────────────
 
 export const userRoleEnum = pgEnum("user_role", ["admin", "viewer"]);
-export const libraryKindEnum = pgEnum("library_kind", ["movies", "shows"]);
-export const titleKindEnum = pgEnum("title_kind", ["movie", "show"]);
+export const libraryKindEnum = pgEnum("library_kind", ["movies", "shows", "audiobooks"]);
+export const titleKindEnum = pgEnum("title_kind", ["movie", "show", "audiobook"]);
+export type LibraryKind = (typeof libraryKindEnum.enumValues)[number];
+export type TitleKind = (typeof titleKindEnum.enumValues)[number];
 export const ownerKindEnum = pgEnum("owner_kind", ["title", "episode"]);
 export const metadataStatusEnum = pgEnum("metadata_status", [
   "pending",
@@ -51,6 +54,8 @@ export const profiles = pgTable("profiles", {
   id: uuid("id").primaryKey(),
   email: text("email").notNull(),
   displayName: text("display_name"),
+  // Audiobook playback speed, kept per user across devices.
+  playbackRate: real("playback_rate").notNull().default(1),
   createdAt: timestamp("created_at", { withTimezone: true })
     .notNull()
     .defaultNow(),
@@ -165,6 +170,8 @@ export const libraries = pgTable(
     // probing remains. Advanced with compare-and-set so concurrent scans
     // can't both own it.
     scanCursor: jsonb("scan_cursor").$type<{ folder: string; sub?: string } | null>(),
+    // Audible storefront region used when matching audiobooks.
+    audibleRegion: text("audible_region").notNull().default("us"),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -198,6 +205,19 @@ export const titles = pgTable(
 
     // Sum of media_files.duration_seconds for a movie's segments.
     runtimeSeconds: integer("runtime_seconds"),
+
+    // Audiobook-only fields. Null for movies and shows.
+    authors: jsonb("authors").$type<string[]>(),
+    narrators: jsonb("narrators").$type<string[]>(),
+    // The author folder the book was found under; kept separately so an
+    // Audible match never destroys what the folder layout told us.
+    folderAuthor: text("folder_author"),
+    seriesName: text("series_name"),
+    seriesPosition: text("series_position"),
+    asin: text("asin"),
+    chapters: jsonb("chapters").$type<{ title: string; startSeconds: number }[]>(),
+    chaptersSource: text("chapters_source").$type<"embedded" | "audnexus" | "files">(),
+    metadataAttemptedAt: timestamp("metadata_attempted_at", { withTimezone: true }),
 
     addedAt: timestamp("added_at", { withTimezone: true })
       .notNull()
@@ -264,7 +284,18 @@ export const mediaFiles = pgTable(
     boxFileId: text("box_file_id").notNull().unique(),
     filename: text("filename").notNull(),
     sizeBytes: bigint("size_bytes", { mode: "number" }),
+    // duration_ms is authoritative when set (audiobooks: rounding to whole
+    // seconds across dozens of parts would drift chapter and resume
+    // positions); duration_seconds is always written alongside as its
+    // rounded value, and is all that older rows have.
     durationSeconds: integer("duration_seconds"),
+    durationMs: integer("duration_ms"),
+    // Probe tries so far; parts that keep failing are eventually given up
+    // on so one bad file can't block a whole book.
+    probeAttempts: integer("probe_attempts").notNull().default(0),
+    // Chapters embedded in this file (audiobooks), start times relative to
+    // the file. The book's chapter list is assembled from these at scan time.
+    chapters: jsonb("chapters").$type<{ title: string; startSeconds: number }[]>(),
 
     container: text("container"),
     videoCodec: text("video_codec"),

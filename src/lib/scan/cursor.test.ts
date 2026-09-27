@@ -30,6 +30,14 @@ describe("entriesAfterCursor", () => {
     expect(entriesAfterCursor(sorted, { folder: "C 2" }).map((x) => x.name)).toEqual(["C 10"]);
   });
 
+  it("keeps the cursor's own folder first when it was only partly done", () => {
+    expect(entriesAfterCursor(sorted, { folder: "B", sub: "Book 2" }).map((x) => x.name)).toEqual([
+      "B",
+      "C 2",
+      "C 10",
+    ]);
+  });
+
   it("returns nothing when the cursor is past the end", () => {
     expect(entriesAfterCursor(sorted, { folder: "Z" })).toEqual([]);
   });

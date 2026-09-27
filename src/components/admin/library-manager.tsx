@@ -17,6 +17,7 @@ import {
 } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { FolderBrowser } from "@/components/admin/folder-browser";
+import type { LibraryKind } from "@/lib/db/schema";
 
 export interface LastScanInfo {
   trigger: "manual" | "cron" | "webhook" | "resume";
@@ -29,7 +30,7 @@ export interface LastScanInfo {
 export interface LibraryRow {
   id: string;
   name: string;
-  kind: "movies" | "shows";
+  kind: LibraryKind;
   boxFolderId: string;
   lastScannedAt: string | null;
   lastScan: LastScanInfo | null;

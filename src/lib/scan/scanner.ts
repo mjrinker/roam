@@ -13,6 +13,7 @@ import {
   scanRuns,
   seasons,
   titles,
+  type TitleKind,
 } from "@/lib/db/schema";
 import { createBoxProviderForServer } from "@/lib/storage/box";
 import { BoxReauthRequiredError } from "@/lib/storage/box-token-storage";
@@ -27,7 +28,19 @@ import {
   parseSeasonFolderName,
   parseTitleFolderName,
 } from "@/lib/scan/conventions";
-import { probeMp4DurationSeconds } from "@/lib/scan/mp4-duration";
+import {
+  enrichPendingAudiobooks,
+  resolveAudiobookChapters,
+  resolvePendingAudiobookChapters,
+  syncAudiobookTopFolder,
+  syncSingleAudiobook,
+} from "@/lib/scan/audiobooks";
+import {
+  pendingProbeCondition,
+  probeFiles,
+  rollupTitleRuntime,
+  upsertMediaSegments,
+} from "@/lib/scan/media-files";
 import {
   getMovieDetails,
   getSeasonEpisodes,
@@ -36,6 +49,10 @@ import {
   searchTvShow,
   tmdbImageUrl,
 } from "@/lib/tmdb/client";
+
+function assertNever(value: never): never {
+  throw new Error(`Unhandled kind: ${String(value)}`);
+}
 
 export interface ScanResult {
   scanRunId: string;
@@ -62,6 +79,7 @@ const SCAN_TIME_BUDGET_MS = 40_000;
 // Safety cap on back-to-back passes (~30 min of scanning) so a library that
 // can never finish can't chain forever; the fallbacks above pick it back up.
 const MAX_CHAIN_DEPTH = 40;
+const ENRICH_TIME_BUDGET_MS = 10_000;
 const FOLDER_SYNC_TIME_BUDGET_MS = 24_000; // ~60% of the budget — leaves room for probing to run every pass too, so titles start becoming playable before the whole library has even finished being discovered
 
 /** Scans one library's Box folder tree (using its server's own connected Box account) and syncs it into Postgres. */
@@ -128,14 +146,47 @@ export async function scanLibrary(
           loopFinished = false;
           break;
         }
+        let stopLoop = false;
         try {
-          if (library.kind === "movies") {
-            const added = await syncMovieFolder(provider, library.id, folder);
-            if (added) titlesAdded++;
-            filesSeen += 1;
-          } else {
-            const added = await syncShowFolder(provider, library.id, folder);
-            if (added) titlesAdded++;
+          switch (library.kind) {
+            case "movies": {
+              const added = await syncMovieFolder(provider, library.id, folder);
+              if (added) titlesAdded++;
+              filesSeen += 1;
+              break;
+            }
+            case "shows": {
+              const added = await syncShowFolder(provider, library.id, folder);
+              if (added) titlesAdded++;
+              break;
+            }
+            case "audiobooks": {
+              const res = await syncAudiobookTopFolder(provider, library.id, folder, {
+                afterSub: cursor?.folder === folder.name ? (cursor.sub ?? null) : null,
+                errors,
+                budgetExhausted: () => processed > 0 && Date.now() - startedAt > FOLDER_SYNC_TIME_BUDGET_MS,
+                onUnitDone: async (childName) => {
+                  const next: ScanCursor = { folder: folder.name, sub: childName };
+                  if (!(await advanceScanCursor(libraryId, cursor, next))) return false;
+                  cursor = next;
+                  processed++;
+                  return true;
+                },
+              });
+              titlesAdded += res.titlesAdded;
+              filesSeen += res.booksSeen;
+              if (res.superseded) {
+                superseded = true;
+                stopLoop = true;
+              } else if (!res.finished) {
+                incomplete = true;
+                loopFinished = false;
+                stopLoop = true;
+              }
+              break;
+            }
+            default:
+              assertNever(library.kind);
           }
         } catch (err) {
           // A single title's own Box connection dying mid-scan means every
@@ -144,6 +195,7 @@ export async function scanLibrary(
           if (err instanceof BoxReauthRequiredError) throw err;
           errors.push(`${folder.name}: ${(err as Error).message}`);
         }
+        if (stopLoop) break;
         processed++;
 
         // Advance even after a per-folder error, so one bad folder can't
@@ -165,7 +217,14 @@ export async function scanLibrary(
 
     if (!superseded) {
       const probeDeadline = startedAt + SCAN_TIME_BUDGET_MS;
-      const probeIncomplete = await probePendingDurations(provider, library.id, probeDeadline, errors);
+      if (library.kind === "audiobooks") {
+        // Capped so Audible lookups can't starve probing of the pass.
+        const enrichDeadline = Math.min(probeDeadline, Date.now() + ENRICH_TIME_BUDGET_MS);
+        const moreToMatch = await enrichPendingAudiobooks(library.id, library.audibleRegion, enrichDeadline);
+        incomplete = incomplete || moreToMatch;
+      }
+      const audibleRegion = library.kind === "audiobooks" ? library.audibleRegion : null;
+      const probeIncomplete = await probePendingDurations(provider, library.id, probeDeadline, errors, audibleRegion);
       incomplete = incomplete || probeIncomplete;
     }
   } catch (err) {
@@ -572,52 +631,6 @@ export async function refreshShowEpisodesFromTmdb(showId: string, tmdbShowId: nu
   }
 }
 
-// ── Media file segments ──────────────────────────────────────────────────
-
-async function upsertMediaSegments(
-  ownerKind: "title" | "episode",
-  ownerId: string,
-  files: StorageEntry[]
-) {
-  if (files.length === 0) return;
-  const currentIds = files.map((f) => f.id);
-
-  // (owner_kind, owner_id, part_index) is unique, so stale rows (removed,
-  // renamed, or now-excluded extras like trailers) must go before the
-  // upserts: a surviving file moving into a stale row's part_index would
-  // otherwise violate the index. Surviving rows are also parked at negative
-  // indexes first so files that swap or shift positions can't collide with
-  // each other mid-update.
-  await db.transaction(async (tx) => {
-    const owned = and(eq(mediaFiles.ownerKind, ownerKind), eq(mediaFiles.ownerId, ownerId));
-
-    await tx.delete(mediaFiles).where(and(owned, notInArray(mediaFiles.boxFileId, currentIds)));
-    await tx
-      .update(mediaFiles)
-      .set({ partIndex: sql`-${mediaFiles.partIndex} - 1` })
-      .where(and(owned, inArray(mediaFiles.boxFileId, currentIds)));
-
-    for (let i = 0; i < files.length; i++) {
-      const file = files[i];
-      await tx
-        .insert(mediaFiles)
-        .values({
-          ownerKind,
-          ownerId,
-          partIndex: i,
-          boxFileId: file.id,
-          filename: file.name,
-          sizeBytes: file.sizeBytes,
-          container: file.name.slice(file.name.lastIndexOf(".") + 1).toLowerCase(),
-        })
-        .onConflictDoUpdate({
-          target: mediaFiles.boxFileId,
-          set: { partIndex: i, filename: file.name, sizeBytes: file.sizeBytes },
-        });
-    }
-  });
-}
-
 // ── Duration probing ─────────────────────────────────────────────────────
 
 /**
@@ -649,60 +662,6 @@ export async function resolveLibraryOwnerIds(
 }
 
 /**
- * Probes each file's duration, updating probeStatus as it goes. Shared by
- * the library-wide prober and the single-title resync. Stops early (and
- * reports incomplete) if the deadline is hit mid-list, same reasoning as
- * the folder-sync loop in scanLibrary.
- */
-async function probeFiles(
-  provider: StorageProvider,
-  files: (typeof mediaFiles.$inferSelect)[],
-  deadline: number,
-  errors: string[]
-): Promise<boolean> {
-  let incomplete = false;
-  for (const file of files) {
-    if (Date.now() > deadline) {
-      incomplete = true;
-      break;
-    }
-    if (!file.sizeBytes) continue;
-    try {
-      const durationSeconds = await probeMp4DurationSeconds(
-        (start, end) => provider.fetchByteRange(file.boxFileId, start, end),
-        file.sizeBytes
-      );
-      await db
-        .update(mediaFiles)
-        .set({
-          durationSeconds: Math.round(durationSeconds),
-          probeStatus: "ok",
-        })
-        .where(eq(mediaFiles.id, file.id));
-    } catch (err) {
-      if (err instanceof BoxReauthRequiredError) throw err;
-      errors.push(`probe ${file.filename}: ${(err as Error).message}`);
-      await db
-        .update(mediaFiles)
-        .set({ probeStatus: "failed" })
-        .where(eq(mediaFiles.id, file.id));
-    }
-  }
-  return incomplete;
-}
-
-/** Recomputes a movie's total runtime from its segments, once every segment has a probed duration. */
-async function rollupMovieRuntime(titleId: string) {
-  const segments = await db
-    .select({ durationSeconds: mediaFiles.durationSeconds })
-    .from(mediaFiles)
-    .where(and(eq(mediaFiles.ownerKind, "title"), eq(mediaFiles.ownerId, titleId)));
-  if (segments.length === 0 || segments.some((s) => s.durationSeconds == null)) return;
-  const total = segments.reduce((sum, s) => sum + (s.durationSeconds ?? 0), 0);
-  await db.update(titles).set({ runtimeSeconds: total }).where(eq(titles.id, titleId));
-}
-
-/**
  * Scoped to THIS library only — not every pending media_file in the whole
  * database. Before multi-tenancy this was harmless (only one library ever
  * existed); now, an unscoped query here would try to probe another
@@ -715,7 +674,8 @@ async function probePendingDurations(
   provider: StorageProvider,
   libraryId: string,
   deadline: number,
-  errors: string[]
+  errors: string[],
+  audibleRegion: string | null = null
 ): Promise<boolean> {
   const { titleIds, episodeIds } = await resolveLibraryOwnerIds(libraryId);
 
@@ -726,7 +686,7 @@ async function probePendingDurations(
           .from(mediaFiles)
           .where(
             and(
-              eq(mediaFiles.probeStatus, "pending"),
+              pendingProbeCondition,
               eq(mediaFiles.ownerKind, "title"),
               inArray(mediaFiles.ownerId, titleIds)
             )
@@ -738,7 +698,7 @@ async function probePendingDurations(
           .from(mediaFiles)
           .where(
             and(
-              eq(mediaFiles.probeStatus, "pending"),
+              pendingProbeCondition,
               eq(mediaFiles.ownerKind, "episode"),
               inArray(mediaFiles.ownerId, episodeIds)
             )
@@ -754,11 +714,14 @@ async function probePendingDurations(
     ? await db
         .select({ id: titles.id })
         .from(titles)
-        .where(and(inArray(titles.id, titleIds), eq(titles.kind, "movie")))
+        .where(and(inArray(titles.id, titleIds), inArray(titles.kind, ["movie", "audiobook"])))
     : [];
   for (const t of movieTitles) {
-    await rollupMovieRuntime(t.id);
+    await rollupTitleRuntime(t.id);
   }
+
+  // Audiobook chapters can be built once a book's parts are all probed.
+  if (audibleRegion) await resolvePendingAudiobookChapters(libraryId, audibleRegion, deadline);
 
   return incomplete;
 }
@@ -794,14 +757,26 @@ export async function syncSingleTitle(titleId: string): Promise<{ errors: string
       return { errors };
     }
 
-    if (title.kind === "movie") {
-      await syncMovieFolder(provider, library.id, folderInfo);
-    } else {
-      await syncShowFolder(provider, library.id, folderInfo);
+    switch (title.kind) {
+      case "movie":
+        await syncMovieFolder(provider, library.id, folderInfo);
+        break;
+      case "show":
+        await syncShowFolder(provider, library.id, folderInfo);
+        break;
+      case "audiobook":
+        await syncSingleAudiobook(provider, library.id, folderInfo);
+        break;
+      default:
+        assertNever(title.kind);
     }
 
     const deadline = startedAt + SINGLE_TITLE_TIME_BUDGET_MS;
     await probeTitlePendingDurations(provider, titleId, title.kind, deadline, errors);
+
+    if (title.kind === "audiobook") {
+      await resolveAudiobookChaptersWhenProbed(titleId, library.audibleRegion);
+    }
   } catch (err) {
     if (err instanceof BoxReauthRequiredError) {
       errors.push("This server's Box connection needs to be reconnected by an admin.");
@@ -813,21 +788,36 @@ export async function syncSingleTitle(titleId: string): Promise<{ errors: string
   return { errors };
 }
 
+/** Builds an audiobook's chapters if it has none yet and none of its parts are still awaiting a probe. */
+async function resolveAudiobookChaptersWhenProbed(titleId: string, region: string) {
+  const [title] = await db.select({ chapters: titles.chapters }).from(titles).where(eq(titles.id, titleId)).limit(1);
+  if (!title || title.chapters !== null) return;
+  const [stillProbing] = await db
+    .select({ id: mediaFiles.id })
+    .from(mediaFiles)
+    .where(and(eq(mediaFiles.ownerKind, "title"), eq(mediaFiles.ownerId, titleId), pendingProbeCondition))
+    .limit(1);
+  if (stillProbing) return;
+  await resolveAudiobookChapters(titleId, region);
+}
+
 async function probeTitlePendingDurations(
   provider: StorageProvider,
   titleId: string,
-  kind: "movie" | "show",
+  kind: TitleKind,
   deadline: number,
   errors: string[]
 ) {
   let pending: (typeof mediaFiles.$inferSelect)[];
-  if (kind === "movie") {
+  // Movies and audiobooks own their files directly; shows own them via episodes.
+  const titleOwned = kind === "movie" || kind === "audiobook";
+  if (titleOwned) {
     pending = await db
       .select()
       .from(mediaFiles)
       .where(
         and(
-          eq(mediaFiles.probeStatus, "pending"),
+          pendingProbeCondition,
           eq(mediaFiles.ownerKind, "title"),
           eq(mediaFiles.ownerId, titleId)
         )
@@ -845,7 +835,7 @@ async function probeTitlePendingDurations(
           .from(mediaFiles)
           .where(
             and(
-              eq(mediaFiles.probeStatus, "pending"),
+              pendingProbeCondition,
               eq(mediaFiles.ownerKind, "episode"),
               inArray(mediaFiles.ownerId, episodeIds)
             )
@@ -854,5 +844,5 @@ async function probeTitlePendingDurations(
   }
 
   await probeFiles(provider, pending, deadline, errors);
-  if (kind === "movie") await rollupMovieRuntime(titleId);
+  if (titleOwned) await rollupTitleRuntime(titleId);
 }

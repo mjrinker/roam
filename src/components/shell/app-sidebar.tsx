@@ -2,17 +2,24 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Clapperboard, Film, House, Settings, Tv, X } from "lucide-react";
+import { Clapperboard, Film, Headphones, House, Settings, Tv, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { ServerSwitcher } from "@/components/nav/server-switcher";
 import { BrandLogo } from "@/components/shell/brand";
 import { useShell } from "@/components/shell/shell-context";
 import type { ServerMembershipSummary } from "@/lib/auth/servers";
+import type { LibraryKind } from "@/lib/db/schema";
+
+const LIBRARY_ICONS: Record<LibraryKind, React.ComponentType<{ className?: string }>> = {
+  movies: Film,
+  shows: Tv,
+  audiobooks: Headphones,
+};
 
 export interface SidebarLibrary {
   id: string;
   name: string;
-  kind: "movies" | "shows";
+  kind: LibraryKind;
 }
 
 function NavLink({
@@ -126,7 +133,7 @@ export function AppSidebar({
               <NavLink
                 key={lib.id}
                 href={href}
-                icon={lib.kind === "movies" ? Film : Tv}
+                icon={LIBRARY_ICONS[lib.kind]}
                 active={pathname === href}
                 onNavigate={close}
               >

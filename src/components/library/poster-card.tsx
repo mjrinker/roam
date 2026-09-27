@@ -1,11 +1,12 @@
 import Image from "next/image";
 import Link from "next/link";
-import { Check, Film, Play, Tv } from "lucide-react";
+import { Check, Film, Headphones, Play, Tv } from "lucide-react";
 import { cn } from "@/lib/utils";
+import type { TitleKind } from "@/lib/db/schema";
 
 export interface PosterCardData {
   id: string;
-  kind: "movie" | "show";
+  kind: TitleKind;
   name: string;
   year: number | null;
   posterUrl: string | null;
@@ -16,8 +17,8 @@ export interface PosterCardData {
   processing?: boolean;
 }
 
-export function PosterFallback({ name, kind }: { name: string; kind: "movie" | "show" }) {
-  const Icon = kind === "show" ? Tv : Film;
+export function PosterFallback({ name, kind }: { name: string; kind: TitleKind }) {
+  const Icon = kind === "show" ? Tv : kind === "audiobook" ? Headphones : Film;
   return (
     <div className="flex h-full flex-col items-center justify-center gap-3 bg-gradient-to-br from-secondary via-muted to-background p-4 text-center">
       <Icon className="size-7 text-muted-foreground/60" />
@@ -38,7 +39,9 @@ export function PosterCard({
   const href =
     title.kind === "show"
       ? `/s/${serverId}/show/${title.id}`
-      : `/s/${serverId}/title/${title.id}`;
+      : title.kind === "audiobook"
+        ? `/s/${serverId}/book/${title.id}`
+        : `/s/${serverId}/title/${title.id}`;
   const progress =
     typeof title.progressFraction === "number" && title.progressFraction > 0
       ? Math.min(1, title.progressFraction)
@@ -90,7 +93,7 @@ export function PosterCard({
           {title.name}
         </p>
         <p className="mt-0.5 truncate text-xs text-muted-foreground">
-          {[title.year, title.kind === "show" ? "TV Show" : null].filter(Boolean).join(" · ") ||
+          {[title.year, title.kind === "show" ? "TV Show" : title.kind === "audiobook" ? "Audiobook" : null].filter(Boolean).join(" · ") ||
             " "}
         </p>
       </div>

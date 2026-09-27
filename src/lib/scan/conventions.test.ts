@@ -1,9 +1,15 @@
 import { describe, expect, it } from "vitest";
 import {
   groupFilesByEpisodeNumber,
+  isAudioFile,
+  isDiscFolderName,
   isExtraFile,
   isVideoFile,
+  orderAudioParts,
+  orderBookParts,
   orderMediaSegments,
+  parseBookFolderName,
+  parseDiscFolderNumber,
   parseEditionTag,
   parseEpisodeFileName,
   parseSeasonFolderName,
@@ -316,5 +322,111 @@ describe("isExtraFile", () => {
     "Movie.Trailer.mp4",
   ])("does not flag %s as an extra", (name) => {
     expect(isExtraFile(name)).toBe(false);
+  });
+});
+
+describe("isAudioFile", () => {
+  it("accepts m4b, m4a and mp3 in any case", () => {
+    expect(isAudioFile("Book.m4b")).toBe(true);
+    expect(isAudioFile("Book.M4A")).toBe(true);
+    expect(isAudioFile("01 Intro.mp3")).toBe(true);
+  });
+
+  it("rejects video, images and extensionless names", () => {
+    expect(isAudioFile("movie.mp4")).toBe(false);
+    expect(isAudioFile("cover.jpg")).toBe(false);
+    expect(isAudioFile("README")).toBe(false);
+  });
+});
+
+describe("orderAudioParts", () => {
+  const names = (files: { name: string }[]) => files.map((f) => f.name);
+
+  it("sorts unpadded numbers numerically, not lexically", () => {
+    const files = ["Chapter 10.mp3", "Chapter 2.mp3", "Chapter 1.mp3"].map((name) => ({ name }));
+    expect(names(orderAudioParts(files))).toEqual(["Chapter 1.mp3", "Chapter 2.mp3", "Chapter 10.mp3"]);
+  });
+
+  it("honors explicit part suffixes over plain names", () => {
+    const files = ["Book - pt2.m4b", "Book - pt10.m4b", "Book - pt1.m4b"].map((name) => ({ name }));
+    expect(names(orderAudioParts(files))).toEqual(["Book - pt1.m4b", "Book - pt2.m4b", "Book - pt10.m4b"]);
+  });
+
+  it("keeps zero-padded track numbers in order", () => {
+    const files = ["03 - C.mp3", "01 - A.mp3", "02 - B.mp3"].map((name) => ({ name }));
+    expect(names(orderAudioParts(files))).toEqual(["01 - A.mp3", "02 - B.mp3", "03 - C.mp3"]);
+  });
+});
+
+describe("disc folders", () => {
+  it("recognizes common disc/part folder names", () => {
+    expect(parseDiscFolderNumber("CD1")).toBe(1);
+    expect(parseDiscFolderNumber("Disc 2")).toBe(2);
+    expect(parseDiscFolderNumber("Part 03")).toBe(3);
+    expect(parseDiscFolderNumber("Disk_10")).toBe(10);
+    expect(parseDiscFolderNumber("cd 2 - Chapters 11-20")).toBe(2);
+  });
+
+  it("does not mistake ordinary folders for discs", () => {
+    expect(isDiscFolderName("Partners in Crime")).toBe(false);
+    expect(isDiscFolderName("Discworld")).toBe(false);
+    expect(isDiscFolderName("The Way of Kings (2010)")).toBe(false);
+    expect(isDiscFolderName("Series Name")).toBe(false);
+  });
+
+  it("flattens loose files then discs in disc order", () => {
+    const f = (name: string) => ({ name });
+    const ordered = orderBookParts(
+      [f("Intro.mp3")],
+      [
+        { name: "Disc 10", files: [f("2.mp3"), f("1.mp3")] },
+        { name: "Disc 2", files: [f("b.mp3"), f("a.mp3")] },
+        { name: "CD1", files: [f("x.mp3")] },
+      ]
+    );
+    expect(ordered.map((x) => x.name)).toEqual(["Intro.mp3", "x.mp3", "a.mp3", "b.mp3", "1.mp3", "2.mp3"]);
+  });
+});
+
+describe("parseBookFolderName", () => {
+  it("extracts name and year", () => {
+    expect(parseBookFolderName("Project Hail Mary (2021)")).toEqual({
+      name: "Project Hail Mary",
+      year: 2021,
+      seriesPosition: null,
+      asin: null,
+    });
+  });
+
+  it("strips a series position prefix", () => {
+    expect(parseBookFolderName("Book 3 - Oathbringer (2017)")).toMatchObject({
+      name: "Oathbringer",
+      seriesPosition: "3",
+      year: 2017,
+    });
+    expect(parseBookFolderName("01 - Storm Front").seriesPosition).toBe("1");
+    expect(parseBookFolderName("Vol. 2.5 - Interlude")).toMatchObject({
+      name: "Interlude",
+      seriesPosition: "2.5",
+    });
+    expect(parseBookFolderName("#4: Skyward")).toMatchObject({ name: "Skyward", seriesPosition: "4" });
+  });
+
+  it("leaves numeric titles alone", () => {
+    expect(parseBookFolderName("1984").name).toBe("1984");
+    expect(parseBookFolderName("1984 - Special Edition")).toMatchObject({
+      name: "1984 - Special Edition",
+      seriesPosition: null,
+    });
+    expect(parseBookFolderName("2001 A Space Odyssey").seriesPosition).toBeNull();
+  });
+
+  it("reads an ASIN tag", () => {
+    expect(parseBookFolderName("Dune (1965) {asin-b002v0qk4c}")).toEqual({
+      name: "Dune",
+      year: 1965,
+      seriesPosition: null,
+      asin: "B002V0QK4C",
+    });
   });
 });

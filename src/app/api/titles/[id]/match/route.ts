@@ -36,6 +36,10 @@ export async function POST(
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
 
+  if (title.kind === "audiobook") {
+    return NextResponse.json({ error: "Audiobooks are matched against Audible, not TMDB." }, { status: 400 });
+  }
+
   if (title.kind === "movie") {
     const details = await getMovieDetails(parsed.data.tmdbId);
     await db

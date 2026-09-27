@@ -22,6 +22,20 @@
       "when": 1790469357345,
       "tag": "0002_scan_cursor",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1790476334073,
+      "tag": "0003_audiobook_enums",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1790476758663,
+      "tag": "0004_audiobook_columns",
+      "breakpoints": true
     }
   ]
 }

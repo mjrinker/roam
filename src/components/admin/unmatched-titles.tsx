@@ -15,12 +15,13 @@ import {
   DialogDescription,
 } from "@/components/ui/dialog";
 import type { TmdbSearchResultDto } from "@/app/api/tmdb/search/route";
+import type { TitleKind } from "@/lib/db/schema";
 
 export interface UnmatchedTitleRow {
   id: string;
   name: string;
   year: number | null;
-  kind: "movie" | "show";
+  kind: TitleKind;
   metadataStatus: "pending" | "not_found";
 }
 

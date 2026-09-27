@@ -2,12 +2,12 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { asc, desc, eq, ilike, and, sql } from "drizzle-orm";
 import { db } from "@/lib/db/client";
-import { libraries, titles } from "@/lib/db/schema";
+import { libraries, titles, type TitleKind } from "@/lib/db/schema";
 import { getCurrentServerMember } from "@/lib/auth/guards";
 
 export interface SearchResultDto {
   id: string;
-  kind: "movie" | "show";
+  kind: TitleKind;
   name: string;
   year: number | null;
   posterUrl: string | null;

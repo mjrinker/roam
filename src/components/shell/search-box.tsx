@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
-import { Film, Loader2, Search, Tv } from "lucide-react";
+import { Film, Headphones, Loader2, Search, Tv } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { SearchResultDto } from "@/app/api/search/route";
 
@@ -78,7 +78,9 @@ export function SearchBox({ serverId }: { serverId: string }) {
     router.push(
       result.kind === "show"
         ? `/s/${serverId}/show/${result.id}`
-        : `/s/${serverId}/title/${result.id}`
+        : result.kind === "audiobook"
+          ? `/s/${serverId}/book/${result.id}`
+          : `/s/${serverId}/title/${result.id}`
     );
   }
 
@@ -150,14 +152,20 @@ export function SearchBox({ serverId }: { serverId: string }) {
                         <Image src={r.posterUrl} alt="" fill sizes="40px" className="object-cover" />
                       ) : (
                         <span className="flex h-full items-center justify-center text-muted-foreground">
-                          {r.kind === "show" ? <Tv className="size-4" /> : <Film className="size-4" />}
+                          {r.kind === "show" ? (
+                            <Tv className="size-4" />
+                          ) : r.kind === "audiobook" ? (
+                            <Headphones className="size-4" />
+                          ) : (
+                            <Film className="size-4" />
+                          )}
                         </span>
                       )}
                     </span>
                     <span className="min-w-0 flex-1">
                       <span className="block truncate text-sm font-medium">{r.name}</span>
                       <span className="block text-xs text-muted-foreground">
-                        {r.kind === "show" ? "TV Show" : "Movie"}
+                        {r.kind === "show" ? "TV Show" : r.kind === "audiobook" ? "Audiobook" : "Movie"}
                         {r.year ? ` · ${r.year}` : ""}
                       </span>
                     </span>

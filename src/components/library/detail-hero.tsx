@@ -1,6 +1,7 @@
 import Image from "next/image";
-import { Film, Tv } from "lucide-react";
+import { Film, Headphones, Tv } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
+import type { TitleKind } from "@/lib/db/schema";
 
 /** Plex-style title header: full-bleed blurred backdrop, poster, metadata, and an actions slot. */
 export function DetailHero({
@@ -13,7 +14,7 @@ export function DetailHero({
   overview,
   children,
 }: {
-  kind: "movie" | "show";
+  kind: TitleKind;
   title: string;
   backdropUrl: string | null;
   posterUrl: string | null;
@@ -22,7 +23,7 @@ export function DetailHero({
   overview?: string | null;
   children?: React.ReactNode;
 }) {
-  const Icon = kind === "show" ? Tv : Film;
+  const Icon = kind === "show" ? Tv : kind === "audiobook" ? Headphones : Film;
   const metaItems = meta.filter(Boolean) as string[];
 
   return (

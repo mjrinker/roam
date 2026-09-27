@@ -32,6 +32,8 @@
  *   two episode rows.
  */
 
+import { compareNames } from "./cursor";
+
 const TITLE_YEAR_RE = /^(.*?)\s*\((\d{4})\)\s*$/;
 const SEASON_FOLDER_RE = /season\s*0*(\d+)/i;
 const EPISODE_FILE_RE = /s0*(\d+)e0*(\d+)(?:\s*-\s*(.+?))?(?:\.[^.]+)?$/i;
@@ -203,4 +205,104 @@ const EXTRA_SUFFIX_RE = new RegExp(`-(?:${EXTRA_SUFFIXES.join("|")})\\.[^.]+$`, 
  */
 export function isExtraFile(fileName: string): boolean {
   return EXTRA_SUFFIX_RE.test(fileName);
+}
+
+// ── Audiobooks ───────────────────────────────────────────────────────────
+// Layout: <Author>/<Book (Year)>/files, optionally <Author>/<Series>/<Book>.
+// A book's audio files (or its CD1/CD2 subfolders' files) play as one
+// continuous timeline, exactly like a split movie.
+
+const AUDIO_EXTENSIONS = new Set([".m4b", ".m4a", ".mp3"]);
+
+export function isAudioFile(fileName: string): boolean {
+  const dot = fileName.lastIndexOf(".");
+  if (dot === -1) return false;
+  return AUDIO_EXTENSIONS.has(fileName.slice(dot).toLowerCase());
+}
+
+/**
+ * Orders a book's audio files into playback parts. Explicit split suffixes
+ * (part/pt/cd/disc N) win; everything else compares numerically-aware, so
+ * "Chapter 2" sorts before "Chapter 10" (plain localeCompare wouldn't).
+ */
+export function orderAudioParts<T extends { name: string }>(files: T[]): T[] {
+  return [...files].sort((a, b) => {
+    const aPart = SPLIT_RE.exec(a.name)?.[1];
+    const bPart = SPLIT_RE.exec(b.name)?.[1];
+    if (aPart && bPart && Number(aPart) !== Number(bPart)) return Number(aPart) - Number(bPart);
+    if (aPart && !bPart) return -1;
+    if (!aPart && bPart) return 1;
+    return compareNames(a.name, b.name);
+  });
+}
+
+const DISC_FOLDER_RE = /^(?:cd|disc|disk|dvd|part|pt)[\s._-]*0*(\d+)(?:[\s._-].*)?$/i;
+
+/** "CD1", "Disc 2", "Part 03", "Disk_1 - Chapters 1-10" → the disc number; anything else → null. */
+export function parseDiscFolderNumber(folderName: string): number | null {
+  const match = DISC_FOLDER_RE.exec(folderName.trim());
+  return match ? Number(match[1]) : null;
+}
+
+export function isDiscFolderName(folderName: string): boolean {
+  return parseDiscFolderNumber(folderName) !== null;
+}
+
+/**
+ * Flattens a book split across disc/part subfolders into one ordered file
+ * list: loose files first, then each disc folder in disc-number order (name
+ * as the tiebreak), files within each ordered by orderAudioParts.
+ */
+export function orderBookParts<T extends { name: string }>(
+  looseFiles: T[],
+  discFolders: { name: string; files: T[] }[]
+): T[] {
+  const discs = [...discFolders].sort(
+    (a, b) =>
+      (parseDiscFolderNumber(a.name) ?? 0) - (parseDiscFolderNumber(b.name) ?? 0) ||
+      compareNames(a.name, b.name)
+  );
+  return [...orderAudioParts(looseFiles), ...discs.flatMap((d) => orderAudioParts(d.files))];
+}
+
+export interface ParsedBookFolder {
+  name: string;
+  year: number | null;
+  /** From a "Book 3 - " / "03 - " prefix, leading zeros stripped ("03" → "3", "1.5" kept). */
+  seriesPosition: string | null;
+  /** From a Plex-style {asin-B0XXXXXXXX} tag, which skips fuzzy matching. */
+  asin: string | null;
+}
+
+const ASIN_TAG_RE = /\{asin-([A-Z0-9]{10})\}/i;
+const BOOK_POSITION_RE = /^(?:(book|vol(?:ume)?\.?|#)\s*)?(\d+(?:\.\d+)?)\s*[-–—.:]\s*(?=\S)/i;
+
+/** Parses "Book 1 - The Way of Kings (2010) {asin-B003P2WO5E}" into its parts. */
+export function parseBookFolderName(folderName: string): ParsedBookFolder {
+  let name = folderName.trim();
+
+  let asin: string | null = null;
+  const asinMatch = ASIN_TAG_RE.exec(name);
+  if (asinMatch) {
+    asin = asinMatch[1].toUpperCase();
+    name = name.replace(ASIN_TAG_RE, "").trim();
+  }
+
+  let year: number | null = null;
+  const yearMatch = /\s*\((\d{4})\)\s*$/.exec(name);
+  if (yearMatch) {
+    year = Number(yearMatch[1]);
+    name = name.slice(0, yearMatch.index).trim();
+  }
+
+  let seriesPosition: string | null = null;
+  const posMatch = BOOK_POSITION_RE.exec(name);
+  // Without an explicit "Book"/"Vol"/"#" prefix, only treat a short number
+  // as a position, so a title like "1984 - Special Edition" isn't mangled.
+  if (posMatch && (posMatch[1] || posMatch[2].split(".")[0].length <= 3)) {
+    seriesPosition = posMatch[2].replace(/^0+(?=\d)/, "");
+    name = name.slice(posMatch[0].length).trim();
+  }
+
+  return { name: name || folderName.trim(), year, seriesPosition, asin };
 }

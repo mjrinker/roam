@@ -25,13 +25,20 @@ export function sortForScan<T extends { id: string; name: string }>(entries: T[]
   return [...entries].sort((a, b) => compareNames(a.name, b.name) || a.id.localeCompare(b.id));
 }
 
-/** Entries (already sorted with sortForScan) strictly after the cursor's folder. */
+/**
+ * Entries (already sorted with sortForScan) still to process: everything
+ * strictly after the cursor's folder, plus the cursor's own folder first when
+ * the cursor has a `sub` (that folder was only partly done).
+ */
 export function entriesAfterCursor<T extends { name: string }>(
   sorted: T[],
   cursor: ScanCursor | null
 ): T[] {
   if (!cursor) return sorted;
-  return sorted.filter((e) => compareNames(e.name, cursor.folder) > 0);
+  return sorted.filter((e) => {
+    const order = compareNames(e.name, cursor.folder);
+    return order > 0 || (order === 0 && cursor.sub !== undefined);
+  });
 }
 
 export type ScanPlan =
