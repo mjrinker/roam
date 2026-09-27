@@ -16,12 +16,15 @@ import {
 } from "@/components/ui/dialog";
 import type { TmdbSearchResultDto } from "@/app/api/tmdb/search/route";
 import type { TitleKind } from "@/lib/db/schema";
+import { AudibleMatchDialog } from "@/components/admin/audible-match-dialog";
 
 export interface UnmatchedTitleRow {
   id: string;
   name: string;
   year: number | null;
   kind: TitleKind;
+  /** An audiobook's author from its folder, used to steer the Audible search. */
+  author?: string | null;
   metadataStatus: "pending" | "not_found";
 }
 
@@ -136,8 +139,9 @@ export function UnmatchedTitles({ titles }: { titles: UnmatchedTitleRow[] }) {
     <section className="flex flex-col gap-3">
       <h2 className="text-lg font-semibold">Unmatched titles</h2>
       <p className="text-sm text-muted-foreground">
-        These didn&apos;t get automatic TMDB metadata — usually because the folder
-        name doesn&apos;t match TMDB&apos;s title closely enough. Fix them manually below.
+        These didn&apos;t get automatic metadata — usually because the folder name
+        doesn&apos;t closely match the catalog title (TMDB for movies and shows,
+        Audible for audiobooks). Fix them manually below.
       </p>
       <div className="flex flex-col divide-y divide-border rounded-md border">
         {titles.map((t) => (
@@ -156,7 +160,17 @@ export function UnmatchedTitles({ titles }: { titles: UnmatchedTitleRow[] }) {
         ))}
       </div>
 
-      {active && (
+      {active && active.kind === "audiobook" && (
+        <AudibleMatchDialog
+          titleId={active.id}
+          titleName={active.name}
+          author={active.author ?? null}
+          open={activeId !== null}
+          onOpenChange={(open) => !open && setActiveId(null)}
+          onMatched={() => startTransition(() => router.refresh())}
+        />
+      )}
+      {active && active.kind !== "audiobook" && (
         <MatchDialog
           title={active}
           open={activeId !== null}

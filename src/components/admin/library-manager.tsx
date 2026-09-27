@@ -18,6 +18,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { FolderBrowser } from "@/components/admin/folder-browser";
 import type { LibraryKind } from "@/lib/db/schema";
+import { AUDIBLE_REGIONS } from "@/lib/audible/client";
 
 export interface LastScanInfo {
   trigger: "manual" | "cron" | "webhook" | "resume";
@@ -32,8 +33,60 @@ export interface LibraryRow {
   name: string;
   kind: LibraryKind;
   boxFolderId: string;
+  audibleRegion: string;
   lastScannedAt: string | null;
   lastScan: LastScanInfo | null;
+}
+
+const REGION_LABELS: Record<string, string> = {
+  us: "United States",
+  uk: "United Kingdom",
+  ca: "Canada",
+  au: "Australia",
+  de: "Germany",
+  fr: "France",
+  it: "Italy",
+  es: "Spain",
+  in: "India",
+  jp: "Japan",
+};
+
+/** Which Audible storefront an audiobook library is matched against. */
+function AudibleRegionSelect({ libraryId, initial }: { libraryId: string; initial: string }) {
+  const [region, setRegion] = useState(initial);
+
+  async function change(next: string) {
+    const previous = region;
+    setRegion(next);
+    const res = await fetch(`/api/libraries/${libraryId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ audibleRegion: next }),
+    });
+    if (!res.ok) {
+      setRegion(previous);
+      toast.error("Couldn't change the Audible region.");
+      return;
+    }
+    toast.success("Audible region updated. New matches will use it.");
+  }
+
+  return (
+    <label className="mt-3 flex items-center gap-2 text-xs text-muted-foreground">
+      Audible region
+      <select
+        value={region}
+        onChange={(e) => change(e.target.value)}
+        className="h-8 rounded-md border border-input bg-transparent px-2 text-xs text-foreground"
+      >
+        {Object.keys(AUDIBLE_REGIONS).map((code) => (
+          <option key={code} value={code} className="bg-popover">
+            {REGION_LABELS[code] ?? code}
+          </option>
+        ))}
+      </select>
+    </label>
+  );
 }
 
 const ERRORS_SHOWN = 10;
@@ -316,6 +369,7 @@ export function LibraryManager({
                   {scanningId === lib.id || statusById[lib.id]?.scanning ? "Scanning…" : "Rescan"}
                 </Button>
               </div>
+              {lib.kind === "audiobooks" && <AudibleRegionSelect libraryId={lib.id} initial={lib.audibleRegion} />}
               {statusById[lib.id] && <ScanProgress status={statusById[lib.id]} />}
               {lib.lastScan && <ScanErrors errors={lib.lastScan.errors} />}
             </CardContent>

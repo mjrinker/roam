@@ -7,6 +7,7 @@ import { libraries, mediaFiles, titles, watchState } from "@/lib/db/schema";
 import { requireServerMember } from "@/lib/auth/guards";
 import { formatRemaining, formatRuntime } from "@/lib/format";
 import { Badge } from "@/components/ui/badge";
+import { AudibleMatchButton } from "@/components/admin/audible-match-dialog";
 import { TitleResyncButton } from "@/components/admin/title-resync-button";
 import { BookChapters, BookPlayButton } from "@/components/audio/book-controls";
 
@@ -152,7 +153,12 @@ export default async function BookDetailPage({ params }: PageProps<"/s/[serverId
                 </span>
               </div>
             )}
-            {role === "admin" && <TitleResyncButton titleId={book.id} titleName={book.name} />}
+            {role === "admin" && (
+              <div className="flex flex-wrap justify-center gap-2 md:justify-start">
+                <AudibleMatchButton titleId={book.id} titleName={book.name} author={book.folderAuthor} />
+                <TitleResyncButton titleId={book.id} titleName={book.name} />
+              </div>
+            )}
           </div>
         </div>
       </section>

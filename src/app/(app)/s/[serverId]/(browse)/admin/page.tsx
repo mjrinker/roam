@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { and, desc, eq, inArray, ne } from "drizzle-orm";
+import { and, desc, eq, inArray } from "drizzle-orm";
 import { db } from "@/lib/db/client";
 import { invites, libraries, scanRuns, servers, titles } from "@/lib/db/schema";
 import { requireServerAdmin } from "@/lib/auth/guards";
@@ -46,9 +46,7 @@ export default async function AdminPage({
         .where(
           and(
             inArray(titles.libraryId, libraryIds),
-            inArray(titles.metadataStatus, ["pending", "not_found"]),
-            // Audiobooks are matched against Audible, not TMDB (picker to come).
-            ne(titles.kind, "audiobook")
+            inArray(titles.metadataStatus, ["pending", "not_found"])
           )
         )
         .orderBy(desc(titles.addedAt))
@@ -149,6 +147,7 @@ export default async function AdminPage({
           name: t.name,
           year: t.year,
           kind: t.kind,
+          author: t.folderAuthor,
           metadataStatus: t.metadataStatus as "pending" | "not_found",
         }))}
       />

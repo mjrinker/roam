@@ -3,7 +3,7 @@
 import { useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
-import { Headphones, List, Loader2, Moon, Pause, Play, RotateCcw, RotateCw, X } from "lucide-react";
+import { ChevronUp, Headphones, List, Loader2, Moon, Pause, Play, RotateCcw, RotateCw, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { formatClock, PLAYBACK_RATES } from "@/lib/player/timeline";
 import { Slider } from "@/components/ui/slider";
@@ -17,6 +17,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { NowPlayingSheet } from "@/components/audio/now-playing-sheet";
 import {
   SKIP_BACK_SECONDS,
   SKIP_FORWARD_SECONDS,
@@ -61,6 +62,7 @@ function IconButton({
 export function MiniPlayer({ serverId }: { serverId: string }) {
   const p = useAudioPlayer();
   const [drag, setDrag] = useState<number | null>(null);
+  const [expanded, setExpanded] = useState(false);
   if (!p?.book) return null;
   const { book } = p;
 
@@ -218,10 +220,15 @@ export function MiniPlayer({ serverId }: { serverId: string }) {
           </DropdownMenu>
         </div>
 
+        <IconButton label="Expand player" onClick={() => setExpanded(true)}>
+          <ChevronUp className="size-5" />
+        </IconButton>
         <IconButton label="Close player" onClick={p.close} className="hidden sm:flex">
           <X className="size-5" />
         </IconButton>
       </div>
+
+      <NowPlayingSheet serverId={serverId} open={expanded} onOpenChange={setExpanded} />
     </div>
   );
 }

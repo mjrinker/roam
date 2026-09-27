@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { asc, desc, eq, ilike, and, sql } from "drizzle-orm";
+import { asc, desc, eq, ilike, and, or, sql } from "drizzle-orm";
 import { db } from "@/lib/db/client";
 import { libraries, titles, type TitleKind } from "@/lib/db/schema";
 import { getCurrentServerMember } from "@/lib/auth/guards";
@@ -10,6 +10,8 @@ export interface SearchResultDto {
   kind: TitleKind;
   name: string;
   year: number | null;
+  /** An audiobook's author(s); null for everything else. */
+  subtitle: string | null;
   posterUrl: string | null;
 }
 
@@ -45,16 +47,33 @@ export async function GET(request: Request) {
       kind: titles.kind,
       name: titles.name,
       year: titles.year,
+      authors: titles.authors,
+      folderAuthor: titles.folderAuthor,
       posterUrl: titles.posterUrl,
     })
     .from(titles)
     .innerJoin(libraries, eq(titles.libraryId, libraries.id))
     .where(
-      and(eq(libraries.serverId, parsed.data.serverId), ilike(titles.name, `%${escaped}%`))
+      and(
+        eq(libraries.serverId, parsed.data.serverId),
+        // Audiobooks are also findable by author.
+        or(
+          ilike(titles.name, `%${escaped}%`),
+          ilike(titles.folderAuthor, `%${escaped}%`),
+          sql`${titles.authors}::text ilike ${`%${escaped}%`}`
+        )
+      )
     )
     // Titles that START with the query first, then alphabetical.
     .orderBy(desc(sql`${titles.name} ilike ${escaped + "%"}`), asc(titles.name))
     .limit(RESULT_LIMIT);
 
-  return NextResponse.json({ results: rows satisfies SearchResultDto[] });
+  const results: SearchResultDto[] = rows.map(({ authors, folderAuthor, ...row }) => ({
+    ...row,
+    subtitle:
+      row.kind === "audiobook"
+        ? ((authors?.length ? authors : [folderAuthor]).filter(Boolean).join(", ") || null)
+        : null,
+  }));
+  return NextResponse.json({ results });
 }

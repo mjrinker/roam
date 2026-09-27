@@ -9,10 +9,11 @@ export interface LibraryBrowserItem extends PosterCardData {
   addedAtMs: number;
 }
 
-type SortKey = "title" | "year" | "added";
+type SortKey = "title" | "author" | "year" | "added";
 
 const SORT_LABELS: Record<SortKey, string> = {
   title: "Title (A–Z)",
+  author: "Author (A–Z)",
   year: "Year (newest)",
   added: "Recently added",
 };
@@ -32,13 +33,19 @@ export function LibraryBrowser({
 }) {
   const [query, setQuery] = useState("");
   const [sort, setSort] = useState<SortKey>("title");
+  // Author sorting only makes sense for libraries whose items carry an author line.
+  const hasAuthors = useMemo(() => items.some((i) => i.kind === "audiobook" && i.subtitle), [items]);
 
   const visible = useMemo(() => {
     const q = query.trim().toLowerCase();
-    const filtered = q ? items.filter((i) => i.name.toLowerCase().includes(q)) : items;
+    const filtered = q
+      ? items.filter((i) => i.name.toLowerCase().includes(q) || i.subtitle?.toLowerCase().includes(q))
+      : items;
     const sorted = [...filtered];
     if (sort === "title") sorted.sort((a, b) => a.name.localeCompare(b.name));
-    else if (sort === "year") sorted.sort((a, b) => (b.year ?? 0) - (a.year ?? 0));
+    else if (sort === "author") {
+      sorted.sort((a, b) => (a.subtitle ?? "\uffff").localeCompare(b.subtitle ?? "\uffff") || a.name.localeCompare(b.name));
+    } else if (sort === "year") sorted.sort((a, b) => (b.year ?? 0) - (a.year ?? 0));
     else sorted.sort((a, b) => b.addedAtMs - a.addedAtMs);
     return sorted;
   }, [items, query, sort]);
@@ -98,7 +105,7 @@ export function LibraryBrowser({
             aria-label="Sort"
             className="h-10 cursor-pointer appearance-none rounded-xl bg-white/[0.06] pr-8 pl-9 text-sm ring-1 ring-white/[0.08] transition hover:bg-white/[0.09] focus:ring-2 focus:ring-primary/60 focus:outline-none"
           >
-            {(Object.keys(SORT_LABELS) as SortKey[]).map((k) => (
+            {(Object.keys(SORT_LABELS) as SortKey[]).filter((k) => k !== "author" || hasAuthors).map((k) => (
               <option key={k} value={k} className="bg-popover">
                 {SORT_LABELS[k]}
               </option>

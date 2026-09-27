@@ -166,7 +166,7 @@ export function SearchBox({ serverId }: { serverId: string }) {
                       <span className="block truncate text-sm font-medium">{r.name}</span>
                       <span className="block text-xs text-muted-foreground">
                         {r.kind === "show" ? "TV Show" : r.kind === "audiobook" ? "Audiobook" : "Movie"}
-                        {r.year ? ` · ${r.year}` : ""}
+                        {r.subtitle ? ` · ${r.subtitle}` : r.year ? ` · ${r.year}` : ""}
                       </span>
                     </span>
                   </button>
