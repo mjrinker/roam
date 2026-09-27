@@ -1,0 +1,1 @@
+ALTER TABLE "libraries" ADD COLUMN "scan_cursor" jsonb;

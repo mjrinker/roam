@@ -61,6 +61,10 @@ export async function PATCH(request: Request) {
   return NextResponse.json({ ok: true });
 }
 
+// navigator.sendBeacon (used by the player so progress survives page unload)
+// can only send POST.
+export const POST = PATCH;
+
 const querySchema = z.object({
   ownerKind: z.enum(["title", "episode"]),
   ownerId: z.string().uuid(),

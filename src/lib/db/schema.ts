@@ -160,6 +160,11 @@ export const libraries = pgTable(
     // for libraries with this set and kicks off a background scan to
     // continue, instead of requiring an admin to notice and click Rescan.
     scanIncomplete: boolean("scan_incomplete").notNull().default(false),
+    // Where an interrupted scan's folder loop left off (see lib/scan/cursor).
+    // Null with scanIncomplete set means folder sync finished and only
+    // probing remains. Advanced with compare-and-set so concurrent scans
+    // can't both own it.
+    scanCursor: jsonb("scan_cursor").$type<{ folder: string; sub?: string } | null>(),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),

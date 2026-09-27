@@ -1,6 +1,12 @@
 import { and, eq, inArray, isNull, lt, notInArray, or, sql } from "drizzle-orm";
 import { db } from "@/lib/db/client";
 import {
+  entriesAfterCursor,
+  planScan,
+  sortForScan,
+  type ScanCursor,
+} from "@/lib/scan/cursor";
+import {
   episodes,
   libraries,
   mediaFiles,
@@ -89,39 +95,79 @@ export async function scanLibrary(
   let filesSeen = 0;
   let titlesAdded = 0;
   let incomplete = false;
+  // Set when another scan takes over the cursor mid-pass; this pass then
+  // stops without touching the library's scan state.
+  let superseded = false;
   const errors: string[] = [];
   const provider = createBoxProviderForServer(library.serverId);
 
-  try {
-    const topLevel = await provider.listFolder(library.boxFolderId);
-    const titleFolders = topLevel.filter((e) => e.kind === "folder");
+  const plan = planScan(trigger, library);
+  let cursor: ScanCursor | null = plan.mode === "continue" ? plan.cursor : null;
 
-    for (const folder of titleFolders) {
-      if (Date.now() - startedAt > FOLDER_SYNC_TIME_BUDGET_MS) {
-        incomplete = true;
-        break;
-      }
-      try {
-        if (library.kind === "movies") {
-          const added = await syncMovieFolder(provider, library.id, folder);
-          if (added) titlesAdded++;
-          filesSeen += 1;
-        } else {
-          const added = await syncShowFolder(provider, library.id, folder);
-          if (added) titlesAdded++;
+  try {
+    if (plan.mode === "full") {
+      // A fresh cycle: unconditional reset, so any in-flight chained pass
+      // fails its next compare-and-set and stops rather than fighting us.
+      await db.update(libraries).set({ scanCursor: null }).where(eq(libraries.id, libraryId));
+    }
+
+    if (plan.mode !== "probe-only") {
+      const topLevel = await provider.listFolder(library.boxFolderId);
+      const titleFolders = entriesAfterCursor(
+        sortForScan(topLevel.filter((e) => e.kind === "folder")),
+        cursor
+      );
+
+      let processed = 0;
+      let loopFinished = true;
+      for (const folder of titleFolders) {
+        // Always finish at least one folder per pass so a slow one can't
+        // make every pass time out before recording any progress.
+        if (processed > 0 && Date.now() - startedAt > FOLDER_SYNC_TIME_BUDGET_MS) {
+          incomplete = true;
+          loopFinished = false;
+          break;
         }
-      } catch (err) {
-        // A single title's own Box connection dying mid-scan means every
-        // OTHER title will fail the same way — short-circuit with one
-        // clear error instead of one near-identical message per folder.
-        if (err instanceof BoxReauthRequiredError) throw err;
-        errors.push(`${folder.name}: ${(err as Error).message}`);
+        try {
+          if (library.kind === "movies") {
+            const added = await syncMovieFolder(provider, library.id, folder);
+            if (added) titlesAdded++;
+            filesSeen += 1;
+          } else {
+            const added = await syncShowFolder(provider, library.id, folder);
+            if (added) titlesAdded++;
+          }
+        } catch (err) {
+          // A single title's own Box connection dying mid-scan means every
+          // OTHER title will fail the same way — short-circuit with one
+          // clear error instead of one near-identical message per folder.
+          if (err instanceof BoxReauthRequiredError) throw err;
+          errors.push(`${folder.name}: ${(err as Error).message}`);
+        }
+        processed++;
+
+        // Advance even after a per-folder error, so one bad folder can't
+        // stall the whole cycle.
+        const next: ScanCursor = { folder: folder.name };
+        if (!(await advanceScanCursor(libraryId, cursor, next))) {
+          superseded = true;
+          break;
+        }
+        cursor = next;
+      }
+
+      // Folder loop reached the end: clear the cursor. Folder sync is done
+      // for this cycle; any remaining work is probing.
+      if (loopFinished && !superseded && !(await advanceScanCursor(libraryId, cursor, null))) {
+        superseded = true;
       }
     }
 
-    const probeDeadline = startedAt + SCAN_TIME_BUDGET_MS;
-    const probeIncomplete = await probePendingDurations(provider, library.id, probeDeadline, errors);
-    incomplete = incomplete || probeIncomplete;
+    if (!superseded) {
+      const probeDeadline = startedAt + SCAN_TIME_BUDGET_MS;
+      const probeIncomplete = await probePendingDurations(provider, library.id, probeDeadline, errors);
+      incomplete = incomplete || probeIncomplete;
+    }
   } catch (err) {
     if (err instanceof BoxReauthRequiredError) {
       errors.push("This server's Box connection needs to be reconnected by an admin.");
@@ -134,6 +180,10 @@ export async function scanLibrary(
     .update(scanRuns)
     .set({ finishedAt: new Date(), filesSeen, titlesAdded, errors })
     .where(eq(scanRuns.id, run.id));
+  if (superseded) {
+    return { scanRunId: run.id, filesSeen, titlesAdded, errors, incomplete: false };
+  }
+
   await db
     .update(libraries)
     .set({ lastScannedAt: new Date(), scanIncomplete: incomplete })
@@ -144,6 +194,33 @@ export async function scanLibrary(
   }
 
   return { scanRunId: run.id, filesSeen, titlesAdded, errors, incomplete };
+}
+
+/**
+ * Compare-and-set on libraries.scan_cursor: moves it from `from` to `to`
+ * only if it still holds `from`. False means another scan advanced or reset
+ * it since this pass read it, so this pass no longer owns the cursor.
+ */
+async function advanceScanCursor(
+  libraryId: string,
+  from: ScanCursor | null,
+  to: ScanCursor | null
+): Promise<boolean> {
+  // Both sides are cast from JSON text in SQL so the stored value and the
+  // comparison can't disagree about how the driver encodes jsonb.
+  const fromJson = from ? JSON.stringify(from) : null;
+  const toJson = to ? JSON.stringify(to) : null;
+  const rows = await db
+    .update(libraries)
+    .set({ scanCursor: sql`${toJson}::jsonb` })
+    .where(
+      and(
+        eq(libraries.id, libraryId),
+        sql`${libraries.scanCursor} IS NOT DISTINCT FROM ${fromJson}::jsonb`
+      )
+    )
+    .returning({ id: libraries.id });
+  return rows.length > 0;
 }
 
 /**

@@ -15,6 +15,13 @@
       "when": 1790401702033,
       "tag": "0001_tense_lightspeed",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1790469357345,
+      "tag": "0002_scan_cursor",
+      "breakpoints": true
     }
   ]
 }
