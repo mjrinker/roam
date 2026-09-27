@@ -6,6 +6,7 @@ import { resolveServerIdForTitle } from "@/lib/auth/resolve-server";
 import { db } from "@/lib/db/client";
 import { titles } from "@/lib/db/schema";
 import { getMovieDetails, getTvShowDetails, tmdbImageUrl } from "@/lib/tmdb/client";
+import { ratingsFromMovieDetails, ratingsFromTvDetails } from "@/lib/content/ratings";
 import { refreshShowEpisodesFromTmdb } from "@/lib/scan/scanner";
 
 const bodySchema = z.object({ tmdbId: z.number().int().positive() });
@@ -41,7 +42,8 @@ export async function POST(
   }
 
   if (title.kind === "movie") {
-    const details = await getMovieDetails(parsed.data.tmdbId);
+    const details = await getMovieDetails(parsed.data.tmdbId, { append: ["release_dates"] });
+    const { certifications, ratingAges } = ratingsFromMovieDetails(details);
     await db
       .update(titles)
       .set({
@@ -51,11 +53,15 @@ export async function POST(
         backdropUrl: tmdbImageUrl(details.backdrop_path, "w1280"),
         genres: details.genres?.map((g) => g.name) ?? [],
         metadataStatus: "manual",
+        certifications,
+        ratingAges,
+        ratingsAttemptedAt: new Date(),
         updatedAt: new Date(),
       })
       .where(eq(titles.id, id));
   } else {
-    const details = await getTvShowDetails(parsed.data.tmdbId);
+    const details = await getTvShowDetails(parsed.data.tmdbId, { append: ["content_ratings"] });
+    const { certifications, ratingAges } = ratingsFromTvDetails(details);
     await db
       .update(titles)
       .set({
@@ -65,6 +71,9 @@ export async function POST(
         backdropUrl: tmdbImageUrl(details.backdrop_path, "w1280"),
         genres: details.genres?.map((g) => g.name) ?? [],
         metadataStatus: "manual",
+        certifications,
+        ratingAges,
+        ratingsAttemptedAt: new Date(),
         updatedAt: new Date(),
       })
       .where(eq(titles.id, id));

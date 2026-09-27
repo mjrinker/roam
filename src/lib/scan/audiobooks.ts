@@ -13,6 +13,7 @@ import {
 } from "@/lib/audible/client";
 import type { AudibleBook, AudibleSearchResult } from "@/lib/audible/parse";
 import { pickBestMatch } from "@/lib/audible/match";
+import { ratingsForAudiobook } from "@/lib/content/ratings";
 import { collectBookFiles, discoverAuthorUnits } from "@/lib/scan/audiobook-tree";
 import { extractNarratorHint, parseBookFolderName } from "@/lib/scan/conventions";
 import {
@@ -186,6 +187,10 @@ function bookFromSearchResult(r: AudibleSearchResult): AudibleBook {
 
 /** Writes a matched Audible book onto a title. Folder-derived series info is never overwritten. */
 async function applyBook(title: TitleRow, book: AudibleBook, status: "matched" | "manual") {
+  const { certifications, ratingAges } = ratingsForAudiobook({
+    adult: book.adult,
+    genres: book.genres.length > 0 ? book.genres : (title.genres ?? undefined),
+  });
   await db
     .update(titles)
     .set({
@@ -199,6 +204,9 @@ async function applyBook(title: TitleRow, book: AudibleBook, status: "matched" |
       seriesName: title.seriesName ?? book.seriesName,
       seriesPosition: title.seriesPosition ?? book.seriesPosition,
       metadataStatus: status,
+      certifications,
+      ratingAges,
+      ratingsAttemptedAt: new Date(),
       // Embedded chapters outrank Audible's; anything else re-resolves now
       // that an ASIN is known.
       ...(title.chaptersSource === "embedded" ? {} : { chapters: null, chaptersSource: null }),

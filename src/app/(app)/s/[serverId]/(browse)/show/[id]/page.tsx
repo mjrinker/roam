@@ -6,6 +6,7 @@ import { db } from "@/lib/db/client";
 import { episodes, libraries, mediaFiles, seasons, titles, watchState } from "@/lib/db/schema";
 import { requireServerMember } from "@/lib/auth/guards";
 import { formatRuntime } from "@/lib/format";
+import { countryFromLocale, displayCertification } from "@/lib/content/ratings";
 import { Button } from "@/components/ui/button";
 import { TitleResyncButton } from "@/components/admin/title-resync-button";
 import { DetailHero } from "@/components/library/detail-hero";
@@ -133,6 +134,7 @@ export default async function ShowDetailPage({
         overview={show.overview}
         meta={[
           show.year ? String(show.year) : null,
+          displayCertification(show.certifications, countryFromLocale(viewer.locale)),
           `${allSeasons.length} season${allSeasons.length === 1 ? "" : "s"}`,
           totalEpisodes > 0 && `${totalEpisodes} episode${totalEpisodes === 1 ? "" : "s"}`,
         ]}

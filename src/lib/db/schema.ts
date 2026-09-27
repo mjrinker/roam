@@ -253,6 +253,14 @@ export const titles = pgTable(
     chapters: jsonb("chapters").$type<{ title: string; startSeconds: number }[]>(),
     chaptersSource: text("chapters_source").$type<"embedded" | "audnexus" | "files">(),
     metadataAttemptedAt: timestamp("metadata_attempted_at", { withTimezone: true }),
+    // Certification strings for display (e.g. {US: "PG-13"}), and the same
+    // normalized to a minimum age per country (plus a synthetic "ANY" key for
+    // content with no per-country board, like an Audible adult flag) — see
+    // lib/content/ratings. ratingsAttemptedAt drives the backfill batch, same
+    // pattern as metadataAttemptedAt above.
+    certifications: jsonb("certifications").$type<Record<string, string>>(),
+    ratingAges: jsonb("rating_ages").$type<Record<string, number>>(),
+    ratingsAttemptedAt: timestamp("ratings_attempted_at", { withTimezone: true }),
 
     addedAt: timestamp("added_at", { withTimezone: true })
       .notNull()

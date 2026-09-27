@@ -4,6 +4,8 @@
  * posters/overviews. https://developer.themoviedb.org/reference
  */
 
+import type { TmdbContentRatingsResult, TmdbReleaseDatesResult } from "@/lib/content/ratings";
+
 const TMDB_API_BASE = "https://api.themoviedb.org/3";
 const TMDB_IMAGE_BASE = "https://image.tmdb.org/t/p";
 
@@ -13,10 +15,13 @@ function getReadAccessToken(): string {
   return token;
 }
 
-async function tmdbFetch<T>(path: string, params: Record<string, string | number | undefined> = {}): Promise<T> {
+async function tmdbFetch<T>(
+  path: string,
+  params: Record<string, string | number | string[] | undefined> = {}
+): Promise<T> {
   const url = new URL(`${TMDB_API_BASE}${path}`);
   for (const [key, value] of Object.entries(params)) {
-    if (value !== undefined) url.searchParams.set(key, String(value));
+    if (value !== undefined) url.searchParams.set(key, Array.isArray(value) ? value.join(",") : String(value));
   }
 
   const res = await fetch(url, {
@@ -55,11 +60,16 @@ export interface TmdbTvSearchResult {
 export interface TmdbMovieDetails extends TmdbMovieSearchResult {
   runtime?: number | null;
   genres?: { id: number; name: string }[];
+  adult?: boolean;
+  // Present only when fetched with `append: ["release_dates"]`.
+  release_dates?: { results: TmdbReleaseDatesResult[] };
 }
 
 export interface TmdbTvDetails extends TmdbTvSearchResult {
   genres?: { id: number; name: string }[];
   number_of_seasons?: number;
+  // Present only when fetched with `append: ["content_ratings"]`.
+  content_ratings?: { results: TmdbContentRatingsResult[] };
 }
 
 export interface TmdbEpisode {
@@ -92,8 +102,11 @@ export async function searchMovie(title: string, year: number | null): Promise<T
   return results[0] ?? null;
 }
 
-export async function getMovieDetails(tmdbId: number): Promise<TmdbMovieDetails> {
-  return tmdbFetch<TmdbMovieDetails>(`/movie/${tmdbId}`);
+export async function getMovieDetails(
+  tmdbId: number,
+  opts: { append?: string[] } = {}
+): Promise<TmdbMovieDetails> {
+  return tmdbFetch<TmdbMovieDetails>(`/movie/${tmdbId}`, { append_to_response: opts.append });
 }
 
 export async function searchTvShows(
@@ -112,8 +125,11 @@ export async function searchTvShow(name: string, year: number | null): Promise<T
   return results[0] ?? null;
 }
 
-export async function getTvShowDetails(tmdbId: number): Promise<TmdbTvDetails> {
-  return tmdbFetch<TmdbTvDetails>(`/tv/${tmdbId}`);
+export async function getTvShowDetails(
+  tmdbId: number,
+  opts: { append?: string[] } = {}
+): Promise<TmdbTvDetails> {
+  return tmdbFetch<TmdbTvDetails>(`/tv/${tmdbId}`, { append_to_response: opts.append });
 }
 
 export async function getSeasonEpisodes(tmdbId: number, seasonNumber: number): Promise<TmdbEpisode[]> {

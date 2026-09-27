@@ -50,6 +50,13 @@
       "when": 1790521682289,
       "tag": "0006_viewers_contract",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1790524839169,
+      "tag": "0007_title_ratings",
+      "breakpoints": true
     }
   ]
 }

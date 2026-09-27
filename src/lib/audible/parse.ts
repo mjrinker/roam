@@ -14,6 +14,7 @@ export interface AudibleSearchResult {
   imageUrl: string | null;
   seriesName: string | null;
   seriesPosition: string | null;
+  adult: boolean;
 }
 
 export interface AudibleBook extends AudibleSearchResult {
@@ -32,6 +33,7 @@ type Json = Record<string, unknown>;
 const isObject = (v: unknown): v is Json => typeof v === "object" && v !== null && !Array.isArray(v);
 const str = (v: unknown): string | null => (typeof v === "string" && v.trim() ? v.trim() : null);
 const num = (v: unknown): number | null => (typeof v === "number" && Number.isFinite(v) ? v : null);
+const bool = (v: unknown): boolean => v === true;
 
 function names(v: unknown): string[] {
   if (!Array.isArray(v)) return [];
@@ -84,6 +86,7 @@ export function parseSearchProducts(json: unknown): AudibleSearchResult[] {
       imageUrl: str(images["500"]) ?? str(Object.values(images)[0]),
       seriesName: series ? str(series.title) : null,
       seriesPosition: series ? str(series.sequence) : null,
+      adult: bool(p.is_adult_product),
     });
   }
   return results;
@@ -115,6 +118,7 @@ export function parseAudnexusBook(json: unknown): AudibleBook | null {
     imageUrl: str(json.image),
     seriesName: series ? str(series.name) : null,
     seriesPosition: series ? str(series.position) : null,
+    adult: bool(json.isAdult),
     summary: summary ? htmlToText(summary) || null : null,
     genres,
   };

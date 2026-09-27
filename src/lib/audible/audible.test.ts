@@ -49,6 +49,7 @@ describe("parseSearchProducts", () => {
       imageUrl: "https://m.media-amazon.com/images/I/way.jpg",
       seriesName: "The Stormlight Archive",
       seriesPosition: "1",
+      adult: false,
     });
   });
 

@@ -49,6 +49,8 @@ import {
   searchTvShow,
   tmdbImageUrl,
 } from "@/lib/tmdb/client";
+import { ratingsFromMovieDetails, ratingsFromTvDetails } from "@/lib/content/ratings";
+import { backfillRatings } from "@/lib/content/ratings-backfill";
 
 function assertNever(value: never): never {
   throw new Error(`Unhandled kind: ${String(value)}`);
@@ -217,11 +219,14 @@ export async function scanLibrary(
 
     if (!superseded) {
       const probeDeadline = startedAt + SCAN_TIME_BUDGET_MS;
+      // Capped so these lookups can't starve probing of the whole pass.
+      const enrichDeadline = Math.min(probeDeadline, Date.now() + ENRICH_TIME_BUDGET_MS);
       if (library.kind === "audiobooks") {
-        // Capped so Audible lookups can't starve probing of the pass.
-        const enrichDeadline = Math.min(probeDeadline, Date.now() + ENRICH_TIME_BUDGET_MS);
         const moreToMatch = await enrichPendingAudiobooks(library.id, library.audibleRegion, enrichDeadline);
         incomplete = incomplete || moreToMatch;
+      } else {
+        const moreRatings = await backfillRatings(library.id, enrichDeadline);
+        incomplete = incomplete || moreRatings;
       }
       const audibleRegion = library.kind === "audiobooks" ? library.audibleRegion : null;
       const probeIncomplete = await probePendingDurations(provider, library.id, probeDeadline, errors, audibleRegion);
@@ -415,7 +420,7 @@ async function enrichMovieMetadataIfNeeded(
   try {
     // A {tmdb-...} folder tag lets us skip fuzzy search entirely; fall
     // back to search if the tagged id turns out to be stale/wrong.
-    let details = tmdbId ? await getMovieDetails(tmdbId).catch(() => null) : null;
+    let details = tmdbId ? await getMovieDetails(tmdbId, { append: ["release_dates"] }).catch(() => null) : null;
     let matchedId = tmdbId;
     if (!details) {
       const match = await searchMovie(name, year);
@@ -427,8 +432,9 @@ async function enrichMovieMetadataIfNeeded(
         return;
       }
       matchedId = match.id;
-      details = await getMovieDetails(matchedId);
+      details = await getMovieDetails(matchedId, { append: ["release_dates"] });
     }
+    const { certifications, ratingAges } = ratingsFromMovieDetails(details);
     await db
       .update(titles)
       .set({
@@ -438,6 +444,9 @@ async function enrichMovieMetadataIfNeeded(
         backdropUrl: tmdbImageUrl(details.backdrop_path, "w1280"),
         genres: details.genres?.map((g) => g.name) ?? [],
         metadataStatus: "matched",
+        certifications,
+        ratingAges,
+        ratingsAttemptedAt: new Date(),
       })
       .where(eq(titles.id, titleId));
   } catch {
@@ -473,16 +482,17 @@ async function syncShowFolder(
   if (!existing) {
     // A {tmdb-...} folder tag lets us skip fuzzy search entirely; fall
     // back to search if the tagged id turns out to be stale/wrong.
-    let details = tmdbId ? await getTvShowDetails(tmdbId).catch(() => null) : null;
+    let details = tmdbId ? await getTvShowDetails(tmdbId, { append: ["content_ratings"] }).catch(() => null) : null;
     if (details) tmdbShowId = tmdbId;
     if (!details) {
       const match = await searchTvShow(name, year).catch(() => null);
       if (match) {
-        details = await getTvShowDetails(match.id).catch(() => null);
+        details = await getTvShowDetails(match.id, { append: ["content_ratings"] }).catch(() => null);
         tmdbShowId = match.id;
       }
     }
     if (details) {
+      const { certifications, ratingAges } = ratingsFromTvDetails(details);
       await db
         .update(titles)
         .set({
@@ -492,6 +502,9 @@ async function syncShowFolder(
           backdropUrl: tmdbImageUrl(details.backdrop_path, "w1280"),
           genres: details.genres?.map((g) => g.name) ?? [],
           metadataStatus: "matched",
+          certifications,
+          ratingAges,
+          ratingsAttemptedAt: new Date(),
         })
         .where(eq(titles.id, title.id));
     } else {

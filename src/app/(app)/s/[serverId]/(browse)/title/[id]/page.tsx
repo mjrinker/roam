@@ -6,6 +6,7 @@ import { db } from "@/lib/db/client";
 import { libraries, mediaFiles, titles, watchState } from "@/lib/db/schema";
 import { requireServerMember } from "@/lib/auth/guards";
 import { formatRemaining, formatRuntime } from "@/lib/format";
+import { countryFromLocale, displayCertification } from "@/lib/content/ratings";
 import { Button } from "@/components/ui/button";
 import { TitleResyncButton } from "@/components/admin/title-resync-button";
 import { DetailHero } from "@/components/library/detail-hero";
@@ -67,6 +68,7 @@ export default async function TitleDetailPage({
       overview={title.overview}
       meta={[
         title.year ? String(title.year) : null,
+        displayCertification(title.certifications, countryFromLocale(viewer.locale)),
         formatRuntime(title.runtimeSeconds),
         segments.length > 1 && `${segments.length} parts, plays as one`,
       ]}
