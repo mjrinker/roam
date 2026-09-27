@@ -94,6 +94,11 @@ export const viewers = pgTable(
     pinHash: text("pin_hash"),
     pinVersion: integer("pin_version").notNull().default(0),
     playbackRate: real("playback_rate").notNull().default(1),
+    // Whether this profile's name/avatar may be shown to OTHER accounts that
+    // are members of the same server (not yet surfaced anywhere in the UI —
+    // reserved for a future member list). Owner controls it for any profile
+    // on the account; an admin controls it for its own.
+    visibleOnServer: boolean("visible_on_server").notNull().default(true),
     sortOrder: integer("sort_order").notNull().default(0),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()

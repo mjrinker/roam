@@ -41,6 +41,7 @@ export default async function ProfilesPage({ searchParams }: PageProps<"/profile
             locale: v.locale,
             maxAge: v.maxAge,
             allowUnrated: v.allowUnrated,
+            visibleOnServer: v.visibleOnServer,
             hasPin: v.pinHash !== null,
           }))}
           actor={

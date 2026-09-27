@@ -30,6 +30,7 @@ export interface EditableProfile {
   locale: string;
   maxAge: number | null;
   allowUnrated: boolean;
+  visibleOnServer: boolean;
   hasPin: boolean;
 }
 
@@ -70,6 +71,7 @@ export function ProfileEditorDialog({
   const [locale, setLocale] = useState(profile?.locale ?? DEFAULT_LOCALE);
   const [maxAge, setMaxAge] = useState(profile?.maxAge ?? null);
   const [allowUnrated, setAllowUnrated] = useState(profile?.allowUnrated ?? false);
+  const [visibleOnServer, setVisibleOnServer] = useState(profile?.visibleOnServer ?? true);
   const [newPin, setNewPin] = useState("");
   const [currentPin, setCurrentPin] = useState("");
   const [busy, setBusy] = useState(false);
@@ -110,6 +112,7 @@ export function ProfileEditorDialog({
           locale,
           maxAge,
           allowUnrated,
+          visibleOnServer,
           ...(showRolePicker ? { role } : {}),
           ...(newPin.trim() ? { pin: newPin } : {}),
           ...(actor.hasPin ? { currentPin } : {}),
@@ -252,6 +255,16 @@ export function ProfileEditorDialog({
                   Allow titles with no rating on file
                 </label>
               )}
+
+              <label className="flex items-center gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  checked={visibleOnServer}
+                  onChange={(e) => setVisibleOnServer(e.target.checked)}
+                  className="size-4 rounded border-input"
+                />
+                Show this profile to other members of the server
+              </label>
 
               <div className="grid gap-1.5">
                 <Label htmlFor="profile-pin">{profile?.hasPin ? "Change PIN" : "PIN (optional)"}</Label>

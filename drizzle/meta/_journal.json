@@ -64,6 +64,13 @@
       "when": 1790526507050,
       "tag": "0008_viewer_roles",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1790530782918,
+      "tag": "0009_viewer_visibility",
+      "breakpoints": true
     }
   ]
 }

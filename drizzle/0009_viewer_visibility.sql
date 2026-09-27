@@ -1,0 +1,1 @@
+ALTER TABLE "viewers" ADD COLUMN "visible_on_server" boolean DEFAULT true NOT NULL;

@@ -23,6 +23,7 @@ export const createViewerSchema = z.object({
   locale: localeSchema.optional(),
   maxAge: maxAgeSchema.optional(),
   allowUnrated: z.boolean().optional(),
+  visibleOnServer: z.boolean().optional(),
   // A PIN can be set at creation time; there's nothing to clear yet, so null is just ignored.
   pin: pinSchema.optional(),
 });
@@ -49,6 +50,7 @@ export const extendedEditSchema = z
     locale: localeSchema.optional(),
     maxAge: maxAgeSchema.optional(),
     allowUnrated: z.boolean().optional(),
+    visibleOnServer: z.boolean().optional(),
     pin: pinSchema.optional(),
     role: assignableRoleSchema.optional(),
     // Required whenever the ACTING profile itself has a PIN — see the PATCH route.
