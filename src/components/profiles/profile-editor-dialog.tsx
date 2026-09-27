@@ -19,11 +19,14 @@ import { DEFAULT_AVATAR_KEY } from "@/lib/viewers/avatars";
 import { VIEWER_NAME_MAX_LENGTH } from "@/lib/viewers/config";
 import { DEFAULT_LOCALE, LOCALES } from "@/lib/viewers/locales";
 import { RATING_LEVELS } from "@/lib/content/access";
+import { canEditExtended } from "@/lib/content/roles";
+import type { ViewerRole } from "@/lib/db/schema";
 
 export interface EditableProfile {
   id: string;
   name: string;
   avatarKey: string;
+  role: ViewerRole;
   locale: string;
   maxAge: number | null;
   allowUnrated: boolean;
@@ -31,28 +34,31 @@ export interface EditableProfile {
 }
 
 const RATING_SELECT_VALUE = (v: number | null) => (v === null ? "none" : String(v));
+const ASSIGNABLE_ROLES: { value: "admin" | "limited"; label: string; hint: string }[] = [
+  { value: "admin", label: "Admin", hint: "Manages their own language, rating limit, and PIN." },
+  { value: "limited", label: "Limited", hint: "Can only rename themselves or change their avatar." },
+];
 
 /**
  * Create a profile (`profile` null) or edit one.
  *
- * `isManager` is whether the profile CURRENTLY IN USE on this device — not
- * necessarily the one being edited — is unrestricted. Only a manager can
- * touch language, rating limit, PIN, or another profile's anything; a
- * restricted profile editing itself only ever sees name and avatar. See the
- * PATCH /api/viewers/[id] route, which enforces the same rule server-side.
+ * `actor` is the profile CURRENTLY IN USE on this device — not necessarily
+ * the one being edited. The owner may edit any profile, including its role;
+ * an admin may fully edit only itself; a limited profile editing itself only
+ * ever sees name and avatar. See PATCH /api/viewers/[id], which enforces the
+ * same rule server-side (this component never has to get it right on its
+ * own — the server is the real gate).
  */
 export function ProfileEditorDialog({
   profile,
-  isManager,
-  managerHasPin,
+  actor,
   canDelete,
   open,
   onOpenChange,
   onSaved,
 }: {
   profile: EditableProfile | null;
-  isManager: boolean;
-  managerHasPin: boolean;
+  actor: { id: string; role: ViewerRole; hasPin: boolean };
   canDelete: boolean;
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -60,6 +66,7 @@ export function ProfileEditorDialog({
 }) {
   const [name, setName] = useState(profile?.name ?? "");
   const [avatarKey, setAvatarKey] = useState(profile?.avatarKey ?? DEFAULT_AVATAR_KEY);
+  const [role, setRole] = useState<"admin" | "limited">(profile?.role === "admin" ? "admin" : "limited");
   const [locale, setLocale] = useState(profile?.locale ?? DEFAULT_LOCALE);
   const [maxAge, setMaxAge] = useState(profile?.maxAge ?? null);
   const [allowUnrated, setAllowUnrated] = useState(profile?.allowUnrated ?? false);
@@ -67,7 +74,14 @@ export function ProfileEditorDialog({
   const [currentPin, setCurrentPin] = useState("");
   const [busy, setBusy] = useState(false);
 
-  const canEditRestricted = isManager; // language, rating, PIN, or any field on someone else
+  const isOwnerActing = actor.role === "owner";
+  // Creating is always an owner action (the route enforces this); editing
+  // gets the extended fields when the owner is acting, or when acting on
+  // one's own admin profile.
+  const canExtend = !profile || canEditExtended(actor, profile.id);
+  // The owner assigns a role only when editing someone ELSE — its own role,
+  // and anyone editing themselves, never changes here.
+  const showRolePicker = isOwnerActing && !!profile && profile.id !== actor.id;
 
   async function request(method: "POST" | "PATCH" | "DELETE", body?: object) {
     setBusy(true);
@@ -87,15 +101,16 @@ export function ProfileEditorDialog({
 
   async function save(e: React.FormEvent) {
     e.preventDefault();
-    const body: Record<string, unknown> = canEditRestricted
+    const body: Record<string, unknown> = canExtend
       ? {
           name,
           avatarKey,
           locale,
           maxAge,
           allowUnrated,
+          ...(showRolePicker ? { role } : {}),
           ...(newPin.trim() ? { pin: newPin } : {}),
-          ...(managerHasPin && profile ? { currentPin } : {}),
+          ...(actor.hasPin ? { currentPin } : {}),
         }
       : { name, avatarKey };
 
@@ -112,7 +127,7 @@ export function ProfileEditorDialog({
     const res = await fetch(`/api/viewers/${profile.id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ pin: null, ...(managerHasPin ? { currentPin } : {}) }),
+      body: JSON.stringify({ pin: null, ...(actor.hasPin ? { currentPin } : {}) }),
     });
     setBusy(false);
     if (!res.ok) {
@@ -162,7 +177,35 @@ export function ProfileEditorDialog({
             <AvatarPicker value={avatarKey} onChange={setAvatarKey} />
           </div>
 
-          {canEditRestricted && (
+          {profile?.role === "owner" && (
+            <p className="rounded-lg bg-white/[0.04] px-3 py-2 text-xs text-muted-foreground">
+              This is the account owner&apos;s profile — it manages every other profile and can&apos;t be reassigned or
+              deleted.
+            </p>
+          )}
+
+          {showRolePicker && (
+            <div className="grid gap-1.5">
+              <Label>Role</Label>
+              <div className="grid gap-2 sm:grid-cols-2">
+                {ASSIGNABLE_ROLES.map((r) => (
+                  <button
+                    key={r.value}
+                    type="button"
+                    onClick={() => setRole(r.value)}
+                    className={`rounded-lg p-3 text-left ring-1 transition-colors ${
+                      role === r.value ? "bg-primary/10 ring-primary" : "bg-white/[0.03] ring-white/10 hover:bg-white/[0.06]"
+                    }`}
+                  >
+                    <span className="block text-sm font-medium">{r.label}</span>
+                    <span className="mt-0.5 block text-xs text-muted-foreground">{r.hint}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {canExtend && (
             <>
               <div className="grid gap-1.5">
                 <Label htmlFor="profile-locale">Language and region</Label>
@@ -235,11 +278,11 @@ export function ProfileEditorDialog({
                 </p>
               </div>
 
-              {managerHasPin && profile && (
+              {actor.hasPin && profile && (
                 <div className="grid gap-1.5 rounded-lg bg-white/[0.04] p-3">
-                  <Label htmlFor="manager-pin">Confirm your PIN to save</Label>
+                  <Label htmlFor="actor-pin">Confirm your PIN to save</Label>
                   <Input
-                    id="manager-pin"
+                    id="actor-pin"
                     value={currentPin}
                     onChange={(e) => setCurrentPin(e.target.value.replace(/\D/g, "").slice(0, 4))}
                     inputMode="numeric"
@@ -264,7 +307,7 @@ export function ProfileEditorDialog({
             )}
             <Button
               type="submit"
-              disabled={busy || !name.trim() || (canEditRestricted && managerHasPin && !!profile && currentPin.length !== 4)}
+              disabled={busy || !name.trim() || (canExtend && actor.hasPin && !!profile && currentPin.length !== 4)}
             >
               {profile ? "Save" : "Create profile"}
             </Button>

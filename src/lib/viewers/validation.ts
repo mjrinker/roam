@@ -12,10 +12,14 @@ export const maxAgeSchema = z
   .refine((v) => RATING_LEVEL_VALUES.includes(v), "Not a valid rating limit");
 // null clears the PIN; a 4-digit string sets or changes it.
 export const pinSchema = z.union([z.string().regex(/^\d{4}$/, "PIN must be 4 digits"), z.null()]);
+// The owner is fixed at account creation and never assigned through this
+// schema — see lib/content/roles.
+export const assignableRoleSchema = z.enum(["admin", "limited"]);
 
 export const createViewerSchema = z.object({
   name: nameSchema,
   avatarKey: avatarKeySchema,
+  role: assignableRoleSchema.optional(),
   locale: localeSchema.optional(),
   maxAge: maxAgeSchema.optional(),
   allowUnrated: z.boolean().optional(),
@@ -23,7 +27,7 @@ export const createViewerSchema = z.object({
   pin: pinSchema.optional(),
 });
 
-/** Fields any profile may change about itself, whether or not it's a manager. */
+/** Fields any profile may change about itself, regardless of role. */
 export const selfEditSchema = z
   .object({
     name: nameSchema.optional(),
@@ -32,8 +36,13 @@ export const selfEditSchema = z
   .strict()
   .refine((v) => Object.keys(v).length > 0, "Nothing to change");
 
-/** Everything an unrestricted (manager) profile may change, on itself or any other profile on the account. */
-export const managerEditSchema = z
+/**
+ * Everything that needs the "extended" permission (see lib/content/roles'
+ * canEditExtended): the owner editing any profile, or an admin editing
+ * itself. `role` reassignment is validated separately in the route, since
+ * it's only ever legal for the OWNER acting on a DIFFERENT profile.
+ */
+export const extendedEditSchema = z
   .object({
     name: nameSchema.optional(),
     avatarKey: avatarKeySchema.optional(),
@@ -41,8 +50,8 @@ export const managerEditSchema = z
     maxAge: maxAgeSchema.optional(),
     allowUnrated: z.boolean().optional(),
     pin: pinSchema.optional(),
-    // Required whenever the acting manager profile itself has a PIN — see
-    // requireManagerViewer's caller in the PATCH route.
+    role: assignableRoleSchema.optional(),
+    // Required whenever the ACTING profile itself has a PIN — see the PATCH route.
     currentPin: z.string().regex(/^\d{4}$/).optional(),
   })
   .refine((v) => Object.keys(v).some((k) => k !== "currentPin"), "Nothing to change");

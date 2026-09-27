@@ -21,7 +21,7 @@ export function defaultViewerName(account: Pick<Profile, "displayName" | "email"
 export async function ensureDefaultViewer(account: Pick<Profile, "id" | "displayName" | "email">): Promise<Viewer> {
   const [created] = await db
     .insert(viewers)
-    .values({ id: account.id, accountId: account.id, name: defaultViewerName(account) })
+    .values({ id: account.id, accountId: account.id, name: defaultViewerName(account), role: "owner" })
     .onConflictDoNothing({ target: viewers.id })
     .returning();
   if (created) return created;

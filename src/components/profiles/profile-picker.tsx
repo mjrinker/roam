@@ -9,6 +9,8 @@ import { Button } from "@/components/ui/button";
 import { PinDialog } from "@/components/profiles/pin-dialog";
 import { ProfileEditorDialog, type EditableProfile } from "@/components/profiles/profile-editor-dialog";
 import { ViewerAvatar } from "@/components/profiles/viewer-avatar";
+import { canEditProfile, canManageAccount } from "@/lib/content/roles";
+import type { ViewerRole } from "@/lib/db/schema";
 
 /** Only same-site relative paths, so the `next` param can't bounce someone to another site. */
 function safeNext(next: string | null): string {
@@ -18,19 +20,14 @@ function safeNext(next: string | null): string {
 /** The "Who's watching?" tiles, with a manage mode for editing and adding profiles. */
 export function ProfilePicker({
   profiles,
-  currentViewerId,
-  isManager,
-  managerHasPin,
+  actor,
   canAdd,
   next,
   startInManage,
 }: {
   profiles: EditableProfile[];
-  /** The profile currently in use on this device, if any (may be null before a choice is made). */
-  currentViewerId: string | null;
-  /** Whether that profile is unrestricted — see profile-editor-dialog for what this unlocks. */
-  isManager: boolean;
-  managerHasPin: boolean;
+  /** The profile currently in use on this device — null before a choice is made (nobody is "acting" yet). */
+  actor: { id: string; role: ViewerRole; hasPin: boolean } | null;
   canAdd: boolean;
   next: string | null;
   startInManage: boolean;
@@ -40,6 +37,8 @@ export function ProfilePicker({
   const [pinFor, setPinFor] = useState<EditableProfile | null>(null);
   const [editing, setEditing] = useState<EditableProfile | "new" | null>(null);
   const [choosing, setChoosing] = useState<string | null>(null);
+
+  const isOwnerActing = actor !== null && canManageAccount(actor);
 
   async function choose(profile: EditableProfile, pin?: string): Promise<string | null> {
     setChoosing(profile.id);
@@ -61,25 +60,27 @@ export function ProfilePicker({
 
   async function onTileClick(profile: EditableProfile) {
     if (managing) {
-      if (isManager || profile.id === currentViewerId) return setEditing(profile);
-      toast.error("Ask an unrestricted profile to edit this profile.");
-      return;
+      if (!actor || !canEditProfile(actor, profile.id)) {
+        toast.error("Ask the account owner to edit this profile.");
+        return;
+      }
+      return setEditing(profile);
     }
     if (profile.hasPin) return setPinFor(profile);
     const error = await choose(profile);
     if (error) toast.error(error);
   }
 
-  const hasRestrictedProfile = profiles.some((p) => p.maxAge !== null);
-  const hasUnprotectedManager = profiles.some((p) => p.maxAge === null && !p.hasPin);
-  const showPinWarning = managing && isManager && hasRestrictedProfile && hasUnprotectedManager;
+  const hasLimitedProfile = profiles.some((p) => p.role === "limited");
+  const hasUnprotectedNonLimited = profiles.some((p) => p.role !== "limited" && !p.hasPin);
+  const showPinWarning = managing && isOwnerActing && hasLimitedProfile && hasUnprotectedNonLimited;
 
   return (
     <div className="flex flex-col items-center gap-10">
       {showPinWarning && (
         <p className="flex max-w-md items-start gap-2.5 rounded-xl bg-amber-500/10 px-4 py-3 text-left text-sm text-amber-200 ring-1 ring-amber-500/20">
           <TriangleAlert className="mt-0.5 size-4 shrink-0" />
-          A restricted profile can switch to an unrestricted one with no PIN — add a PIN to keep restrictions in
+          A limited profile can switch to an owner or admin profile with no PIN — add one to keep restrictions in
           place on a shared device.
         </p>
       )}
@@ -116,7 +117,7 @@ export function ProfilePicker({
           </li>
         ))}
 
-        {canAdd && isManager && managing && profiles.length < 6 && (
+        {canAdd && isOwnerActing && managing && profiles.length < 6 && (
           <li>
             <button
               type="button"
@@ -145,12 +146,11 @@ export function ProfilePicker({
         />
       )}
 
-      {editing && (
+      {editing && actor && (
         <ProfileEditorDialog
           profile={editing === "new" ? null : editing}
-          isManager={isManager}
-          managerHasPin={managerHasPin}
-          canDelete={isManager && profiles.length > 1}
+          actor={actor}
+          canDelete={isOwnerActing && profiles.length > 1}
           open
           onOpenChange={(open) => !open && setEditing(null)}
           onSaved={() => router.refresh()}

@@ -39,6 +39,10 @@ export const scanTriggerEnum = pgEnum("scan_trigger", [
   "webhook",
   "resume",
 ]);
+// A profile's standing within its own account (unrelated to server_members'
+// admin/viewer role, which is about a SERVER, not the account's profiles).
+// Exactly one profile per account is "owner"; see lib/content/roles.
+export const viewerRoleEnum = pgEnum("viewer_role", ["owner", "admin", "limited"]);
 export const boxAuthStatusEnum = pgEnum("box_auth_status", [
   "disconnected",
   "connected",
@@ -74,6 +78,10 @@ export const viewers = pgTable(
       .notNull()
       .references(() => profiles.id, { onDelete: "cascade" }),
     name: text("name").notNull(),
+    // owner: created with the account, can manage every profile and its own
+    // settings. admin: can manage its own settings only. limited: can only
+    // rename itself / change its own avatar. See lib/content/roles.
+    role: viewerRoleEnum("role").notNull().default("limited"),
     // Key into the built-in avatar gallery (lib/viewers/avatars).
     avatarKey: text("avatar_key").notNull().default("teal-user"),
     // BCP-47 tag. Its region also picks the rating country.
@@ -95,6 +103,7 @@ export const viewers = pgTable(
 );
 
 export type Viewer = typeof viewers.$inferSelect;
+export type ViewerRole = (typeof viewerRoleEnum.enumValues)[number];
 
 // ── servers ──────────────────────────────────────────────────────────────
 // A tenant. Owns exactly one Box OAuth connection (its own end-user's Box
