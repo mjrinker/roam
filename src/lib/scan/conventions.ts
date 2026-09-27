@@ -272,10 +272,70 @@ export interface ParsedBookFolder {
   seriesPosition: string | null;
   /** From a Plex-style {asin-B0XXXXXXXX} tag, which skips fuzzy matching. */
   asin: string | null;
+  /** Narrator(s) from a trailing "[Narrator Name]" tag; empty if there is none. */
+  narrators: string[];
 }
 
 const ASIN_TAG_RE = /\{asin-([A-Z0-9]{10})\}/i;
 const BOOK_POSITION_RE = /^(?:(book|vol(?:ume)?\.?|#)\s*)?(\d+(?:\.\d+)?)\s*[-–—.:]\s*(?=\S)/i;
+
+// Bracketed tags that aren't narrators: "[Unabridged]", "[2016]", "[HQ]", "[m4b]" …
+const NOT_A_NARRATOR_RE =
+  /^(?:un)?abridged$|^audiobook$|^audio$|^hq$|^hd$|^m4b$|^m4a$|^mp3$|^flac$|^complete$|^full cast$|^dramatized(?: adaptation)?$|^\d[\d\s.:-]*$/i;
+const NARRATOR_NAME_RE = /^\p{L}[\p{L}\p{M}.'\u2019 -]{1,60}$/u;
+const TRAILING_SPLIT_RE = /\s*[-_.]?\s*(?:cd|disc|disk|part|pt)\s*0*\d+\s*$/i;
+
+/**
+ * Reads a trailing "[Narrator Name]" (or "[Read by A & B]") from a folder or
+ * file base name (no extension), returning the name without it. Several
+ * narrators may be separated by commas, "&", "and" or ";". Anything in
+ * brackets that doesn't look like a person (years, "Unabridged", format
+ * tags) is left alone.
+ */
+export function parseNarratorTag(baseName: string): { rest: string; narrators: string[] } | null {
+  // "Title [Narrator] - pt2": look past a trailing split marker.
+  const split = TRAILING_SPLIT_RE.exec(baseName);
+  const body = split ? baseName.slice(0, split.index) : baseName;
+
+  const match = /^(.*\S)\s*\[([^\]]+)\]\s*$/.exec(body);
+  if (!match) return null;
+
+  const raw = match[2].trim().replace(/^(?:narrated by|read by|narrator:?)\s+/i, "");
+  const narrators = raw
+    .split(/\s*(?:,|;|&|\band\b)\s*/i)
+    .map((n) => n.trim())
+    .filter(Boolean);
+  if (
+    narrators.length === 0 ||
+    !narrators.every((n) => NARRATOR_NAME_RE.test(n) && !NOT_A_NARRATOR_RE.test(n))
+  ) {
+    return null;
+  }
+  // Keep a split marker that followed the tag with the remainder.
+  return { rest: match[1].trim() + (split ? baseName.slice(split.index) : ""), narrators };
+}
+
+/**
+ * The narrator a book's files name, e.g. "Project Hail Mary [Ray Porter].m4b".
+ * Takes the most common tag across the files (ties go to the first), then
+ * falls back to `fallback` (typically the folder name's tag).
+ */
+export function extractNarratorHint(fileNames: string[], fallback: string[] = []): string[] | null {
+  const counts = new Map<string, { narrators: string[]; count: number }>();
+  for (const fileName of fileNames) {
+    const dot = fileName.lastIndexOf(".");
+    const tag = parseNarratorTag(dot > 0 ? fileName.slice(0, dot) : fileName);
+    if (!tag) continue;
+    const key = tag.narrators.join("|").toLowerCase();
+    const entry = counts.get(key) ?? { narrators: tag.narrators, count: 0 };
+    entry.count++;
+    counts.set(key, entry);
+  }
+  let best: { narrators: string[]; count: number } | null = null;
+  for (const entry of counts.values()) if (!best || entry.count > best.count) best = entry;
+  if (best) return best.narrators;
+  return fallback.length > 0 ? fallback : null;
+}
 
 /** Parses "Book 1 - The Way of Kings (2010) {asin-B003P2WO5E}" into its parts. */
 export function parseBookFolderName(folderName: string): ParsedBookFolder {
@@ -288,11 +348,23 @@ export function parseBookFolderName(folderName: string): ParsedBookFolder {
     name = name.replace(ASIN_TAG_RE, "").trim();
   }
 
+  // A "(2010)" year and a "[Narrator]" tag can trail the name in either order.
   let year: number | null = null;
-  const yearMatch = /\s*\((\d{4})\)\s*$/.exec(name);
-  if (yearMatch) {
-    year = Number(yearMatch[1]);
-    name = name.slice(0, yearMatch.index).trim();
+  let narrators: string[] = [];
+  for (let i = 0; i < 3; i++) {
+    const yearMatch = /\s*\((\d{4})\)\s*$/.exec(name);
+    if (yearMatch && year === null) {
+      year = Number(yearMatch[1]);
+      name = name.slice(0, yearMatch.index).trim();
+      continue;
+    }
+    const tag = parseNarratorTag(name);
+    if (tag && narrators.length === 0) {
+      narrators = tag.narrators;
+      name = tag.rest;
+      continue;
+    }
+    break;
   }
 
   let seriesPosition: string | null = null;
@@ -304,5 +376,5 @@ export function parseBookFolderName(folderName: string): ParsedBookFolder {
     name = name.slice(posMatch[0].length).trim();
   }
 
-  return { name: name || folderName.trim(), year, seriesPosition, asin };
+  return { name: name || folderName.trim(), year, seriesPosition, asin, narrators };
 }

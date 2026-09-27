@@ -5,8 +5,10 @@ import { getCurrentServerAdmin, getCurrentProfile } from "@/lib/auth/guards";
 import { resolveServerIdForTitle } from "@/lib/auth/resolve-server";
 import { db } from "@/lib/db/client";
 import { libraries, titles } from "@/lib/db/schema";
+import { narratorHintForTitle } from "@/lib/scan/audiobooks";
 import { checkRateLimit } from "@/lib/rate-limit";
 import { AudibleRateLimitedError, AudibleUnavailableError, searchAudible } from "@/lib/audible/client";
+import { narratorSimilarity } from "@/lib/audible/match";
 import type { AudibleSearchResult } from "@/lib/audible/parse";
 
 export type AudibleSearchResultDto = AudibleSearchResult;
@@ -43,16 +45,28 @@ export async function GET(request: Request) {
   }
 
   const [row] = await db
-    .select({ kind: titles.kind, region: libraries.audibleRegion })
+    .select({ title: titles, region: libraries.audibleRegion })
     .from(titles)
     .innerJoin(libraries, eq(titles.libraryId, libraries.id))
     .where(eq(titles.id, parsed.data.titleId))
     .limit(1);
-  if (!row || row.kind !== "audiobook") return NextResponse.json({ error: "Not found" }, { status: 404 });
+  if (!row || row.title.kind !== "audiobook") return NextResponse.json({ error: "Not found" }, { status: 404 });
+
+  const narrators = await narratorHintForTitle(row.title);
 
   try {
     const results = await searchAudible({ title: parsed.data.q, author: parsed.data.author }, row.region);
-    return NextResponse.json({ results: results.slice(0, 10) satisfies AudibleSearchResultDto[] });
+    // Results whose narrator matches the files' tag come first (the picker is a
+    // human decision, so nothing is dropped, only reordered).
+    const ranked = narrators
+      ? [...results].sort(
+          (a, b) => narratorSimilarity(narrators, b.narrators) - narratorSimilarity(narrators, a.narrators)
+        )
+      : results;
+    return NextResponse.json({
+      results: ranked.slice(0, 10) satisfies AudibleSearchResultDto[],
+      narratorHint: narrators,
+    });
   } catch (err) {
     if (err instanceof AudibleRateLimitedError) {
       return NextResponse.json({ error: "Audible is rate limiting requests. Try again shortly." }, { status: 429 });

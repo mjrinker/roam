@@ -5,7 +5,7 @@ import {
   parseAudnexusChapters,
   parseSearchProducts,
 } from "./parse";
-import { pickBestMatch, rankMatches, tokens } from "./match";
+import { narratorSimilarity, pickBestMatch, rankMatches, tokens } from "./match";
 import { normalizeRegion } from "./client";
 
 const searchFixture = {
@@ -160,6 +160,32 @@ describe("matching", () => {
       results[0],
     ]);
     expect(ranked[0].result.asin).toBe("B003P2WO5E");
+  });
+
+  it("picks the edition read by the tagged narrator", () => {
+    const wayOfKings = (asin: string, narrators: string[]) => ({
+      ...results[0],
+      asin,
+      narrators: narrators,
+      runtimeMinutes: null,
+    });
+    const candidates = [
+      wayOfKings("OTHER", ["Someone Else"]),
+      wayOfKings("KRAMER", ["Michael Kramer", "Kate Reading"]),
+    ];
+    const best = pickBestMatch(
+      { title: "The Way of Kings", author: "Brandon Sanderson", narrators: ["Michael Kramer"] },
+      candidates
+    );
+    expect(best?.asin).toBe("KRAMER");
+    // Without a tag the first (equally good) candidate stands.
+    expect(pickBestMatch({ title: "The Way of Kings", author: "Brandon Sanderson" }, candidates)?.asin).toBe("OTHER");
+  });
+
+  it("matches narrator names regardless of order or accents", () => {
+    expect(narratorSimilarity(["Porter, Ray"], ["Ray Porter"])).toBe(1);
+    expect(narratorSimilarity(["Zoe Urkel"], ["Zoë Ürkel"])).toBe(1);
+    expect(narratorSimilarity(["Ray Porter"], ["Kate Reading"])).toBe(0);
   });
 
   it("returns null when nothing is close", () => {

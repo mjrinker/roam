@@ -39,9 +39,16 @@ export function authorSimilarity(wanted: string, candidateAuthors: string[]): nu
   return Math.max(0, ...candidateAuthors.map((a) => dice(w, tokens(a))));
 }
 
+/** Best similarity between any wanted narrator and any candidate narrator (names are order-insensitive). */
+export function narratorSimilarity(wanted: string[], candidates: string[]): number {
+  return Math.max(0, ...wanted.flatMap((w) => candidates.map((c) => dice(tokens(w), tokens(c)))));
+}
+
 export interface MatchQuery {
   title: string;
   author?: string | null;
+  /** Narrator(s) named by the files (e.g. "Title [Ray Porter].m4b"); separates editions of one book read by different people. */
+  narrators?: string[] | null;
   year?: number | null;
   /** Known runtime (from probing); used to tell abridged from unabridged and reject wrong editions. */
   runtimeMinutes?: number | null;
@@ -68,6 +75,11 @@ export function rankMatches(query: MatchQuery, results: AudibleSearchResult[]): 
       // Only a (near-)exact title may skip the author check, e.g. when the folder's author is spelled oddly.
       if (authorScore < 0.4 && titleScore < 0.98) continue;
       score = 0.7 * titleScore + 0.3 * authorScore;
+    }
+    if (query.narrators?.length && result.narrators.length > 0) {
+      // Same book, different reader: the tagged narrator is the tiebreaker.
+      const narratorScore = narratorSimilarity(query.narrators, result.narrators);
+      score += narratorScore >= 0.5 ? 0.1 * narratorScore : -0.2;
     }
     if (query.year && result.releaseYear === query.year) score += 0.05;
     if (query.runtimeMinutes && result.runtimeMinutes) {

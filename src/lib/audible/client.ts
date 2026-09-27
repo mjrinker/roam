@@ -56,12 +56,13 @@ async function audibleFetch(url: URL): Promise<unknown | null> {
 
 /** Search Audible's public catalog (no API key). */
 export async function searchAudible(
-  query: { title: string; author?: string | null },
+  query: { title: string; author?: string | null; narrator?: string | null },
   region?: string | null
 ): Promise<AudibleSearchResult[]> {
   const url = new URL(`https://api.audible${AUDIBLE_REGIONS[normalizeRegion(region)]}/1.0/catalog/products`);
   url.searchParams.set("title", query.title);
   if (query.author) url.searchParams.set("author", query.author);
+  if (query.narrator) url.searchParams.set("narrator", query.narrator);
   url.searchParams.set("num_results", "10");
   url.searchParams.set("products_sort_by", "Relevance");
   url.searchParams.set("response_groups", "contributors,product_desc,media,series,product_attrs");

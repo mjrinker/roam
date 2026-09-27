@@ -3,6 +3,7 @@ import {
   groupFilesByEpisodeNumber,
   isAudioFile,
   isDiscFolderName,
+  extractNarratorHint,
   isExtraFile,
   isVideoFile,
   orderAudioParts,
@@ -10,6 +11,7 @@ import {
   orderMediaSegments,
   parseBookFolderName,
   parseDiscFolderNumber,
+  parseNarratorTag,
   parseEditionTag,
   parseEpisodeFileName,
   parseSeasonFolderName,
@@ -395,6 +397,7 @@ describe("parseBookFolderName", () => {
       year: 2021,
       seriesPosition: null,
       asin: null,
+      narrators: [],
     });
   });
 
@@ -421,12 +424,95 @@ describe("parseBookFolderName", () => {
     expect(parseBookFolderName("2001 A Space Odyssey").seriesPosition).toBeNull();
   });
 
+  it("strips a [Narrator] tag from the folder name, before or after the year", () => {
+    expect(parseBookFolderName("Project Hail Mary (2021) [Ray Porter]")).toMatchObject({
+      name: "Project Hail Mary",
+      year: 2021,
+      narrators: ["Ray Porter"],
+    });
+    expect(parseBookFolderName("Project Hail Mary [Ray Porter] (2021)")).toMatchObject({
+      name: "Project Hail Mary",
+      year: 2021,
+      narrators: ["Ray Porter"],
+    });
+    expect(parseBookFolderName("Book 2 - Words of Radiance [Michael Kramer]")).toMatchObject({
+      name: "Words of Radiance",
+      seriesPosition: "2",
+      narrators: ["Michael Kramer"],
+    });
+  });
+
   it("reads an ASIN tag", () => {
     expect(parseBookFolderName("Dune (1965) {asin-b002v0qk4c}")).toEqual({
       name: "Dune",
       year: 1965,
       seriesPosition: null,
       asin: "B002V0QK4C",
+      narrators: [],
     });
+  });
+});
+
+describe("parseNarratorTag", () => {
+  it("reads a trailing [Narrator] and returns the rest", () => {
+    expect(parseNarratorTag("Project Hail Mary [Ray Porter]")).toEqual({
+      rest: "Project Hail Mary",
+      narrators: ["Ray Porter"],
+    });
+  });
+
+  it("splits several narrators on commas, ampersands and 'and'", () => {
+    expect(parseNarratorTag("The Way of Kings [Michael Kramer & Kate Reading]")?.narrators).toEqual([
+      "Michael Kramer",
+      "Kate Reading",
+    ]);
+    expect(parseNarratorTag("Book [A. B. Smith, Jane O'Neil and Zoë Ürkel]")?.narrators).toEqual([
+      "A. B. Smith",
+      "Jane O'Neil",
+      "Zoë Ürkel",
+    ]);
+  });
+
+  it("strips 'Read by' / 'Narrated by' prefixes", () => {
+    expect(parseNarratorTag("Dune [Read by Scott Brick]")?.narrators).toEqual(["Scott Brick"]);
+    expect(parseNarratorTag("Dune [Narrated by Simon Vance]")?.narrators).toEqual(["Simon Vance"]);
+  });
+
+  it("looks past a trailing split marker and keeps it with the rest", () => {
+    expect(parseNarratorTag("Title [Ray Porter] - pt2")).toEqual({
+      rest: "Title - pt2",
+      narrators: ["Ray Porter"],
+    });
+  });
+
+  it("ignores brackets that aren't narrators", () => {
+    expect(parseNarratorTag("Title [Unabridged]")).toBeNull();
+    expect(parseNarratorTag("Title [2016]")).toBeNull();
+    expect(parseNarratorTag("Title [HQ]")).toBeNull();
+    expect(parseNarratorTag("Title [B003P2WO5E]")).toBeNull();
+    expect(parseNarratorTag("Title [Disc 1]")).toBeNull();
+    expect(parseNarratorTag("No brackets here")).toBeNull();
+    expect(parseNarratorTag("[Only brackets]")).toBeNull();
+  });
+
+  it("only looks at the end of the name", () => {
+    expect(parseNarratorTag("[Ray Porter] Title")).toBeNull();
+  });
+});
+
+describe("extractNarratorHint", () => {
+  it("takes the narrator from the file names", () => {
+    expect(extractNarratorHint(["Project Hail Mary [Ray Porter].m4b", "cover.jpg"])).toEqual(["Ray Porter"]);
+  });
+
+  it("uses the most common tag across parts", () => {
+    expect(
+      extractNarratorHint(["a [Ray Porter].mp3", "b [Ray Porter].mp3", "c [Someone Else].mp3"])
+    ).toEqual(["Ray Porter"]);
+  });
+
+  it("falls back to the folder's tag, then to null", () => {
+    expect(extractNarratorHint(["book.m4b"], ["Kate Reading"])).toEqual(["Kate Reading"]);
+    expect(extractNarratorHint(["book.m4b"])).toBeNull();
   });
 });

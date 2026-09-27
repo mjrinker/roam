@@ -17,7 +17,9 @@ import {
 } from "@/components/ui/dialog";
 import type { AudibleSearchResultDto } from "@/app/api/audiobooks/search/route";
 
-type SearchOutcome = { ok: true; results: AudibleSearchResultDto[] } | { ok: false; error: string };
+type SearchOutcome =
+  | { ok: true; results: AudibleSearchResultDto[]; narratorHint: string[] | null }
+  | { ok: false; error: string };
 
 async function searchAudibleFor(titleId: string, q: string, author: string | null): Promise<SearchOutcome> {
   const params = new URLSearchParams({ titleId, q });
@@ -27,7 +29,8 @@ async function searchAudibleFor(titleId: string, q: string, author: string | nul
     const body = await res.json().catch(() => ({}));
     return { ok: false, error: typeof body.error === "string" ? body.error : "Search failed." };
   }
-  return { ok: true, results: (await res.json()).results };
+  const body = await res.json();
+  return { ok: true, results: body.results, narratorHint: body.narratorHint ?? null };
 }
 
 /** Admin picker for pinning an audiobook to the right Audible book. Searches Audible, applies the chosen ASIN. */
@@ -48,6 +51,7 @@ export function AudibleMatchDialog({
 }) {
   const [query, setQuery] = useState(titleName);
   const [results, setResults] = useState<AudibleSearchResultDto[] | null>(null);
+  const [narratorHint, setNarratorHint] = useState<string[] | null>(null);
   const [searching, setSearching] = useState(false);
   const [applying, setApplying] = useState<string | null>(null);
 
@@ -58,8 +62,10 @@ export function AudibleMatchDialog({
     let cancelled = false;
     searchAudibleFor(titleId, titleName, author).then((outcome) => {
       if (cancelled) return;
-      if (outcome.ok) setResults(outcome.results);
-      else {
+      if (outcome.ok) {
+        setResults(outcome.results);
+        setNarratorHint(outcome.narratorHint);
+      } else {
         setResults([]);
         toast.error(outcome.error);
       }
@@ -73,8 +79,12 @@ export function AudibleMatchDialog({
     setSearching(true);
     const outcome = await searchAudibleFor(titleId, q, author);
     setSearching(false);
-    if (outcome.ok) setResults(outcome.results);
-    else toast.error(outcome.error);
+    if (outcome.ok) {
+      setResults(outcome.results);
+      setNarratorHint(outcome.narratorHint);
+    } else {
+      toast.error(outcome.error);
+    }
   }
 
   async function apply(asin: string) {
@@ -103,6 +113,7 @@ export function AudibleMatchDialog({
           <DialogDescription>
             Search Audible and pick the right book. Its cover, narrators, description and series are used
             {author ? `; the folder says the author is ${author}` : ""}.
+            {narratorHint ? ` The file names say it's read by ${narratorHint.join(" & ")}, so those come first.` : ""}
           </DialogDescription>
         </DialogHeader>
 

@@ -14,7 +14,7 @@ import {
 import type { AudibleBook, AudibleSearchResult } from "@/lib/audible/parse";
 import { pickBestMatch } from "@/lib/audible/match";
 import { collectBookFiles, discoverAuthorUnits } from "@/lib/scan/audiobook-tree";
-import { parseBookFolderName } from "@/lib/scan/conventions";
+import { extractNarratorHint, parseBookFolderName } from "@/lib/scan/conventions";
 import {
   alignAudnexusChapters,
   embeddedChapters,
@@ -52,6 +52,11 @@ async function syncBook(
   // A new or changed {asin-…} tag overrides whatever was matched before.
   const asinChanged = !!parsed.asin && parsed.asin !== existing?.asin;
 
+  // A "[Narrator]" tag on the files (or folder) names who reads it. Until the
+  // book is matched that's what we show; a match replaces it with Audible's.
+  const hint = extractNarratorHint(files.map((f) => f.name), parsed.narrators);
+  const hintJson = hint ? JSON.stringify(hint) : null;
+
   const base = { name: parsed.name, year: parsed.year, seriesPosition: parsed.seriesPosition };
   const [title] = await db
     .insert(titles)
@@ -63,11 +68,15 @@ async function syncBook(
       folderAuthor: ctx?.folderAuthor ?? null,
       seriesName: ctx?.seriesName ?? null,
       asin: parsed.asin,
+      narrators: hint,
     })
     .onConflictDoUpdate({
       target: titles.boxFolderId,
       set: {
         ...base,
+        narrators: sql`CASE WHEN ${titles.metadataStatus} IN ('matched', 'manual') THEN ${titles.narrators} ELSE ${hintJson}::jsonb END`,
+        // A book that failed to match under a different (e.g. still bracketed) name gets another try.
+        metadataStatus: sql`CASE WHEN ${titles.metadataStatus} = 'not_found' AND ${titles.name} <> ${parsed.name} THEN 'pending'::metadata_status ELSE ${titles.metadataStatus} END`,
         // A single-title resync doesn't know the author/series folders above
         // the book, so it leaves them as they were.
         ...(ctx ? { folderAuthor: ctx.folderAuthor, seriesName: ctx.seriesName } : {}),
@@ -207,16 +216,44 @@ export async function matchAudiobookToAsin(titleId: string, asin: string, region
   await applyBook(title, book, "manual");
 }
 
+/**
+ * The narrator a book's files name ("Title [Ray Porter].m4b"). For a book
+ * that isn't matched yet the stored narrators are exactly that hint (which
+ * may also have come from the folder name); once matched they're Audible's,
+ * so only the file names are trusted then.
+ */
+export async function narratorHintForTitle(title: TitleRow): Promise<string[] | null> {
+  const files = await db
+    .select({ filename: mediaFiles.filename })
+    .from(mediaFiles)
+    .where(and(eq(mediaFiles.ownerKind, "title"), eq(mediaFiles.ownerId, title.id)));
+  const unmatched = title.metadataStatus === "pending" || title.metadataStatus === "not_found";
+  return extractNarratorHint(
+    files.map((f) => f.filename),
+    unmatched ? (title.narrators ?? []) : []
+  );
+}
+
 async function enrichOne(title: TitleRow, region: string) {
   let book: AudibleBook | null = null;
   if (title.asin) {
     book = await getAudnexusBook(title.asin, region);
   } else {
-    const results = await searchAudible({ title: title.name, author: title.folderAuthor }, region);
+    const narrators = await narratorHintForTitle(title);
+    // Searching with the narrator narrows to the right edition, but a
+    // misspelled name would return nothing, so fall back to a plain search.
+    let results = await searchAudible(
+      { title: title.name, author: title.folderAuthor, narrator: narrators?.join(" ") },
+      region
+    );
+    if (results.length === 0 && narrators) {
+      results = await searchAudible({ title: title.name, author: title.folderAuthor }, region);
+    }
     const best = pickBestMatch(
       {
         title: title.name,
         author: title.folderAuthor,
+        narrators,
         year: title.year,
         runtimeMinutes: title.runtimeSeconds ? title.runtimeSeconds / 60 : null,
       },
