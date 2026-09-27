@@ -54,8 +54,6 @@ export const profiles = pgTable("profiles", {
   id: uuid("id").primaryKey(),
   email: text("email").notNull(),
   displayName: text("display_name"),
-  // Audiobook playback speed, kept per user across devices.
-  playbackRate: real("playback_rate").notNull().default(1),
   createdAt: timestamp("created_at", { withTimezone: true })
     .notNull()
     .defaultNow(),
@@ -363,12 +361,10 @@ export const watchState = pgTable(
   "watch_state",
   {
     id: uuid("id").primaryKey().defaultRandom(),
-    profileId: uuid("profile_id")
+    // Who this progress belongs to (a profile, not the account — see viewers).
+    viewerId: uuid("viewer_id")
       .notNull()
-      .references(() => profiles.id, { onDelete: "cascade" }),
-    // The viewer this progress belongs to. Nullable only until the contract
-    // migration; profileId (the account) is then dropped.
-    viewerId: uuid("viewer_id").references(() => viewers.id, { onDelete: "cascade" }),
+      .references(() => viewers.id, { onDelete: "cascade" }),
     ownerKind: ownerKindEnum("owner_kind").notNull(),
     ownerId: uuid("owner_id").notNull(),
     positionSeconds: integer("position_seconds").notNull().default(0),
@@ -379,11 +375,6 @@ export const watchState = pgTable(
       .defaultNow(),
   },
   (t) => [
-    uniqueIndex("watch_state_profile_owner_idx").on(
-      t.profileId,
-      t.ownerKind,
-      t.ownerId
-    ),
     uniqueIndex("watch_state_viewer_owner_idx").on(
       t.viewerId,
       t.ownerKind,
@@ -491,10 +482,6 @@ export const profilesRelations = relations(profiles, ({ many }) => ({
 }));
 
 export const watchStateRelations = relations(watchState, ({ one }) => ({
-  profile: one(profiles, {
-    fields: [watchState.profileId],
-    references: [profiles.id],
-  }),
   viewer: one(viewers, {
     fields: [watchState.viewerId],
     references: [viewers.id],

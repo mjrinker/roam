@@ -40,7 +40,6 @@ export async function PATCH(request: Request) {
   await db
     .insert(watchState)
     .values({
-      profileId: member.profile.id,
       viewerId: member.viewer.id,
       ownerKind,
       ownerId,
@@ -50,9 +49,8 @@ export async function PATCH(request: Request) {
       updatedAt: new Date(),
     })
     .onConflictDoUpdate({
-      target: [watchState.profileId, watchState.ownerKind, watchState.ownerId],
+      target: [watchState.viewerId, watchState.ownerKind, watchState.ownerId],
       set: {
-        viewerId: member.viewer.id,
         positionSeconds,
         durationSeconds,
         finished: finished ?? false,

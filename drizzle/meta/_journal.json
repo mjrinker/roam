@@ -43,6 +43,13 @@
       "when": 1790486264668,
       "tag": "0005_viewers_expand",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1790521682289,
+      "tag": "0006_viewers_contract",
+      "breakpoints": true
     }
   ]
 }
