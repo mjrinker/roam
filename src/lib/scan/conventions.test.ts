@@ -205,6 +205,12 @@ describe("parseEpisodeFileName", () => {
     ["Show - S01E99-E01.mp4", { season: 1, episodes: [99], name: null }],
     // Span over MAX_EPISODES_PER_FILE falls back.
     ["Show - S01E01-E09.mp4", { season: 1, episodes: [1], name: null }],
+    // A SINGLE explicit "-E04" token is a range end ("through episode 4"),
+    // not a "must be exactly start+1" check — a real regression once: a
+    // 6-episode miniseries file named "...s01e01-e06..." incorrectly fell
+    // back to a single episode because 6 != 1 + 1, even though a genuine
+    // 4-episode span (within the cap) should split cleanly.
+    ["Show - S01E01-E04.mp4", { season: 1, episodes: [1, 2, 3, 4], name: null }],
     ["Show - S01E05-2019 recap.mp4", { season: 1, episodes: [5], name: "2019 recap" }],
     ["Show - S01E05-pt1.mp4", { season: 1, episodes: [5], name: null }],
   ])("parses %s -> %o", (input, expected) => {

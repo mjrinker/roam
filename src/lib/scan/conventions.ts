@@ -135,27 +135,32 @@ export interface ParsedEpisodeFile {
  * e.g. "-E06-E07" or "-06") spans, starting from `start` — or just
  * `[start]` if the blob is empty, invalid, or spans more than
  * MAX_EPISODES_PER_FILE. Two encodings, both from Plex's own convention:
- *   - repeated "-e?NN" tokens each name the NEXT episode explicitly, and
- *     must be consecutive ("-E06-E07" from a start of 5 means 5,6,7);
- *   - a single bare "-NN" (no "e") is shorthand for "through episode NN".
+ *   - a SINGLE token — bare "-06" or explicit "-E06", doesn't matter which
+ *     — is shorthand for "through episode NN" (an inclusive range end),
+ *     not "and also episode NN"; it needs no consecutiveness check of its
+ *     own beyond simply being greater than `start`.
+ *   - MULTIPLE explicit "-e?NN" tokens each name the NEXT episode, and
+ *     each one must be exactly consecutive ("-E06-E07" from a start of 5
+ *     means 5,6,7) — this is what actually needs the strict check, so a
+ *     stray non-consecutive tag (e.g. "-E06-E09") isn't silently treated
+ *     as a valid range.
  */
 function expandEpisodeRange(start: number, continuationBlob: string): number[] {
-  const tokens = [...continuationBlob.matchAll(EPISODE_CONTINUATION_RE)].map((m) => ({
-    hasE: m[1].length > 0,
-    value: Number(m[2]),
-  }));
+  const tokens = [...continuationBlob.matchAll(EPISODE_CONTINUATION_RE)].map((m) => Number(m[2]));
   if (tokens.length === 0) return [start];
 
   let end: number;
   let validSequence: boolean;
-  if (tokens.length === 1 && !tokens[0].hasE) {
-    // Bare shorthand: "-06" means "through 6", not "and also episode 6".
-    end = tokens[0].value;
+  if (tokens.length === 1) {
+    // Single token, either form: an inclusive range end, not a strict
+    // "next consecutive integer" — "-E06" straight after "E01" means
+    // "episodes 1 through 6", exactly like the bare "-06" shorthand does.
+    end = tokens[0];
     validSequence = end > start;
   } else {
-    const sequence = [start, ...tokens.map((t) => t.value)];
+    const sequence = [start, ...tokens];
     validSequence = sequence.every((v, i) => i === 0 || v === sequence[i - 1] + 1);
-    end = tokens[tokens.length - 1].value;
+    end = tokens[tokens.length - 1];
   }
   if (!validSequence || end - start + 1 > MAX_EPISODES_PER_FILE) return [start];
 
