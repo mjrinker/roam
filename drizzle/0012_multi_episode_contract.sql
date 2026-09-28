@@ -1,0 +1,1 @@
+ALTER TABLE "media_files" DROP CONSTRAINT "media_files_box_file_id_unique";

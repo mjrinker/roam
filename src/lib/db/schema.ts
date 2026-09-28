@@ -354,7 +354,11 @@ export const mediaFiles = pgTable(
     ownerId: uuid("owner_id").notNull(),
     partIndex: integer("part_index").notNull().default(0),
 
-    boxFileId: text("box_file_id").notNull().unique(),
+    // No longer globally unique as of migration 0012 — a multi-episode
+    // file's Box id is legitimately owned by more than one episode row now.
+    // media_files_owner_file_idx (owner_kind, owner_id, box_file_id) is the
+    // real uniqueness guarantee; see the multi-episode rollout plan.
+    boxFileId: text("box_file_id").notNull(),
     filename: text("filename").notNull(),
     sizeBytes: bigint("size_bytes", { mode: "number" }),
     // duration_ms is authoritative when set (audiobooks: rounding to whole
