@@ -8,6 +8,7 @@ import {
   containerOf,
   estimateAudioDurationMs,
 } from "@/lib/scan/containers";
+import { parseEpisodeFileName } from "@/lib/scan/conventions";
 import { probeMp3 } from "@/lib/scan/mp3-duration";
 import { probeMp4, type Mp4Chapter } from "@/lib/scan/mp4-duration";
 
@@ -57,7 +58,13 @@ export async function upsertMediaSegments(
           container: file.name.slice(file.name.lastIndexOf(".") + 1).toLowerCase(),
         })
         .onConflictDoUpdate({
-          target: mediaFiles.boxFileId,
+          // Scoped to the owner too (not just boxFileId), so a multi-episode
+          // file's second (third, ...) owner upserting the same Box file
+          // gets its OWN row instead of stealing/overwriting the first
+          // owner's. Requires media_files_owner_file_idx (Deploy 1) plus the
+          // global box_file_id unique dropped (Deploy 2) — see the rollout
+          // plan in episode-split-pass.ts's module doc comment.
+          target: [mediaFiles.ownerKind, mediaFiles.ownerId, mediaFiles.boxFileId],
           set: { partIndex: i, filename: file.name, sizeBytes: file.sizeBytes },
         });
     }
@@ -82,8 +89,16 @@ async function probeOne(
     const { durationSeconds, chapters } = await probeMp3(fetchRange, size, { chapters: true });
     return { durationSeconds, chapters };
   }
+  // Chapters are also worth extracting for a multi-episode video file (e.g.
+  // "S01E05-E06.mp4") — the episode-split pass uses them to snap its
+  // estimated cut point to a real scene boundary. Narrowed to just those
+  // files (rather than every video) so this doesn't add extra Box range
+  // requests, or a new chance to throw on a malformed moov, to every
+  // ordinary movie/episode probe.
+  const isMultiEpisode =
+    file.ownerKind === "episode" && (parseEpisodeFileName(file.filename)?.episodes.length ?? 0) > 1;
   const { durationSeconds, chapters } = await probeMp4(fetchRange, size, {
-    chapters: AUDIO_MP4_CONTAINERS.has(container),
+    chapters: AUDIO_MP4_CONTAINERS.has(container) || isMultiEpisode,
   });
   return { durationSeconds, chapters };
 }
