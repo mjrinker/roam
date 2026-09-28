@@ -547,6 +547,16 @@ async function syncShowFolder(
       (e) => e.kind === "file" && isVideoFile(e.name) && !isExtraFile(e.name)
     );
 
+    // The season's real episode numbers, when TMDB has matched — narrows a
+    // multi-episode file's claimed span down to what actually exists (see
+    // clampEpisodesToKnown), rather than trusting the filename's own
+    // number unconditionally. Null (not an empty set) when there's no
+    // TMDB data yet, so groupEpisodeFiles knows to leave the span
+    // untouched instead of treating "nothing confirmed" as "confirmed
+    // nothing" — this self-corrects on a later scan once a match lands.
+    const knownEpisodeNumbers =
+      tmdbEpisodes.length > 0 ? new Set(tmdbEpisodes.map((e) => e.episode_number)) : null;
+
     // Group files by episode number first (mirroring how a movie's segments
     // are grouped) rather than upserting per-file. Processing one file at a
     // time here would (a) let a second part's upsert delete the first
@@ -555,7 +565,7 @@ async function syncShowFolder(
     // a missing file just never appears in the loop at all. A multi-episode
     // file ("S01E05-E06") attaches to every episode number it spans — see
     // groupEpisodeFiles.
-    const episodeGroups = groupEpisodeFiles(episodeFiles);
+    const episodeGroups = groupEpisodeFiles(episodeFiles, knownEpisodeNumbers);
 
     const currentEpisodeRows: { id: string }[] = [];
 

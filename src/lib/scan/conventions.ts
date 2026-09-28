@@ -48,8 +48,17 @@ const EPISODE_FILE_RE = /s0*(\d+)e0*(\d+)((?:-e?\d+(?=[-.\s]|$))*)(?:\s*-\s*(.+?
 // above so a multi-episode file's episode list can be pulled out of its
 // (variable-length) group 3 blob.
 const EPISODE_CONTINUATION_RE = /-(e?)(\d+)/gi;
-/** How many consecutive episodes one physical file may span — a sanity cap against a garbage match, not a real-world limit. */
-export const MAX_EPISODES_PER_FILE = 4;
+/**
+ * How many consecutive episodes one physical file may span, at most. This
+ * is NOT the real sanity check — that's clampEpisodesToKnown, comparing
+ * against what TMDB actually confirms exists for the season, called from
+ * the scanner where that data is available (this module stays pure, no
+ * network/DB access). This is only a structural backstop against a
+ * pathological match (a corrupted or typo'd filename claiming a huge
+ * range) turning into an attempt to allocate an enormous array — set
+ * generously high since real validation happens elsewhere.
+ */
+export const MAX_EPISODES_PER_FILE = 100;
 
 // Plex's split-file suffixes for a movie/episode spread across multiple
 // files: "MovieName (2001) - pt1.mp4", "- cd2.mp4", "- disc1.mp4", or a
@@ -208,6 +217,35 @@ export interface EpisodeFileGroup<T> {
 }
 
 /**
+ * Narrows a parsed multi-episode span down to the CONTIGUOUS prefix TMDB
+ * actually confirms exists for this season, when that's known. A file's
+ * naming convention alone has no real upper bound — a typo, or a season
+ * that's shorter than the file claims, would otherwise create synthetic
+ * episode rows for numbers that don't exist. `knownEpisodeNumbers` should
+ * be null when the season's real episode list isn't available yet (show
+ * not matched to TMDB, or the lookup failed this pass) — in that case the
+ * span is trusted as-is (bounded only by MAX_EPISODES_PER_FILE's
+ * structural backstop) rather than guessing wrong from no information;
+ * this self-corrects on a later scan once TMDB data does arrive, since
+ * grouping is recomputed every pass, never stamped as "already resolved".
+ *
+ * Falls back to just the first episode if even the confirmed prefix is
+ * too short to be a real multi-episode span (fewer than 2 episodes) —
+ * same fallback as an invalid range.
+ */
+export function clampEpisodesToKnown(
+  episodes: number[],
+  knownEpisodeNumbers: Set<number> | null
+): number[] {
+  if (!knownEpisodeNumbers || episodes.length < 2) return episodes;
+  let prefixLength = 0;
+  while (prefixLength < episodes.length && knownEpisodeNumbers.has(episodes[prefixLength])) {
+    prefixLength++;
+  }
+  return prefixLength >= 2 ? episodes.slice(0, prefixLength) : [episodes[0]];
+}
+
+/**
  * Groups a season folder's video files by episode number, so multi-part
  * episodes (S01E01 - part1.mp4 / part2.mp4) collapse into one episode with
  * ordered segments instead of one row overwriting another, and multi-episode
@@ -225,22 +263,29 @@ export interface EpisodeFileGroup<T> {
  * When two DIFFERENT spans claim the same episode number, the lowest
  * starting episode wins, then the shortest span, then string order — some
  * deterministic choice has to be made, and this one is stable across scans.
+ *
+ * `knownEpisodeNumbers` — the season's real episode numbers per TMDB, when
+ * available — narrows each file's parsed span via clampEpisodesToKnown
+ * before grouping, so a file claiming more episodes than the season
+ * actually has doesn't create rows for numbers that don't exist.
  */
 export function groupEpisodeFiles<T extends { name: string }>(
-  files: T[]
+  files: T[],
+  knownEpisodeNumbers: Set<number> | null = null
 ): Map<number, EpisodeFileGroup<T>> {
   const singles = new Map<number, T[]>();
   const combos = new Map<number, Map<string, T[]>>();
   for (const file of files) {
     const parsed = parseEpisodeFileName(file.name);
     if (!parsed) continue;
-    if (parsed.episodes.length === 1) {
+    const episodes = clampEpisodesToKnown(parsed.episodes, knownEpisodeNumbers);
+    if (episodes.length === 1) {
       const list = singles.get(parsed.episode) ?? [];
       list.push(file);
       singles.set(parsed.episode, list);
     } else {
-      const key = parsed.episodes.join("-");
-      for (const ep of parsed.episodes) {
+      const key = episodes.join("-");
+      for (const ep of episodes) {
         const bySpan = combos.get(ep) ?? new Map<string, T[]>();
         const list = bySpan.get(key) ?? [];
         list.push(file);

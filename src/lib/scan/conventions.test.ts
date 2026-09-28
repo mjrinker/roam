@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  clampEpisodesToKnown,
   groupEpisodeFiles,
   isAudioFile,
   isDiscFolderName,
@@ -203,8 +204,14 @@ describe("parseEpisodeFileName", () => {
     ["Show - S01E05 - pt1.mp4", { season: 1, episodes: [5], name: null }],
     // Invalid range (99 then 01) falls back to just the first number.
     ["Show - S01E99-E01.mp4", { season: 1, episodes: [99], name: null }],
-    // Span over MAX_EPISODES_PER_FILE falls back.
-    ["Show - S01E01-E09.mp4", { season: 1, episodes: [1], name: null }],
+    // A single explicit token is a valid range end regardless of size —
+    // the REAL sanity check against a season's actual episode count lives
+    // one layer up, in clampEpisodesToKnown/groupEpisodeFiles (see below),
+    // since this pure parsing layer has no access to TMDB. This only
+    // trips MAX_EPISODES_PER_FILE's much larger structural backstop.
+    ["Show - S01E01-E09.mp4", { season: 1, episodes: [1, 2, 3, 4, 5, 6, 7, 8, 9], name: null }],
+    // Span over MAX_EPISODES_PER_FILE's structural backstop falls back.
+    ["Show - S01E01-E999.mp4", { season: 1, episodes: [1], name: null }],
     // A SINGLE explicit "-E04" token is a range end ("through episode 4"),
     // not a "must be exactly start+1" check — a real regression once: a
     // 6-episode miniseries file named "...s01e01-e06..." incorrectly fell
@@ -350,6 +357,51 @@ describe("groupEpisodeFiles", () => {
     const grouped = groupEpisodeFiles([spanB, spanA]);
     // Lowest starting episode wins (5-6 over 6-7).
     expect(grouped.get(6)).toEqual({ files: [spanA], combined: true });
+  });
+
+  it("narrows a claimed span down to what TMDB actually confirms exists for the season", () => {
+    // A real case: a 6-episode miniseries filename, but TMDB only knows
+    // about episodes 1-4 for this season so far.
+    const files = [{ name: "Show - S01E01-E06.mp4" }];
+    const grouped = groupEpisodeFiles(files, new Set([1, 2, 3, 4]));
+    expect([...grouped.keys()].sort()).toEqual([1, 2, 3, 4]);
+    expect(grouped.get(1)).toEqual({ files, combined: true });
+  });
+
+  it("falls back to a single episode when TMDB doesn't even confirm a second one", () => {
+    const files = [{ name: "Show - S01E01-E06.mp4" }];
+    const grouped = groupEpisodeFiles(files, new Set([1]));
+    expect([...grouped.keys()]).toEqual([1]);
+    expect(grouped.get(1)).toEqual({ files, combined: false });
+  });
+
+  it("trusts the file's own span when there's no TMDB data yet (null, not an empty set)", () => {
+    const files = [{ name: "Show - S01E01-E06.mp4" }];
+    const grouped = groupEpisodeFiles(files, null);
+    expect([...grouped.keys()].sort()).toEqual([1, 2, 3, 4, 5, 6]);
+  });
+});
+
+describe("clampEpisodesToKnown", () => {
+  it("returns the span unchanged when there's no known-episode data", () => {
+    expect(clampEpisodesToKnown([1, 2, 3], null)).toEqual([1, 2, 3]);
+  });
+
+  it("returns a single-episode span unchanged regardless of known data", () => {
+    expect(clampEpisodesToKnown([5], new Set([1, 2]))).toEqual([5]);
+  });
+
+  it("keeps the full span when every episode is confirmed", () => {
+    expect(clampEpisodesToKnown([1, 2, 3], new Set([1, 2, 3, 4]))).toEqual([1, 2, 3]);
+  });
+
+  it("narrows to the confirmed contiguous prefix", () => {
+    expect(clampEpisodesToKnown([1, 2, 3, 4, 5, 6], new Set([1, 2, 3, 4]))).toEqual([1, 2, 3, 4]);
+  });
+
+  it("falls back to just the first episode when the confirmed prefix is under 2", () => {
+    expect(clampEpisodesToKnown([1, 2, 3], new Set([1]))).toEqual([1]);
+    expect(clampEpisodesToKnown([1, 2, 3], new Set([2, 3]))).toEqual([1]);
   });
 });
 
