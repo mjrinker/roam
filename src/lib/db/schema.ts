@@ -8,6 +8,7 @@ import {
   timestamp,
   jsonb,
   real,
+  doublePrecision,
   pgEnum,
   uniqueIndex,
   index,
@@ -376,6 +377,19 @@ export const mediaFiles = pgTable(
     height: integer("height"),
     probeStatus: probeStatusEnum("probe_status").notNull().default("pending"),
 
+    // Estimated in-file playback window for one episode of a multi-episode
+    // file (e.g. "S01E05-E06"), computed by the episode-split pass from
+    // TMDB per-episode runtimes (snapped to an embedded chapter when one is
+    // close). Both null = not yet computed OR deliberately whole-file (an
+    // ordinary file, a multi-part file, or the "losing" side of an overlap
+    // between a standalone and a combined file — see groupEpisodeFiles).
+    // trimSource distinguishes those: null = not computed, 'auto' = computed
+    // (including "deliberately whole-file"), 'manual' = pinned by an admin,
+    // never touched by the split pass again.
+    trimStartSeconds: doublePrecision("trim_start_seconds"),
+    trimDurationSeconds: doublePrecision("trim_duration_seconds"),
+    trimSource: text("trim_source").$type<"auto" | "manual">(),
+
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -387,6 +401,17 @@ export const mediaFiles = pgTable(
       t.partIndex
     ),
     index("media_files_owner_idx").on(t.ownerKind, t.ownerId),
+    // Scoped alternative to the (still-present) global unique on
+    // boxFileId — lets a multi-episode file's Box id be owned by more than
+    // one episode row. Deploy 1 of the multi-episode rollout adds this
+    // index without removing the global constraint yet; a later migration
+    // drops it once the new conflict target is live everywhere (see
+    // upsertMediaSegments and the plan's two-deploy rollout).
+    uniqueIndex("media_files_owner_file_idx").on(
+      t.ownerKind,
+      t.ownerId,
+      t.boxFileId
+    ),
   ]
 );
 
