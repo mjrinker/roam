@@ -35,6 +35,7 @@ import {
   syncAudiobookTopFolder,
   syncSingleAudiobook,
 } from "@/lib/scan/audiobooks";
+import { resolveEpisodeSplits } from "@/lib/scan/episode-split-pass";
 import {
   pendingProbeCondition,
   probeFiles,
@@ -636,6 +637,7 @@ async function syncShowFolder(
  */
 export async function refreshShowEpisodesFromTmdb(showId: string, tmdbShowId: number) {
   const showSeasons = await db.select().from(seasons).where(eq(seasons.titleId, showId));
+  const allEpisodeIds: string[] = [];
 
   for (const season of showSeasons) {
     const tmdbEpisodes = await getSeasonEpisodes(tmdbShowId, season.number).catch(() => []);
@@ -647,6 +649,7 @@ export async function refreshShowEpisodesFromTmdb(showId: string, tmdbShowId: nu
       .where(eq(episodes.seasonId, season.id));
 
     for (const ep of existingEpisodes) {
+      allEpisodeIds.push(ep.id);
       const tmdbEp = tmdbEpisodes.find((e) => e.episode_number === ep.number);
       if (!tmdbEp) continue;
       await db
@@ -661,6 +664,11 @@ export async function refreshShowEpisodesFromTmdb(showId: string, tmdbShowId: nu
         .where(eq(episodes.id, ep.id));
     }
   }
+
+  // A manual TMDB rematch is exactly when a combined file's estimated
+  // split can most improve — this show may have just gained real runtimes
+  // for the first time.
+  await resolveEpisodeSplits(allEpisodeIds);
 }
 
 // ── Duration probing ─────────────────────────────────────────────────────
@@ -739,6 +747,11 @@ async function probePendingDurations(
   ]);
   const pending = [...pendingTitleFiles, ...pendingEpisodeFiles];
   const incomplete = await probeFiles(provider, pending, deadline, errors);
+
+  // A newly-probed duration (or a runtime that just arrived via TMDB) is
+  // exactly what a combined episode file's split needs to go from "whole"
+  // to a real estimate — recompute after every probe pass, not just once.
+  if (episodeIds.length > 0) await resolveEpisodeSplits(episodeIds);
 
   // Roll up movie runtimes from their segments' probed durations — this
   // library's movies only.
@@ -843,6 +856,7 @@ async function probeTitlePendingDurations(
   let pending: (typeof mediaFiles.$inferSelect)[];
   // Movies and audiobooks own their files directly; shows own them via episodes.
   const titleOwned = kind === "movie" || kind === "audiobook";
+  let episodeIds: string[] = [];
   if (titleOwned) {
     pending = await db
       .select()
@@ -860,7 +874,7 @@ async function probeTitlePendingDurations(
     const titleEpisodes = seasonIds.length
       ? await db.select({ id: episodes.id }).from(episodes).where(inArray(episodes.seasonId, seasonIds))
       : [];
-    const episodeIds = titleEpisodes.map((e) => e.id);
+    episodeIds = titleEpisodes.map((e) => e.id);
     pending = episodeIds.length
       ? await db
           .select()
@@ -877,4 +891,5 @@ async function probeTitlePendingDurations(
 
   await probeFiles(provider, pending, deadline, errors);
   if (titleOwned) await rollupTitleRuntime(titleId);
+  else if (episodeIds.length > 0) await resolveEpisodeSplits(episodeIds);
 }
