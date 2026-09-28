@@ -4,6 +4,7 @@ import { mediaFiles, watchState } from "@/lib/db/schema";
 import { createBoxProviderForServer } from "@/lib/storage/box";
 import { BoxReauthRequiredError } from "@/lib/storage/box-token-storage";
 import type { PlayManifest, PlayOwnerKind, PlaySegment } from "@/lib/player/types";
+import { buildPlaySegment } from "@/lib/player/timeline";
 
 export type BuildManifestResult =
   | { ok: true; manifest: PlayManifest }
@@ -47,13 +48,12 @@ export async function buildPlayManifest(
     for (const [index, row] of segmentRows.entries()) {
       const { url, expiresAt } = await provider.getStreamingUrl(row.boxFileId);
       if (!earliestExpiry || expiresAt < earliestExpiry) earliestExpiry = expiresAt;
-      segments.push({
-        index,
-        url,
-        durationSeconds: row.durationSeconds!,
-        startSeconds: cursor,
-      });
-      cursor += row.durationSeconds!;
+      const segment = buildPlaySegment(row, index, url, cursor);
+      segments.push(segment);
+      // A trimmed segment's window duration, not the whole physical
+      // file's — the next segment's startSeconds has to pick up right
+      // where THIS episode's slice ends, not where the shared file ends.
+      cursor += segment.durationSeconds;
     }
   } catch (err) {
     if (err instanceof BoxReauthRequiredError) {

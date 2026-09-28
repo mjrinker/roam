@@ -7,6 +7,15 @@ export interface PlaySegment {
   url: string;
   durationSeconds: number;
   startSeconds: number;
+  // Both PRESENT together only for a trimmed segment — an episode's
+  // estimated slice of a multi-episode file (see lib/scan/episode-split.ts)
+  // — and OMITTED entirely (not even `undefined`) for an ordinary segment,
+  // since their presence is itself the signal the player checks
+  // (see hasVirtualEnd in lib/player/timeline.ts).
+  /** Where this segment's window starts in the underlying physical file. */
+  inFileOffsetSeconds?: number;
+  /** The physical-file time at which this segment virtually ends. */
+  inFileEndSeconds?: number;
 }
 
 export interface PlayManifest {

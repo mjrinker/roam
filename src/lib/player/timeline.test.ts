@@ -1,11 +1,18 @@
 import { describe, expect, it } from "vitest";
 import {
+  buildPlaySegment,
   chapterEnd,
   chapterIndexAt,
   clampRate,
+  crossedVirtualEnd,
   findSegmentAt,
   formatClock,
+  hasVirtualEnd,
   isEffectivelyFinished,
+  remainingInSegment,
+  toElementTime,
+  toLocalTime,
+  windowClampTarget,
 } from "./timeline";
 
 const segments = [
@@ -89,5 +96,136 @@ describe("clampRate", () => {
     expect(clampRate(0.1)).toBe(0.5);
     expect(clampRate(NaN)).toBe(1);
     expect(clampRate(1.333)).toBe(1.33);
+  });
+});
+
+describe("trimmed segments", () => {
+  const untrimmed = { durationSeconds: 2640 };
+  const firstHalf = { durationSeconds: 1320, inFileOffsetSeconds: 0, inFileEndSeconds: 1320 };
+  const secondHalf = { durationSeconds: 1320, inFileOffsetSeconds: 1320, inFileEndSeconds: 2640 };
+
+  describe("hasVirtualEnd", () => {
+    it("is false for an ordinary segment, true for a trimmed one", () => {
+      expect(hasVirtualEnd(untrimmed)).toBe(false);
+      expect(hasVirtualEnd(firstHalf)).toBe(true);
+      expect(hasVirtualEnd(secondHalf)).toBe(true);
+    });
+  });
+
+  describe("toElementTime / toLocalTime", () => {
+    it("are identity for an untrimmed segment, including past its own duration", () => {
+      expect(toElementTime(untrimmed, 0)).toBe(0);
+      expect(toElementTime(untrimmed, 500)).toBe(500);
+      expect(toLocalTime(untrimmed, 500)).toBe(500);
+      expect(toLocalTime(untrimmed, 1_000_000)).toBe(1_000_000);
+      expect(toLocalTime(untrimmed, -5)).toBe(-5);
+    });
+
+    it("offsets by the window start for a trimmed segment", () => {
+      expect(toElementTime(firstHalf, 0)).toBe(0);
+      expect(toElementTime(secondHalf, 10)).toBe(1330);
+      expect(toLocalTime(secondHalf, 1330)).toBe(10);
+    });
+
+    it("clamps local time to [0, durationSeconds] only when trimmed", () => {
+      // Element time before the window's own start (shouldn't normally
+      // happen, but native seeks can land anywhere) clamps to 0, not negative.
+      expect(toLocalTime(secondHalf, 1000)).toBe(0);
+      // Past the window's end clamps to durationSeconds, not overshooting.
+      expect(toLocalTime(firstHalf, 5000)).toBe(1320);
+    });
+  });
+
+  describe("crossedVirtualEnd", () => {
+    it("is always false for an untrimmed segment", () => {
+      expect(crossedVirtualEnd(untrimmed, 0)).toBe(false);
+      expect(crossedVirtualEnd(untrimmed, 1e6)).toBe(false);
+    });
+
+    it("fires within epsilon of the virtual end, not before", () => {
+      expect(crossedVirtualEnd(firstHalf, 1319.7)).toBe(false);
+      expect(crossedVirtualEnd(firstHalf, 1319.8)).toBe(true);
+      expect(crossedVirtualEnd(firstHalf, 1320)).toBe(true);
+    });
+  });
+
+  describe("remainingInSegment", () => {
+    it("uses the physical element duration for an untrimmed segment", () => {
+      expect(remainingInSegment(untrimmed, 100, 2640)).toBe(2540);
+    });
+
+    it("uses the window's own remaining time for a trimmed segment, ignoring element duration", () => {
+      expect(remainingInSegment(firstHalf, 1310, 2640)).toBe(10);
+      expect(remainingInSegment(secondHalf, 2630, 2640)).toBe(10);
+    });
+  });
+
+  describe("windowClampTarget", () => {
+    it("is null for an untrimmed segment", () => {
+      expect(windowClampTarget(untrimmed, 99999)).toBeNull();
+    });
+
+    it("is null when already inside the window (within tolerance)", () => {
+      expect(windowClampTarget(secondHalf, 1320.05)).toBeNull();
+      expect(windowClampTarget(secondHalf, 2000)).toBeNull();
+    });
+
+    it("clamps to the nearest boundary when outside the window", () => {
+      expect(windowClampTarget(secondHalf, 1000)).toBe(1320);
+      expect(windowClampTarget(firstHalf, 2000)).toBe(1320);
+    });
+  });
+});
+
+describe("buildPlaySegment", () => {
+  it("omits the trim keys entirely for an ordinary row — not even as undefined", () => {
+    const segment = buildPlaySegment(
+      { durationSeconds: 1320, trimStartSeconds: null, trimDurationSeconds: null },
+      0,
+      "https://example.com/a",
+      0
+    );
+    expect(Object.keys(segment).sort()).toEqual(["durationSeconds", "index", "startSeconds", "url"]);
+    expect(segment).toEqual({ index: 0, url: "https://example.com/a", durationSeconds: 1320, startSeconds: 0 });
+  });
+
+  it("builds a trimmed segment from a row's trim window, offset by startSeconds", () => {
+    const segment = buildPlaySegment(
+      { durationSeconds: 2640, trimStartSeconds: 1320, trimDurationSeconds: 1320 },
+      1,
+      "https://example.com/b",
+      1320
+    );
+    expect(segment).toEqual({
+      index: 1,
+      url: "https://example.com/b",
+      durationSeconds: 1320,
+      startSeconds: 1320,
+      inFileOffsetSeconds: 1320,
+      inFileEndSeconds: 2640,
+    });
+  });
+
+  it("still sets inFileEndSeconds for a first-half segment whose trim offset is 0", () => {
+    const segment = buildPlaySegment(
+      { durationSeconds: 2640, trimStartSeconds: 0, trimDurationSeconds: 1320 },
+      0,
+      "https://example.com/a",
+      0
+    );
+    expect(segment.inFileOffsetSeconds).toBe(0);
+    expect(segment.inFileEndSeconds).toBe(1320);
+    expect(hasVirtualEnd(segment)).toBe(true);
+  });
+
+  it("treats a null trimStartSeconds as an offset of 0 for a trimmed row", () => {
+    const segment = buildPlaySegment(
+      { durationSeconds: 2640, trimStartSeconds: null, trimDurationSeconds: 1320 },
+      0,
+      "https://example.com/a",
+      0
+    );
+    expect(segment.inFileOffsetSeconds).toBe(0);
+    expect(segment.inFileEndSeconds).toBe(1320);
   });
 });
