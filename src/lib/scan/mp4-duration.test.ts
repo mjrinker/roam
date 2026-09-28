@@ -207,6 +207,37 @@ function qtChapterFile(opts: { co64?: boolean; samples: number[][] }) {
   return { bytes, fetch: fetcherFromSegments([{ offset: 0, bytes }]) };
 }
 
+/**
+ * Same shape as qtChapterFile, but the tref/chap reference sits on the
+ * VIDEO track instead of the audio one — how HandBrake and similar video
+ * muxers actually author it, as opposed to audiobook tools.
+ */
+function qtChapterFileVideoRef(opts: { samples: number[][] }) {
+  const mdatHeaderLen = 8;
+  const base = FTYP.length + mdatHeaderLen;
+  const sizes = opts.samples.map((x) => x.length);
+  const chunkOffsets = [base, base + sizes[0] + sizes[1]];
+  const mdat = box("mdat", opts.samples.flat());
+
+  const stts = box("stts", [0, 0, 0, 0, ...u32be(1), ...u32be(3), ...u32be(60_000)]);
+  const stsc = box("stsc", [0, 0, 0, 0, ...u32be(2), ...u32be(1), ...u32be(2), ...u32be(1), ...u32be(2), ...u32be(1), ...u32be(1)]);
+  const stsz = box("stsz", [0, 0, 0, 0, ...u32be(0), ...u32be(3), ...sizes.flatMap(u32be)]);
+  const chunkBox = box("stco", [0, 0, 0, 0, ...u32be(2), ...chunkOffsets.flatMap(u32be)]);
+
+  const videoTrak = box("trak", [
+    ...tkhd(1),
+    ...box("tref", box("chap", u32be(2))),
+    ...box("mdia", [...mdhd(30_000), ...hdlr("vide"), ...box("minf", box("stbl", zeros(0)))]),
+  ]);
+  const textTrak = box("trak", [
+    ...tkhd(2),
+    ...box("mdia", [...mdhd(1000), ...hdlr("text"), ...box("minf", box("stbl", [...stts, ...stsc, ...stsz, ...chunkBox]))]),
+  ]);
+  const moov = box("moov", [...mvhdV0(1000, 180_000), ...videoTrak, ...textTrak]);
+  const bytes = [...FTYP, ...mdat, ...moov];
+  return { bytes, fetch: fetcherFromSegments([{ offset: 0, bytes }]) };
+}
+
 describe("probeMp4 chapters", () => {
   it("returns no chapters unless asked", async () => {
     const moov = box("moov", [...mvhdV0(1000, 60_000), ...box("udta", chplBox([{ start100ns: 0, title: "One" }]))]);
@@ -244,6 +275,19 @@ describe("probeMp4 chapters", () => {
       { title: "Intro", startSeconds: 0 },
       { title: "Chapter 1", startSeconds: 60 },
       { title: "Ünïcode ✓", startSeconds: 120 },
+    ]);
+  });
+
+  it("finds a QuickTime chapter track referenced from the VIDEO track (HandBrake-style), not just audio", async () => {
+    const { bytes, fetch } = qtChapterFileVideoRef({
+      samples: [textSample(utf8("Cold Open")), textSample(utf8("Act One")), textSample(utf8("Act Two"))],
+    });
+    const result = await probeMp4(fetch, bytes.length, { chapters: true });
+    expect(result.chaptersSource).toBe("qt");
+    expect(result.chapters).toEqual([
+      { title: "Cold Open", startSeconds: 0 },
+      { title: "Act One", startSeconds: 60 },
+      { title: "Act Two", startSeconds: 120 },
     ]);
   });
 

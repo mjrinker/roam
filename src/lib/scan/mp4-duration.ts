@@ -280,7 +280,14 @@ async function readTrakInfo(r: RangeReader, trak: Box): Promise<TrakInfo> {
 }
 
 async function readQuickTimeChapters(r: RangeReader, traks: TrakInfo[]): Promise<Mp4Chapter[] | null> {
-  const refs = traks.filter((t) => t.handler === "soun").flatMap((t) => t.chapterRefs);
+  // Audio muxers put the chapter reference on the audio ("soun") track, but
+  // video muxers (e.g. HandBrake) put it on the video ("vide") track — a
+  // multi-episode video file's embedded chapters (used to snap the
+  // episode-split estimate to a real scene boundary) would otherwise never
+  // be found.
+  const refs = traks
+    .filter((t) => t.handler === "soun" || t.handler === "vide")
+    .flatMap((t) => t.chapterRefs);
   const track =
     traks.find((t) => refs.includes(t.trackId)) ?? traks.find((t) => t.handler === "text");
   if (!track?.stbl || !track.timescale) return null;
