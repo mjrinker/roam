@@ -20,6 +20,13 @@ import Link from "next/link";
 import { cn } from "@/lib/utils";
 import { useAudioActions } from "@/components/audio/audio-player-provider";
 import type { PlayManifest, PlayOwnerKind } from "@/lib/player/types";
+import {
+  crossedVirtualEnd,
+  remainingInSegment,
+  toElementTime,
+  toLocalTime,
+  windowClampTarget,
+} from "@/lib/player/timeline";
 
 interface SeamlessPlayerProps {
   ownerKind: PlayOwnerKind;
@@ -111,6 +118,13 @@ export function SeamlessPlayer({
   // Index into manifest.segments that the front element is currently playing.
   const segIndexRef = useRef(0);
   const preloadedForRef = useRef<number | null>(null); // segIndex we've already preloaded the *next* segment for
+  // Latches once per trimmed segment so its virtual end (see
+  // crossedVirtualEnd in lib/player/timeline.ts) can only trigger ONE
+  // advance/finish, even though onTimeUpdate keeps firing (and re-crossing
+  // the threshold) every tick after that until something actually moves
+  // playback elsewhere. Reset wherever segIndexRef/frontSlotRef change to
+  // point at a genuinely new segment.
+  const virtualEndFiredRef = useRef(false);
 
   const [playing, setPlaying] = useState(false);
   const [globalTime, setGlobalTime] = useState(0);
@@ -175,6 +189,7 @@ export function SeamlessPlayer({
     segIndexRef.current = segment.index;
     frontSlotRef.current = 0;
     preloadedForRef.current = null;
+    virtualEndFiredRef.current = false;
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setFrontSlot(0);
     setFinished(false);
@@ -198,7 +213,7 @@ export function SeamlessPlayer({
     front.src = segment.url;
     front.currentTime = 0;
     const onLoaded = () => {
-      front.currentTime = localTime;
+      front.currentTime = toElementTime(segment, localTime);
       front.removeEventListener("loadedmetadata", onLoaded);
     };
     front.addEventListener("loadedmetadata", onLoaded);
@@ -238,10 +253,11 @@ export function SeamlessPlayer({
     const m = manifestRef.current;
     if (!m) return;
     const segIndex = segIndexRef.current;
+    const seg = m.segments[segIndex];
     const next = m.segments[segIndex + 1];
     if (!next) return;
     if (preloadedForRef.current === segIndex) return;
-    const remaining = front.duration - front.currentTime;
+    const remaining = remainingInSegment(seg, front.currentTime, front.duration);
     if (!Number.isFinite(remaining) || remaining > PRELOAD_THRESHOLD_SECONDS) return;
 
     const backSlot = frontSlotRef.current === 0 ? 1 : 0;
@@ -280,13 +296,14 @@ export function SeamlessPlayer({
       back.src = next.url;
       back.load();
     }
-    back.currentTime = 0;
+    back.currentTime = toElementTime(next, 0);
     void back.play();
 
     old?.pause();
     segIndexRef.current = next.index;
     frontSlotRef.current = newFrontSlot;
     preloadedForRef.current = null;
+    virtualEndFiredRef.current = false;
     setFrontSlot(newFrontSlot);
   }, [saveProgress]);
 
@@ -302,7 +319,25 @@ export function SeamlessPlayer({
         const m = manifestRef.current;
         if (!m) return;
         const seg = m.segments[segIndexRef.current];
-        const gt = seg.startSeconds + el.currentTime;
+
+        // A trimmed segment (an episode's estimated slice of a shared
+        // multi-episode file) has no natural end of its own — the
+        // underlying element just keeps playing into the NEXT episode's
+        // content unless we stop it ourselves. Pause first, every tick,
+        // so resuming playback after the finish (Space, togglePlay) can't
+        // sneak past the wall again; the latch below is only about not
+        // firing advanceToNextSegment/saveProgress more than once.
+        if (crossedVirtualEnd(seg, el.currentTime)) {
+          el.pause();
+          if (!virtualEndFiredRef.current) {
+            virtualEndFiredRef.current = true;
+            setGlobalTime(seg.startSeconds + seg.durationSeconds);
+            advanceToNextSegment();
+          }
+          return;
+        }
+
+        const gt = seg.startSeconds + toLocalTime(seg, el.currentTime);
         setGlobalTime(gt);
         maybePreloadNext(el);
 
@@ -314,6 +349,15 @@ export function SeamlessPlayer({
       };
       const onEnded = () => {
         if (frontSlotRef.current !== slot) return;
+        const m = manifestRef.current;
+        const seg = m?.segments[segIndexRef.current];
+        // A trimmed segment's own virtual-end handling above already
+        // covers the "no next segment" (finish) case — the element's
+        // OWN `ended` firing at the physical file's true end is either
+        // redundant with that (the latch is already set) or, for the
+        // very last sibling of a combined file, the two races and
+        // whichever fires first should win, not both.
+        if (seg && virtualEndFiredRef.current) return;
         advanceToNextSegment();
       };
       const onPlay = () => {
@@ -329,6 +373,25 @@ export function SeamlessPlayer({
       };
       const onReady = () => {
         if (frontSlotRef.current === slot) setBuffering(false);
+      };
+      // Native player surfaces (iOS fullscreen scrubber, PiP, AirPlay,
+      // OS media keys' seek) work on the PHYSICAL file, not our virtual
+      // window — an in-app seek is already clamped by findSegment/seekTo,
+      // but a native one can land anywhere in the shared file. Snap it
+      // back inside the window, and re-arm the virtual-end latch when it
+      // lands back before the end (mirrors how a native seek backward on
+      // ordinary content lets `ended` fire again naturally).
+      const onSeekedClamp = () => {
+        if (frontSlotRef.current !== slot) return;
+        const m = manifestRef.current;
+        const seg = m?.segments[segIndexRef.current];
+        if (!seg) return;
+        const target = windowClampTarget(seg, el.currentTime);
+        if (target !== null) {
+          el.currentTime = target;
+          return;
+        }
+        if (!crossedVirtualEnd(seg, el.currentTime)) virtualEndFiredRef.current = false;
       };
       const onError = () => {
         if (frontSlotRef.current !== slot) return;
@@ -354,11 +417,13 @@ export function SeamlessPlayer({
       el.addEventListener("playing", onReady);
       el.addEventListener("canplay", onReady);
       el.addEventListener("seeked", onReady);
+      el.addEventListener("seeked", onSeekedClamp);
       cleanups.push(() => {
         el.removeEventListener("waiting", onWaiting);
         el.removeEventListener("playing", onReady);
         el.removeEventListener("canplay", onReady);
         el.removeEventListener("seeked", onReady);
+        el.removeEventListener("seeked", onSeekedClamp);
         el.removeEventListener("timeupdate", onTimeUpdate);
         el.removeEventListener("ended", onEnded);
         el.removeEventListener("play", onPlay);
@@ -377,9 +442,8 @@ export function SeamlessPlayer({
     const msUntilExpiry = new Date(manifest.expiresAt).getTime() - Date.now();
     const refreshInMs = Math.max(msUntilExpiry - 60_000, 30_000);
     const timer = setTimeout(async () => {
-      const currentGlobal =
-        manifestRef.current!.segments[segIndexRef.current].startSeconds +
-        (videoRefs.current[frontSlotRef.current]?.currentTime ?? 0);
+      const seg = manifestRef.current!.segments[segIndexRef.current];
+      const currentGlobal = seg.startSeconds + toLocalTime(seg, videoRefs.current[frontSlotRef.current]?.currentTime ?? 0);
       const res = await fetch(`/api/play/${ownerKind}/${ownerId}`).catch(() => null);
       if (!res?.ok) return;
       const fresh: PlayManifest = await res.json();
@@ -407,7 +471,11 @@ export function SeamlessPlayer({
 
     if (segment.index === segIndexRef.current) {
       const front = videoRefs.current[frontSlotRef.current];
-      if (front) front.currentTime = localTime;
+      const elementTime = toElementTime(segment, localTime);
+      if (front) front.currentTime = elementTime;
+      // Seeking within the same (possibly trimmed) segment can move
+      // playback back before its virtual end — re-arm so it can fire again.
+      if (!crossedVirtualEnd(segment, elementTime)) virtualEndFiredRef.current = false;
       return;
     }
 
@@ -418,13 +486,14 @@ export function SeamlessPlayer({
     if (!front) return;
     front.src = segment.url;
     const onLoaded = () => {
-      front.currentTime = localTime;
+      front.currentTime = toElementTime(segment, localTime);
       if (wasPlaying) void front.play();
       front.removeEventListener("loadedmetadata", onLoaded);
     };
     front.addEventListener("loadedmetadata", onLoaded);
     segIndexRef.current = segment.index;
     preloadedForRef.current = null;
+    virtualEndFiredRef.current = false;
     setGlobalTime(targetGlobal);
   }, [playing]);
 
