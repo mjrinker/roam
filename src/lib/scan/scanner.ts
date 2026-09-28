@@ -19,7 +19,7 @@ import { createBoxProviderForServer } from "@/lib/storage/box";
 import { BoxReauthRequiredError } from "@/lib/storage/box-token-storage";
 import type { StorageEntry, StorageProvider } from "@/lib/storage/provider";
 import {
-  groupFilesByEpisodeNumber,
+  groupEpisodeFiles,
   isExtraFile,
   isVideoFile,
   orderMediaSegments,
@@ -551,22 +551,31 @@ async function syncShowFolder(
     // time here would (a) let a second part's upsert delete the first
     // part's media_files row, since each call would see only itself as
     // "current", and (b) never detect a removed/renamed episode file, since
-    // a missing file just never appears in the loop at all.
-    const filesByEpisodeNumber = groupFilesByEpisodeNumber(episodeFiles);
+    // a missing file just never appears in the loop at all. A multi-episode
+    // file ("S01E05-E06") attaches to every episode number it spans — see
+    // groupEpisodeFiles.
+    const episodeGroups = groupEpisodeFiles(episodeFiles);
 
     const currentEpisodeRows: { id: string }[] = [];
 
-    for (const [episodeNumber, files] of filesByEpisodeNumber) {
+    for (const [episodeNumber, { files, combined }] of episodeGroups) {
       const orderedFiles = orderMediaSegments(files);
-      const parsedName = parseEpisodeFileName(orderedFiles[0].name)?.name ?? null;
+      const parsed = parseEpisodeFileName(orderedFiles[0].name);
       const tmdbEp = tmdbEpisodes.find((e) => e.episode_number === episodeNumber);
+      // A combined file's title describes the whole block, not one episode:
+      // prefer TMDB's per-episode name, falling back to the file's own title
+      // only for the episode number the file's title text is actually
+      // attached to (its first episode).
+      const name = combined
+        ? tmdbEp?.name ?? (parsed?.episode === episodeNumber ? parsed.name : null)
+        : parsed?.name ?? tmdbEp?.name ?? null;
 
       const [episode] = await db
         .insert(episodes)
         .values({
           seasonId: season.id,
           number: episodeNumber,
-          name: parsedName ?? tmdbEp?.name ?? null,
+          name,
           boxFolderId: seasonFolder.id,
           tmdbId: tmdbEp?.id ?? null,
           overview: tmdbEp?.overview ?? null,
@@ -576,10 +585,16 @@ async function syncShowFolder(
         .onConflictDoUpdate({
           target: [episodes.seasonId, episodes.number],
           set: {
-            name: parsedName ?? tmdbEp?.name ?? null,
+            name,
             tmdbId: tmdbEp?.id ?? null,
             overview: tmdbEp?.overview ?? null,
             stillUrl: tmdbImageUrl(tmdbEp?.still_path, "w500"),
+            // Insert-only before this: a TMDB miss on the first scan (show not
+            // yet matched, or a per-season lookup failure) was permanent. The
+            // split pass needs runtime to arrive on a later rescan, so a real
+            // value now overwrites a stale one — but a miss this pass keeps
+            // whatever runtime is already stored rather than nulling it out.
+            runtimeSeconds: tmdbEp?.runtime ? tmdbEp.runtime * 60 : sql`${episodes.runtimeSeconds}`,
           },
         })
         .returning();

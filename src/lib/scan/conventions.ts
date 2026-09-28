@@ -26,17 +26,30 @@
  *   there's no version-switcher UI. Plex's directory-level convention (one
  *   folder per edition) needs no special handling at all: each folder is
  *   already its own title here.
- * - A multi-episode file ("S01E05-E06") is recognized (won't be mis-parsed
- *   as having a garbage title) but is only attached to the first episode
- *   number — Roam's data model doesn't have a way to attach one file to
- *   two episode rows.
+ * - A multi-episode file ("S01E05-E06", or the shorthand "S01E05-06") is
+ *   recognized and attached to EVERY episode number it spans (capped at
+ *   MAX_EPISODES_PER_FILE) — each gets its own row, and each plays an
+ *   estimated slice of the shared file (see lib/scan/episode-split.ts).
+ *   A standalone file for one of those numbers always wins over a
+ *   combined file's claim on it (see groupEpisodeFiles).
  */
 
 import { compareNames } from "./cursor";
 
 const TITLE_YEAR_RE = /^(.*?)\s*\((\d{4})\)\s*$/;
 const SEASON_FOLDER_RE = /season\s*0*(\d+)/i;
-const EPISODE_FILE_RE = /s0*(\d+)e0*(\d+)(?:\s*-\s*(.+?))?(?:\.[^.]+)?$/i;
+// Group 3 greedily collects every "-e?NN" continuation directly after the
+// first episode number (Plex's multi-episode form: "-E06", "-E06-E07", or
+// the bare shorthand "-06" — never space- or no-separator-joined, which
+// isn't a real Plex convention). Group 4 is the trailing " - Title" part,
+// same as before.
+const EPISODE_FILE_RE = /s0*(\d+)e0*(\d+)((?:-e?\d+(?=[-.\s]|$))*)(?:\s*-\s*(.+?))?(?:\.[^.]+)?$/i;
+// One "-e?NN" continuation token, captured separately from the main regex
+// above so a multi-episode file's episode list can be pulled out of its
+// (variable-length) group 3 blob.
+const EPISODE_CONTINUATION_RE = /-(e?)(\d+)/gi;
+/** How many consecutive episodes one physical file may span — a sanity cap against a garbage match, not a real-world limit. */
+export const MAX_EPISODES_PER_FILE = 4;
 
 // Plex's split-file suffixes for a movie/episode spread across multiple
 // files: "MovieName (2001) - pt1.mp4", "- cd2.mp4", "- disc1.mp4", or a
@@ -110,21 +123,59 @@ export function parseEditionTag(fileName: string): string | null {
 
 export interface ParsedEpisodeFile {
   season: number;
+  /** The first (or only) episode number — kept for callers that only ever cared about one. */
   episode: number;
+  /** Every episode number this file spans, in order. `[episode]` for an ordinary single-episode file. */
+  episodes: number[];
   name: string | null;
 }
 
-/** Parses "S01E01 - Pilot.mp4" -> { season: 1, episode: 1, name: "Pilot" }. */
+/**
+ * The episode numbers a multi-episode continuation blob (regex group 3,
+ * e.g. "-E06-E07" or "-06") spans, starting from `start` — or just
+ * `[start]` if the blob is empty, invalid, or spans more than
+ * MAX_EPISODES_PER_FILE. Two encodings, both from Plex's own convention:
+ *   - repeated "-e?NN" tokens each name the NEXT episode explicitly, and
+ *     must be consecutive ("-E06-E07" from a start of 5 means 5,6,7);
+ *   - a single bare "-NN" (no "e") is shorthand for "through episode NN".
+ */
+function expandEpisodeRange(start: number, continuationBlob: string): number[] {
+  const tokens = [...continuationBlob.matchAll(EPISODE_CONTINUATION_RE)].map((m) => ({
+    hasE: m[1].length > 0,
+    value: Number(m[2]),
+  }));
+  if (tokens.length === 0) return [start];
+
+  let end: number;
+  let validSequence: boolean;
+  if (tokens.length === 1 && !tokens[0].hasE) {
+    // Bare shorthand: "-06" means "through 6", not "and also episode 6".
+    end = tokens[0].value;
+    validSequence = end > start;
+  } else {
+    const sequence = [start, ...tokens.map((t) => t.value)];
+    validSequence = sequence.every((v, i) => i === 0 || v === sequence[i - 1] + 1);
+    end = tokens[tokens.length - 1].value;
+  }
+  if (!validSequence || end - start + 1 > MAX_EPISODES_PER_FILE) return [start];
+
+  return Array.from({ length: end - start + 1 }, (_, i) => start + i);
+}
+
+/**
+ * Parses "S01E01 - Pilot.mp4" -> { season: 1, episode: 1, episodes: [1], name: "Pilot" },
+ * or a multi-episode file "S01E05-E06 - Title.mp4" ->
+ * { season: 1, episode: 5, episodes: [5, 6], name: "Title" }.
+ */
 export function parseEpisodeFileName(fileName: string): ParsedEpisodeFile | null {
   const match = EPISODE_FILE_RE.exec(fileName.trim());
   if (!match) return null;
-  let name = match[3]?.trim() || null;
+  const season = Number(match[1]);
+  const episode = Number(match[2]);
+  const episodes = expandEpisodeRange(episode, match[3] ?? "");
+  let name = match[4]?.trim() || null;
   if (name && SUPPRESSED_TITLE_RE.test(name)) name = null;
-  return {
-    season: Number(match[1]),
-    episode: Number(match[2]),
-    name,
-  };
+  return { season, episode, episodes, name };
 }
 
 /**
@@ -145,25 +196,73 @@ export function orderMediaSegments<T extends { name: string }>(files: T[]): T[] 
   });
 }
 
+export interface EpisodeFileGroup<T> {
+  files: T[];
+  /** True if this group's files are a multi-episode file (e.g. "S01E05-E06") claiming this episode number. */
+  combined: boolean;
+}
+
 /**
  * Groups a season folder's video files by episode number, so multi-part
  * episodes (S01E01 - part1.mp4 / part2.mp4) collapse into one episode with
- * ordered segments instead of one row overwriting another. Files that
+ * ordered segments instead of one row overwriting another, and multi-episode
+ * files (S01E05-E06) attach to every episode number they span. Files that
  * don't match the SxxExx convention are dropped (same as the scanner
  * silently skipping them file-by-file previously).
+ *
+ * A standalone single-episode file always wins over a combined file's claim
+ * on the same episode number — e.g. a lone "S01E05.mp4" alongside a
+ * combined "S01E05-E06.mp4" means episode 5 plays only the standalone file,
+ * and episode 6 plays the combined file whole (the split pass in
+ * episode-split.ts sees the owner mismatch and leaves it untrimmed).
+ * Combined files sharing the exact same episode span (e.g. two parts of the
+ * same "S01E05-E06 - pt1/pt2") group together as one multi-part block.
+ * When two DIFFERENT spans claim the same episode number, the lowest
+ * starting episode wins, then the shortest span, then string order — some
+ * deterministic choice has to be made, and this one is stable across scans.
  */
-export function groupFilesByEpisodeNumber<T extends { name: string }>(
+export function groupEpisodeFiles<T extends { name: string }>(
   files: T[]
-): Map<number, T[]> {
-  const grouped = new Map<number, T[]>();
+): Map<number, EpisodeFileGroup<T>> {
+  const singles = new Map<number, T[]>();
+  const combos = new Map<number, Map<string, T[]>>();
   for (const file of files) {
     const parsed = parseEpisodeFileName(file.name);
     if (!parsed) continue;
-    const list = grouped.get(parsed.episode) ?? [];
-    list.push(file);
-    grouped.set(parsed.episode, list);
+    if (parsed.episodes.length === 1) {
+      const list = singles.get(parsed.episode) ?? [];
+      list.push(file);
+      singles.set(parsed.episode, list);
+    } else {
+      const key = parsed.episodes.join("-");
+      for (const ep of parsed.episodes) {
+        const bySpan = combos.get(ep) ?? new Map<string, T[]>();
+        const list = bySpan.get(key) ?? [];
+        list.push(file);
+        bySpan.set(key, list);
+        combos.set(ep, bySpan);
+      }
+    }
   }
-  return grouped;
+
+  const allEpisodeNumbers = new Set<number>([...singles.keys(), ...combos.keys()]);
+  const out = new Map<number, EpisodeFileGroup<T>>();
+  for (const ep of [...allEpisodeNumbers].sort((a, b) => a - b)) {
+    const standalone = singles.get(ep);
+    if (standalone) {
+      out.set(ep, { files: orderMediaSegments(standalone), combined: false });
+      continue;
+    }
+    const spans = combos.get(ep)!;
+    const bestKey = [...spans.keys()].sort(
+      (a, b) =>
+        Number(a.split("-")[0]) - Number(b.split("-")[0]) ||
+        a.split("-").length - b.split("-").length ||
+        a.localeCompare(b)
+    )[0];
+    out.set(ep, { files: orderMediaSegments(spans.get(bestKey)!), combined: true });
+  }
+  return out;
 }
 
 const VIDEO_EXTENSIONS = new Set([".mp4", ".m4v", ".mov"]);

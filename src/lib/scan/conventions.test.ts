@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
-  groupFilesByEpisodeNumber,
+  groupEpisodeFiles,
   isAudioFile,
   isDiscFolderName,
   extractNarratorHint,
@@ -144,6 +144,7 @@ describe("parseEpisodeFileName", () => {
     expect(parseEpisodeFileName("S01E01 - Pilot.mp4")).toEqual({
       season: 1,
       episode: 1,
+      episodes: [1],
       name: "Pilot",
     });
   });
@@ -152,6 +153,7 @@ describe("parseEpisodeFileName", () => {
     expect(parseEpisodeFileName("S1E2.mp4")).toEqual({
       season: 1,
       episode: 2,
+      episodes: [2],
       name: null,
     });
   });
@@ -160,6 +162,7 @@ describe("parseEpisodeFileName", () => {
     expect(parseEpisodeFileName("s02e10 - Finale.mp4")).toEqual({
       season: 2,
       episode: 10,
+      episodes: [10],
       name: "Finale",
     });
   });
@@ -172,27 +175,51 @@ describe("parseEpisodeFileName", () => {
     expect(parseEpisodeFileName("John Adams - s01e02 - pt1.mp4")).toEqual({
       season: 1,
       episode: 2,
+      episodes: [2],
       name: null,
     });
     expect(parseEpisodeFileName("Show - S01E03 - disc2.mp4")).toEqual({
       season: 1,
       episode: 3,
+      episodes: [3],
       name: null,
     });
   });
 
-  it("doesn't treat a multi-episode range suffix as the episode title", () => {
-    expect(parseEpisodeFileName("John Adams - s01e05-e06.mp4")).toEqual({
-      season: 1,
-      episode: 5,
-      name: null,
-    });
-    expect(parseEpisodeFileName("John Adams - s01e05-06.mp4")).toEqual({
-      season: 1,
-      episode: 5,
-      name: null,
-    });
+  // Full fixture table for Plex's multi-episode naming convention
+  // ("S01E05-E06", or the shorthand "S01E05-06"), verified against the
+  // final regex + range-extraction algorithm before being transcribed here.
+  it.each<[string, { season: number; episodes: number[]; name: string | null }]>([
+    ["Show - S01E05.mp4", { season: 1, episodes: [5], name: null }],
+    ["Show - S01E05 - Pilot.mp4", { season: 1, episodes: [5], name: "Pilot" }],
+    ["Show - S01E05-E06.mp4", { season: 1, episodes: [5, 6], name: null }],
+    ["Show - S01E05-06.mp4", { season: 1, episodes: [5, 6], name: null }],
+    ["Show - S01E05-E06-E07.mp4", { season: 1, episodes: [5, 6, 7], name: null }],
+    ["Show - S01E05-07.mp4", { season: 1, episodes: [5, 6, 7], name: null }],
+    // Fixes a real name-leak bug: this used to parse the name as "E06 - Title".
+    ["Show - S01E05-E06 - Title.mp4", { season: 1, episodes: [5, 6], name: "Title" }],
+    ["Show - S01E05-E06 - pt1.mp4", { season: 1, episodes: [5, 6], name: null }],
+    // A multi-part file (- pt1) must NOT be mistaken for a multi-episode one.
+    ["Show - S01E05 - pt1.mp4", { season: 1, episodes: [5], name: null }],
+    // Invalid range (99 then 01) falls back to just the first number.
+    ["Show - S01E99-E01.mp4", { season: 1, episodes: [99], name: null }],
+    // Span over MAX_EPISODES_PER_FILE falls back.
+    ["Show - S01E01-E09.mp4", { season: 1, episodes: [1], name: null }],
+    ["Show - S01E05-2019 recap.mp4", { season: 1, episodes: [5], name: "2019 recap" }],
+    ["Show - S01E05-pt1.mp4", { season: 1, episodes: [5], name: null }],
+  ])("parses %s -> %o", (input, expected) => {
+    expect(parseEpisodeFileName(input)).toEqual({ ...expected, episode: expected.episodes[0] });
   });
+
+  it.each(["Show - S01E05E06.mp4", "Show - S01E05 E06.mp4"])(
+    // Not real Plex forms (no separator, or a space instead of "-"), so
+    // there's no valid continuation and the whole match fails — dropped
+    // entirely, same as before this feature.
+    "does not treat %s as a valid episode file",
+    (input) => {
+      expect(parseEpisodeFileName(input)).toBeNull();
+    }
+  );
 });
 
 describe("orderMediaSegments", () => {
@@ -256,30 +283,67 @@ describe("orderMediaSegments", () => {
   });
 });
 
-describe("groupFilesByEpisodeNumber", () => {
+describe("groupEpisodeFiles", () => {
   it("groups a multi-part episode's files together under one key", () => {
     const files = [
       { name: "S01E01 - part2.mp4" },
       { name: "S01E01 - part1.mp4" },
       { name: "S01E02.mp4" },
     ];
-    const grouped = groupFilesByEpisodeNumber(files);
+    const grouped = groupEpisodeFiles(files);
     expect([...grouped.keys()].sort()).toEqual([1, 2]);
-    expect(grouped.get(1)?.map((f) => f.name)).toEqual([
-      "S01E01 - part2.mp4",
-      "S01E01 - part1.mp4",
-    ]);
-    expect(grouped.get(2)?.map((f) => f.name)).toEqual(["S01E02.mp4"]);
+    expect(grouped.get(1)).toEqual({
+      files: [{ name: "S01E01 - part1.mp4" }, { name: "S01E01 - part2.mp4" }],
+      combined: false,
+    });
+    expect(grouped.get(2)).toEqual({ files: [{ name: "S01E02.mp4" }], combined: false });
   });
 
   it("drops files that don't match the SxxExx convention", () => {
     const files = [{ name: "S01E01.mp4" }, { name: "folder.jpg" }, { name: "random.mp4" }];
-    const grouped = groupFilesByEpisodeNumber(files);
+    const grouped = groupEpisodeFiles(files);
     expect([...grouped.keys()]).toEqual([1]);
   });
 
   it("returns an empty map for no matching files", () => {
-    expect(groupFilesByEpisodeNumber([{ name: "nope.mp4" }]).size).toBe(0);
+    expect(groupEpisodeFiles([{ name: "nope.mp4" }]).size).toBe(0);
+  });
+
+  it("attaches a multi-episode file to every episode number it spans", () => {
+    const files = [{ name: "Show - S01E05-E06.mp4" }];
+    const grouped = groupEpisodeFiles(files);
+    expect([...grouped.keys()].sort()).toEqual([5, 6]);
+    expect(grouped.get(5)).toEqual({ files, combined: true });
+    expect(grouped.get(6)).toEqual({ files, combined: true });
+  });
+
+  it("groups two parts of the same combined span together as one multi-part block", () => {
+    const files = [
+      { name: "Show - S01E05-E06 - pt2.mp4" },
+      { name: "Show - S01E05-E06 - pt1.mp4" },
+    ];
+    const grouped = groupEpisodeFiles(files);
+    expect(grouped.get(5)).toEqual({
+      files: [{ name: "Show - S01E05-E06 - pt1.mp4" }, { name: "Show - S01E05-E06 - pt2.mp4" }],
+      combined: true,
+    });
+    expect(grouped.get(6)).toEqual(grouped.get(5));
+  });
+
+  it("a standalone file always wins over a combined file's claim on the same episode number", () => {
+    const standalone = { name: "Show - S01E06.mp4" };
+    const combined = { name: "Show - S01E05-E06.mp4" };
+    const grouped = groupEpisodeFiles([standalone, combined]);
+    expect(grouped.get(5)).toEqual({ files: [combined], combined: true });
+    expect(grouped.get(6)).toEqual({ files: [standalone], combined: false });
+  });
+
+  it("resolves two different combined spans claiming the same episode number deterministically", () => {
+    const spanA = { name: "Show - S01E05-E06.mp4" };
+    const spanB = { name: "Show - S01E06-E07.mp4" };
+    const grouped = groupEpisodeFiles([spanB, spanA]);
+    // Lowest starting episode wins (5-6 over 6-7).
+    expect(grouped.get(6)).toEqual({ files: [spanA], combined: true });
   });
 });
 
