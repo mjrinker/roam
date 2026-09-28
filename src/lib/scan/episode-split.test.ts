@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { computeEpisodeSplit, planFileTrims, type OwnerRow } from "./episode-split";
+import { computeEpisodeSplit, planCombinedTrims, splitWindowAcrossParts, type OwnerRow } from "./episode-split";
 
 describe("computeEpisodeSplit", () => {
   it("splits two equal-runtime episodes evenly", () => {
@@ -106,7 +106,7 @@ describe("computeEpisodeSplit", () => {
   });
 });
 
-describe("planFileTrims", () => {
+describe("planCombinedTrims", () => {
   const owner = (overrides: Partial<OwnerRow> = {}): OwnerRow => ({
     episodeNumber: 5,
     ownerRowCount: 1,
@@ -115,86 +115,218 @@ describe("planFileTrims", () => {
     ...overrides,
   });
 
+  const onePart = (durationSeconds: number | null = 2640) => [
+    { boxFileId: "box-1", durationSeconds, chapters: null },
+  ];
+
   it("skips when any owner is pinned to a manual trim", () => {
     expect(
-      planFileTrims({
+      planCombinedTrims({
         parsedEpisodes: [5, 6],
         owners: [owner({ episodeNumber: 5, trimSource: "manual" }), owner({ episodeNumber: 6 })],
-        fileSeconds: 2640,
-        chapters: null,
+        parts: onePart(),
       })
     ).toEqual({ kind: "skip" });
   });
 
   it("resets when the file no longer parses to 2+ episodes", () => {
     expect(
-      planFileTrims({
+      planCombinedTrims({
         parsedEpisodes: [5],
         owners: [owner({ episodeNumber: 5 })],
-        fileSeconds: 1320,
-        chapters: null,
+        parts: onePart(1320),
       })
     ).toEqual({ kind: "reset" });
   });
 
   it("plays whole when the owning episodes don't match the file's parsed span (the overlap case)", () => {
     expect(
-      planFileTrims({
+      planCombinedTrims({
         parsedEpisodes: [5, 6],
         owners: [owner({ episodeNumber: 6 })], // episode 5 was claimed by a standalone file instead
-        fileSeconds: 2640,
-        chapters: null,
+        parts: onePart(),
       })
     ).toEqual({ kind: "whole" });
   });
 
-  it("plays whole when an owner is itself a multi-part combined file", () => {
+  it("plays whole when an owner's total row count doesn't match this file's part count (an unrelated extra file)", () => {
     expect(
-      planFileTrims({
+      planCombinedTrims({
         parsedEpisodes: [5, 6],
-        owners: [owner({ episodeNumber: 5, ownerRowCount: 2 }), owner({ episodeNumber: 6 })],
-        fileSeconds: 2640,
-        chapters: null,
+        owners: [owner({ episodeNumber: 5, ownerRowCount: 2 }), owner({ episodeNumber: 6, ownerRowCount: 1 })],
+        parts: onePart(), // only 1 part in THIS file, but episode 5 owns 2 rows total
       })
     ).toEqual({ kind: "whole" });
   });
 
   it("skips when not yet probed", () => {
     expect(
-      planFileTrims({
+      planCombinedTrims({
         parsedEpisodes: [5, 6],
         owners: [owner({ episodeNumber: 5 }), owner({ episodeNumber: 6 })],
-        fileSeconds: null,
-        chapters: null,
+        parts: onePart(null),
       })
     ).toEqual({ kind: "skip" });
   });
 
-  it("splits when everything lines up", () => {
+  it("splits when everything lines up (single physical part)", () => {
     expect(
-      planFileTrims({
+      planCombinedTrims({
         parsedEpisodes: [5, 6],
         owners: [owner({ episodeNumber: 6 }), owner({ episodeNumber: 5 })],
-        fileSeconds: 2640,
-        chapters: null,
+        parts: onePart(),
       })
     ).toEqual({
       kind: "split",
       windows: [
-        { episodeNumber: 5, startSeconds: 0, durationSeconds: 1320 },
-        { episodeNumber: 6, startSeconds: 1320, durationSeconds: 1320 },
+        { episodeNumber: 5, boxFileId: "box-1", trimStartSeconds: 0, trimDurationSeconds: 1320 },
+        { episodeNumber: 6, boxFileId: "box-1", trimStartSeconds: 1320, trimDurationSeconds: 1320 },
       ],
     });
   });
 
   it("falls back to whole when the file is too short to split meaningfully", () => {
     expect(
-      planFileTrims({
+      planCombinedTrims({
         parsedEpisodes: [5, 6],
         owners: [owner({ episodeNumber: 5, runtimeSeconds: 30 }), owner({ episodeNumber: 6, runtimeSeconds: 30 })],
-        fileSeconds: 90,
-        chapters: null,
+        parts: onePart(90),
       })
     ).toEqual({ kind: "whole" });
+  });
+
+  it("splits across a part boundary when a combined file is ALSO split into multiple physical parts", () => {
+    // 6 equal-length (per TMDB runtime) episodes over a two-part file:
+    // part 1 is 3000s, part 2 is 3000s, 6000s total, 1000s per episode.
+    // Episodes 1-3 fall entirely in part 1; episodes 4-6 fall entirely in
+    // part 2 — a clean case with no episode straddling the boundary.
+    const owners = [1, 2, 3, 4, 5, 6].map((n) => owner({ episodeNumber: n, ownerRowCount: 2, runtimeSeconds: 1000 }));
+    const result = planCombinedTrims({
+      parsedEpisodes: [1, 2, 3, 4, 5, 6],
+      owners,
+      parts: [
+        { boxFileId: "part-1", durationSeconds: 3000, chapters: null },
+        { boxFileId: "part-2", durationSeconds: 3000, chapters: null },
+      ],
+    });
+    expect(result.kind).toBe("split");
+    if (result.kind !== "split") throw new Error("unreachable");
+    expect(result.windows).toEqual([
+      { episodeNumber: 1, boxFileId: "part-1", trimStartSeconds: 0, trimDurationSeconds: 1000 },
+      { episodeNumber: 2, boxFileId: "part-1", trimStartSeconds: 1000, trimDurationSeconds: 1000 },
+      { episodeNumber: 3, boxFileId: "part-1", trimStartSeconds: 2000, trimDurationSeconds: 1000 },
+      { episodeNumber: 4, boxFileId: "part-2", trimStartSeconds: 0, trimDurationSeconds: 1000 },
+      { episodeNumber: 5, boxFileId: "part-2", trimStartSeconds: 1000, trimDurationSeconds: 1000 },
+      { episodeNumber: 6, boxFileId: "part-2", trimStartSeconds: 2000, trimDurationSeconds: 1000 },
+    ]);
+  });
+
+  it("splits an episode across BOTH parts when its window straddles the boundary", () => {
+    // Same two-part 6000s file, but 4 equal episodes of 1500s each: the
+    // boundary at 3000s falls exactly between episode 2 (1500-3000) and
+    // episode 3 (3000-4500) — still clean. Use uneven runtimes instead so
+    // a cut genuinely lands mid-part: episode 2 runs long enough to push
+    // its window past the part-1/part-2 boundary.
+    const owners = [
+      owner({ episodeNumber: 1, ownerRowCount: 2, runtimeSeconds: 1000 }),
+      owner({ episodeNumber: 2, ownerRowCount: 2, runtimeSeconds: 2500 }), // 1000..3500, straddles the 3000s boundary
+      owner({ episodeNumber: 3, ownerRowCount: 2, runtimeSeconds: 2500 }),
+    ];
+    const result = planCombinedTrims({
+      parsedEpisodes: [1, 2, 3],
+      owners,
+      parts: [
+        { boxFileId: "part-1", durationSeconds: 3000, chapters: null },
+        { boxFileId: "part-2", durationSeconds: 3000, chapters: null },
+      ],
+    });
+    expect(result.kind).toBe("split");
+    if (result.kind !== "split") throw new Error("unreachable");
+    // Episode 2's window (1000..3500) overlaps BOTH parts: 1000..3000 in
+    // part-1 (2000s) and 0..500 in part-2 (500s) — two segments for one episode.
+    const ep2Windows = result.windows.filter((w) => w.episodeNumber === 2);
+    expect(ep2Windows).toEqual([
+      { episodeNumber: 2, boxFileId: "part-1", trimStartSeconds: 1000, trimDurationSeconds: 2000 },
+      { episodeNumber: 2, boxFileId: "part-2", trimStartSeconds: 0, trimDurationSeconds: 500 },
+    ]);
+    // Episode 1 only touches part-1; episode 3 only touches part-2.
+    expect(result.windows.filter((w) => w.episodeNumber === 1)).toEqual([
+      { episodeNumber: 1, boxFileId: "part-1", trimStartSeconds: 0, trimDurationSeconds: 1000 },
+    ]);
+    expect(result.windows.filter((w) => w.episodeNumber === 3)).toEqual([
+      { episodeNumber: 3, boxFileId: "part-2", trimStartSeconds: 500, trimDurationSeconds: 2500 },
+    ]);
+  });
+
+  it("offsets a later part's chapters into the combined timeline before snapping", () => {
+    // Two 1500s episodes over a two-part 3000s file (part-1: 1500s, part-2:
+    // 1500s) — raw cut at 1500 (exactly the part boundary already, so
+    // let's use uneven parts to prove the offset math): part-1 is 1400s,
+    // part-2 is 1600s, still 1500/1500 runtimes -> raw cut at 1500 lands
+    // 100s into part-2. A chapter at LOCAL time 90 within part-2 (global
+    // time 1400+90=1490) is within the 90s snap window of the raw cut (1500).
+    const owners = [
+      owner({ episodeNumber: 1, ownerRowCount: 2, runtimeSeconds: 1500 }),
+      owner({ episodeNumber: 2, ownerRowCount: 2, runtimeSeconds: 1500 }),
+    ];
+    const result = planCombinedTrims({
+      parsedEpisodes: [1, 2],
+      owners,
+      parts: [
+        { boxFileId: "part-1", durationSeconds: 1400, chapters: null },
+        { boxFileId: "part-2", durationSeconds: 1600, chapters: [{ startSeconds: 90 }] },
+      ],
+    });
+    expect(result.kind).toBe("split");
+    if (result.kind !== "split") throw new Error("unreachable");
+    // The cut snapped to the chapter's GLOBAL position (1400 + 90 = 1490).
+    expect(result.windows).toEqual([
+      { episodeNumber: 1, boxFileId: "part-1", trimStartSeconds: 0, trimDurationSeconds: 1400 },
+      { episodeNumber: 1, boxFileId: "part-2", trimStartSeconds: 0, trimDurationSeconds: 90 },
+      { episodeNumber: 2, boxFileId: "part-2", trimStartSeconds: 90, trimDurationSeconds: 1510 },
+    ]);
+  });
+});
+
+describe("splitWindowAcrossParts", () => {
+  const parts = [
+    { boxFileId: "a", durationSeconds: 1000 },
+    { boxFileId: "b", durationSeconds: 1000 },
+    { boxFileId: "c", durationSeconds: 1000 },
+  ];
+
+  it("returns a single part when the window sits entirely inside it", () => {
+    expect(splitWindowAcrossParts(parts, { startSeconds: 100, durationSeconds: 200 })).toEqual([
+      { boxFileId: "a", trimStartSeconds: 100, trimDurationSeconds: 200 },
+    ]);
+    expect(splitWindowAcrossParts(parts, { startSeconds: 1100, durationSeconds: 200 })).toEqual([
+      { boxFileId: "b", trimStartSeconds: 100, trimDurationSeconds: 200 },
+    ]);
+  });
+
+  it("splits a window that spans two parts", () => {
+    expect(splitWindowAcrossParts(parts, { startSeconds: 900, durationSeconds: 200 })).toEqual([
+      { boxFileId: "a", trimStartSeconds: 900, trimDurationSeconds: 100 },
+      { boxFileId: "b", trimStartSeconds: 0, trimDurationSeconds: 100 },
+    ]);
+  });
+
+  it("splits a window that spans all three parts", () => {
+    expect(splitWindowAcrossParts(parts, { startSeconds: 900, durationSeconds: 1200 })).toEqual([
+      { boxFileId: "a", trimStartSeconds: 900, trimDurationSeconds: 100 },
+      { boxFileId: "b", trimStartSeconds: 0, trimDurationSeconds: 1000 },
+      { boxFileId: "c", trimStartSeconds: 0, trimDurationSeconds: 100 },
+    ]);
+  });
+
+  it("excludes a part the window doesn't touch at all", () => {
+    const result = splitWindowAcrossParts(parts, { startSeconds: 0, durationSeconds: 500 });
+    expect(result.map((r) => r.boxFileId)).toEqual(["a"]);
+  });
+
+  it("handles a window landing exactly on a part boundary without an empty entry", () => {
+    expect(splitWindowAcrossParts(parts, { startSeconds: 1000, durationSeconds: 500 })).toEqual([
+      { boxFileId: "b", trimStartSeconds: 0, trimDurationSeconds: 500 },
+    ]);
   });
 });

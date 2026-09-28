@@ -24,11 +24,20 @@ export async function buildPlayManifest(
   viewerId: string,
   serverId: string
 ): Promise<BuildManifestResult> {
-  const segmentRows = await db
+  const allRows = await db
     .select()
     .from(mediaFiles)
     .where(and(eq(mediaFiles.ownerKind, ownerKind), eq(mediaFiles.ownerId, ownerId)))
     .orderBy(asc(mediaFiles.partIndex));
+
+  // A row can be a physical part this owner's Box folder contains but that
+  // its OWN estimated window doesn't touch at all — e.g. one part of a
+  // combined multi-episode file that's ALSO split across multiple
+  // physical files, where this episode's slice falls entirely in the
+  // OTHER part (see episode-split-pass.ts). trimDurationSeconds === 0 is
+  // that "deliberately excluded" marker, distinct from null (not
+  // computed/not applicable) — drop it before it ever becomes a segment.
+  const segmentRows = allRows.filter((r) => r.trimDurationSeconds !== 0);
 
   const incompleteSegment = segmentRows.find((s) => s.durationSeconds == null);
   if (segmentRows.length === 0 || incompleteSegment) {
