@@ -13,6 +13,7 @@ import { TitleResyncButton } from "@/components/admin/title-resync-button";
 import { FixAudioButton } from "@/components/admin/fix-audio-button";
 import { needsAudioFix } from "@/lib/scan/codec-support";
 import { DetailHero } from "@/components/library/detail-hero";
+import { Breadcrumbs } from "@/components/shell/breadcrumbs";
 
 export default async function TitleDetailPage({
   params,
@@ -22,13 +23,13 @@ export default async function TitleDetailPage({
 
   // Join through libraries so a title id from a DIFFERENT server 404s here,
   // rather than trusting the bare id from the URL.
-  const [title] = await db
-    .select({ title: titles })
+  const [row] = await db
+    .select({ title: titles, libraryId: libraries.id, libraryName: libraries.name })
     .from(titles)
     .innerJoin(libraries, eq(titles.libraryId, libraries.id))
     .where(and(eq(titles.id, id), eq(libraries.serverId, serverId)))
-    .limit(1)
-    .then((rows) => rows.map((r) => r.title));
+    .limit(1);
+  const title = row?.title;
   if (!title || !isAllowed(viewer, title.ratingAges)) notFound();
   // This page is movie-only; shows have their own season/episode browser.
   if (title.kind === "show") redirect(`/s/${serverId}/show/${id}`);
@@ -70,11 +71,19 @@ export default async function TitleDetailPage({
       externalRatings={{ imdbRating: title.imdbRating, rottenTomatoesScore: title.rottenTomatoesScore }}
       genres={title.genres}
       overview={title.overview}
+      breadcrumbs={
+        <Breadcrumbs
+          serverId={serverId}
+          trail={[
+            { label: row.libraryName, href: `/s/${serverId}/library/${row.libraryId}` },
+            { label: title.name },
+          ]}
+        />
+      }
       meta={[
         title.year ? String(title.year) : null,
         displayCertification(title.certifications, countryFromLocale(viewer.locale)),
         formatRuntime(title.runtimeSeconds),
-        segments.length > 1 && `${segments.length} parts, plays as one`,
       ]}
     >
       {ready ? (

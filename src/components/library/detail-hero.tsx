@@ -14,6 +14,7 @@ export function DetailHero({
   externalRatings,
   genres,
   overview,
+  breadcrumbs,
   children,
 }: {
   kind: TitleKind;
@@ -24,6 +25,7 @@ export function DetailHero({
   externalRatings?: ExternalRatingsData;
   genres?: string[] | null;
   overview?: string | null;
+  breadcrumbs?: React.ReactNode;
   children?: React.ReactNode;
 }) {
   const Icon = kind === "show" ? Tv : kind === "audiobook" ? Headphones : Film;
@@ -45,6 +47,8 @@ export function DetailHero({
       )}
       <div className="absolute inset-0 -z-10 bg-gradient-to-t from-background via-background/70 to-background/20" />
       <div className="absolute inset-0 -z-10 bg-gradient-to-r from-background/90 via-background/40 to-transparent" />
+
+      {breadcrumbs && <div className="absolute inset-x-0 top-[4.75rem] px-4 sm:px-8">{breadcrumbs}</div>}
 
       <div className="flex flex-col items-center gap-8 px-4 pt-28 pb-10 sm:px-8 md:flex-row md:items-end md:gap-10 md:pt-40 md:pb-14">
         <div className="relative aspect-[2/3] w-44 shrink-0 overflow-hidden rounded-2xl bg-muted shadow-[0_30px_60px_-20px_rgba(0,0,0,0.9)] ring-1 ring-white/15 sm:w-52 md:w-60">

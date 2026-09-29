@@ -13,6 +13,7 @@ import { TitleResyncButton } from "@/components/admin/title-resync-button";
 import { FixAudioButton } from "@/components/admin/fix-audio-button";
 import { needsAudioFix } from "@/lib/scan/codec-support";
 import { DetailHero } from "@/components/library/detail-hero";
+import { Breadcrumbs } from "@/components/shell/breadcrumbs";
 import { SeasonEpisodes, type EpisodeRowData } from "@/components/library/season-episodes";
 
 export default async function ShowDetailPage({
@@ -21,13 +22,13 @@ export default async function ShowDetailPage({
   const { serverId, id } = await params;
   const { viewer, role } = await requireServerMember(serverId);
 
-  const [show] = await db
-    .select({ show: titles })
+  const [row] = await db
+    .select({ show: titles, libraryId: libraries.id, libraryName: libraries.name })
     .from(titles)
     .innerJoin(libraries, eq(titles.libraryId, libraries.id))
     .where(and(eq(titles.id, id), eq(libraries.serverId, serverId)))
-    .limit(1)
-    .then((rows) => rows.map((r) => r.show));
+    .limit(1);
+  const show = row?.show;
   if (!show || !isAllowed(viewer, show.ratingAges)) notFound();
   // Symmetric with the movie page redirecting the other way.
   if (show.kind === "movie") redirect(`/s/${serverId}/title/${id}`);
@@ -140,6 +141,15 @@ export default async function ShowDetailPage({
         externalRatings={{ imdbRating: show.imdbRating, rottenTomatoesScore: show.rottenTomatoesScore }}
         genres={show.genres}
         overview={show.overview}
+        breadcrumbs={
+          <Breadcrumbs
+            serverId={serverId}
+            trail={[
+              { label: row.libraryName, href: `/s/${serverId}/library/${row.libraryId}` },
+              { label: show.name },
+            ]}
+          />
+        }
         meta={[
           show.year ? String(show.year) : null,
           displayCertification(show.certifications, countryFromLocale(viewer.locale)),

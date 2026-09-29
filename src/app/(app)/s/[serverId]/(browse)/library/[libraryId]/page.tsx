@@ -7,6 +7,7 @@ import { libraries, mediaFiles, titles, watchState } from "@/lib/db/schema";
 import { requireServerMember } from "@/lib/auth/guards";
 import { contentFilter } from "@/lib/content/access";
 import { Button } from "@/components/ui/button";
+import { Breadcrumbs } from "@/components/shell/breadcrumbs";
 import {
   LibraryBrowser,
   type LibraryBrowserItem,
@@ -92,6 +93,7 @@ export default async function LibraryDetailPage({
 
   return (
     <div className="flex flex-col gap-6 px-4 py-8 sm:px-8">
+      <Breadcrumbs serverId={serverId} trail={[{ label: library.name }]} className="-mb-2" />
       <div className="flex items-center gap-3">
         <span className="flex size-10 items-center justify-center rounded-xl bg-white/[0.06] ring-1 ring-white/10">
           <Icon className="size-5 text-primary" />

@@ -7,6 +7,7 @@ import { LibraryManager } from "@/components/admin/library-manager";
 import { InviteManager } from "@/components/admin/invite-manager";
 import { UnmatchedTitles } from "@/components/admin/unmatched-titles";
 import { Button } from "@/components/ui/button";
+import { Breadcrumbs } from "@/components/shell/breadcrumbs";
 import { Card, CardContent } from "@/components/ui/card";
 
 const BOX_ERROR_MESSAGES: Record<string, string> = {
@@ -69,6 +70,7 @@ export default async function AdminPage({
 
   return (
     <div className="mx-auto flex w-full max-w-4xl flex-col gap-10 px-4 py-8 sm:px-8">
+      <Breadcrumbs serverId={serverId} trail={[{ label: "Server settings" }]} className="-mb-6" />
       <div>
         <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">Server settings</h1>
         <p className="mt-1 text-sm text-muted-foreground">

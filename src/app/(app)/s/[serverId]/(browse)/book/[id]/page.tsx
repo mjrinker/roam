@@ -11,6 +11,7 @@ import { Badge } from "@/components/ui/badge";
 import { AudibleMatchButton } from "@/components/admin/audible-match-dialog";
 import { TitleResyncButton } from "@/components/admin/title-resync-button";
 import { BookChapters, BookPlayButton } from "@/components/audio/book-controls";
+import { Breadcrumbs } from "@/components/shell/breadcrumbs";
 
 export default async function BookDetailPage({ params }: PageProps<"/s/[serverId]/book/[id]">) {
   const { serverId, id } = await params;
@@ -18,13 +19,13 @@ export default async function BookDetailPage({ params }: PageProps<"/s/[serverId
 
   // Join through libraries so a book id from a DIFFERENT server 404s here,
   // rather than trusting the bare id from the URL.
-  const [book] = await db
-    .select({ title: titles })
+  const [row] = await db
+    .select({ title: titles, libraryId: libraries.id, libraryName: libraries.name })
     .from(titles)
     .innerJoin(libraries, eq(titles.libraryId, libraries.id))
     .where(and(eq(titles.id, id), eq(libraries.serverId, serverId)))
-    .limit(1)
-    .then((rows) => rows.map((r) => r.title));
+    .limit(1);
+  const book = row?.title;
   if (!book || !isAllowed(viewer, book.ratingAges)) notFound();
   if (book.kind === "show") redirect(`/s/${serverId}/show/${id}`);
   if (book.kind === "movie") redirect(`/s/${serverId}/title/${id}`);
@@ -78,7 +79,16 @@ export default async function BookDetailPage({ params }: PageProps<"/s/[serverId
         )}
         <div className="absolute inset-0 -z-10 bg-gradient-to-b from-transparent via-background/40 to-background" />
 
-        <div className="mx-auto flex max-w-5xl flex-col items-center gap-8 px-4 py-10 sm:px-8 md:flex-row md:items-end">
+        <div className="mx-auto max-w-5xl px-4 pt-4 sm:px-8">
+          <Breadcrumbs
+            serverId={serverId}
+            trail={[
+              { label: row.libraryName, href: `/s/${serverId}/library/${row.libraryId}` },
+              { label: book.name },
+            ]}
+          />
+        </div>
+        <div className="mx-auto flex max-w-5xl flex-col items-center gap-8 px-4 pt-6 pb-10 sm:px-8 md:flex-row md:items-end">
           <div className="relative aspect-square w-56 shrink-0 overflow-hidden rounded-2xl bg-muted shadow-[0_30px_70px_-20px_rgba(0,0,0,0.9)] ring-1 ring-white/10 md:w-72">
             {book.posterUrl ? (
               <Image src={book.posterUrl} alt={book.name} fill sizes="288px" className="object-cover" priority />

@@ -6,6 +6,7 @@ import { listServerMemberships } from "@/lib/auth/servers";
 import { MiniPlayer } from "@/components/audio/mini-player";
 import { PlayerErrorBoundary } from "@/components/audio/player-error-boundary";
 import { AppSidebar } from "@/components/shell/app-sidebar";
+import { PullToRefresh } from "@/components/shell/pull-to-refresh";
 import { ShellProvider } from "@/components/shell/shell-context";
 import { TopBar } from "@/components/shell/top-bar";
 
@@ -29,6 +30,7 @@ export default async function BrowseLayout({
 
   return (
     <ShellProvider>
+      <PullToRefresh />
       <div className="flex min-h-dvh">
         <AppSidebar
           serverId={serverId}
