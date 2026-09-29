@@ -5,6 +5,7 @@
  */
 
 import type { TmdbContentRatingsResult, TmdbReleaseDatesResult } from "@/lib/content/ratings";
+import { pickBestMatch, yearOf } from "@/lib/tmdb/match";
 
 const TMDB_API_BASE = "https://api.themoviedb.org/3";
 const TMDB_IMAGE_BASE = "https://image.tmdb.org/t/p";
@@ -95,16 +96,24 @@ export async function searchMovies(
   query: string,
   year: number | null = null
 ): Promise<TmdbMovieSearchResult[]> {
+  // primary_release_year is the ORIGINAL release; plain `year` also matches
+  // re-releases, which lets an old classic's reissue win.
   const data = await tmdbFetch<{ results: TmdbMovieSearchResult[] }>("/search/movie", {
     query,
-    year: year ?? undefined,
+    primary_release_year: year ?? undefined,
   });
   return data.results;
 }
 
+const readMovie = (r: TmdbMovieSearchResult) => ({ title: r.title, year: yearOf(r.release_date) });
+
 export async function searchMovie(title: string, year: number | null): Promise<TmdbMovieSearchResult | null> {
-  const results = await searchMovies(title, year);
-  return results[0] ?? null;
+  if (year == null) return (await searchMovies(title))[0] ?? null;
+  const exact = pickBestMatch(await searchMovies(title, year), title, year, readMovie);
+  if (exact) return exact;
+  // The folder year may be a release off, or TMDB filed it under another
+  // year — look through the unfiltered results before giving up.
+  return pickBestMatch(await searchMovies(title), title, year, readMovie);
 }
 
 export async function getMovieDetails(
@@ -125,9 +134,13 @@ export async function searchTvShows(
   return data.results;
 }
 
+const readShow = (r: TmdbTvSearchResult) => ({ title: r.name, year: yearOf(r.first_air_date) });
+
 export async function searchTvShow(name: string, year: number | null): Promise<TmdbTvSearchResult | null> {
-  const results = await searchTvShows(name, year);
-  return results[0] ?? null;
+  if (year == null) return (await searchTvShows(name))[0] ?? null;
+  const exact = pickBestMatch(await searchTvShows(name, year), name, year, readShow);
+  if (exact) return exact;
+  return pickBestMatch(await searchTvShows(name), name, year, readShow);
 }
 
 export async function getTvShowDetails(
