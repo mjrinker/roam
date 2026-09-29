@@ -1,11 +1,13 @@
 import Link from "next/link";
-import { and, asc, count, eq, inArray } from "drizzle-orm";
+import { and, asc, count, eq, inArray, isNotNull, ne, sum } from "drizzle-orm";
 import { notFound } from "next/navigation";
 import { Film, Headphones, Tv } from "lucide-react";
 import { db } from "@/lib/db/client";
-import { libraries, mediaFiles, titles, watchState } from "@/lib/db/schema";
+import { episodes, libraries, mediaFiles, seasons, titles, watchState } from "@/lib/db/schema";
 import { requireServerMember } from "@/lib/auth/guards";
-import { contentFilter } from "@/lib/content/access";
+import { contentFilter, effectiveAge } from "@/lib/content/access";
+import { countryFromLocale, displayCertification } from "@/lib/content/ratings";
+import { needsAudioFix } from "@/lib/scan/codec-support";
 import { Button } from "@/components/ui/button";
 import { Breadcrumbs } from "@/components/shell/breadcrumbs";
 import {
@@ -57,6 +59,7 @@ export default async function LibraryDetailPage({
             ownerId: mediaFiles.ownerId,
             total: count(),
             probed: count(mediaFiles.durationSeconds),
+            seconds: sum(mediaFiles.durationSeconds),
           })
           .from(mediaFiles)
           .where(and(eq(mediaFiles.ownerKind, "title"), inArray(mediaFiles.ownerId, movieIds)))
@@ -65,6 +68,41 @@ export default async function LibraryDetailPage({
     : [[], []];
   const stateById = new Map(states.map((s) => [s.ownerId, s]));
   const statsById = new Map(fileStats.map((s) => [s.ownerId, s]));
+
+  // Admin-only "audio needs fixing" flag per title: a movie/audiobook's own
+  // files, or any episode's files for a show. Only rows with a non-AAC codec
+  // can qualify, so fetch just those and let needsAudioFix make the call.
+  const audioFixIds = new Set<string>();
+  if (role === "admin" && libraryTitles.length > 0) {
+    const notAac = and(isNotNull(mediaFiles.audioCodec), ne(mediaFiles.audioCodec, "mp4a"));
+    const rows =
+      library.kind === "shows"
+        ? await db
+            .select({
+              titleId: seasons.titleId,
+              audioCodec: mediaFiles.audioCodec,
+              remuxStatus: mediaFiles.remuxStatus,
+            })
+            .from(mediaFiles)
+            .innerJoin(episodes, and(eq(mediaFiles.ownerKind, "episode"), eq(mediaFiles.ownerId, episodes.id)))
+            .innerJoin(seasons, eq(episodes.seasonId, seasons.id))
+            .innerJoin(titles, eq(seasons.titleId, titles.id))
+            .where(and(eq(titles.libraryId, libraryId), notAac))
+        : await db
+            .select({
+              titleId: mediaFiles.ownerId,
+              audioCodec: mediaFiles.audioCodec,
+              remuxStatus: mediaFiles.remuxStatus,
+            })
+            .from(mediaFiles)
+            .where(and(eq(mediaFiles.ownerKind, "title"), inArray(mediaFiles.ownerId, movieIds), notAac));
+    const byTitle = new Map<string, typeof rows>();
+    for (const r of rows) {
+      if (r.titleId) byTitle.set(r.titleId, [...(byTitle.get(r.titleId) ?? []), r]);
+    }
+    for (const [titleId, titleRows] of byTitle) if (needsAudioFix(titleRows)) audioFixIds.add(titleId);
+  }
+  const country = countryFromLocale(viewer.locale);
 
   const items: LibraryBrowserItem[] = libraryTitles.map((t) => {
     const state = stateById.get(t.id);
@@ -80,6 +118,13 @@ export default async function LibraryDetailPage({
           : null,
       posterUrl: t.posterUrl,
       addedAtMs: t.addedAt.getTime(),
+      genres: t.genres ?? [],
+      runtimeSeconds: t.runtimeSeconds ?? (stats?.seconds ? Number(stats.seconds) : null),
+      certification: displayCertification(t.certifications, country),
+      ratingAge: effectiveAge(t.ratingAges, country),
+      imdbRating: t.imdbRating,
+      rottenTomatoesScore: t.rottenTomatoesScore,
+      needsAudioFix: audioFixIds.has(t.id),
       watched: state?.finished ?? false,
       progressFraction:
         state && !state.finished && state.durationSeconds
@@ -121,7 +166,7 @@ export default async function LibraryDetailPage({
           )}
         </div>
       ) : (
-        <LibraryBrowser items={items} serverId={serverId} />
+        <LibraryBrowser items={items} serverId={serverId} isAdmin={role === "admin"} />
       )}
     </div>
   );
