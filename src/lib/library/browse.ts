@@ -27,6 +27,11 @@ export interface BrowseItem {
 
 export const UNRATED = "Unrated";
 
+/** The name to alphabetize by: a leading "The " doesn't count. */
+export function sortName(name: string): string {
+  return name.trim().replace(/^the\s+(?=\S)/i, "");
+}
+
 export interface BrowseFilters {
   genres: ReadonlySet<string>;
   certifications: ReadonlySet<string>;
@@ -101,7 +106,7 @@ function numeric(item: BrowseItem, key: SortKey): number | null {
 /** Sorts a copy. Items missing the sorted value always land last, whichever direction. */
 export function sortItems<T extends BrowseItem>(items: readonly T[], key: SortKey, dir: SortDir): T[] {
   const sign = dir === "asc" ? 1 : -1;
-  const byName = (a: T, b: T) => a.name.localeCompare(b.name);
+  const byName = (a: T, b: T) => sortName(a.name).localeCompare(sortName(b.name)) || a.name.localeCompare(b.name);
   return [...items].sort((a, b) => {
     if (key === "title") return sign * byName(a, b);
     if (key === "author") {

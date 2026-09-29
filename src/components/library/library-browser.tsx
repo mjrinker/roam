@@ -17,6 +17,7 @@ import {
   activeFilterCount,
   applyFilters,
   sortItems,
+  sortName,
   type BrowseFilters,
   type BrowseItem,
   type SortDir,
@@ -39,7 +40,7 @@ const SORT_LABELS: Record<SortKey, string> = {
 };
 
 function letterFor(name: string): string {
-  const first = name.trim().charAt(0).toUpperCase();
+  const first = sortName(name).charAt(0).toUpperCase();
   return /[A-Z]/.test(first) ? first : "#";
 }
 

@@ -5,6 +5,7 @@ import {
   activeFilterCount,
   applyFilters,
   sortItems,
+  sortName,
   type BrowseItem,
 } from "@/lib/library/browse";
 
@@ -109,5 +110,34 @@ describe("sortItems", () => {
     ];
     expect(sortItems(items, "author", "asc").map((i) => i.name)).toEqual(["t0", "t1", "t2", "t3"]);
     expect(sortItems(items, "author", "desc").map((i) => i.name)).toEqual(["t2", "t0", "t1", "t3"]);
+  });
+});
+
+describe("sortName", () => {
+  it("drops a leading The, case-insensitively", () => {
+    expect(sortName("The Matrix")).toBe("Matrix");
+    expect(sortName("the matrix")).toBe("matrix");
+    expect(sortName("  The   Matrix")).toBe("Matrix");
+  });
+
+  it("keeps names that only start with the letters, or are just The", () => {
+    expect(sortName("Theory of Everything")).toBe("Theory of Everything");
+    expect(sortName("The")).toBe("The");
+  });
+
+  it("sorts titles ignoring a leading The", () => {
+    const items = [item("The Zebra"), item("Apple"), item("The Banana"), item("Cherry")];
+    expect(sortItems(items, "title", "asc").map((i) => i.name)).toEqual([
+      "Apple",
+      "The Banana",
+      "Cherry",
+      "The Zebra",
+    ]);
+    expect(sortItems(items, "title", "desc").map((i) => i.name)).toEqual([
+      "The Zebra",
+      "Cherry",
+      "The Banana",
+      "Apple",
+    ]);
   });
 });
