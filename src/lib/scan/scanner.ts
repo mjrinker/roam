@@ -909,6 +909,10 @@ export async function syncSingleTitle(titleId: string): Promise<{ errors: string
 
     if (title.kind === "audiobook") {
       await resolveAudiobookChaptersWhenProbed(titleId, library.audibleRegion);
+    } else if (title.tmdbId) {
+      // An explicit resync retries even a title OMDb previously had nothing for.
+      await db.update(titles).set({ externalRatingsAttemptedAt: null }).where(eq(titles.id, titleId));
+      await backfillExternalRatings(library.id, deadline, titleId);
     }
   } catch (err) {
     if (err instanceof BoxReauthRequiredError) {

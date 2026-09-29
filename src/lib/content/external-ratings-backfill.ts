@@ -21,7 +21,7 @@ async function fetchImdbId(kind: "movie" | "show" | "audiobook", tmdbId: number)
  * rate limit or outage un-stamps the batch and stops the pass early, since
  * those are worth retrying on the next scan rather than giving up on.
  */
-export async function backfillExternalRatings(libraryId: string, deadline: number): Promise<boolean> {
+export async function backfillExternalRatings(libraryId: string, deadline: number, onlyTitleId?: string): Promise<boolean> {
   if (!isOmdbConfigured()) return false;
 
   const pending = await db
@@ -32,7 +32,8 @@ export async function backfillExternalRatings(libraryId: string, deadline: numbe
         eq(titles.libraryId, libraryId),
         inArray(titles.kind, ["movie", "show"]),
         sql`(${titles.imdbId} IS NOT NULL OR ${titles.tmdbId} IS NOT NULL)`,
-        isNull(titles.externalRatingsAttemptedAt)
+        isNull(titles.externalRatingsAttemptedAt),
+        onlyTitleId ? eq(titles.id, onlyTitleId) : undefined
       )
     )
     .orderBy(sql`${titles.id} ASC`)
