@@ -20,6 +20,7 @@ import { BoxReauthRequiredError } from "@/lib/storage/box-token-storage";
 import type { StorageEntry, StorageProvider } from "@/lib/storage/provider";
 import {
   groupEpisodeFiles,
+  isBrowserFriendlyVariant,
   isExtraFile,
   isVideoFile,
   orderMediaSegments,
@@ -37,12 +38,14 @@ import {
 } from "@/lib/scan/audiobooks";
 import { resolveEpisodeSplits } from "@/lib/scan/episode-split-pass";
 import {
+  linkVariantFiles,
   pendingCodecProbeCondition,
   pendingProbeCondition,
   probeCodecsForPending,
   probeFiles,
   rollupTitleRuntime,
   upsertMediaSegments,
+  variantScope,
 } from "@/lib/scan/media-files";
 import {
   getMovieDetails,
@@ -374,12 +377,15 @@ async function syncMovieFolder(
     .returning();
 
   const children = await provider.listFolder(folder.id);
-  const candidateFiles = children.filter(
-    (c) => c.kind === "file" && isVideoFile(c.name) && !isExtraFile(c.name)
-  );
+  const allVideo = children.filter((c) => c.kind === "file" && isVideoFile(c.name) && !isExtraFile(c.name));
+  // Remuxed audio variants must be split out BEFORE any segment/edition
+  // logic, or they'd be appended to the movie as extra parts.
+  const candidateFiles = allVideo.filter((c) => !isBrowserFriendlyVariant(c.name));
+  const variantFiles = allVideo.filter((c) => isBrowserFriendlyVariant(c.name));
   const videoFiles = orderMediaSegments(selectPrimaryEdition(candidateFiles));
 
   await upsertMediaSegments("title", title.id, videoFiles);
+  await linkVariantFiles("title", [title.id], videoFiles, variantFiles);
   await enrichMovieMetadataIfNeeded(title.id, name, year, tmdbId);
 
   return !existing;
@@ -545,9 +551,12 @@ async function syncShowFolder(
       ? await getSeasonEpisodes(tmdbShowId, seasonNumber).catch(() => [])
       : [];
 
-    const episodeFiles = (await provider.listFolder(seasonFolder.id)).filter(
+    const seasonVideo = (await provider.listFolder(seasonFolder.id)).filter(
       (e) => e.kind === "file" && isVideoFile(e.name) && !isExtraFile(e.name)
     );
+    // Remuxed audio variants are split out before any episode grouping.
+    const episodeFiles = seasonVideo.filter((e) => !isBrowserFriendlyVariant(e.name));
+    const variantFiles = seasonVideo.filter((e) => isBrowserFriendlyVariant(e.name));
 
     // The season's real episode numbers, when TMDB has matched — narrows a
     // multi-episode file's claimed span down to what actually exists (see
@@ -634,6 +643,10 @@ async function syncShowFolder(
         .where(and(eq(mediaFiles.ownerKind, "episode"), inArray(mediaFiles.ownerId, staleIds)));
       await db.delete(episodes).where(inArray(episodes.id, staleIds));
     }
+
+    // After stale-episode deletion (which cascades away a deleted episode's
+    // variant links), so linking sees the season's final primary rows.
+    await linkVariantFiles("episode", currentEpisodeIds, episodeFiles, variantFiles);
   }
 
   return !existing;
@@ -731,7 +744,7 @@ async function probePendingDurations(
 ): Promise<boolean> {
   const { titleIds, episodeIds } = await resolveLibraryOwnerIds(libraryId);
 
-  const [pendingTitleFiles, pendingEpisodeFiles] = await Promise.all([
+  const [pendingTitleFiles, pendingEpisodeFiles, pendingVariantFiles] = await Promise.all([
     titleIds.length
       ? db
           .select()
@@ -756,8 +769,18 @@ async function probePendingDurations(
             )
           )
       : Promise.resolve([]),
+    // Remuxed variants (no owner of their own) — scoped via their primaries.
+    // Audiobooks never have variants, so title-scope matches nothing there.
+    Promise.all([
+      titleIds.length
+        ? db.select().from(mediaFiles).where(and(pendingProbeCondition, variantScope("title", titleIds)))
+        : [],
+      episodeIds.length
+        ? db.select().from(mediaFiles).where(and(pendingProbeCondition, variantScope("episode", episodeIds)))
+        : [],
+    ]).then(([a, b]) => [...a, ...b]),
   ]);
-  const pending = [...pendingTitleFiles, ...pendingEpisodeFiles];
+  const pending = [...pendingTitleFiles, ...pendingEpisodeFiles, ...pendingVariantFiles];
   const incomplete = await probeFiles(provider, pending, deadline, errors);
 
   await backfillCodecs(provider, titleIds, episodeIds, deadline);
@@ -952,6 +975,15 @@ async function probeTitlePendingDurations(
             )
           )
       : [];
+  }
+
+  const ownerIdsForVariants = titleOwned ? [titleId] : episodeIds;
+  if (kind !== "audiobook" && ownerIdsForVariants.length > 0) {
+    const variants = await db
+      .select()
+      .from(mediaFiles)
+      .where(and(pendingProbeCondition, variantScope(titleOwned ? "title" : "episode", ownerIdsForVariants)));
+    pending = [...pending, ...variants];
   }
 
   await probeFiles(provider, pending, deadline, errors);

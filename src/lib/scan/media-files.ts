@@ -1,4 +1,5 @@
 import { and, eq, inArray, lt, notInArray, or, sql } from "drizzle-orm";
+import { alias } from "drizzle-orm/pg-core";
 import { db } from "@/lib/db/client";
 import { mediaFiles, titles } from "@/lib/db/schema";
 import { BoxReauthRequiredError } from "@/lib/storage/box-token-storage";
@@ -8,7 +9,7 @@ import {
   containerOf,
   estimateAudioDurationMs,
 } from "@/lib/scan/containers";
-import { parseEpisodeFileName } from "@/lib/scan/conventions";
+import { parseEpisodeFileName, stripVariantSuffix } from "@/lib/scan/conventions";
 import { probeMp3 } from "@/lib/scan/mp3-duration";
 import { probeMp4, probeMp4Codecs, type Mp4Chapter } from "@/lib/scan/mp4-duration";
 
@@ -69,6 +70,136 @@ export async function upsertMediaSegments(
         });
     }
   });
+}
+
+// ── Browser-friendly variants ────────────────────────────────────────────
+// A variant row is a remuxed copy of one primary row's file (see
+// lib/remux/). It carries only its own Box file's identity + probe state;
+// trims and playback order always come from the primary row.
+
+/**
+ * Links a variant file to every primary row that shares the original's Box
+ * file (a combined multi-episode file has one row per episode), and marks
+ * each primary's remux job 'done'. This is the ONLY place remuxStatus
+ * becomes 'done' — so 'done' always means "actually linked and visible".
+ *
+ * `jobToken` is passed by the remux job's own fast path, making the whole
+ * write a no-op if the job was superseded (its token rotated). The
+ * scanner's rediscovery path has no job context and omits it.
+ * Returns false only when the token guard rejected the write.
+ */
+export async function upsertVariant(
+  primaryRowIds: string[],
+  file: Pick<StorageEntry, "id" | "name" | "sizeBytes">,
+  jobToken?: string
+): Promise<boolean> {
+  if (primaryRowIds.length === 0) return true;
+  return db.transaction(async (tx) => {
+    const guard = jobToken
+      ? and(inArray(mediaFiles.id, primaryRowIds), eq(mediaFiles.remuxCallbackToken, jobToken))
+      : inArray(mediaFiles.id, primaryRowIds);
+    const primaries = await tx.select({ id: mediaFiles.id }).from(mediaFiles).where(guard);
+    if (primaries.length === 0) return false;
+
+    const container = file.name.slice(file.name.lastIndexOf(".") + 1).toLowerCase();
+    for (const { id } of primaries) {
+      await tx
+        .insert(mediaFiles)
+        .values({
+          ownerKind: null,
+          ownerId: null,
+          boxFileId: file.id,
+          filename: file.name,
+          sizeBytes: file.sizeBytes,
+          container,
+          variantOfMediaFileId: id,
+        })
+        .onConflictDoUpdate({
+          target: mediaFiles.variantOfMediaFileId,
+          // A different Box file than before (re-remuxed) invalidates the
+          // old probe; the same file re-linked leaves probe state alone.
+          setWhere: sql`${mediaFiles.boxFileId} <> excluded.box_file_id`,
+          set: {
+            boxFileId: file.id,
+            filename: file.name,
+            sizeBytes: file.sizeBytes,
+            container,
+            probeStatus: "pending",
+            probeAttempts: 0,
+            durationMs: null,
+            durationSeconds: null,
+            codecProbed: false,
+            codecProbeAttempts: 0,
+          },
+        });
+    }
+    await tx
+      .update(mediaFiles)
+      .set({ remuxStatus: "done" })
+      .where(inArray(mediaFiles.id, primaries.map((p) => p.id)));
+    return true;
+  });
+}
+
+/**
+ * Scanner-side rediscovery of variant files sitting in one movie/season
+ * folder: links each to the primary rows of its original (matched by exact
+ * original filename), and deletes links whose Box file has vanished
+ * (resetting the primary's remux state so "Fix audio" is offered again).
+ * `ownerIds` scopes everything to this folder's own titles/episodes — never
+ * a bare Box-file-id match across servers. Must run AFTER the folder's
+ * primary rows are final (stale-episode deletion included), since deleting a
+ * primary cascades away its variant.
+ */
+export async function linkVariantFiles(
+  ownerKind: "title" | "episode",
+  ownerIds: string[],
+  normalFiles: StorageEntry[],
+  variantFiles: StorageEntry[]
+): Promise<void> {
+  if (ownerIds.length === 0) return;
+
+  const primaryRows = await db
+    .select({ id: mediaFiles.id, boxFileId: mediaFiles.boxFileId })
+    .from(mediaFiles)
+    .where(and(eq(mediaFiles.ownerKind, ownerKind), inArray(mediaFiles.ownerId, ownerIds)));
+
+  const normalByName = new Map(normalFiles.map((f) => [f.name.toLowerCase(), f]));
+  for (const variant of variantFiles) {
+    const original = normalByName.get(stripVariantSuffix(variant.name).toLowerCase());
+    if (!original) continue;
+    const ids = primaryRows.filter((r) => r.boxFileId === original.id).map((r) => r.id);
+    await upsertVariant(ids, variant);
+  }
+
+  if (primaryRows.length === 0) return;
+  const liveVariantIds = variantFiles.map((f) => f.id);
+  const orphaned = await db
+    .delete(mediaFiles)
+    .where(
+      and(
+        inArray(mediaFiles.variantOfMediaFileId, primaryRows.map((r) => r.id)),
+        liveVariantIds.length > 0 ? notInArray(mediaFiles.boxFileId, liveVariantIds) : undefined
+      )
+    )
+    .returning({ primaryId: mediaFiles.variantOfMediaFileId });
+  const resetIds = orphaned.map((o) => o.primaryId).filter((id): id is string => id !== null);
+  if (resetIds.length > 0) {
+    await db.update(mediaFiles).set({ remuxStatus: null }).where(inArray(mediaFiles.id, resetIds));
+  }
+}
+
+const primaryFiles = alias(mediaFiles, "primary_files");
+
+/** Variant rows whose PRIMARY belongs to one of these owners — variants have no owner of their own, so a plain owner-id filter can never match them. */
+export function variantScope(ownerKind: "title" | "episode", ownerIds: string[]) {
+  return inArray(
+    mediaFiles.variantOfMediaFileId,
+    db
+      .select({ id: primaryFiles.id })
+      .from(primaryFiles)
+      .where(and(eq(primaryFiles.ownerKind, ownerKind), inArray(primaryFiles.ownerId, ownerIds)))
+  );
 }
 
 // ── Probing ──────────────────────────────────────────────────────────────

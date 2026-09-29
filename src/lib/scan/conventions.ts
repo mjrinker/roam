@@ -356,6 +356,44 @@ export function isExtraFile(fileName: string): boolean {
   return EXTRA_SUFFIX_RE.test(fileName);
 }
 
+// ── Remuxed audio variants ───────────────────────────────────────────────
+// A remuxed copy of a file whose audio codec browsers can't play (see
+// remux/). Lives next to the original in the same Box folder, named
+// "<original base name>.<remuxed audio codec>.<ext>" — e.g.
+// "Austenland (2013).mp4" -> "Austenland (2013).aac.mp4". Matched as a
+// literal tag immediately before the extension (titles can contain dots,
+// so nothing looser than that is safe).
+
+export const VARIANT_CODEC_TAG = "aac";
+const VARIANT_SUFFIX = `.${VARIANT_CODEC_TAG}`;
+
+function variantTagIndex(fileName: string): number {
+  const dot = fileName.lastIndexOf(".");
+  if (dot === -1) return -1;
+  const base = fileName.slice(0, dot);
+  // Must leave a non-empty original base name behind.
+  return base.length > VARIANT_SUFFIX.length && base.toLowerCase().endsWith(VARIANT_SUFFIX)
+    ? base.length - VARIANT_SUFFIX.length
+    : -1;
+}
+
+export function isBrowserFriendlyVariant(fileName: string): boolean {
+  return variantTagIndex(fileName) !== -1;
+}
+
+/** The original file's name (exact round-trip of `variantFileName`); unchanged if not a variant. */
+export function stripVariantSuffix(fileName: string): string {
+  const idx = variantTagIndex(fileName);
+  if (idx === -1) return fileName;
+  return fileName.slice(0, idx) + fileName.slice(fileName.lastIndexOf("."));
+}
+
+export function variantFileName(originalFileName: string): string {
+  const dot = originalFileName.lastIndexOf(".");
+  if (dot === -1) return originalFileName + VARIANT_SUFFIX;
+  return originalFileName.slice(0, dot) + VARIANT_SUFFIX + originalFileName.slice(dot);
+}
+
 // ── Audiobooks ───────────────────────────────────────────────────────────
 // Layout: <Author>/<Book (Year)>/files, optionally <Author>/<Series>/<Book>.
 // A book's audio files (or its CD1/CD2 subfolders' files) play as one

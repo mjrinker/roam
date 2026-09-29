@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
+  variantFileName,
   clampEpisodesToKnown,
+  isBrowserFriendlyVariant,
+  stripVariantSuffix,
   groupEpisodeFiles,
   isAudioFile,
   isDiscFolderName,
@@ -636,5 +639,51 @@ describe("extractNarratorHint", () => {
   it("falls back to the folder's tag, then to null", () => {
     expect(extractNarratorHint(["book.m4b"], ["Kate Reading"])).toEqual(["Kate Reading"]);
     expect(extractNarratorHint(["book.m4b"])).toBeNull();
+  });
+});
+
+describe("remuxed audio variants", () => {
+  const originals = [
+    "Movie Title (2001).mp4",
+    "Movie Title (2001) - pt1.mp4",
+    "Show - s01e05 - Title.mp4",
+    "Show - s01e01-e06 - pt1.mp4",
+    "Mr. Smith Goes (1939).mp4",
+  ];
+
+  it.each(originals)("round-trips %s", (name) => {
+    const variant = variantFileName(name);
+    expect(variant).toBe(name.replace(/\.mp4$/, ".aac.mp4"));
+    expect(isBrowserFriendlyVariant(variant)).toBe(true);
+    expect(isBrowserFriendlyVariant(name)).toBe(false);
+    expect(stripVariantSuffix(variant)).toBe(name);
+  });
+
+  it("is case-insensitive", () => {
+    expect(isBrowserFriendlyVariant("Movie.AAC.mp4")).toBe(true);
+    expect(stripVariantSuffix("Movie.AAC.mp4")).toBe("Movie.mp4");
+  });
+
+  it("only matches the tag immediately before the extension", () => {
+    expect(isBrowserFriendlyVariant("Movie.aac.cut.mp4")).toBe(false);
+    expect(isBrowserFriendlyVariant("Movie.aac")).toBe(false);
+    expect(isBrowserFriendlyVariant(".aac.mp4")).toBe(false);
+    expect(stripVariantSuffix("Movie.mp4")).toBe("Movie.mp4");
+  });
+
+  it("filters variants out of a mixed list before segment ordering", () => {
+    const files = [
+      { name: "M - pt2.mp4" },
+      { name: "M - pt1.aac.mp4" },
+      { name: "M - pt1.mp4" },
+      { name: "M - pt2.aac.mp4" },
+    ];
+    const normal = files.filter((f) => !isBrowserFriendlyVariant(f.name));
+    expect(orderMediaSegments(normal).map((f) => f.name)).toEqual(["M - pt1.mp4", "M - pt2.mp4"]);
+  });
+
+  it("does not disturb episode/part/extra parsing of the original names", () => {
+    expect(parseEpisodeFileName("Show - s01e05 - Title.mp4")?.episode).toBe(5);
+    expect(isExtraFile("Movie-trailer.mp4")).toBe(true);
   });
 });
