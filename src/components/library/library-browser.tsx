@@ -9,6 +9,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { LetterRail } from "@/components/library/letter-rail";
 import { Slider } from "@/components/ui/slider";
 import {
   DEFAULT_DIRECTION,
@@ -17,7 +18,7 @@ import {
   activeFilterCount,
   applyFilters,
   sortItems,
-  sortName,
+  letterKey,
   type BrowseFilters,
   type BrowseItem,
   type SortDir,
@@ -38,11 +39,6 @@ const SORT_LABELS: Record<SortKey, string> = {
   imdb: "IMDb rating",
   rottenTomatoes: "Rotten Tomatoes",
 };
-
-function letterFor(name: string): string {
-  const first = sortName(name).charAt(0).toUpperCase();
-  return /[A-Z]/.test(first) ? first : "#";
-}
 
 function Chip({ active, onClick, children }: { active: boolean; onClick: () => void; children: React.ReactNode }) {
   return (
@@ -160,27 +156,15 @@ export function LibraryBrowser({
     }));
   }
 
-  const showRail = sort === "title" && !query.trim() && !filtersActive && visible.length > 40;
-  const letters = useMemo(() => {
-    const seen = new Set<string>();
-    for (const i of visible) seen.add(letterFor(i.name));
-    return [...seen];
-  }, [visible]);
-  const firstIndexForLetter = useMemo(() => {
-    const map = new Map<string, string>();
-    for (const i of visible) {
-      const l = letterFor(i.name);
-      if (!map.has(l)) map.set(l, i.id);
-    }
-    return map;
-  }, [visible]);
+  const showRail = sort === "title" && visible.length > 30;
+  const railKeys = useMemo(() => new Set(visible.map((i) => letterKey(i.name))), [visible]);
 
-  function jumpTo(letter: string) {
-    const id = firstIndexForLetter.get(letter);
-    if (!id) return;
+  function jumpTo(key: string, smooth: boolean) {
+    const first = visible.find((i) => letterKey(i.name) === key);
+    if (!first) return;
     document
-      .getElementById(`card-${id}`)
-      ?.scrollIntoView({ behavior: "smooth", block: "start" });
+      .getElementById(`card-${first.id}`)
+      ?.scrollIntoView({ behavior: smooth ? "smooth" : "auto", block: "start" });
   }
 
   return (
@@ -363,7 +347,7 @@ export function LibraryBrowser({
             )}
           </div>
         ) : (
-          <div className="grid min-w-0 flex-1 grid-cols-[repeat(auto-fill,minmax(9.25rem,1fr))] gap-x-4 gap-y-8 sm:grid-cols-[repeat(auto-fill,minmax(10.5rem,1fr))]">
+          <div className={cn("grid min-w-0 flex-1 grid-cols-[repeat(auto-fill,minmax(9.25rem,1fr))] gap-x-4 gap-y-8 sm:grid-cols-[repeat(auto-fill,minmax(10.5rem,1fr))]", showRail && "pr-3")}>
             {visible.map((t) => (
               <div key={t.id} id={`card-${t.id}`} className="scroll-mt-24">
                 <PosterCard title={t} serverId={serverId} />
@@ -372,25 +356,7 @@ export function LibraryBrowser({
           </div>
         )}
 
-        {showRail && (
-          <nav
-            aria-label="Jump to letter"
-            className="sticky top-24 hidden shrink-0 flex-col items-center gap-0.5 rounded-full bg-white/[0.04] px-1 py-2 ring-1 ring-white/[0.06] lg:flex"
-          >
-            {letters.map((l) => (
-              <button
-                key={l}
-                type="button"
-                onClick={() => jumpTo(l)}
-                className={cn(
-                  "size-5 rounded-full text-[10px] font-semibold text-muted-foreground transition-colors hover:bg-primary hover:text-primary-foreground"
-                )}
-              >
-                {l}
-              </button>
-            ))}
-          </nav>
-        )}
+        {showRail && <LetterRail available={railKeys} descending={dir === "desc"} onJump={jumpTo} />}
       </div>
     </div>
   );

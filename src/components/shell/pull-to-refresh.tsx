@@ -59,6 +59,7 @@ export function PullToRefresh() {
         window.scrollY > 0 ||
         busyRef.current ||
         drawerRef.current ||
+        (e.target instanceof Element && e.target.closest("[data-no-pull]")) ||
         document.querySelector('[role="dialog"]') ||
         insideScrolledContainer(e.target)
       ) {

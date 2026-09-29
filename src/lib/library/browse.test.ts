@@ -5,6 +5,7 @@ import {
   activeFilterCount,
   applyFilters,
   sortItems,
+  letterKey,
   sortName,
   type BrowseItem,
 } from "@/lib/library/browse";
@@ -139,5 +140,19 @@ describe("sortName", () => {
       "The Banana",
       "Apple",
     ]);
+  });
+});
+
+describe("letterKey", () => {
+  it("buckets by first letter, ignoring The and accents", () => {
+    expect(letterKey("The Matrix")).toBe("M");
+    expect(letterKey("Élan")).toBe("E");
+    expect(letterKey("apple")).toBe("A");
+  });
+
+  it("puts digits and symbols in the 0 bucket", () => {
+    expect(letterKey("2001: A Space Odyssey")).toBe("0");
+    expect(letterKey("(500) Days of Summer")).toBe("0");
+    expect(letterKey("\u9be8")).toBe("0");
   });
 });

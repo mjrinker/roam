@@ -32,6 +32,15 @@ export function sortName(name: string): string {
   return name.trim().replace(/^the\s+(?=\S)/i, "");
 }
 
+/** Jump-rail buckets: "0" holds digits and anything else that isn't a Latin letter. */
+export const RAIL_KEYS = ["0", ..."ABCDEFGHIJKLMNOPQRSTUVWXYZ"];
+
+/** Which jump-rail bucket a name files under (ignoring a leading "The" and accents). */
+export function letterKey(name: string): string {
+  const first = sortName(name).normalize("NFD").charAt(0).toUpperCase();
+  return /[A-Z]/.test(first) ? first : "0";
+}
+
 export interface BrowseFilters {
   genres: ReadonlySet<string>;
   certifications: ReadonlySet<string>;
