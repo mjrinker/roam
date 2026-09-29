@@ -28,13 +28,13 @@ export interface UnmatchedTitleRow {
   metadataStatus: "pending" | "not_found";
 }
 
-function MatchDialog({
+export function MatchDialog({
   title,
   open,
   onOpenChange,
   onMatched,
 }: {
-  title: UnmatchedTitleRow;
+  title: Pick<UnmatchedTitleRow, "id" | "name" | "kind">;
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onMatched: () => void;

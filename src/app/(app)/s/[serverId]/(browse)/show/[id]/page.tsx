@@ -10,6 +10,7 @@ import { formatRuntime } from "@/lib/format";
 import { countryFromLocale, displayCertification } from "@/lib/content/ratings";
 import { Button } from "@/components/ui/button";
 import { TitleResyncButton } from "@/components/admin/title-resync-button";
+import { TmdbMatchButton } from "@/components/admin/tmdb-match-button";
 import { FixAudioButton } from "@/components/admin/fix-audio-button";
 import { needsAudioFix } from "@/lib/scan/codec-support";
 import { DetailHero } from "@/components/library/detail-hero";
@@ -167,6 +168,7 @@ export default async function ShowDetailPage({
           </Button>
         )}
         {role === "admin" && <TitleResyncButton titleId={show.id} titleName={show.name} />}
+        {role === "admin" && <TmdbMatchButton titleId={show.id} titleName={show.name} kind="show" />}
         {role === "admin" && needsAudioFix(segments) && <FixAudioButton titleId={show.id} titleName={show.name} />}
       </DetailHero>
 
