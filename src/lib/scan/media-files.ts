@@ -185,7 +185,10 @@ export async function linkVariantFiles(
     .returning({ primaryId: mediaFiles.variantOfMediaFileId });
   const resetIds = orphaned.map((o) => o.primaryId).filter((id): id is string => id !== null);
   if (resetIds.length > 0) {
-    await db.update(mediaFiles).set({ remuxStatus: null }).where(inArray(mediaFiles.id, resetIds));
+    await db
+      .update(mediaFiles)
+      .set({ remuxStatus: null, remuxAttempts: 0 })
+      .where(inArray(mediaFiles.id, resetIds));
   }
 }
 

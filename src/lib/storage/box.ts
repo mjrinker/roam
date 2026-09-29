@@ -73,14 +73,8 @@ async function getFolder(serverId: string, folderId: string): Promise<StorageEnt
 const STREAMING_URL_CACHE = new Map<string, StreamingUrl>();
 const REUSE_MARGIN_MS = 15_000; // don't hand out a URL expiring this soon
 
-async function getStreamingUrl(serverId: string, fileId: string): Promise<StreamingUrl> {
-  const cacheKey = `${serverId}:${fileId}`;
-  const cached = STREAMING_URL_CACHE.get(cacheKey);
-  if (cached && cached.expiresAt.getTime() - Date.now() > REUSE_MARGIN_MS) {
-    return cached;
-  }
-
-  const result = await withBoxClient(serverId, async (client) => {
+async function mintDownloadUrl(serverId: string, fileId: string): Promise<StreamingUrl> {
+  return withBoxClient(serverId, async (client) => {
     // Downscope to read-only access on this one file, so if the resulting
     // streaming URL ever leaked, the blast radius is that one file, not
     // the server's whole connected Box account.
@@ -96,9 +90,62 @@ async function getStreamingUrl(serverId: string, fileId: string): Promise<Stream
     const expiresAt = new Date(Date.now() + (scopedToken.expiresIn ?? 60) * 1000);
     return { url, expiresAt };
   });
+}
 
+async function getStreamingUrl(serverId: string, fileId: string): Promise<StreamingUrl> {
+  const cacheKey = `${serverId}:${fileId}`;
+  const cached = STREAMING_URL_CACHE.get(cacheKey);
+  if (cached && cached.expiresAt.getTime() - Date.now() > REUSE_MARGIN_MS) {
+    return cached;
+  }
+
+  const result = await mintDownloadUrl(serverId, fileId);
   STREAMING_URL_CACHE.set(cacheKey, result);
   return result;
+}
+
+/**
+ * A download URL minted right now, bypassing the reuse cache. For a job
+ * that is about to download the whole file and can't tolerate a URL that
+ * only has seconds left.
+ */
+export function getFreshDownloadUrl(serverId: string, fileId: string): Promise<StreamingUrl> {
+  return mintDownloadUrl(serverId, fileId);
+}
+
+/**
+ * A short-lived token that can upload into ONE folder and nothing else, so
+ * a remux job (or a compromised sandbox) can't touch the rest of the
+ * server's connected Box account.
+ */
+export async function mintUploadToken(
+  serverId: string,
+  folderId: string
+): Promise<{ accessToken: string; expiresAt: Date }> {
+  return withBoxClient(serverId, async (client) => {
+    const resource = `https://api.box.com/2.0/folders/${folderId}`;
+    const scopedToken = await client.auth.downscopeToken(["item_upload"], resource);
+    if (!scopedToken.accessToken) {
+      throw new Error(`Box: failed to downscope upload token for folder ${folderId}`);
+    }
+    return {
+      accessToken: scopedToken.accessToken,
+      expiresAt: new Date(Date.now() + (scopedToken.expiresIn ?? 60) * 1000),
+    };
+  });
+}
+
+/** A file's current name and size straight from Box, or null if it no longer exists. */
+export async function getBoxFileEntry(serverId: string, fileId: string): Promise<StorageEntry | null> {
+  return withBoxClient(serverId, async (client) => {
+    try {
+      const file = await client.files.getFileById(fileId, { queryParams: { fields: ["name", "size"] } });
+      return { id: file.id, name: file.name ?? file.id, kind: "file", sizeBytes: file.size };
+    } catch (err) {
+      if (err instanceof BoxApiError && err.responseInfo?.statusCode === 404) return null;
+      throw err;
+    }
+  });
 }
 
 async function fetchByteRange(

@@ -38,3 +38,8 @@ export function isBrowserSafeAudioCodec(codec: string | null): boolean {
   if (codec === null) return true;
   return !(UNSUPPORTED_AUDIO_CODECS as readonly string[]).includes(codec.toLowerCase());
 }
+
+/** True when any row has an unsupported audio codec that hasn't been fixed by a linked remux yet — drives the admin "Fix audio" button. */
+export function needsAudioFix(rows: readonly { audioCodec: string | null; remuxStatus: string | null }[]): boolean {
+  return rows.some((r) => !isBrowserSafeAudioCodec(r.audioCodec) && r.remuxStatus !== "done");
+}

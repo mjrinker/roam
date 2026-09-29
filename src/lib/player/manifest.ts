@@ -1,10 +1,11 @@
-import { and, asc, eq } from "drizzle-orm";
+import { and, asc, eq, inArray } from "drizzle-orm";
 import { db } from "@/lib/db/client";
 import { mediaFiles, watchState } from "@/lib/db/schema";
 import { createBoxProviderForServer } from "@/lib/storage/box";
 import { BoxReauthRequiredError } from "@/lib/storage/box-token-storage";
 import type { PlayManifest, PlayOwnerKind, PlaySegment } from "@/lib/player/types";
 import { buildPlaySegment } from "@/lib/player/timeline";
+import { shouldUseVariant } from "@/lib/player/variant-selection";
 
 export type BuildManifestResult =
   | { ok: true; manifest: PlayManifest }
@@ -17,12 +18,19 @@ export type BuildManifestResult =
  * per segment; never caches URLs across requests. `serverId` must already
  * be resolved+authorized by the caller (see resolveServerIdForOwner +
  * requireServerMember in the route) — this function trusts it.
+ *
+ * `unsupportedCodecs` are the audio codecs this viewer's browser reported it
+ * can't decode. A row whose audio is one of them plays its remuxed copy
+ * instead, when one exists and checks out (see variant-selection.ts). Only
+ * the copy's Box file is swapped in: trims and duration always come from the
+ * primary row, since the episode-split pass only ever maintains those there.
  */
 export async function buildPlayManifest(
   ownerKind: PlayOwnerKind,
   ownerId: string,
   viewerId: string,
-  serverId: string
+  serverId: string,
+  unsupportedCodecs: readonly string[] = []
 ): Promise<BuildManifestResult> {
   const allRows = await db
     .select()
@@ -50,12 +58,29 @@ export async function buildPlayManifest(
 
   const provider = createBoxProviderForServer(serverId);
 
+  const variantByPrimaryId = new Map<string, typeof allRows[number]>();
+  if (unsupportedCodecs.length > 0 && segmentRows.some((r) => r.audioCodec && unsupportedCodecs.includes(r.audioCodec.toLowerCase()))) {
+    const variants = await db
+      .select()
+      .from(mediaFiles)
+      .where(inArray(mediaFiles.variantOfMediaFileId, segmentRows.map((r) => r.id)));
+    for (const v of variants) {
+      if (v.variantOfMediaFileId) variantByPrimaryId.set(v.variantOfMediaFileId, v);
+    }
+  }
+
   let cursor = 0;
   let earliestExpiry: Date | null = null;
   const segments: PlaySegment[] = [];
   try {
     for (const [index, row] of segmentRows.entries()) {
-      const { url, expiresAt } = await provider.getStreamingUrl(row.boxFileId);
+      let streaming: { url: string; expiresAt: Date } | null = null;
+      const variant = variantByPrimaryId.get(row.id);
+      if (variant && shouldUseVariant(row, variant, unsupportedCodecs)) {
+        // Any trouble minting the copy's URL just means playing the original.
+        streaming = await provider.getStreamingUrl(variant.boxFileId).catch(() => null);
+      }
+      const { url, expiresAt } = streaming ?? (await provider.getStreamingUrl(row.boxFileId));
       if (!earliestExpiry || expiresAt < earliestExpiry) earliestExpiry = expiresAt;
       const segment = buildPlaySegment(row, index, url, cursor);
       segments.push(segment);

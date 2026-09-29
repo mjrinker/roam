@@ -20,6 +20,7 @@ import Link from "next/link";
 import { cn } from "@/lib/utils";
 import { useAudioActions } from "@/components/audio/audio-player-provider";
 import type { PlayManifest, PlayOwnerKind } from "@/lib/player/types";
+import { UNSUPPORTED_AUDIO_CODECS } from "@/lib/scan/codec-support";
 import {
   crossedVirtualEnd,
   remainingInSegment,
@@ -87,6 +88,19 @@ function formatTime(totalSeconds: number) {
  * back element is already buffered, so the swap is instant. This needs no
  * CORS on the Box URLs (plain `src` playback), unlike an MSE-based approach.
  */
+// Which of the known-problem audio codecs THIS browser can't decode. Tested
+// per codec (Safari plays AC-3 but not DTS), and computed once — the server
+// uses it to hand back a remuxed copy of any file whose audio is one of them.
+let unsupportedCodecsQuery: string | null = null;
+function playManifestUrl(ownerKind: PlayOwnerKind, ownerId: string): string {
+  if (unsupportedCodecsQuery === null) {
+    const probe = document.createElement("video");
+    const unsupported = UNSUPPORTED_AUDIO_CODECS.filter((codec) => !probe.canPlayType(`video/mp4; codecs="${codec}"`));
+    unsupportedCodecsQuery = unsupported.length > 0 ? `?unsupportedCodecs=${unsupported.join(",")}` : "";
+  }
+  return `/api/play/${ownerKind}/${ownerId}${unsupportedCodecsQuery}`;
+}
+
 export function SeamlessPlayer({
   ownerKind,
   ownerId,
@@ -158,7 +172,7 @@ export function SeamlessPlayer({
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      const res = await fetch(`/api/play/${ownerKind}/${ownerId}`);
+      const res = await fetch(playManifestUrl(ownerKind, ownerId));
       if (cancelled) return;
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
@@ -398,7 +412,7 @@ export function SeamlessPlayer({
         // Segment URL likely expired mid-playback — re-fetch a fresh
         // manifest and resume from the current global position.
         setError("Reconnecting…");
-        fetch(`/api/play/${ownerKind}/${ownerId}`)
+        fetch(playManifestUrl(ownerKind, ownerId))
           .then((r) => r.json())
           .then((data: PlayManifest) => {
             manifestRef.current = data;
@@ -444,7 +458,7 @@ export function SeamlessPlayer({
     const timer = setTimeout(async () => {
       const seg = manifestRef.current!.segments[segIndexRef.current];
       const currentGlobal = seg.startSeconds + toLocalTime(seg, videoRefs.current[frontSlotRef.current]?.currentTime ?? 0);
-      const res = await fetch(`/api/play/${ownerKind}/${ownerId}`).catch(() => null);
+      const res = await fetch(playManifestUrl(ownerKind, ownerId)).catch(() => null);
       if (!res?.ok) return;
       const fresh: PlayManifest = await res.json();
       fresh.resumeSeconds = currentGlobal;
