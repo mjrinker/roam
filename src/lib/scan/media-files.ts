@@ -10,7 +10,7 @@ import {
 } from "@/lib/scan/containers";
 import { parseEpisodeFileName } from "@/lib/scan/conventions";
 import { probeMp3 } from "@/lib/scan/mp3-duration";
-import { probeMp4, type Mp4Chapter } from "@/lib/scan/mp4-duration";
+import { probeMp4, probeMp4Codecs, type Mp4Chapter } from "@/lib/scan/mp4-duration";
 
 type MediaFileRow = typeof mediaFiles.$inferSelect;
 
@@ -77,30 +77,39 @@ export async function upsertMediaSegments(
 export const MAX_PROBE_ATTEMPTS = 3;
 const PROBE_CONCURRENCY = 3;
 
-async function probeOne(
-  provider: StorageProvider,
-  file: MediaFileRow
-): Promise<{ durationSeconds: number; chapters: Mp4Chapter[] | null }> {
+interface ProbeOneResult {
+  durationSeconds: number;
+  chapters: Mp4Chapter[] | null;
+  audioCodec: string | null;
+  videoCodec: string | null;
+  /** False only if the codec read itself hit an unexpected error — distinct from a clean read that found no such track. See probeAndRecord. */
+  codecsProbed: boolean;
+}
+
+async function probeOne(provider: StorageProvider, file: MediaFileRow): Promise<ProbeOneResult> {
   const container = containerOf(file);
   const fetchRange = (start: number, end: number) => provider.fetchByteRange(file.boxFileId, start, end);
   const size = file.sizeBytes as number;
 
   if (container === "mp3") {
     const { durationSeconds, chapters } = await probeMp3(fetchRange, size, { chapters: true });
-    return { durationSeconds, chapters };
+    // mp3 has no video track and only one real audio codec worth naming —
+    // browser-universal, so it's never a candidate for the audio-fix remux.
+    return { durationSeconds, chapters, audioCodec: "mp3", videoCodec: null, codecsProbed: true };
   }
   // Chapters are also worth extracting for a multi-episode video file (e.g.
   // "S01E05-E06.mp4") — the episode-split pass uses them to snap its
   // estimated cut point to a real scene boundary. Narrowed to just those
   // files (rather than every video) so this doesn't add extra Box range
   // requests, or a new chance to throw on a malformed moov, to every
-  // ordinary movie/episode probe.
+  // ordinary movie/episode probe. Codec detection itself is unconditional
+  // (see mp4-duration.ts's module doc comment) — it runs regardless.
   const isMultiEpisode =
     file.ownerKind === "episode" && (parseEpisodeFileName(file.filename)?.episodes.length ?? 0) > 1;
-  const { durationSeconds, chapters } = await probeMp4(fetchRange, size, {
+  const { durationSeconds, chapters, audioCodec, videoCodec, codecsProbed } = await probeMp4(fetchRange, size, {
     chapters: AUDIO_MP4_CONTAINERS.has(container) || isMultiEpisode,
   });
-  return { durationSeconds, chapters };
+  return { durationSeconds, chapters, audioCodec, videoCodec, codecsProbed };
 }
 
 /**
@@ -132,7 +141,7 @@ export async function probeFiles(
 async function probeAndRecord(provider: StorageProvider, file: MediaFileRow, errors: string[]) {
   const attempts = file.probeAttempts + 1;
   try {
-    const { durationSeconds, chapters } = await probeOne(provider, file);
+    const { durationSeconds, chapters, audioCodec, videoCodec, codecsProbed } = await probeOne(provider, file);
     const durationMs = Math.round(durationSeconds * 1000);
     await db
       .update(mediaFiles)
@@ -142,6 +151,13 @@ async function probeAndRecord(provider: StorageProvider, file: MediaFileRow, err
         probeStatus: "ok",
         probeAttempts: attempts,
         chapters,
+        // codecsProbed is its own success signal, independent of the
+        // surrounding duration probe having succeeded — a failed codec read
+        // (a malformed track) must NOT be recorded as "probed, found
+        // nothing" (codecProbed: true with null codecs), since that would
+        // permanently hide a real codec issue behind "unknown = safe". Left
+        // false, it's picked up and retried by the backfill pass below.
+        ...(codecsProbed ? { audioCodec, videoCodec, codecProbed: true } : {}),
       })
       .where(eq(mediaFiles.id, file.id));
   } catch (err) {
@@ -168,6 +184,72 @@ export const pendingProbeCondition = or(
   eq(mediaFiles.probeStatus, "pending"),
   and(eq(mediaFiles.probeStatus, "failed"), lt(mediaFiles.probeAttempts, MAX_PROBE_ATTEMPTS))
 )!;
+
+// ── Codec backfill ───────────────────────────────────────────────────────
+// A row's audio/video codec is written inline by probeAndRecord above for
+// any file probed after codec detection shipped. This backfills the two
+// cases that misses: a row whose duration was already probed (probeStatus
+// already 'ok') before this feature existed, and a row whose inline codec
+// read specifically failed (left codecProbed=false on purpose, above).
+// Deliberately its own counter/condition, entirely separate from
+// probeStatus/probeAttempts — a transient error here must never regress an
+// already-working duration probe.
+
+export const MAX_CODEC_PROBE_ATTEMPTS = 3;
+
+/** SQL condition for rows worth a codec backfill: duration already known, codec not yet successfully read. */
+export const pendingCodecProbeCondition = and(
+  eq(mediaFiles.probeStatus, "ok"),
+  eq(mediaFiles.codecProbed, false)
+)!;
+
+async function probeCodecsOnly(provider: StorageProvider, file: MediaFileRow) {
+  const attempts = file.codecProbeAttempts + 1;
+  const fetchRange = (start: number, end: number) => provider.fetchByteRange(file.boxFileId, start, end);
+  try {
+    const { audioCodec, videoCodec, codecsProbed } = await probeMp4Codecs(fetchRange, file.sizeBytes as number);
+    if (codecsProbed) {
+      await db
+        .update(mediaFiles)
+        .set({ audioCodec, videoCodec, codecProbed: true, codecProbeAttempts: attempts })
+        .where(eq(mediaFiles.id, file.id));
+      return;
+    }
+  } catch (err) {
+    if (err instanceof BoxReauthRequiredError) throw err;
+  }
+  // Either the read failed outright, or came back but codecsProbed was
+  // false (a malformed track) — give it up to MAX_CODEC_PROBE_ATTEMPTS real
+  // chances before treating it as permanently unknown (safe/untouched)
+  // rather than either retrying forever or writing it off on one hiccup.
+  await db
+    .update(mediaFiles)
+    .set({
+      codecProbeAttempts: attempts,
+      ...(attempts >= MAX_CODEC_PROBE_ATTEMPTS ? { codecProbed: true } : {}),
+    })
+    .where(eq(mediaFiles.id, file.id));
+}
+
+/**
+ * Runs the codec backfill over a batch of already-duration-probed rows,
+ * under its own deadline (a slice of the caller's remaining scan time
+ * budget) so it can't run unbounded on a large pre-existing library —
+ * leftover work simply continues on the next scan pass. Deliberately
+ * doesn't report "incomplete"/trigger extra chaining the way probeFiles
+ * does: this is a one-time backfill, not core scan work.
+ */
+export async function probeCodecsForPending(
+  provider: StorageProvider,
+  files: MediaFileRow[],
+  deadline: number
+): Promise<void> {
+  for (const file of files) {
+    if (Date.now() > deadline) return;
+    if (!file.sizeBytes) continue;
+    await probeCodecsOnly(provider, file);
+  }
+}
 
 /** Recomputes a title's total runtime from its segments, once every segment has a duration. */
 export async function rollupTitleRuntime(titleId: string) {

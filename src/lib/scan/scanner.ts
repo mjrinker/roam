@@ -37,7 +37,9 @@ import {
 } from "@/lib/scan/audiobooks";
 import { resolveEpisodeSplits } from "@/lib/scan/episode-split-pass";
 import {
+  pendingCodecProbeCondition,
   pendingProbeCondition,
+  probeCodecsForPending,
   probeFiles,
   rollupTitleRuntime,
   upsertMediaSegments,
@@ -758,6 +760,8 @@ async function probePendingDurations(
   const pending = [...pendingTitleFiles, ...pendingEpisodeFiles];
   const incomplete = await probeFiles(provider, pending, deadline, errors);
 
+  await backfillCodecs(provider, titleIds, episodeIds, deadline);
+
   // A newly-probed duration (or a runtime that just arrived via TMDB) is
   // exactly what a combined episode file's split needs to go from "whole"
   // to a real estimate — recompute after every probe pass, not just once.
@@ -782,6 +786,57 @@ async function probePendingDurations(
 }
 
 const SINGLE_TITLE_TIME_BUDGET_MS = 40_000;
+
+/**
+ * One-time codec backfill for rows whose duration was probed before codec
+ * detection existed (or whose inline codec read failed). Gets only a third of
+ * the time left before `deadline`, so it can never crowd out core probing;
+ * leftovers just continue on the next pass. Audiobooks are excluded (their
+ * containers/codecs are never a candidate for the audio fix).
+ */
+async function backfillCodecs(
+  provider: StorageProvider,
+  titleIds: string[],
+  episodeIds: string[],
+  deadline: number
+) {
+  const now = Date.now();
+  if (deadline <= now) return;
+  const codecDeadline = now + (deadline - now) / 3;
+
+  const movieIds = titleIds.length
+    ? (
+        await db
+          .select({ id: titles.id })
+          .from(titles)
+          .where(and(inArray(titles.id, titleIds), eq(titles.kind, "movie")))
+      ).map((t) => t.id)
+    : [];
+
+  const [movieFiles, episodeFiles] = await Promise.all([
+    movieIds.length
+      ? db
+          .select()
+          .from(mediaFiles)
+          .where(
+            and(pendingCodecProbeCondition, eq(mediaFiles.ownerKind, "title"), inArray(mediaFiles.ownerId, movieIds))
+          )
+      : Promise.resolve([]),
+    episodeIds.length
+      ? db
+          .select()
+          .from(mediaFiles)
+          .where(
+            and(
+              pendingCodecProbeCondition,
+              eq(mediaFiles.ownerKind, "episode"),
+              inArray(mediaFiles.ownerId, episodeIds)
+            )
+          )
+      : Promise.resolve([]),
+  ]);
+  await probeCodecsForPending(provider, [...movieFiles, ...episodeFiles], codecDeadline);
+}
 
 /**
  * Resyncs one title's Box folder — for when a file was added/fixed on just
@@ -900,6 +955,7 @@ async function probeTitlePendingDurations(
   }
 
   await probeFiles(provider, pending, deadline, errors);
+  if (kind !== "audiobook") await backfillCodecs(provider, titleOwned ? [titleId] : [], episodeIds, deadline);
   if (titleOwned) await rollupTitleRuntime(titleId);
   else if (episodeIds.length > 0) await resolveEpisodeSplits(episodeIds);
 }

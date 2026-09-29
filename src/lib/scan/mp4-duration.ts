@@ -12,7 +12,15 @@
  *   - `moov/udta/chpl`: Nero-style chapter list (mp4chaps, most taggers)
  *   - a QuickTime chapter text track (`tref/chap` on the audio track pointing
  *     at a text `trak`), which is all that ffmpeg-made m4bs carry.
- * Big per-sample tables (the audio track's `stbl`) are never fetched.
+ * Big per-sample tables (the audio track's `stbl`) are never fetched, EXCEPT
+ * for `stsd` (the sample description box) — small and fixed-size regardless
+ * of file length, and read unconditionally on every probe (not gated behind
+ * `opts.chapters` the way chapter-table reads are) because its first sample
+ * entry's 4-byte type IS the codec fourcc (e.g. "mp4a" for AAC, "ac-3" for
+ * Dolby) — this is how a file's audio/video codec is detected for browser
+ * compatibility (see lib/scan/codec-support.ts). A failure reading `stsd`
+ * never fails the surrounding duration probe; it's reported back distinctly
+ * from "read fine, there's no such track" via `codecsProbed`.
  */
 
 import { RangeReader, type ByteRangeFetcher } from "./range-reader";
@@ -28,6 +36,11 @@ export interface Mp4Probe {
   durationSeconds: number;
   chapters: Mp4Chapter[] | null;
   chaptersSource: "chpl" | "qt" | null;
+  /** First audio/video track's codec fourcc, by stream index (matching ffmpeg's default `-map 0:a:0`/`-map 0:v:0`). Null if that track type doesn't exist. */
+  audioCodec: string | null;
+  videoCodec: string | null;
+  /** False only if reading codecs hit an unexpected error (a malformed track) — distinct from a clean read that simply found no such track. Never affects durationSeconds. */
+  codecsProbed: boolean;
 }
 
 const TOP_LEVEL_PREFETCH = 16; // enough for size(4)+type(4)+largesize(8)
@@ -148,16 +161,69 @@ export async function probeMp4(
   opts: { chapters?: boolean } = {}
 ): Promise<Mp4Probe> {
   const r = new RangeReader(fetchRange, fileSizeBytes);
+  const moov = await findMoov(r, fileSizeBytes);
+  return probeMoov(r, moov, !!opts.chapters);
+}
 
+/**
+ * Locates the top-level `moov` atom. Factored out so the codec-only backfill
+ * probe (`probeCodecsOnly`, for rows already probed before codec detection
+ * existed) can reuse the exact same box-walk without duplicating it.
+ */
+async function findMoov(r: RangeReader, fileSizeBytes: number): Promise<Box> {
   let offset = 0;
   for (let i = 0; i < MAX_TOP_LEVEL_BOXES && offset < fileSizeBytes; i++) {
     const box = await readBox(r, offset, fileSizeBytes, TOP_LEVEL_PREFETCH);
     if (!box) break;
-    if (box.type === "moov") return probeMoov(r, box, !!opts.chapters);
+    if (box.type === "moov") return box;
     offset = box.end;
   }
-
   throw new Mp4DurationError("No moov atom found within the box-walk budget");
+}
+
+/**
+ * Codec-only backfill for a row that was already probed (duration known)
+ * before codec detection existed — never touches duration/chapters, and its
+ * failure/attempt bookkeeping is entirely separate from the main probe's
+ * (see media-files.ts's probeCodecsOnly wrapper). Reuses the same
+ * findMoov + per-track codec read as the main probe.
+ */
+export async function probeMp4Codecs(
+  fetchRange: ByteRangeFetcher,
+  fileSizeBytes: number
+): Promise<{ audioCodec: string | null; videoCodec: string | null; codecsProbed: boolean }> {
+  const r = new RangeReader(fetchRange, fileSizeBytes);
+  const moov = await findMoov(r, fileSizeBytes);
+  return readCodecsFromTracks(r, moov);
+}
+
+/**
+ * Walks `moov`'s `trak` children looking only for the first audio and first
+ * video track's codec (by stream index — matching ffmpeg's default
+ * `-map 0:a:0`/`-map 0:v:0`), stopping as soon as both are found. A
+ * malformed track marks `codecsProbed: false` for the whole result (distinct
+ * from a track cleanly reporting no codec) but doesn't stop the walk — other
+ * tracks are still tried.
+ */
+async function readCodecsFromTracks(
+  r: RangeReader,
+  moov: Box
+): Promise<{ audioCodec: string | null; videoCodec: string | null; codecsProbed: boolean }> {
+  let audioCodec: string | null = null;
+  let videoCodec: string | null = null;
+  let codecsProbed = true;
+  for await (const child of childBoxes(r, moov, MOOV_PREFETCH)) {
+    if (child.type !== "trak") continue;
+    try {
+      const info = await readTrakInfo(r, child);
+      if (info.handler === "soun" && audioCodec === null) audioCodec = info.codec;
+      if (info.handler === "vide" && videoCodec === null) videoCodec = info.codec;
+    } catch {
+      codecsProbed = false;
+    }
+    if (audioCodec !== null && videoCodec !== null) break;
+  }
+  return { audioCodec, videoCodec, codecsProbed };
 }
 
 // ── moov ─────────────────────────────────────────────────────────────────
@@ -168,23 +234,37 @@ interface TrakInfo {
   handler: string;
   timescale: number;
   stbl: Box | null;
+  codec: string | null;
 }
 
 async function probeMoov(r: RangeReader, moov: Box, wantChapters: boolean): Promise<Mp4Probe> {
   let movie: { timescale: number; duration: number } | null = null;
   const traks: TrakInfo[] = [];
   let chplChapters: Mp4Chapter[] | null = null;
+  let audioCodec: string | null = null;
+  let videoCodec: string | null = null;
+  let codecsProbed = true;
 
   for await (const child of childBoxes(r, moov, MOOV_PREFETCH)) {
     if (child.type === "mvhd" && !movie) {
       movie = readTimescaleAndDuration(await r.read(child.contentStart, 32, 32), "mvhd");
-      if (!wantChapters) break;
-    } else if (wantChapters && child.type === "trak") {
+    } else if (child.type === "trak") {
+      // Codec detection runs unconditionally (see the module doc comment);
+      // chapter-relevant track info is only kept when wantChapters. A
+      // malformed track can't contribute either, but never stops the walk —
+      // other tracks are still tried, and codecsProbed just records that
+      // something went wrong somewhere, distinct from a clean "no track".
       try {
-        traks.push(await readTrakInfo(r, child));
+        const info = await readTrakInfo(r, child);
+        if (wantChapters) traks.push(info);
+        if (info.handler === "soun" && audioCodec === null) audioCodec = info.codec;
+        if (info.handler === "vide" && videoCodec === null) videoCodec = info.codec;
       } catch {
-        // an unreadable track just can't contribute chapters
+        codecsProbed = false;
       }
+      // Once both codecs are found and chapters aren't needed, there's
+      // nothing further to learn from remaining tracks — stop early.
+      if (!wantChapters && audioCodec !== null && videoCodec !== null && movie) break;
     } else if (wantChapters && child.type === "udta" && !chplChapters) {
       try {
         chplChapters = await readChpl(r, child);
@@ -196,19 +276,20 @@ async function probeMoov(r: RangeReader, moov: Box, wantChapters: boolean): Prom
 
   if (!movie) throw new Mp4DurationError("mvhd atom not found within moov search window");
   const durationSeconds = movie.duration / movie.timescale;
-  if (!wantChapters) return { durationSeconds, chapters: null, chaptersSource: null };
+  const codecs = { audioCodec, videoCodec, codecsProbed };
+  if (!wantChapters) return { durationSeconds, chapters: null, chaptersSource: null, ...codecs };
 
   if (chplChapters && chplChapters.length > 0) {
-    return { durationSeconds, chapters: chplChapters, chaptersSource: "chpl" };
+    return { durationSeconds, chapters: chplChapters, chaptersSource: "chpl", ...codecs };
   }
 
   try {
     const qt = await readQuickTimeChapters(r, traks);
-    if (qt && qt.length > 0) return { durationSeconds, chapters: qt, chaptersSource: "qt" };
+    if (qt && qt.length > 0) return { durationSeconds, chapters: qt, chaptersSource: "qt", ...codecs };
   } catch {
     // fall through: no usable chapters
   }
-  return { durationSeconds, chapters: null, chaptersSource: null };
+  return { durationSeconds, chapters: null, chaptersSource: null, ...codecs };
 }
 
 // ── chpl (Nero chapters) ─────────────────────────────────────────────────
@@ -246,10 +327,27 @@ async function readChpl(r: RangeReader, udta: Box): Promise<Mp4Chapter[] | null>
   return null;
 }
 
-// ── QuickTime chapter text track ─────────────────────────────────────────
+// ── Per-track info: codec (stsd) + QuickTime chapter text track ──────────
+
+/**
+ * stsd payload: version(1)+flags(3), entry_count(4), then the first sample
+ * entry: size(4) + format fourcc(4) + ... The format IS the codec — "mp4a"
+ * for AAC/MP3-in-MP4, "ac-3"/"ec-3" for Dolby, etc. Only the first entry is
+ * read (matching a single codec per track, which is what ffmpeg's default
+ * stream selection sees too).
+ */
+async function readStsdCodec(r: RangeReader, stbl: Box): Promise<string | null> {
+  for await (const child of childBoxes(r, stbl, 4096)) {
+    if (child.type !== "stsd") continue;
+    const view = await readPayload(r, child);
+    if (view.byteLength < 16) return null;
+    return fourcc(view, 12);
+  }
+  return null;
+}
 
 async function readTrakInfo(r: RangeReader, trak: Box): Promise<TrakInfo> {
-  const info: TrakInfo = { trackId: 0, chapterRefs: [], handler: "", timescale: 0, stbl: null };
+  const info: TrakInfo = { trackId: 0, chapterRefs: [], handler: "", timescale: 0, stbl: null, codec: null };
 
   for await (const child of childBoxes(r, trak, 4096)) {
     if (child.type === "tkhd") {
@@ -270,7 +368,12 @@ async function readTrakInfo(r: RangeReader, trak: Box): Promise<TrakInfo> {
           if (view.byteLength >= 12) info.handler = fourcc(view, 8);
         } else if (m.type === "minf") {
           for await (const n of childBoxes(r, m, 4096)) {
-            if (n.type === "stbl") info.stbl = n;
+            if (n.type === "stbl") {
+              info.stbl = n;
+              // hdlr (above) always precedes minf within mdia in practice, so
+              // info.handler is already set by the time this codec is used.
+              info.codec = await readStsdCodec(r, n);
+            }
           }
         }
       }

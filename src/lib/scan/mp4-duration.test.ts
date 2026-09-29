@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { Mp4DurationError, probeMp4, probeMp4DurationSeconds } from "./mp4-duration";
+import { Mp4DurationError, probeMp4, probeMp4Codecs, probeMp4DurationSeconds } from "./mp4-duration";
 
 // ── Minimal MP4 box builders ────────────────────────────────────────────
 // Just enough of the ISO BMFF box format to exercise the real parser
@@ -175,6 +175,23 @@ function utf16be(s: string): number[] {
 }
 
 /**
+ * stsd payload: version(1)+flags(3), entry_count(4)=1, then one sample
+ * entry: size(4)+format fourcc(4)+reserved(6)+data_reference_index(2).
+ * `readStsdCodec` only reads the format fourcc of this first entry.
+ */
+function stsd(codec: string): number[] {
+  const entry = [...u32be(16), ...fourcc(codec), ...zeros(6), 0, 1];
+  return box("stsd", [0, 0, 0, 0, ...u32be(1), ...entry]);
+}
+
+function trakWithCodec(trackId: number, handler: string, timescale: number, codec: string): number[] {
+  return box("trak", [
+    ...tkhd(trackId),
+    ...box("mdia", [...mdhd(timescale), ...hdlr(handler), ...box("minf", box("stbl", stsd(codec)))]),
+  ]);
+}
+
+/**
  * ftyp, an mdat holding the chapter text samples, then moov at the END of the
  * file containing an audio trak (tref/chap -> track 2) and a text trak.
  * Chunk 1 holds two samples, chunk 2 holds one, exercising stsc.
@@ -322,6 +339,82 @@ describe("probeMp4 chapters", () => {
     const moov = box("moov", [...mvhdV0(1000, 42_000), ...box("udta", box("meta", zeros(8)))]);
     const bytes = [...FTYP, ...moov];
     const result = await probeMp4(fetcherFromSegments([{ offset: 0, bytes }]), bytes.length, { chapters: true });
-    expect(result).toEqual({ durationSeconds: 42, chapters: null, chaptersSource: null });
+    expect(result).toEqual({
+      durationSeconds: 42,
+      chapters: null,
+      chaptersSource: null,
+      audioCodec: null,
+      videoCodec: null,
+      codecsProbed: true,
+    });
+  });
+});
+
+// ── Codecs ───────────────────────────────────────────────────────────────
+
+describe("probeMp4 codecs", () => {
+  it("reads the audio and video codecs even when chapters aren't requested", async () => {
+    const moov = box("moov", [
+      ...mvhdV0(1000, 60_000),
+      ...trakWithCodec(1, "vide", 30_000, "avc1"),
+      ...trakWithCodec(2, "soun", 44100, "mp4a"),
+    ]);
+    const bytes = [...FTYP, ...moov];
+    const result = await probeMp4(fetcherFromSegments([{ offset: 0, bytes }]), bytes.length);
+    expect(result.videoCodec).toBe("avc1");
+    expect(result.audioCodec).toBe("mp4a");
+    expect(result.codecsProbed).toBe(true);
+    expect(result.durationSeconds).toBe(60);
+  });
+
+  it("reports a problem codec (ac-3) the same way", async () => {
+    const moov = box("moov", [...mvhdV0(1000, 60_000), ...trakWithCodec(1, "soun", 48000, "ac-3")]);
+    const bytes = [...FTYP, ...moov];
+    const result = await probeMp4(fetcherFromSegments([{ offset: 0, bytes }]), bytes.length);
+    expect(result.audioCodec).toBe("ac-3");
+  });
+
+  it("takes the FIRST track of each type by stream order, ignoring later ones", async () => {
+    const moov = box("moov", [
+      ...mvhdV0(1000, 60_000),
+      ...trakWithCodec(1, "soun", 44100, "mp4a"),
+      ...trakWithCodec(2, "soun", 48000, "ac-3"), // a second audio track — should be ignored
+    ]);
+    const bytes = [...FTYP, ...moov];
+    const result = await probeMp4(fetcherFromSegments([{ offset: 0, bytes }]), bytes.length);
+    expect(result.audioCodec).toBe("mp4a");
+  });
+
+  it("returns null codecs (not an error) for a file with no matching track type", async () => {
+    const moov = box("moov", [...mvhdV0(1000, 60_000), ...trakWithCodec(1, "vide", 30_000, "avc1")]);
+    const bytes = [...FTYP, ...moov];
+    const result = await probeMp4(fetcherFromSegments([{ offset: 0, bytes }]), bytes.length);
+    expect(result.audioCodec).toBeNull();
+    expect(result.videoCodec).toBe("avc1");
+    expect(result.codecsProbed).toBe(true);
+  });
+
+  it("marks codecsProbed false (without failing duration) when a track is malformed, and keeps reading later tracks", async () => {
+    // A corrupt child box (declared size 4, below the 8-byte header minimum)
+    // inside the first track's stbl — readBox throws walking into it.
+    const malformedBox = [...u32be(4), ...fourcc("bad!")];
+    const malformedTrak = box("trak", [
+      ...tkhd(1),
+      ...box("mdia", [...mdhd(1000), ...hdlr("vide"), ...box("minf", box("stbl", malformedBox))]),
+    ]);
+    const moov = box("moov", [...mvhdV0(1000, 60_000), ...malformedTrak, ...trakWithCodec(2, "soun", 44100, "mp4a")]);
+    const bytes = [...FTYP, ...moov];
+    const result = await probeMp4(fetcherFromSegments([{ offset: 0, bytes }]), bytes.length);
+    expect(result.codecsProbed).toBe(false);
+    expect(result.videoCodec).toBeNull(); // the malformed track never got to report one
+    expect(result.audioCodec).toBe("mp4a"); // but the later, valid track still did
+    expect(result.durationSeconds).toBe(60); // and the duration probe is unaffected
+  });
+
+  it("probeMp4Codecs (the backfill path) reads codecs alone, without needing a valid mvhd", async () => {
+    const moov = box("moov", [...trakWithCodec(1, "soun", 44100, "ac-3")]); // no mvhd at all
+    const bytes = [...FTYP, ...moov];
+    const result = await probeMp4Codecs(fetcherFromSegments([{ offset: 0, bytes }]), bytes.length);
+    expect(result).toEqual({ audioCodec: "ac-3", videoCodec: null, codecsProbed: true });
   });
 });

@@ -113,7 +113,7 @@ class BoxFileUnionFind {
 export async function resolveEpisodeSplits(episodeIds: string[]): Promise<void> {
   if (episodeIds.length === 0) return;
 
-  const rows: CandidateRow[] = await db
+  const selected = await db
     .select({
       id: mediaFiles.id,
       ownerId: mediaFiles.ownerId,
@@ -129,6 +129,12 @@ export async function resolveEpisodeSplits(episodeIds: string[]): Promise<void> 
     })
     .from(mediaFiles)
     .where(and(eq(mediaFiles.ownerKind, "episode"), inArray(mediaFiles.ownerId, episodeIds)));
+  // ownerId is guaranteed non-null here (the ownerKind="episode" filter
+  // above never matches a variant row, whose ownerKind is null) — this
+  // just satisfies ownerId's now-nullable type (see schema.ts).
+  const rows: CandidateRow[] = selected
+    .filter((r) => r.ownerId !== null)
+    .map((r) => ({ ...r, ownerId: r.ownerId as string }));
   if (rows.length === 0) return;
 
   // How many media_files rows each episode owns in total — used to detect

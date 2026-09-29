@@ -71,6 +71,10 @@ export default async function ShowDetailPage({
   const stateByEpisode = new Map(states.map((s) => [s.ownerId, s]));
   const filesByEpisode = new Map<string, typeof segments>();
   for (const f of segments) {
+    // Guaranteed non-null by the ownerKind="episode" filter above — a
+    // variant row (ownerKind null) never matches that query. The guard
+    // just satisfies ownerId's now-nullable type (see schema.ts).
+    if (!f.ownerId) continue;
     const list = filesByEpisode.get(f.ownerId) ?? [];
     list.push(f);
     filesByEpisode.set(f.ownerId, list);

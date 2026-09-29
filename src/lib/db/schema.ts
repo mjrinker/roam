@@ -12,6 +12,7 @@ import {
   pgEnum,
   uniqueIndex,
   index,
+  type AnyPgColumn,
 } from "drizzle-orm/pg-core";
 import { relations } from "drizzle-orm";
 
@@ -350,8 +351,13 @@ export const mediaFiles = pgTable(
   "media_files",
   {
     id: uuid("id").primaryKey().defaultRandom(),
-    ownerKind: ownerKindEnum("owner_kind").notNull(),
-    ownerId: uuid("owner_id").notNull(),
+    // Nullable as of the audio-fix "versions" feature: a variant row (see
+    // variantOfMediaFileId below) is not an ordered playback segment of its
+    // own — it stands in for one specific primary row's bytes only — so it
+    // has neither. Every existing query filters on these explicitly, so a
+    // null-owner row is simply invisible everywhere without further changes.
+    ownerKind: ownerKindEnum("owner_kind"),
+    ownerId: uuid("owner_id"),
     partIndex: integer("part_index").notNull().default(0),
 
     // No longer globally unique as of migration 0012 — a multi-episode
@@ -380,6 +386,45 @@ export const mediaFiles = pgTable(
     width: integer("width"),
     height: integer("height"),
     probeStatus: probeStatusEnum("probe_status").notNull().default("pending"),
+    // Whether audioCodec/videoCodec have been successfully read — distinct
+    // from them merely being non-null, since "no such track" is itself a
+    // successful, terminal read. False forever means either not attempted
+    // yet, or a read that failed and hasn't exhausted codecProbeAttempts —
+    // see the codec backfill in media-files.ts, entirely separate from
+    // probeStatus/probeAttempts so a codec-read hiccup can't regress an
+    // already-working duration probe.
+    codecProbed: boolean("codec_probed").notNull().default(false),
+    codecProbeAttempts: integer("codec_probe_attempts").notNull().default(0),
+
+    // Audio-fix "versions": a variant row is a one-time server-side remux
+    // (video passthrough, audio re-encoded to AAC) of another row's file,
+    // played instead of it for a browser that can't decode the original's
+    // codec (see lib/remux/, lib/player/manifest.ts). It's identified
+    // purely by this self-FK — never by ownerKind/ownerId/partIndex, which
+    // stay null/default on a variant row — and never carries its own trim
+    // state (trims always come from the primary row it stands in for, so
+    // they can't go stale independently of it).
+    variantOfMediaFileId: uuid("variant_of_media_file_id").references(
+      (): AnyPgColumn => mediaFiles.id,
+      { onDelete: "cascade" }
+    ),
+    // Set on a PRIMARY row only, tracking the remux job that produces its
+    // variant. 'uploaded' (not 'done') is what the remux job itself sets on
+    // success — 'done' is set only once the variant is actually linked (see
+    // upsertVariant in media-files.ts), so 'done' always means "actually
+    // linked and visible," never "uploaded but silently unlinked."
+    remuxStatus: text("remux_status").$type<"pending" | "in_progress" | "uploaded" | "done" | "failed">(),
+    remuxAttempts: integer("remux_attempts").notNull().default(0),
+    // 1 (Fluid Compute Function) or 2 (Vercel Sandbox) — which mechanism is
+    // or was handling this job, set at claim time. Needed to know the right
+    // "still running" budget when checking whether an in_progress job died.
+    remuxTier: integer("remux_tier"),
+    remuxStartedAt: timestamp("remux_started_at", { withTimezone: true }),
+    // Random per-job secret, rotated on every (re)queue — guards every
+    // remux job write (not just Sandbox's completion callbacks) so a
+    // reclaimed/superseded job's late write becomes a no-op instead of
+    // silently overwriting a newer attempt's result.
+    remuxCallbackToken: text("remux_callback_token"),
 
     // Estimated in-file playback window for one episode of a multi-episode
     // file (e.g. "S01E05-E06"), computed by the episode-split pass from
@@ -416,6 +461,10 @@ export const mediaFiles = pgTable(
       t.ownerId,
       t.boxFileId
     ),
+    // NULLs don't collide in a Postgres unique index, so this only ever
+    // constrains actual variant rows — at most one variant per primary row.
+    // `upsertVariant` (media-files.ts) targets this directly.
+    uniqueIndex("media_files_variant_of_idx").on(t.variantOfMediaFileId),
   ]
 );
 
