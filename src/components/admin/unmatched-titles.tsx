@@ -71,7 +71,14 @@ export function MatchDialog({
       toast.error("Couldn't apply that match.");
       return;
     }
-    toast.success(`Matched "${title.name}".`);
+    const body = await res.json().catch(() => ({}));
+    if (Array.isArray(body.renameErrors) && body.renameErrors.length > 0) {
+      toast.warning(
+        `Matched "${title.name}", but couldn't add the id to its Box names (${body.renameErrors[0]}). A rescan may not keep this match.`
+      );
+    } else {
+      toast.success(`Matched "${title.name}" and tagged its Box folder with the TMDB id.`);
+    }
     onOpenChange(false);
     onMatched();
   }

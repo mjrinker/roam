@@ -52,6 +52,7 @@ import {
   getSeasonEpisodes,
   getTvShowDetails,
   searchMovie,
+  findTmdbIdByImdbId,
   searchTvShow,
   tmdbImageUrl,
 } from "@/lib/tmdb/client";
@@ -357,6 +358,40 @@ export async function findResumableLibraries(serverId: string): Promise<string[]
   return rows.map((r) => r.id);
 }
 
+// ── Folder id tags ───────────────────────────────────────────────────────
+
+interface FolderIdTags {
+  tmdbId: number | null;
+  imdbId: string | null;
+}
+
+// OMDb data belongs to the previously matched film; clear it so the backfill re-fetches.
+const STALE_EXTERNAL_RATINGS = {
+  imdbRating: null,
+  imdbVotes: null,
+  rottenTomatoesScore: null,
+  metascore: null,
+  externalRatingsAttemptedAt: null,
+} as const;
+
+/**
+ * The TMDB id a folder's {tmdb-...}/{imdb-...} tag pins the title to, or
+ * null when there's no tag (or an {imdb-...} tag the title already carries,
+ * or one TMDB can't resolve). An IMDb tag costs a TMDB lookup only when it
+ * differs from what's already matched.
+ */
+async function resolveForcedTmdbId(
+  kind: "movie" | "show",
+  tag: FolderIdTags,
+  current: { imdbId: string | null }
+): Promise<number | null> {
+  if (tag.tmdbId) return tag.tmdbId;
+  if (tag.imdbId && tag.imdbId !== current.imdbId?.toLowerCase()) {
+    return findTmdbIdByImdbId(tag.imdbId, kind).catch(() => null);
+  }
+  return null;
+}
+
 // ── Movies ───────────────────────────────────────────────────────────────
 
 async function syncMovieFolder(
@@ -364,7 +399,7 @@ async function syncMovieFolder(
   libraryId: string,
   folder: StorageEntry
 ): Promise<boolean> {
-  const { name, year, tmdbId, edition } = parseTitleFolderName(folder.name);
+  const { name, year, tmdbId, imdbId, edition } = parseTitleFolderName(folder.name);
   // Plex's directory-level {edition-...} convention gives each edition its
   // own folder, which already becomes its own separate title here — fold
   // the edition into the display name so two same-named titles are still
@@ -402,7 +437,7 @@ async function syncMovieFolder(
 
   await upsertMediaSegments("title", title.id, videoFiles);
   await linkVariantFiles("title", [title.id], videoFiles, variantFiles);
-  await enrichMovieMetadataIfNeeded(title.id, name, year, tmdbId);
+  await enrichMovieMetadataIfNeeded(title.id, name, year, { tmdbId, imdbId });
 
   return !existing;
 }
@@ -435,20 +470,28 @@ async function enrichMovieMetadataIfNeeded(
   titleId: string,
   name: string,
   year: number | null,
-  tmdbId: number | null = null
+  tag: FolderIdTags = { tmdbId: null, imdbId: null }
 ) {
   const [current] = await db
-    .select({ metadataStatus: titles.metadataStatus })
+    .select({ metadataStatus: titles.metadataStatus, tmdbId: titles.tmdbId, imdbId: titles.imdbId })
     .from(titles)
     .where(eq(titles.id, titleId))
     .limit(1);
-  if (!current || current.metadataStatus !== "pending") return;
+  if (!current) return;
+  // An id tag in the folder name overrides whatever is matched now (even a
+  // manual or earlier auto match); without one only pending titles match.
+  const forcedId = await resolveForcedTmdbId("movie", tag, current);
+  const rematch = forcedId !== null && forcedId !== current.tmdbId;
+  if (current.metadataStatus !== "pending" && !rematch) return;
 
   try {
-    // A {tmdb-...} folder tag lets us skip fuzzy search entirely; fall
-    // back to search if the tagged id turns out to be stale/wrong.
-    let details = tmdbId ? await getMovieDetails(tmdbId, { append: ["release_dates"] }).catch(() => null) : null;
-    let matchedId = tmdbId;
+    // An id tag lets us skip fuzzy search entirely; fall back to search
+    // if the tagged id turns out to be stale/wrong (only for a pending title —
+    // a rematch of an already-matched one just leaves it alone).
+    const wantedId = forcedId ?? tag.tmdbId;
+    let details = wantedId ? await getMovieDetails(wantedId, { append: ["release_dates"] }).catch(() => null) : null;
+    if (!details && current.metadataStatus !== "pending") return;
+    let matchedId = wantedId;
     if (!details) {
       const match = await searchMovie(name, year);
       if (!match) {
@@ -475,6 +518,7 @@ async function enrichMovieMetadataIfNeeded(
         ratingAges,
         ratingsAttemptedAt: new Date(),
         imdbId: details.imdb_id ?? null,
+        ...((details.imdb_id ?? null) !== current.imdbId ? STALE_EXTERNAL_RATINGS : {}),
       })
       .where(eq(titles.id, titleId));
   } catch {
@@ -489,7 +533,7 @@ async function syncShowFolder(
   libraryId: string,
   folder: StorageEntry
 ): Promise<boolean> {
-  const { name, year, tmdbId } = parseTitleFolderName(folder.name);
+  const { name, year, tmdbId, imdbId } = parseTitleFolderName(folder.name);
 
   const [existing] = await db
     .select({ id: titles.id })
@@ -507,12 +551,16 @@ async function syncShowFolder(
     .returning();
 
   let tmdbShowId: number | null = null;
-  if (!existing) {
-    // A {tmdb-...} folder tag lets us skip fuzzy search entirely; fall
+  // An id tag pins the show even after it was matched (see the movie path).
+  const forcedId = await resolveForcedTmdbId("show", { tmdbId, imdbId }, title);
+  const rematch = !!existing && forcedId !== null && forcedId !== title.tmdbId;
+  if (!existing || rematch) {
+    // A folder id tag lets us skip fuzzy search entirely; fall
     // back to search if the tagged id turns out to be stale/wrong.
-    let details = tmdbId ? await getTvShowDetails(tmdbId, { append: ["content_ratings", "external_ids"] }).catch(() => null) : null;
-    if (details) tmdbShowId = tmdbId;
-    if (!details) {
+    const wantedId = forcedId ?? tmdbId;
+    let details = wantedId ? await getTvShowDetails(wantedId, { append: ["content_ratings", "external_ids"] }).catch(() => null) : null;
+    if (details) tmdbShowId = wantedId;
+    if (!details && !rematch) {
       const match = await searchTvShow(name, year).catch(() => null);
       if (match) {
         details = await getTvShowDetails(match.id, { append: ["content_ratings", "external_ids"] }).catch(() => null);
@@ -534,17 +582,17 @@ async function syncShowFolder(
           ratingAges,
           ratingsAttemptedAt: new Date(),
           imdbId: details.external_ids?.imdb_id ?? null,
+          ...((details.external_ids?.imdb_id ?? null) !== title.imdbId ? STALE_EXTERNAL_RATINGS : {}),
         })
         .where(eq(titles.id, title.id));
-    } else {
+    } else if (!rematch) {
       await db
         .update(titles)
         .set({ metadataStatus: "not_found" })
         .where(eq(titles.id, title.id));
     }
-  } else {
-    tmdbShowId = title.tmdbId;
   }
+  if (tmdbShowId === null) tmdbShowId = title.tmdbId;
 
   const seasonFolders = (await provider.listFolder(folder.id)).filter(
     (e) => e.kind === "folder"

@@ -20,6 +20,8 @@ import {
   parseEpisodeFileName,
   parseSeasonFolderName,
   parseTitleFolderName,
+  folderNameWithTmdbId,
+  fileNameWithTmdbId,
 } from "./conventions";
 
 describe("parseTitleFolderName", () => {
@@ -28,6 +30,7 @@ describe("parseTitleFolderName", () => {
       name: "The Matrix",
       year: 1999,
       tmdbId: null,
+      imdbId: null,
       edition: null,
     });
   });
@@ -37,6 +40,7 @@ describe("parseTitleFolderName", () => {
       name: "Some Home Video",
       year: null,
       tmdbId: null,
+      imdbId: null,
       edition: null,
     });
   });
@@ -46,6 +50,7 @@ describe("parseTitleFolderName", () => {
       name: "The Matrix",
       year: 1999,
       tmdbId: null,
+      imdbId: null,
       edition: null,
     });
   });
@@ -55,6 +60,7 @@ describe("parseTitleFolderName", () => {
       name: "Se7en (a.k.a. Seven)",
       year: 1995,
       tmdbId: null,
+      imdbId: null,
       edition: null,
     });
   });
@@ -64,6 +70,7 @@ describe("parseTitleFolderName", () => {
       name: "The Matrix",
       year: 1999,
       tmdbId: 603,
+      imdbId: null,
       edition: null,
     });
   });
@@ -73,21 +80,44 @@ describe("parseTitleFolderName", () => {
       name: "John Adams",
       year: null,
       tmdbId: 15114,
+      imdbId: null,
       edition: null,
     });
   });
 
-  it("strips {imdb-...}/{tvdb-...} tags without resolving them", () => {
+  it("extracts an {imdb-...} tag and strips it from the name", () => {
     expect(parseTitleFolderName("The Matrix (1999) {imdb-tt0133093}")).toEqual({
       name: "The Matrix",
       year: 1999,
       tmdbId: null,
+      imdbId: "tt0133093",
+      edition: null,
+    });
+  });
+
+  it("ignores a malformed id but still strips the tag", () => {
+    expect(parseTitleFolderName("The Matrix (1999) {imdb-nope} {tmdb-abc}")).toEqual({
+      name: "The Matrix",
+      year: 1999,
+      tmdbId: null,
+      imdbId: null,
+      edition: null,
+    });
+  });
+
+  it("strips {tvdb-...} tags without resolving them", () => {
+    expect(parseTitleFolderName("The Matrix (1999) {tvdb-1}")).toEqual({
+      name: "The Matrix",
+      year: 1999,
+      tmdbId: null,
+      imdbId: null,
       edition: null,
     });
     expect(parseTitleFolderName("John Adams (2008) {tvdb-81547}")).toEqual({
       name: "John Adams",
       year: 2008,
       tmdbId: null,
+      imdbId: null,
       edition: null,
     });
   });
@@ -99,6 +129,7 @@ describe("parseTitleFolderName", () => {
       name: "Star Wars - Episode 4",
       year: 1977,
       tmdbId: null,
+      imdbId: null,
       edition: "Original Theatrical Release",
     });
   });
@@ -110,6 +141,7 @@ describe("parseTitleFolderName", () => {
       name: "The Matrix",
       year: 1999,
       tmdbId: 603,
+      imdbId: null,
       edition: "Extended Cut",
     });
   });
@@ -685,5 +717,39 @@ describe("remuxed audio variants", () => {
   it("does not disturb episode/part/extra parsing of the original names", () => {
     expect(parseEpisodeFileName("Show - s01e05 - Title.mp4")?.episode).toBe(5);
     expect(isExtraFile("Movie-trailer.mp4")).toBe(true);
+  });
+});
+
+describe("folderNameWithTmdbId / fileNameWithTmdbId", () => {
+  it("appends a tmdb tag to a folder, replacing any id tags", () => {
+    expect(folderNameWithTmdbId("The Kid (2000)", 10)).toBe("The Kid (2000) {tmdb-10}");
+    expect(folderNameWithTmdbId("The Kid (2000) {imdb-tt0187078}", 10)).toBe("The Kid (2000) {tmdb-10}");
+    expect(folderNameWithTmdbId("The Kid (2000) {tmdb-1} {edition-Cut}", 10)).toBe(
+      "The Kid (2000) {edition-Cut} {tmdb-10}"
+    );
+  });
+
+  it("puts the tag right after the year in a file name", () => {
+    expect(fileNameWithTmdbId("The Kid (2000).mp4", 10)).toBe("The Kid (2000) {tmdb-10}.mp4");
+    expect(fileNameWithTmdbId("The Kid (2000) - pt1.mp4", 10)).toBe("The Kid (2000) {tmdb-10} - pt1.mp4");
+    expect(fileNameWithTmdbId("The Kid (2000) {tmdb-99}.mp4", 10)).toBe("The Kid (2000) {tmdb-10}.mp4");
+  });
+
+  it("falls back to before the first suffix, or the extension, without a year", () => {
+    expect(fileNameWithTmdbId("Home Video - pt2.mp4", 5)).toBe("Home Video {tmdb-5} - pt2.mp4");
+    expect(fileNameWithTmdbId("Home Video.mp4", 5)).toBe("Home Video {tmdb-5}.mp4");
+  });
+
+  it("keeps a browser-friendly variant round-tripping to its renamed original", () => {
+    const original = fileNameWithTmdbId("The Kid (2000).mp4", 10);
+    const variant = fileNameWithTmdbId(variantFileName("The Kid (2000).mp4"), 10);
+    expect(stripVariantSuffix(variant)).toBe(original);
+  });
+
+  it("produces names the parsers still read", () => {
+    expect(orderMediaSegments([{ name: fileNameWithTmdbId("A (2000) - pt2.mp4", 1) }, { name: fileNameWithTmdbId("A (2000) - pt1.mp4", 1) }]).map((f) => f.name)).toEqual([
+      "A (2000) {tmdb-1} - pt1.mp4",
+      "A (2000) {tmdb-1} - pt2.mp4",
+    ]);
   });
 });

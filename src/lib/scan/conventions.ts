@@ -16,10 +16,11 @@
  * - Roam requires pre-converted H.264/AAC video (.mp4/.m4v/.mov) — unlike
  *   Plex, there's no server-side transcoding, so .mkv/.avi/etc. aren't
  *   scanned even though Plex itself would accept them.
- * - {imdb-...} / {tvdb-...} id tags are recognized and stripped from the
- *   parsed title (so they don't corrupt the name/year match) but aren't
- *   resolved to metadata — Roam only integrates with TMDB. {tmdb-...} tags
- *   ARE wired to an exact lookup (see scanner.ts).
+ * - {tvdb-...} id tags are recognized and stripped from the parsed title
+ *   (so they don't corrupt the name/year match) but aren't resolved to
+ *   metadata — Roam only integrates with TMDB. {tmdb-...} and {imdb-...}
+ *   tags force the match to that exact title (see scanner.ts), overriding
+ *   an earlier wrong match.
  * - Multiple editions in ONE folder (Plex's file-level {edition-...} tag)
  *   are recognized well enough not to corrupt playback — only one edition's
  *   files are used as the movie's segments, the rest are skipped — but
@@ -85,6 +86,8 @@ export interface ParsedTitleFolder {
   year: number | null;
   /** From a {tmdb-123} tag, if present — lets the scanner skip fuzzy search entirely. */
   tmdbId: number | null;
+  /** From an {imdb-tt0167260} tag, if present — resolved to a TMDB id via TMDB's find-by-external-id. */
+  imdbId: string | null;
   /** From a directory-level {edition-...} tag, if present. */
   edition: string | null;
 }
@@ -98,8 +101,11 @@ export function parseTitleFolderName(folderName: string): ParsedTitleFolder {
   let working = folderName.trim();
 
   let tmdbId: number | null = null;
+  let imdbId: string | null = null;
   working = working.replace(ID_TAG_RE, (_m, tag: string, id: string) => {
-    if (tag.toLowerCase() === "tmdb") tmdbId = Number(id);
+    const kind = tag.toLowerCase();
+    if (kind === "tmdb" && /^\d+$/.test(id)) tmdbId = Number(id);
+    else if (kind === "imdb" && /^tt\d+$/i.test(id)) imdbId = id.toLowerCase();
     return " ";
   });
 
@@ -113,9 +119,38 @@ export function parseTitleFolderName(folderName: string): ParsedTitleFolder {
 
   const match = TITLE_YEAR_RE.exec(working);
   if (match) {
-    return { name: match[1].trim(), year: Number(match[2]), tmdbId, edition };
+    return { name: match[1].trim(), year: Number(match[2]), tmdbId, imdbId, edition };
   }
-  return { name: working, year: null, tmdbId, edition };
+  return { name: working, year: null, tmdbId, imdbId, edition };
+}
+
+const ANY_ID_TAG_RE = /\s*\{\s*(?:tmdb|imdb)[-\s]+[a-z0-9]+\s*\}/gi;
+
+/** A folder name with any {tmdb-...}/{imdb-...} tags replaced by a single `{tmdb-<id>}` at the end. */
+export function folderNameWithTmdbId(folderName: string, tmdbId: number): string {
+  return `${folderName.replace(ANY_ID_TAG_RE, "").trim()} {tmdb-${tmdbId}}`;
+}
+
+/**
+ * A movie file's name with any existing tmdb/imdb tag replaced by
+ * `{tmdb-<id>}`, placed right after "(Year)" (Plex's position, so a
+ * trailing "- pt1" or "- Browser-friendly" suffix still parses and a
+ * variant still round-trips to its original). Without a year it goes
+ * before the first " - " suffix, else before the extension.
+ */
+export function fileNameWithTmdbId(fileName: string, tmdbId: number): string {
+  const dot = fileName.lastIndexOf(".");
+  const ext = dot > 0 ? fileName.slice(dot) : "";
+  const base = (dot > 0 ? fileName.slice(0, dot) : fileName).replace(ANY_ID_TAG_RE, "");
+  const tag = ` {tmdb-${tmdbId}}`;
+  const year = /\(\d{4}\)/.exec(base);
+  let at: number;
+  if (year) at = year.index + year[0].length;
+  else {
+    const sep = base.indexOf(" - ");
+    at = sep === -1 ? base.length : sep;
+  }
+  return base.slice(0, at) + tag + base.slice(at) + ext;
 }
 
 /** Parses "Season 01", "Season 1" -> 1. Returns null if it doesn't match. */

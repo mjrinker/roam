@@ -154,3 +154,16 @@ export async function getSeasonEpisodes(tmdbId: number, seasonNumber: number): P
   const data = await tmdbFetch<{ episodes: TmdbEpisode[] }>(`/tv/${tmdbId}/season/${seasonNumber}`);
   return data.episodes ?? [];
 }
+
+/**
+ * Resolves an IMDb id (tt0167260) to TMDB's id via /find. Null when TMDB
+ * has no entry of that kind for it.
+ */
+export async function findTmdbIdByImdbId(imdbId: string, kind: "movie" | "show"): Promise<number | null> {
+  const data = await tmdbFetch<{ movie_results?: { id: number }[]; tv_results?: { id: number }[] }>(
+    `/find/${encodeURIComponent(imdbId)}`,
+    { external_source: "imdb_id" }
+  );
+  const hits = kind === "movie" ? data.movie_results : data.tv_results;
+  return hits?.[0]?.id ?? null;
+}

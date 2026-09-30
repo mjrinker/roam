@@ -177,3 +177,16 @@ export function createBoxProviderForServer(serverId: string): StorageProvider {
       fetchByteRange(serverId, fileId, startByte, endByte),
   };
 }
+
+/** Renames a Box file or folder in place (its id, and so everything keyed on it, is unchanged). */
+export async function renameBoxEntry(
+  serverId: string,
+  kind: "file" | "folder",
+  id: string,
+  name: string
+): Promise<void> {
+  await withBoxClient(serverId, async (client) => {
+    if (kind === "folder") await client.folders.updateFolderById(id, { requestBody: { name } });
+    else await client.files.updateFileById(id, { requestBody: { name } });
+  });
+}
