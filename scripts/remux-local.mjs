@@ -22,6 +22,7 @@
 import { spawn } from "node:child_process";
 import { readdir, rename, rm, stat } from "node:fs/promises";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 
 // Dummy parent folders — replace with your Box Drive folders, or pass them as arguments.
 const MOVIES_ROOT = String.raw`C:\Users\YourName\Box\Movies`;
@@ -41,8 +42,16 @@ function flag(name) {
   const i = args.indexOf(name);
   return i !== -1 ? args[i + 1] : undefined;
 }
-const moviesRoot = flag("--movies") ?? MOVIES_ROOT;
-const showsRoot = flag("--shows") ?? SHOWS_ROOT;
+// Under WSL (Linux Node), "C:\\Users\\me\\Box" isn't a real path; map it to /mnt/c/Users/me/Box.
+export function toLocalPath(p, platform = process.platform) {
+  const m = /^([a-zA-Z]):[\\/]*(.*)$/.exec(p);
+  if (platform === "win32" || !m) return p;
+  const rest = m[2].replace(/\\/g, "/").replace(/\/+$/, "");
+  return `/mnt/${m[1].toLowerCase()}${rest ? `/${rest}` : ""}`;
+}
+
+const moviesRoot = toLocalPath(flag("--movies") ?? MOVIES_ROOT);
+const showsRoot = toLocalPath(flag("--shows") ?? SHOWS_ROOT);
 const only = flag("--only"); // "movies" | "shows" | undefined
 
 function run(cmd, cmdArgs) {
@@ -226,7 +235,9 @@ async function main() {
   if (counts.failed) process.exitCode = 1;
 }
 
-main().catch((err) => {
-  console.error(err.message);
-  process.exit(1);
-});
+if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  main().catch((err) => {
+    console.error(err.message);
+    process.exit(1);
+  });
+}
