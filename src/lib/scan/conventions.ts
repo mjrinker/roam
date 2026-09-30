@@ -126,9 +126,31 @@ export function parseTitleFolderName(folderName: string): ParsedTitleFolder {
 
 const ANY_ID_TAG_RE = /\s*\{\s*(?:tmdb|imdb)[-\s]+[a-z0-9]+\s*\}/gi;
 
-/** A folder name with any {tmdb-...}/{imdb-...} tags replaced by a single `{tmdb-<id>}` at the end. */
-export function folderNameWithTmdbId(folderName: string, tmdbId: number): string {
-  return `${folderName.replace(ANY_ID_TAG_RE, "").trim()} {tmdb-${tmdbId}}`;
+const YEAR_PAREN_RE = /\((\d{4})\)/g;
+
+/** Rewrites (or, when missing, adds) the "(Year)" in `text`, leaving everything else alone. */
+function withYear(text: string, year: number): string {
+  const matches = [...text.matchAll(YEAR_PAREN_RE)];
+  const last = matches[matches.length - 1];
+  if (last) return text.slice(0, last.index) + `(${year})` + text.slice(last.index + last[0].length);
+  return `${text.trimEnd()} (${year})`;
+}
+
+/**
+ * A folder name with any {tmdb-...}/{imdb-...} tags replaced by a single
+ * `{tmdb-<id>}` at the end and, when TMDB knows the release year, "(Year)"
+ * corrected to it (added if the folder had none).
+ */
+export function folderNameWithTmdbId(folderName: string, tmdbId: number, year: number | null = null): string {
+  let name = folderName.replace(ANY_ID_TAG_RE, "").trim();
+  if (year) {
+    // Only the part before any other {tag}, so an edition name can't be mistaken for the title.
+    const brace = name.indexOf("{");
+    const head = brace === -1 ? name : name.slice(0, brace);
+    const rest = brace === -1 ? "" : " " + name.slice(brace);
+    name = withYear(head.trimEnd(), year) + rest;
+  }
+  return `${name} {tmdb-${tmdbId}}`;
 }
 
 /**
@@ -136,16 +158,27 @@ export function folderNameWithTmdbId(folderName: string, tmdbId: number): string
  * `{tmdb-<id>}`, placed right after "(Year)" (Plex's position, so a
  * trailing "- pt1" or "- Browser-friendly" suffix still parses and a
  * variant still round-trips to its original). Without a year it goes
- * before the first " - " suffix, else before the extension.
+ * before the first " - " suffix, else before the extension. A known
+ * TMDB `year` corrects the "(Year)" (or adds one at that spot).
  */
-export function fileNameWithTmdbId(fileName: string, tmdbId: number): string {
+export function fileNameWithTmdbId(fileName: string, tmdbId: number, year: number | null = null): string {
   const dot = fileName.lastIndexOf(".");
   const ext = dot > 0 ? fileName.slice(dot) : "";
-  const base = (dot > 0 ? fileName.slice(0, dot) : fileName).replace(ANY_ID_TAG_RE, "");
+  let base = (dot > 0 ? fileName.slice(0, dot) : fileName).replace(ANY_ID_TAG_RE, "");
   const tag = ` {tmdb-${tmdbId}}`;
-  const year = /\(\d{4}\)/.exec(base);
+  let found = /\(\d{4}\)/.exec(base);
+  if (year) {
+    if (found) {
+      base = base.slice(0, found.index) + `(${year})` + base.slice(found.index + found[0].length);
+    } else {
+      const sep = base.indexOf(" - ");
+      const at = sep === -1 ? base.length : sep;
+      base = base.slice(0, at) + ` (${year})` + base.slice(at);
+    }
+    found = /\(\d{4}\)/.exec(base);
+  }
   let at: number;
-  if (year) at = year.index + year[0].length;
+  if (found) at = found.index + found[0].length;
   else {
     const sep = base.indexOf(" - ");
     at = sep === -1 ? base.length : sep;

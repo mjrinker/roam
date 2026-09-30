@@ -753,3 +753,23 @@ describe("folderNameWithTmdbId / fileNameWithTmdbId", () => {
     ]);
   });
 });
+
+describe("year correction when stamping", () => {
+  it("rewrites the folder's year, or adds one", () => {
+    expect(folderNameWithTmdbId("The Kid (1921)", 10, 2000)).toBe("The Kid (2000) {tmdb-10}");
+    expect(folderNameWithTmdbId("The Kid", 10, 2000)).toBe("The Kid (2000) {tmdb-10}");
+    expect(folderNameWithTmdbId("2001: A Space Odyssey (1968) {edition-Cut (1999)}", 3, 1969)).toBe(
+      "2001: A Space Odyssey (1969) {edition-Cut (1999)} {tmdb-3}"
+    );
+  });
+
+  it("leaves the year alone when TMDB has none", () => {
+    expect(folderNameWithTmdbId("The Touch (2001)", 1384265, null)).toBe("The Touch (2001) {tmdb-1384265}");
+  });
+
+  it("rewrites or adds the year in file names, keeping suffixes", () => {
+    expect(fileNameWithTmdbId("The Kid (1921) - pt1.mp4", 10, 2000)).toBe("The Kid (2000) {tmdb-10} - pt1.mp4");
+    expect(fileNameWithTmdbId("The Kid.mp4", 10, 2000)).toBe("The Kid (2000) {tmdb-10}.mp4");
+    expect(fileNameWithTmdbId("The Kid - pt2.mp4", 10, 2000)).toBe("The Kid (2000) {tmdb-10} - pt2.mp4");
+  });
+});

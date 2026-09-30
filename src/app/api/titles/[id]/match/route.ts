@@ -9,6 +9,7 @@ import { getMovieDetails, getTvShowDetails, tmdbImageUrl } from "@/lib/tmdb/clie
 import { ratingsFromMovieDetails, ratingsFromTvDetails } from "@/lib/content/ratings";
 import { refreshShowEpisodesFromTmdb } from "@/lib/scan/scanner";
 import { stampTmdbIdOnBox } from "@/lib/scan/tag-rename";
+import { yearOf } from "@/lib/tmdb/match";
 
 const bodySchema = z.object({ tmdbId: z.number().int().positive() });
 
@@ -42,14 +43,17 @@ export async function POST(
     return NextResponse.json({ error: "Audiobooks are matched against Audible, not TMDB." }, { status: 400 });
   }
 
+  let matchedYear: number | null = null;
   if (title.kind === "movie") {
     const details = await getMovieDetails(parsed.data.tmdbId, { append: ["release_dates"] });
     const { certifications, ratingAges } = ratingsFromMovieDetails(details);
     const imdbId = details.imdb_id ?? null;
+    matchedYear = yearOf(details.release_date);
     await db
       .update(titles)
       .set({
         tmdbId: details.id,
+        ...(matchedYear ? { year: matchedYear } : {}),
         overview: details.overview ?? null,
         posterUrl: tmdbImageUrl(details.poster_path, "w500"),
         backdropUrl: tmdbImageUrl(details.backdrop_path, "w1280"),
@@ -71,10 +75,12 @@ export async function POST(
     const details = await getTvShowDetails(parsed.data.tmdbId, { append: ["content_ratings", "external_ids"] });
     const { certifications, ratingAges } = ratingsFromTvDetails(details);
     const imdbId = details.external_ids?.imdb_id ?? null;
+    matchedYear = yearOf(details.first_air_date);
     await db
       .update(titles)
       .set({
         tmdbId: details.id,
+        ...(matchedYear ? { year: matchedYear } : {}),
         overview: details.overview ?? null,
         posterUrl: tmdbImageUrl(details.poster_path, "w500"),
         backdropUrl: tmdbImageUrl(details.backdrop_path, "w1280"),
@@ -98,7 +104,8 @@ export async function POST(
   const { errors: renameErrors } = await stampTmdbIdOnBox(
     serverId,
     { kind: title.kind, boxFolderId: title.boxFolderId },
-    parsed.data.tmdbId
+    parsed.data.tmdbId,
+    matchedYear
   ).catch((err) => ({ errors: [(err as Error).message] }));
 
   return NextResponse.json({ ok: true, renameErrors });
