@@ -11,6 +11,8 @@ export interface LibraryStatusDto {
   titleCount: number;
   probeCounts: { pending: number; ok: number; failed: number };
   lastScannedAt: string | null;
+  /** Folder-loop progress of the scan in flight; null once folders are done or when idle. */
+  folderProgress: { done: number; total: number } | null;
   lastScan: {
     trigger: "manual" | "cron" | "webhook" | "resume";
     finishedAt: string | null;
@@ -95,6 +97,10 @@ export async function GET(
     titleCount: titleIds.length,
     probeCounts,
     lastScannedAt: library.lastScannedAt?.toISOString() ?? null,
+    folderProgress:
+      scanning && library.scanFoldersDone < library.scanFoldersTotal
+        ? { done: library.scanFoldersDone, total: library.scanFoldersTotal }
+        : null,
     lastScan: latestRun
       ? {
           trigger: latestRun.trigger,

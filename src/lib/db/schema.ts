@@ -221,6 +221,10 @@ export const libraries = pgTable(
     // probing remains. Advanced with compare-and-set so concurrent scans
     // can't both own it.
     scanCursor: jsonb("scan_cursor").$type<{ folder: string; sub?: string } | null>(),
+    // Folder-loop progress for the current scan cycle, so the admin progress
+    // bar restarts at 0 on a rescan. Total is set when a full pass begins.
+    scanFoldersTotal: integer("scan_folders_total").notNull().default(0),
+    scanFoldersDone: integer("scan_folders_done").notNull().default(0),
     // Audible storefront region used when matching audiobooks.
     audibleRegion: text("audible_region").notNull().default("us"),
     createdAt: timestamp("created_at", { withTimezone: true })

@@ -135,15 +135,22 @@ export async function scanLibrary(
     if (plan.mode === "full") {
       // A fresh cycle: unconditional reset, so any in-flight chained pass
       // fails its next compare-and-set and stops rather than fighting us.
-      await db.update(libraries).set({ scanCursor: null }).where(eq(libraries.id, libraryId));
+      await db
+        .update(libraries)
+        .set({ scanCursor: null, scanFoldersTotal: 0, scanFoldersDone: 0 })
+        .where(eq(libraries.id, libraryId));
     }
 
     if (plan.mode !== "probe-only") {
       const topLevel = await provider.listFolder(library.boxFolderId);
-      const titleFolders = entriesAfterCursor(
-        sortForScan(topLevel.filter((e) => e.kind === "folder")),
-        cursor
-      );
+      const sortedFolders = sortForScan(topLevel.filter((e) => e.kind === "folder"));
+      const titleFolders = entriesAfterCursor(sortedFolders, cursor);
+      if (plan.mode === "full") {
+        await db
+          .update(libraries)
+          .set({ scanFoldersTotal: sortedFolders.length })
+          .where(eq(libraries.id, libraryId));
+      }
 
       let processed = 0;
       let loopFinished = true;
@@ -284,7 +291,16 @@ async function advanceScanCursor(
   const toJson = to ? JSON.stringify(to) : null;
   const rows = await db
     .update(libraries)
-    .set({ scanCursor: sql`${toJson}::jsonb` })
+    .set({
+      scanCursor: sql`${toJson}::jsonb`,
+      // Whole folders only (a sub-step within an audiobook author folder
+      // isn't a finished folder); clearing the cursor means the loop is done.
+      ...(to && !to.sub
+        ? { scanFoldersDone: sql`${libraries.scanFoldersDone} + 1` }
+        : to === null
+          ? { scanFoldersDone: libraries.scanFoldersTotal }
+          : {}),
+    })
     .where(
       and(
         eq(libraries.id, libraryId),

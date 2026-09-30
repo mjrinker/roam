@@ -96,8 +96,12 @@ function ScanProgress({ status }: { status: LibraryStatusDto }) {
   const { pending, ok, failed } = status.probeCounts;
   const total = pending + ok + failed;
   if (total === 0 && !status.scanning) return null;
-  const done = ok + failed;
-  const pct = total > 0 ? Math.round((done / total) * 100) : 0;
+  const folders = status.folderProgress;
+  // While the folder loop runs, show it (starts at 0 on a rescan); the probe
+  // counts are already ~100% from earlier scans and would look stuck.
+  const done = folders ? folders.done : ok + failed;
+  const shownTotal = folders ? folders.total : total;
+  const pct = shownTotal > 0 ? Math.round((done / shownTotal) * 100) : 0;
 
   return (
     <div className="mt-3 flex flex-col gap-1.5">
@@ -106,8 +110,9 @@ function ScanProgress({ status }: { status: LibraryStatusDto }) {
           {status.scanning ? "Scanning… " : ""}
           {status.titleCount.toLocaleString()} title{status.titleCount === 1 ? "" : "s"}
           {" · "}
-          {done.toLocaleString()} / {total.toLocaleString()} files processed
-          {failed > 0 ? ` (${failed} failed)` : ""}
+          {done.toLocaleString()} / {shownTotal.toLocaleString()}{" "}
+          {folders ? "folders scanned" : "files processed"}
+          {!folders && failed > 0 ? ` (${failed} failed)` : ""}
         </span>
         <span>{pct}%</span>
       </div>
