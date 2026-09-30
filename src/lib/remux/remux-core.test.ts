@@ -39,6 +39,19 @@ describe("buildFfmpegArgs", () => {
   });
 });
 
+describe("buildFfmpegArgs with channels", () => {
+  it("keeps the channel layout and scales the bitrate instead of downmixing", () => {
+    const args = buildFfmpegArgs("in.mp4", "out.aac.mp4", { channels: 6 });
+    expect(args).not.toContain("-ac");
+    expect(args[args.indexOf("-b:a") + 1]).toBe("384k");
+  });
+
+  it("still downmixes to stereo for a stereo/mono source or no hint", () => {
+    expect(buildFfmpegArgs("i", "o", { channels: 2 })).toEqual(expect.arrayContaining(["-ac", "2"]));
+    expect(buildFfmpegArgs("i", "o", {})).toEqual(expect.arrayContaining(["-ac", "2"]));
+  });
+});
+
 describe("conflictIdFrom", () => {
   it("reads Box's conflict id, object or array shaped", () => {
     expect(conflictIdFrom({ context_info: { conflicts: { id: "9" } } })).toBe("9");
@@ -86,6 +99,18 @@ describe("uploadFile", () => {
     const result = await uploadFile({ getToken, folderId: "f1", name: "out.mp4", filePath });
     expect(result).toEqual({ id: "11", name: "out.mp4", size: 1024 });
     expect(fetchMock.mock.calls[0][0]).toBe("https://upload.box.com/api/2.0/files/content");
+  });
+
+  it("uploads a new version of an existing file when replaceFileId is given", async () => {
+    const filePath = join(dir, "out.mp4");
+    await writeFile(filePath, Buffer.alloc(1024, 1));
+    fetchMock.mockResolvedValueOnce(json({ entries: [{ id: "77", name: "out.mp4", size: 1024 }] }, 201));
+    const result = await uploadFile({ getToken, folderId: "f1", name: "out.mp4", filePath, replaceFileId: "77" });
+    expect(result).toEqual({ id: "77", name: "out.mp4", size: 1024 });
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe("https://upload.box.com/api/2.0/files/77/content");
+    const attributes = (init.body as FormData).get("attributes") as string;
+    expect(JSON.parse(attributes)).toEqual({ name: "out.mp4" });
   });
 
   it("links the existing file when the name is already taken", async () => {

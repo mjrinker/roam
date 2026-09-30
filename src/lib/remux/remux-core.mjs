@@ -13,12 +13,16 @@ import { pipeline } from "node:stream/promises";
 export const CHUNKED_UPLOAD_MIN_BYTES = 20 * 1024 * 1024;
 
 /**
- * Video is passed through untouched; only audio is re-encoded, to stereo
- * AAC (browser-universal; a browser downmixes surround itself anyway, and
- * this keeps the copy small). Plain faststart, NOT fragmented: our own
- * duration prober reads mvhd, which is 0 in a fragmented file.
+ * Video is passed through untouched; only audio is re-encoded to AAC
+ * (browser-universal). Plain faststart, NOT fragmented: our own duration
+ * prober reads mvhd, which is 0 in a fragmented file.
+ *
+ * Default is stereo at 192k (keeps the server-side copy small; a browser
+ * downmixes surround itself anyway). Pass `channels` (> 2) to keep that many
+ * channels instead, at ~64k per channel.
  */
-export function buildFfmpegArgs(input, output) {
+export function buildFfmpegArgs(input, output, { channels } = {}) {
+  const audio = channels && channels > 2 ? ["-b:a", `${channels * 64}k`] : ["-ac", "2", "-b:a", "192k"];
   return [
     "-y",
     "-hide_banner",
@@ -34,10 +38,7 @@ export function buildFfmpegArgs(input, output) {
     "copy",
     "-c:a",
     "aac",
-    "-ac",
-    "2",
-    "-b:a",
-    "192k",
+    ...audio,
     "-movflags",
     "+faststart",
     output,
@@ -45,9 +46,9 @@ export function buildFfmpegArgs(input, output) {
 }
 
 /** Runs ffmpeg against local files. Rejects with the tail of stderr on a nonzero exit. */
-export function runFfmpeg(ffmpegPath, input, output, { timeoutMs } = {}) {
+export function runFfmpeg(ffmpegPath, input, output, { timeoutMs, channels } = {}) {
   return new Promise((resolve, reject) => {
-    const child = spawn(ffmpegPath, buildFfmpegArgs(input, output), { stdio: ["ignore", "ignore", "pipe"] });
+    const child = spawn(ffmpegPath, buildFfmpegArgs(input, output, { channels }), { stdio: ["ignore", "ignore", "pipe"] });
     let stderr = "";
     child.stderr.on("data", (d) => {
       stderr = (stderr + d.toString()).slice(-4000);
@@ -144,13 +145,16 @@ export async function preflightUpload({ getToken, folderId, name, size }) {
   throw err;
 }
 
-async function uploadSimple({ getToken, folderId, name, filePath }) {
+async function uploadSimple({ getToken, folderId, name, filePath, replaceFileId }) {
   const { readFile } = await import("node:fs/promises");
   const data = await readFile(filePath);
-  const res = await boxFetch(getToken, "https://upload.box.com/api/2.0/files/content", (token) => {
+  const url = replaceFileId
+    ? `https://upload.box.com/api/2.0/files/${replaceFileId}/content`
+    : "https://upload.box.com/api/2.0/files/content";
+  const res = await boxFetch(getToken, url, (token) => {
     const form = new FormData();
     // "attributes" must precede the file part.
-    form.append("attributes", JSON.stringify({ name, parent: { id: folderId } }));
+    form.append("attributes", JSON.stringify(replaceFileId ? { name } : { name, parent: { id: folderId } }));
     form.append("file", new Blob([data]), name);
     return { method: "POST", headers: { authorization: `Bearer ${token}` }, body: form };
   });
@@ -165,11 +169,17 @@ async function uploadSimple({ getToken, folderId, name, filePath }) {
   return { id: entry.id, name: entry.name, size: entry.size };
 }
 
-async function uploadChunked({ getToken, folderId, name, filePath, size }) {
-  const sessionRes = await boxFetch(getToken, "https://upload.box.com/api/2.0/files/upload_sessions", (token) => ({
+async function uploadChunked({ getToken, folderId, name, filePath, size, replaceFileId }) {
+  const sessionUrl = replaceFileId
+    ? `https://upload.box.com/api/2.0/files/${replaceFileId}/upload_sessions`
+    : "https://upload.box.com/api/2.0/files/upload_sessions";
+  const sessionBody = replaceFileId
+    ? { file_size: size, file_name: name }
+    : { folder_id: folderId, file_size: size, file_name: name };
+  const sessionRes = await boxFetch(getToken, sessionUrl, (token) => ({
     method: "POST",
     headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
-    body: JSON.stringify({ folder_id: folderId, file_size: size, file_name: name }),
+    body: JSON.stringify(sessionBody),
   }));
   if (sessionRes.status === 409) {
     const conflictId = conflictIdFrom(await sessionRes.json().catch(() => null));
@@ -239,10 +249,12 @@ async function uploadChunked({ getToken, folderId, name, filePath, size }) {
  * Uploads a local file into a Box folder. Returns `{ id, name, size }`, or
  * `{ conflictId }` when a file by that name already exists (the earlier
  * attempt succeeded — the caller links that existing file rather than fail).
+ * With `replaceFileId`, uploads a new VERSION of that existing file instead
+ * (same Box file id, so anything keyed on it keeps working).
  */
-export async function uploadFile({ getToken, folderId, name, filePath }) {
+export async function uploadFile({ getToken, folderId, name, filePath, replaceFileId }) {
   const { size } = await stat(filePath);
   return size >= CHUNKED_UPLOAD_MIN_BYTES
-    ? uploadChunked({ getToken, folderId, name, filePath, size })
-    : uploadSimple({ getToken, folderId, name, filePath });
+    ? uploadChunked({ getToken, folderId, name, filePath, size, replaceFileId })
+    : uploadSimple({ getToken, folderId, name, filePath, replaceFileId });
 }

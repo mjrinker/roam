@@ -1,10 +1,10 @@
 export const CHUNKED_UPLOAD_MIN_BYTES: number;
-export function buildFfmpegArgs(input: string, output: string): string[];
+export function buildFfmpegArgs(input: string, output: string, opts?: { channels?: number }): string[];
 export function runFfmpeg(
   ffmpegPath: string,
   input: string,
   output: string,
-  opts?: { timeoutMs?: number }
+  opts?: { timeoutMs?: number; channels?: number }
 ): Promise<void>;
 export function downloadToFile(url: string, dest: string): Promise<void>;
 export function conflictIdFrom(body: unknown): string | null;
@@ -21,4 +21,5 @@ export function uploadFile(args: {
   folderId: string;
   name: string;
   filePath: string;
+  replaceFileId?: string;
 }): Promise<UploadResult>;
