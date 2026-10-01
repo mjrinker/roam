@@ -81,6 +81,8 @@ export async function downloadToFile(url, dest) {
 // ── Box uploads ──────────────────────────────────────────────────────────
 
 const RETRYABLE = new Set([429, 500, 502, 503, 504]);
+/** Box occasionally drops a long upload mid-part; each part is idempotent, so retry generously on a fresh connection. */
+const NETWORK_RETRIES = 7;
 
 /**
  * fetch against Box with the current token; retries once with a fresh token
@@ -97,8 +99,8 @@ async function boxFetch(getToken, url, makeInit) {
     } catch (err) {
       // A dropped connection (typically a pooled keep-alive socket Box closed while ffmpeg ran) is
       // transient: retry on a fresh one. After that, name the call — undici's bare "fetch failed" doesn't.
-      if (attempt < 3) {
-        await new Promise((r) => setTimeout(r, 1000 * 2 ** attempt));
+      if (attempt < NETWORK_RETRIES) {
+        await new Promise((r) => setTimeout(r, Math.min(1000 * 2 ** attempt, 30_000)));
         continue;
       }
       const u = new URL(url);

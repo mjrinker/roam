@@ -219,10 +219,22 @@ async function remuxGroup(ffmpeg: string, g: Group, replaceFileId: string | null
 
     const name = variantFileName(g.filename);
     const getToken = tokenProvider(g.serverId);
-    let uploaded = await uploadFile({ getToken, folderId: g.folderId, name, filePath: output, replaceFileId: replaceFileId ?? undefined });
+    // Whole-upload retries (a fresh upload session each time) so one bad connection doesn't throw away the download + encode.
+    const upload = async (replace: string | null) => {
+      for (let attempt = 1; ; attempt++) {
+        try {
+          return await uploadFile({ getToken, folderId: g.folderId, name, filePath: output, replaceFileId: replace ?? undefined });
+        } catch (err) {
+          if (attempt >= 3) throw err;
+          console.warn(`   upload attempt ${attempt} failed (${(err as Error).message}); retrying in 30s`);
+          await new Promise((r) => setTimeout(r, 30_000));
+        }
+      }
+    };
+    let uploaded = await upload(replaceFileId);
     if ("conflictId" in uploaded) {
       // The copy already sits in Box (just not linked/recorded): replace it with this full-size one.
-      uploaded = await uploadFile({ getToken, folderId: g.folderId, name, filePath: output, replaceFileId: uploaded.conflictId });
+      uploaded = await upload(uploaded.conflictId);
     }
     if ("conflictId" in uploaded) throw new Error("Box reported a name conflict again after replacing the existing copy");
 
