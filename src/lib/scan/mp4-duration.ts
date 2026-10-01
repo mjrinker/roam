@@ -198,6 +198,26 @@ export async function probeMp4Codecs(
 }
 
 /**
+ * The first audio track's codec fourcc and declared channel count — what a
+ * remux job needs to decide whether a file (or an existing copy of it) is
+ * worth touching, without downloading anything. The channel count is the
+ * sample entry's own field, so treat it as a hint for AC-3/E-AC-3.
+ */
+export async function probeMp4AudioTrack(
+  fetchRange: ByteRangeFetcher,
+  fileSizeBytes: number
+): Promise<{ audioCodec: string | null; channels: number | null }> {
+  const r = new RangeReader(fetchRange, fileSizeBytes);
+  const moov = await findMoov(r, fileSizeBytes);
+  for await (const child of childBoxes(r, moov, MOOV_PREFETCH)) {
+    if (child.type !== "trak") continue;
+    const info = await readTrakInfo(r, child);
+    if (info.handler === "soun") return { audioCodec: info.codec, channels: info.channelCount };
+  }
+  return { audioCodec: null, channels: null };
+}
+
+/**
  * Walks `moov`'s `trak` children looking only for the first audio and first
  * video track's codec (by stream index — matching ffmpeg's default
  * `-map 0:a:0`/`-map 0:v:0`), stopping as soon as both are found. A
@@ -229,6 +249,8 @@ async function readCodecsFromTracks(
 // ── moov ─────────────────────────────────────────────────────────────────
 
 interface TrakInfo {
+  /** An audio sample entry's declared channel count (not always trustworthy for AC-3/E-AC-3); null if absent. */
+  channelCount: number | null;
   trackId: number;
   chapterRefs: number[];
   handler: string;
@@ -336,18 +358,20 @@ async function readChpl(r: RangeReader, udta: Box): Promise<Mp4Chapter[] | null>
  * read (matching a single codec per track, which is what ffmpeg's default
  * stream selection sees too).
  */
-async function readStsdCodec(r: RangeReader, stbl: Box): Promise<string | null> {
+async function readStsdCodec(r: RangeReader, stbl: Box): Promise<{ codec: string | null; channelCount: number | null }> {
   for await (const child of childBoxes(r, stbl, 4096)) {
     if (child.type !== "stsd") continue;
     const view = await readPayload(r, child);
-    if (view.byteLength < 16) return null;
-    return fourcc(view, 12);
+    if (view.byteLength < 16) break;
+    // An audio sample entry puts its 16-bit channelcount 24 bytes past the entry's format fourcc (stsd payload offset 32).
+    const channelCount = view.byteLength >= 34 ? view.getUint16(32, false) : null;
+    return { codec: fourcc(view, 12), channelCount: channelCount || null };
   }
-  return null;
+  return { codec: null, channelCount: null };
 }
 
 async function readTrakInfo(r: RangeReader, trak: Box): Promise<TrakInfo> {
-  const info: TrakInfo = { trackId: 0, chapterRefs: [], handler: "", timescale: 0, stbl: null, codec: null };
+  const info: TrakInfo = { trackId: 0, chapterRefs: [], handler: "", timescale: 0, stbl: null, codec: null, channelCount: null };
 
   for await (const child of childBoxes(r, trak, 4096)) {
     if (child.type === "tkhd") {
@@ -372,7 +396,9 @@ async function readTrakInfo(r: RangeReader, trak: Box): Promise<TrakInfo> {
               info.stbl = n;
               // hdlr (above) always precedes minf within mdia in practice, so
               // info.handler is already set by the time this codec is used.
-              info.codec = await readStsdCodec(r, n);
+              const entry = await readStsdCodec(r, n);
+              info.codec = entry.codec;
+              info.channelCount = entry.channelCount;
             }
           }
         }

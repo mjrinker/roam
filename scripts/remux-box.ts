@@ -2,7 +2,7 @@
  * Remuxes every movie and TV episode whose audio browsers can't play (AC-3,
  * E-AC-3, DTS, ...) to AAC, working straight against Box through Roam's own
  * stored Box connection — no Box Drive or local folders involved. For each
- * file: check its real audio with ffmpeg, download it, remux (video
+ * file: check its audio codec from the MP4 header, download it, remux (video
  * untouched, audio to AAC keeping the full channel layout), upload the
  * result next to the original as "<name>.aac.<ext>", and link it in Roam's
  * database. An existing copy that's smaller than the source (e.g. downmixed
@@ -32,7 +32,8 @@ import { episodes, libraries, mediaFiles, seasons, titles } from "@/lib/db/schem
 import { isBrowserSafeAudioCodec } from "@/lib/scan/codec-support";
 import { variantFileName } from "@/lib/scan/conventions";
 import { upsertVariant } from "@/lib/scan/media-files";
-import { getFreshDownloadUrl } from "@/lib/storage/box";
+import { probeMp4AudioTrack } from "@/lib/scan/mp4-duration";
+import { createBoxProviderForServer, getFreshDownloadUrl } from "@/lib/storage/box";
 import { withBoxClient } from "@/lib/storage/box-token-storage";
 import { downloadToFile, runFfmpeg, uploadFile, type TokenProvider } from "@/lib/remux/remux-core.mjs";
 import { parseFirstAudioStream, type AudioStreamInfo } from "@/lib/remux/ffmpeg-probe";
@@ -51,8 +52,6 @@ const limit = Number(flag("--limit") ?? Infinity);
 const workRoot = flag("--tmp") ?? join(tmpdir(), "roam-remux-local");
 
 const FFMPEG_TIMEOUT_MS = 6 * 60 * 60_000;
-// Anything else (AC-3, E-AC-3, DTS, TrueHD, FLAC, ...) gets remuxed.
-const BROWSER_SAFE_FFMPEG_CODECS = new Set(["aac", "mp3"]);
 
 type Group = {
   serverId: string;
@@ -149,11 +148,16 @@ async function loadGroups(): Promise<Group[]> {
 }
 
 async function loadVariants(primaryIds: string[]) {
-  const out = new Map<string, { boxFileId: string; filename: string }>();
+  const out = new Map<string, { boxFileId: string; filename: string; sizeBytes: number | null }>();
   for (let i = 0; i < primaryIds.length; i += 500) {
     const chunk = primaryIds.slice(i, i + 500);
     const vs = await db
-      .select({ of: mediaFiles.variantOfMediaFileId, boxFileId: mediaFiles.boxFileId, filename: mediaFiles.filename })
+      .select({
+        of: mediaFiles.variantOfMediaFileId,
+        boxFileId: mediaFiles.boxFileId,
+        filename: mediaFiles.filename,
+        sizeBytes: mediaFiles.sizeBytes,
+      })
       .from(mediaFiles)
       .where(and(isNotNull(mediaFiles.variantOfMediaFileId), inArray(mediaFiles.variantOfMediaFileId, chunk)));
     for (const v of vs) if (v.of) out.set(v.of, v);
@@ -161,24 +165,22 @@ async function loadVariants(primaryIds: string[]) {
   return out;
 }
 
-/** ffmpeg exits nonzero here (no output file) — that's expected; the stream summary is on stderr. */
-function probeUrl(ffmpeg: string, url: string): Promise<AudioStreamInfo | null> {
+/** Reads a file's first audio track straight from its MP4 header over Box range requests — nothing is downloaded. */
+async function probeBoxAudio(serverId: string, boxFileId: string, sizeBytes: number | null) {
+  if (!sizeBytes) throw new Error("file size unknown to Roam");
+  const provider = createBoxProviderForServer(serverId);
+  return probeMp4AudioTrack((start, end) => provider.fetchByteRange(boxFileId, start, end), sizeBytes);
+}
+
+/** The channel layout of a LOCAL file, from ffmpeg's input summary (exits nonzero without an output; that's expected). */
+function probeLocalAudio(ffmpeg: string, file: string): Promise<AudioStreamInfo | null> {
   return new Promise((resolve, reject) => {
-    const child = spawn(ffmpeg, ["-hide_banner", "-i", url], { stdio: ["ignore", "ignore", "pipe"] });
+    const child = spawn(ffmpeg, ["-hide_banner", "-i", file], { stdio: ["ignore", "ignore", "pipe"] });
     let err = "";
     child.stderr.on("data", (d) => (err += d));
     child.on("error", reject);
-    child.on("close", () => {
-      if (/Server returned|Invalid data found|No such file|Connection (?:refused|reset)|error/i.test(err) && !/Stream #/.test(err)) {
-        reject(new Error(err.trim().split("\n").slice(-2).join(" ")));
-      } else resolve(parseFirstAudioStream(err));
-    });
+    child.on("close", () => resolve(parseFirstAudioStream(err)));
   });
-}
-
-async function probeBoxFile(ffmpeg: string, serverId: string, boxFileId: string) {
-  const { url } = await getFreshDownloadUrl(serverId, boxFileId);
-  return probeUrl(ffmpeg, url);
 }
 
 /** A full-access token for the server's connected Box account (this script runs as its owner), refreshed on demand. */
@@ -191,7 +193,7 @@ function tokenProvider(serverId: string): TokenProvider {
     });
 }
 
-async function remuxGroup(ffmpeg: string, g: Group, channels: number, replaceFileId: string | null) {
+async function remuxGroup(ffmpeg: string, g: Group, replaceFileId: string | null) {
   const dir = join(workRoot, randomUUID());
   await mkdir(dir, { recursive: true });
   try {
@@ -199,6 +201,11 @@ async function remuxGroup(ffmpeg: string, g: Group, channels: number, replaceFil
     const output = join(dir, "output.mp4");
     const { url } = await getFreshDownloadUrl(g.serverId, g.boxFileId);
     await downloadToFile(url, input);
+    // The real layout, read from the local file (a sample entry's own count isn't reliable for AC-3).
+    const local = await probeLocalAudio(ffmpeg, input);
+    if (!local) throw new Error("no audio stream found in the downloaded file");
+    const channels = Math.min(local.channels, 8);
+    console.log(`   ${local.codec} ${local.channels}ch -> aac ${channels}ch`);
     try {
       await runFfmpeg(ffmpeg, input, output, { timeoutMs: FFMPEG_TIMEOUT_MS, channels });
     } catch (err) {
@@ -240,41 +247,45 @@ async function main() {
     if (c.remuxed + c.redone >= limit) break;
     c.checked++;
     try {
-      // Roam's own scan already read this file's codec; only files it cleared as browser-safe skip the network check.
-      if (g.codecProbed && isBrowserSafeAudioCodec(g.dbCodec)) {
+      // Roam's own scan already read this file's codec; only an unprobed file needs a header read.
+      let codec = g.codecProbed ? g.dbCodec : null;
+      let srcChannels: number | null = null;
+      if (!g.codecProbed) {
+        const track = await probeBoxAudio(g.serverId, g.boxFileId, g.sizeBytes);
+        if (track.audioCodec === null) {
+          c.noAudio++;
+          continue;
+        }
+        codec = track.audioCodec;
+        srcChannels = track.channels;
+      }
+      if (isBrowserSafeAudioCodec(codec)) {
         c.ok++;
         continue;
       }
-      const src = await probeBoxFile(ffmpeg, g.serverId, g.boxFileId);
-      if (!src) {
-        c.noAudio++;
-        continue;
-      }
-      if (BROWSER_SAFE_FFMPEG_CODECS.has(src.codec)) {
-        c.ok++;
-        continue;
-      }
-      const channels = Math.min(src.channels, 8);
       const existing = g.primaryIds.map((id) => variants.get(id)).find(Boolean) ?? null;
       let replaceFileId: string | null = null;
       if (existing) {
-        const copy = await probeBoxFile(ffmpeg, g.serverId, existing.boxFileId).catch(() => null);
-        if (copy && copy.codec === "aac" && copy.channels >= channels) {
+        // Redo only a copy provably smaller than the source; when either side's channel count can't be read, leave it.
+        const copy = await probeBoxAudio(g.serverId, existing.boxFileId, existing.sizeBytes).catch(() => null);
+        if (srcChannels === null) srcChannels = (await probeBoxAudio(g.serverId, g.boxFileId, g.sizeBytes).catch(() => null))?.channels ?? null;
+        const full = !copy || copy.channels === null || srcChannels === null || copy.channels >= Math.min(srcChannels, 8);
+        if (full) {
           c.hasCopy++;
           continue;
         }
         replaceFileId = existing.boxFileId;
       }
       const verb = replaceFileId ? "redo at full size" : "remux";
-      const label = `${g.filename} (${src.codec} ${src.channels}ch)`;
+      const label = `${g.filename} (${codec})`;
       if (dryRun) {
         console.log(`[would ${verb}] ${label}`);
         c[replaceFileId ? "redone" : "remuxed"]++;
         continue;
       }
-      console.log(`[${verb}] ${label} -> aac ${channels}ch ...`);
+      console.log(`[${verb}] ${label} ...`);
       const started = Date.now();
-      await remuxGroup(ffmpeg, g, channels, replaceFileId);
+      await remuxGroup(ffmpeg, g, replaceFileId);
       console.log(`[done] ${variantFileName(g.filename)} (${Math.round((Date.now() - started) / 1000)}s)`);
       c[replaceFileId ? "redone" : "remuxed"]++;
     } catch (err) {

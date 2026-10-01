@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { Mp4DurationError, probeMp4, probeMp4Codecs, probeMp4DurationSeconds } from "./mp4-duration";
+import { Mp4DurationError, probeMp4, probeMp4AudioTrack, probeMp4Codecs, probeMp4DurationSeconds } from "./mp4-duration";
 
 // ── Minimal MP4 box builders ────────────────────────────────────────────
 // Just enough of the ISO BMFF box format to exercise the real parser
@@ -416,5 +416,37 @@ describe("probeMp4 codecs", () => {
     const bytes = [...FTYP, ...moov];
     const result = await probeMp4Codecs(fetcherFromSegments([{ offset: 0, bytes }]), bytes.length);
     expect(result).toEqual({ audioCodec: "ac-3", videoCodec: null, codecsProbed: true });
+  });
+
+  it("probeMp4AudioTrack reads the first audio track's codec and declared channel count", async () => {
+    // Audio sample entry: size, fourcc, reserved(6), dref(2), version/revision/vendor(8), channelcount(2), ...
+    const entry = [...u32be(36), ...fourcc("ac-3"), ...zeros(6), 0, 1, ...zeros(8), 0, 6, 0, 16, ...zeros(4)];
+    const audio = box("trak", [
+      ...tkhd(2),
+      ...box("mdia", [
+        ...mdhd(48000),
+        ...hdlr("soun"),
+        ...box("minf", box("stbl", box("stsd", [0, 0, 0, 0, ...u32be(1), ...entry]))),
+      ]),
+    ]);
+    const moov = box("moov", [...trakWithCodec(1, "vide", 1000, "avc1"), ...audio]);
+    const bytes = [...FTYP, ...moov];
+    const result = await probeMp4AudioTrack(fetcherFromSegments([{ offset: 0, bytes }]), bytes.length);
+    expect(result).toEqual({ audioCodec: "ac-3", channels: 6 });
+  });
+
+  it("probeMp4AudioTrack reports null channels when the entry is too short, and nulls with no audio", async () => {
+    const short = box("moov", [...trakWithCodec(1, "soun", 44100, "mp4a")]);
+    const b1 = [...FTYP, ...short];
+    expect(await probeMp4AudioTrack(fetcherFromSegments([{ offset: 0, bytes: b1 }]), b1.length)).toEqual({
+      audioCodec: "mp4a",
+      channels: null,
+    });
+    const none = box("moov", [...trakWithCodec(1, "vide", 1000, "avc1")]);
+    const b2 = [...FTYP, ...none];
+    expect(await probeMp4AudioTrack(fetcherFromSegments([{ offset: 0, bytes: b2 }]), b2.length)).toEqual({
+      audioCodec: null,
+      channels: null,
+    });
   });
 });
