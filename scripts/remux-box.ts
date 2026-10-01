@@ -58,6 +58,8 @@ type Group = {
   boxFileId: string;
   folderId: string;
   filename: string;
+  /** What the log calls this file: the filename, prefixed with the show's name for episodes. */
+  label: string;
   sizeBytes: number | null;
   primaryIds: string[];
   dbCodec: string | null;
@@ -74,6 +76,7 @@ async function loadGroups(): Promise<Group[]> {
     codecProbed: boolean;
     serverId: string;
     folderId: string;
+    label: string;
   }[] = [];
 
   const scope = (libraryId: typeof titles.libraryId, titleId: typeof titles.id) =>
@@ -100,7 +103,7 @@ async function loadGroups(): Promise<Group[]> {
       .where(
         and(eq(mediaFiles.ownerKind, "title"), isNull(mediaFiles.variantOfMediaFileId), eq(titles.kind, "movie"), scope(titles.libraryId, titles.id))
       );
-    rows.push(...movies);
+    rows.push(...movies.map((m) => ({ ...m, label: m.filename })));
   }
   if (only !== "movies") {
     const eps = await db
@@ -114,6 +117,7 @@ async function loadGroups(): Promise<Group[]> {
         serverId: libraries.serverId,
         episodeFolderId: episodes.boxFolderId,
         seasonFolderId: seasons.boxFolderId,
+        showName: titles.name,
       })
       .from(mediaFiles)
       .innerJoin(episodes, eq(mediaFiles.ownerId, episodes.id))
@@ -123,7 +127,13 @@ async function loadGroups(): Promise<Group[]> {
       .where(
         and(eq(mediaFiles.ownerKind, "episode"), isNull(mediaFiles.variantOfMediaFileId), scope(titles.libraryId, titles.id))
       );
-    rows.push(...eps.map(({ episodeFolderId, seasonFolderId, ...r }) => ({ ...r, folderId: episodeFolderId ?? seasonFolderId })));
+    rows.push(
+      ...eps.map(({ episodeFolderId, seasonFolderId, showName, ...r }) => ({
+        ...r,
+        folderId: episodeFolderId ?? seasonFolderId,
+        label: `${showName} — ${r.filename}`,
+      }))
+    );
   }
 
   // A combined multi-episode file has one row per episode but is one Box file.
@@ -138,6 +148,7 @@ async function loadGroups(): Promise<Group[]> {
         boxFileId: r.boxFileId,
         folderId: r.folderId,
         filename: r.filename,
+        label: r.label,
         sizeBytes: r.sizeBytes,
         primaryIds: [r.id],
         dbCodec: r.audioCodec,
@@ -291,7 +302,7 @@ async function main() {
         replaceFileId = existing.boxFileId;
       }
       const verb = replaceFileId ? "redo at full size" : "remux";
-      const label = `${g.filename} (${codec})`;
+      const label = `${g.label} (${codec})`;
       if (dryRun) {
         console.log(`[would ${verb}] ${label}`);
         c[replaceFileId ? "redone" : "remuxed"]++;
@@ -300,13 +311,13 @@ async function main() {
       console.log(`[${verb}] ${label} ...`);
       const started = Date.now();
       await remuxGroup(ffmpeg, g, replaceFileId);
-      console.log(`[done] ${variantFileName(g.filename)} (${Math.round((Date.now() - started) / 1000)}s)`);
+      console.log(`[done] ${g.label} -> ${variantFileName(g.filename)} (${Math.round((Date.now() - started) / 1000)}s)`);
       c[replaceFileId ? "redone" : "remuxed"]++;
     } catch (err) {
       c.failed++;
       const cause = (err as { cause?: { code?: string; message?: string } }).cause;
       console.error(
-        `[failed] ${g.filename}: ${(err as Error).message}${cause ? ` (${cause.code ?? ""} ${cause.message ?? ""})` : ""}`
+        `[failed] ${g.label}: ${(err as Error).message}${cause ? ` (${cause.code ?? ""} ${cause.message ?? ""})` : ""}`
       );
     }
   }
