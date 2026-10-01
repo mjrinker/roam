@@ -91,7 +91,20 @@ async function boxFetch(getToken, url, makeInit) {
   let token = await getToken(false);
   let refreshed = false;
   for (let attempt = 0; ; attempt++) {
-    const res = await fetch(url, makeInit(token));
+    let res;
+    try {
+      res = await fetch(url, makeInit(token));
+    } catch (err) {
+      // A dropped connection (typically a pooled keep-alive socket Box closed while ffmpeg ran) is
+      // transient: retry on a fresh one. After that, name the call — undici's bare "fetch failed" doesn't.
+      if (attempt < 3) {
+        await new Promise((r) => setTimeout(r, 1000 * 2 ** attempt));
+        continue;
+      }
+      const u = new URL(url);
+      err.message = `${err.message} [${makeInit(token).method ?? "GET"} ${u.host}${u.pathname}]`;
+      throw err;
+    }
     if (res.status === 401 && !refreshed) {
       refreshed = true;
       token = await getToken(true);

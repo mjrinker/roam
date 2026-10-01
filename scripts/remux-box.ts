@@ -200,6 +200,7 @@ async function remuxGroup(ffmpeg: string, g: Group, replaceFileId: string | null
     const input = join(dir, "input.mp4");
     const output = join(dir, "output.mp4");
     const { url } = await getFreshDownloadUrl(g.serverId, g.boxFileId);
+    console.log("   downloading ...");
     await downloadToFile(url, input);
     // The real layout, read from the local file (a sample entry's own count isn't reliable for AC-3).
     const local = await probeLocalAudio(ffmpeg, input);
@@ -214,6 +215,7 @@ async function remuxGroup(ffmpeg: string, g: Group, replaceFileId: string | null
       await runFfmpeg(ffmpeg, input, output, { timeoutMs: FFMPEG_TIMEOUT_MS });
     }
     await rm(input, { force: true });
+    console.log("   encoded; uploading ...");
 
     const name = variantFileName(g.filename);
     const getToken = tokenProvider(g.serverId);
@@ -290,7 +292,10 @@ async function main() {
       c[replaceFileId ? "redone" : "remuxed"]++;
     } catch (err) {
       c.failed++;
-      console.error(`[failed] ${g.filename}: ${(err as Error).message}`);
+      const cause = (err as { cause?: { code?: string; message?: string } }).cause;
+      console.error(
+        `[failed] ${g.filename}: ${(err as Error).message}${cause ? ` (${cause.code ?? ""} ${cause.message ?? ""})` : ""}`
+      );
     }
   }
   console.log(
