@@ -1,6 +1,6 @@
 import { BoxApiError, BoxClient, BoxDeveloperTokenAuth } from "box-node-sdk";
 import type { StorageEntry, StorageProvider, StreamingUrl } from "./provider";
-import { withBoxClient } from "./box-token-storage";
+import { ensureFreshAccessToken, withBoxClient } from "./box-token-storage";
 
 /**
  * Per-server Box access, authenticated as that server's own connected Box
@@ -79,6 +79,7 @@ async function mintDownloadUrl(serverId: string, fileId: string): Promise<Stream
     // streaming URL ever leaked, the blast radius is that one file, not
     // the server's whole connected Box account.
     const resource = `https://api.box.com/2.0/files/${fileId}`;
+    await ensureFreshAccessToken(client);
     const scopedToken = await client.auth.downscopeToken(["item_download"], resource);
     if (!scopedToken.accessToken) {
       throw new Error(`Box: failed to downscope token for file ${fileId}`);
@@ -124,6 +125,7 @@ export async function mintUploadToken(
 ): Promise<{ accessToken: string; expiresAt: Date }> {
   return withBoxClient(serverId, async (client) => {
     const resource = `https://api.box.com/2.0/folders/${folderId}`;
+    await ensureFreshAccessToken(client);
     const scopedToken = await client.auth.downscopeToken(["item_upload"], resource);
     if (!scopedToken.accessToken) {
       throw new Error(`Box: failed to downscope upload token for folder ${folderId}`);

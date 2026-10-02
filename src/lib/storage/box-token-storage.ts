@@ -142,6 +142,21 @@ function isBoxAuthError(err: unknown): boolean {
 
 const MAX_ATTEMPTS = 3;
 
+/** Refresh when the stored access token has less than this left. */
+const REFRESH_MARGIN_SECONDS = 120;
+
+/**
+ * The SDK only refreshes on a 401, but downscoping a token (what streaming
+ * URLs and upload tokens do) answers an expired access token with a 400
+ * "subject_token invalid", which never triggers that refresh — so when
+ * nothing else has called Box in the last hour, every downscope fails until
+ * something does. Call this before downscoping.
+ */
+export async function ensureFreshAccessToken(client: BoxClient): Promise<void> {
+  const token = await client.auth.retrieveToken();
+  if ((token.expiresIn ?? 0) < REFRESH_MARGIN_SECONDS) await client.auth.refreshToken();
+}
+
 /**
  * Runs `fn` against a Box client built fresh from this server's current
  * stored token. On an auth-shaped failure, retries with a freshly re-read

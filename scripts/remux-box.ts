@@ -34,7 +34,7 @@ import { variantFileName } from "@/lib/scan/conventions";
 import { probeFiles, upsertVariant } from "@/lib/scan/media-files";
 import { probeMp4AudioTrack } from "@/lib/scan/mp4-duration";
 import { createBoxProviderForServer, getFreshDownloadUrl } from "@/lib/storage/box";
-import { withBoxClient } from "@/lib/storage/box-token-storage";
+import { ensureFreshAccessToken, withBoxClient } from "@/lib/storage/box-token-storage";
 import { downloadToFile, runFfmpeg, uploadFile, type TokenProvider } from "@/lib/remux/remux-core.mjs";
 import { parseFirstAudioStream, type AudioStreamInfo } from "@/lib/remux/ffmpeg-probe";
 import { ensureFfmpeg } from "@/lib/remux/tier1";
@@ -198,6 +198,7 @@ function probeLocalAudio(ffmpeg: string, file: string): Promise<AudioStreamInfo 
 function tokenProvider(serverId: string): TokenProvider {
   return (force) =>
     withBoxClient(serverId, async (client) => {
+      if (!force) await ensureFreshAccessToken(client);
       const token = force ? await client.auth.refreshToken() : await client.auth.retrieveToken();
       if (!token.accessToken) throw new Error("Box returned no access token");
       return token.accessToken;
