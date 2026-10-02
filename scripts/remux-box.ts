@@ -52,6 +52,8 @@ const limit = Number(flag("--limit") ?? Infinity);
 const workRoot = flag("--tmp") ?? join(tmpdir(), "roam-remux-local");
 
 const FFMPEG_TIMEOUT_MS = 6 * 60 * 60_000;
+/** Header reads are small and independent; do this many at once while deciding what needs work. */
+const CLASSIFY_CONCURRENCY = 6;
 
 type Group = {
   serverId: string;
@@ -198,7 +200,7 @@ function probeLocalAudio(ffmpeg: string, file: string): Promise<AudioStreamInfo 
 function tokenProvider(serverId: string): TokenProvider {
   return (force) =>
     withBoxClient(serverId, async (client) => {
-      if (!force) await ensureFreshAccessToken(client);
+      if (!force) await ensureFreshAccessToken(client, serverId);
       const token = force ? await client.auth.refreshToken() : await client.auth.retrieveToken();
       if (!token.accessToken) throw new Error("Box returned no access token");
       return token.accessToken;
@@ -293,9 +295,18 @@ async function main() {
   console.log(`${dryRun ? "Dry run: " : ""}${groups.length} video file(s) in Roam to check`);
 
   const c = { checked: 0, remuxed: 0, redone: 0, ok: 0, hasCopy: 0, noAudio: 0, failed: 0 };
-  for (const g of groups) {
-    if (c.remuxed + c.redone >= limit) break;
-    c.checked++;
+
+  type Work = { g: Group; codec: string | null; replaceFileId: string | null };
+  const failWith = (g: Group, err: unknown) => {
+    c.failed++;
+    const cause = (err as { cause?: { code?: string; message?: string } }).cause;
+    console.error(
+      `[failed] ${g.label}: ${(err as Error).message}${cause ? ` (${cause.code ?? ""} ${cause.message ?? ""})` : ""}`
+    );
+  };
+
+  // Phase 1: decide, several files at a time, what actually needs work. Mostly header reads over Box range requests.
+  async function classify(g: Group): Promise<Work | null> {
     try {
       // Roam's own scan already read this file's codec; only an unprobed file needs a header read.
       let codec = g.codecProbed ? g.dbCodec : null;
@@ -304,14 +315,14 @@ async function main() {
         const track = await probeBoxAudio(g.serverId, g.boxFileId, g.sizeBytes);
         if (track.audioCodec === null) {
           c.noAudio++;
-          continue;
+          return null;
         }
         codec = track.audioCodec;
         srcChannels = track.channels;
       }
       if (isBrowserSafeAudioCodec(codec)) {
         c.ok++;
-        continue;
+        return null;
       }
       const existing = g.primaryIds.map((id) => variants.get(id)).find(Boolean) ?? null;
       let replaceFileId: string | null = null;
@@ -322,28 +333,57 @@ async function main() {
         const full = !copy || copy.channels === null || srcChannels === null || copy.channels >= Math.min(srcChannels, 8);
         if (full) {
           c.hasCopy++;
-          continue;
+          return null;
         }
         replaceFileId = existing.boxFileId;
       }
-      const verb = replaceFileId ? "redo at full size" : "remux";
-      const label = `${g.label} (${codec})`;
-      if (dryRun) {
-        console.log(`[would ${verb}] ${label}`);
-        c[replaceFileId ? "redone" : "remuxed"]++;
-        continue;
+      return { g, codec, replaceFileId };
+    } catch (err) {
+      failWith(g, err);
+      return null;
+    }
+  }
+
+  const queue: (Work | null)[] = new Array(groups.length).fill(null);
+  let next = 0;
+  let checkedSoFar = 0;
+  await Promise.all(
+    Array.from({ length: CLASSIFY_CONCURRENCY }, async () => {
+      for (;;) {
+        const i = next++;
+        if (i >= groups.length) return;
+        queue[i] = await classify(groups[i]);
+        c.checked++;
+        if (++checkedSoFar % 100 === 0 || checkedSoFar === groups.length) {
+          console.log(`[check] ${checkedSoFar}/${groups.length} checked`);
+        }
       }
+    })
+  );
+  const work = queue.filter((w): w is Work => w !== null);
+  console.log(`[check] done: ${work.length} file(s) need work`);
+
+  // Phase 2: one at a time (download, remux, upload).
+  let handled = 0;
+  for (const { g, codec, replaceFileId } of work) {
+    if (handled >= limit) break;
+    const verb = replaceFileId ? "redo at full size" : "remux";
+    const label = `${g.label} (${codec})`;
+    if (dryRun) {
+      console.log(`[would ${verb}] ${label}`);
+      c[replaceFileId ? "redone" : "remuxed"]++;
+      handled++;
+      continue;
+    }
+    try {
       console.log(`[${verb}] ${label} ...`);
       const started = Date.now();
       await remuxGroup(ffmpeg, g, replaceFileId, g.codecProbed ? null : codec);
       console.log(`[done] ${g.label} -> ${variantFileName(g.filename)} (${Math.round((Date.now() - started) / 1000)}s)`);
       c[replaceFileId ? "redone" : "remuxed"]++;
+      handled++;
     } catch (err) {
-      c.failed++;
-      const cause = (err as { cause?: { code?: string; message?: string } }).cause;
-      console.error(
-        `[failed] ${g.label}: ${(err as Error).message}${cause ? ` (${cause.code ?? ""} ${cause.message ?? ""})` : ""}`
-      );
+      failWith(g, err);
     }
   }
   console.log(

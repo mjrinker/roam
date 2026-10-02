@@ -152,9 +152,18 @@ const REFRESH_MARGIN_SECONDS = 120;
  * nothing else has called Box in the last hour, every downscope fails until
  * something does. Call this before downscoping.
  */
-export async function ensureFreshAccessToken(client: BoxClient): Promise<void> {
+const refreshesInFlight = new Map<string, Promise<unknown>>();
+
+export async function ensureFreshAccessToken(client: BoxClient, serverId: string): Promise<void> {
   const token = await client.auth.retrieveToken();
-  if ((token.expiresIn ?? 0) < REFRESH_MARGIN_SECONDS) await client.auth.refreshToken();
+  if ((token.expiresIn ?? 0) >= REFRESH_MARGIN_SECONDS) return;
+  // Box rotates the refresh token on every use, so concurrent callers in this process must share one refresh.
+  let refresh = refreshesInFlight.get(serverId);
+  if (!refresh) {
+    refresh = client.auth.refreshToken().finally(() => refreshesInFlight.delete(serverId));
+    refreshesInFlight.set(serverId, refresh);
+  }
+  await refresh;
 }
 
 /**
