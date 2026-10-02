@@ -5,6 +5,8 @@ import { getCurrentViewer } from "@/lib/auth/viewer";
 import { db } from "@/lib/db/client";
 import { viewers } from "@/lib/db/schema";
 import { canEditExtended, canEditProfile, canManageAccount } from "@/lib/content/roles";
+import { deleteOwnedUnsharedPlaylists, purgeOrphansForAccount, revokeCrossAccountShares } from "@/lib/playlists/lifecycle";
+import { retryOnContention } from "@/lib/playlists/retry";
 import { MULTIPLE_VIEWERS_ENABLED } from "@/lib/viewers/config";
 import { VIEWER_COOKIE } from "@/lib/viewers/cookie";
 import { hashPin, verifyPin } from "@/lib/viewers/pin";
@@ -68,14 +70,21 @@ export async function PATCH(request: Request, ctx: RouteContext<"/api/viewers/[i
   }
 
   const { pin, ...rest } = changes;
-  await db
-    .update(viewers)
-    .set({
-      ...rest,
-      ...(role !== undefined ? { role } : {}),
-      ...(pin === undefined ? {} : { pinHash: pin === null ? null : hashPin(pin), pinVersion: target.pinVersion + 1 }),
+  // Hiding a profile from the server also removes its access to playlists
+  // other accounts shared with it, in the same transaction as the change.
+  await retryOnContention(() =>
+    db.transaction(async (tx) => {
+      await tx
+        .update(viewers)
+        .set({
+          ...rest,
+          ...(role !== undefined ? { role } : {}),
+          ...(pin === undefined ? {} : { pinHash: pin === null ? null : hashPin(pin), pinVersion: target.pinVersion + 1 }),
+        })
+        .where(eq(viewers.id, id));
+      if (rest.visibleOnServer === false) await revokeCrossAccountShares(tx, id, target.accountId);
     })
-    .where(eq(viewers.id, id));
+  );
 
   // A PIN change invalidates that profile's existing selection cookie; if it's
   // the one just edited and currently selected, drop it so this device re-checks.
@@ -96,19 +105,26 @@ export async function DELETE(_request: Request, ctx: RouteContext<"/api/viewers/
     return NextResponse.json({ error: "Deleting profiles isn't available yet." }, { status: 403 });
   }
 
-  const deleted = await db.transaction(async (tx) => {
-    const mine = await tx
-      .select()
-      .from(viewers)
-      .where(eq(viewers.accountId, resolved.account.id))
-      .for("update");
-    const target = mine.find((v) => v.id === id);
-    if (!target) return "not_found" as const;
-    if (target.role === "owner") return "is_owner" as const;
-    if (mine.length <= 1) return "last" as const;
-    await tx.delete(viewers).where(eq(viewers.id, id));
-    return "ok" as const;
-  });
+  const deleted = await retryOnContention(() =>
+    db.transaction(async (tx) => {
+      const mine = await tx
+        .select()
+        .from(viewers)
+        .where(eq(viewers.accountId, resolved.account.id))
+        .for("update");
+      const target = mine.find((v) => v.id === id);
+      if (!target) return "not_found" as const;
+      if (target.role === "owner") return "is_owner" as const;
+      if (mine.length <= 1) return "last" as const;
+      // Playlists: delete this profile's never-shared private ones BEFORE the row goes
+      // (ON DELETE SET NULL would erase who owned them); shared and public ones become
+      // ownerless. Afterwards collect ownerless playlists whose last member was this profile.
+      await deleteOwnedUnsharedPlaylists(tx, id);
+      await tx.delete(viewers).where(eq(viewers.id, id));
+      await purgeOrphansForAccount(tx, resolved.account.id);
+      return "ok" as const;
+    })
+  );
 
   if (deleted === "not_found") return NextResponse.json({ error: "Not found" }, { status: 404 });
   if (deleted === "is_owner") return NextResponse.json({ error: "The account owner's profile can't be deleted." }, { status: 400 });

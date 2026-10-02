@@ -15,7 +15,7 @@ import { describe, expect, it } from "vitest";
 
 const APP_DIR = path.join(__dirname, "../../app");
 
-const ENFORCEMENT_IMPORTS = ["@/lib/content/access", "@/lib/auth/resolve-server"];
+const ENFORCEMENT_IMPORTS = ["@/lib/content/access", "@/lib/auth/resolve-server", "@/lib/playlists/items"];
 
 // path (relative to src/app) -> why it doesn't need to import the above.
 const ALLOWLIST: Record<string, string> = {

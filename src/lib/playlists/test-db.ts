@@ -27,13 +27,96 @@ export async function createTestDb(): Promise<{ db: TestDb; close: () => Promise
 
 let counter = 0;
 const uid = () => `00000000-0000-4000-8000-${String(++counter).padStart(12, "0")}`;
+const slug = () => `x${++counter}`;
 
-/** Inserts the minimum graph playlist tests need: a server, an account+viewer pair per name, and a library with titles. */
-export async function seedBasics(db: TestDb) {
-  const [owner] = await db
-    .insert(schema.profiles)
-    .values({ id: uid(), email: "owner@test.dev", displayName: "Owner" })
+/** An account (profiles row) with its default owner viewer, which reuses the account id like production. */
+export async function makeAccount(db: TestDb, name = "acct") {
+  const id = uid();
+  await db.insert(schema.profiles).values({ id, email: `${slug()}@test.dev`, displayName: name });
+  const [viewer] = await db
+    .insert(schema.viewers)
+    .values({ id, accountId: id, name, role: "owner" })
     .returning();
-  const [server] = await db.insert(schema.servers).values({ name: "Test", ownerId: owner.id } as never).returning();
-  return { owner, server };
+  return { accountId: id, viewer };
+}
+
+export async function makeViewer(db: TestDb, accountId: string, over: Partial<typeof schema.viewers.$inferInsert> = {}) {
+  const [viewer] = await db
+    .insert(schema.viewers)
+    .values({ accountId, name: slug(), role: "admin", ...over })
+    .returning();
+  return viewer;
+}
+
+export async function makeServer(db: TestDb, ownerAccountId: string) {
+  const [server] = await db.insert(schema.servers).values({ name: slug(), ownerId: ownerAccountId }).returning();
+  await db.insert(schema.serverMembers).values({ serverId: server.id, profileId: ownerAccountId, role: "admin" });
+  return server;
+}
+
+export async function joinServer(db: TestDb, serverId: string, accountId: string, role: "admin" | "viewer" = "viewer") {
+  await db.insert(schema.serverMembers).values({ serverId, profileId: accountId, role });
+}
+
+export async function makeLibrary(db: TestDb, serverId: string, kind: "movies" | "shows" | "audiobooks" = "movies") {
+  const [library] = await db.insert(schema.libraries).values({ serverId, name: slug(), kind, boxFolderId: slug() }).returning();
+  return library;
+}
+
+export async function makeTitle(
+  db: TestDb,
+  libraryId: string,
+  over: Partial<typeof schema.titles.$inferInsert> = {}
+) {
+  const [title] = await db
+    .insert(schema.titles)
+    .values({ libraryId, kind: "movie", name: slug(), boxFolderId: slug(), ...over })
+    .returning();
+  return title;
+}
+
+/** A show with `episodeCount` episodes in season 1. */
+export async function makeShow(db: TestDb, libraryId: string, episodeCount = 2, over: Partial<typeof schema.titles.$inferInsert> = {}) {
+  const show = await makeTitle(db, libraryId, { kind: "show", ...over });
+  const [season] = await db.insert(schema.seasons).values({ titleId: show.id, number: 1, boxFolderId: slug() }).returning();
+  const eps = [];
+  for (let n = 1; n <= episodeCount; n++) {
+    const [ep] = await db.insert(schema.episodes).values({ seasonId: season.id, number: n, name: `Ep ${n}` }).returning();
+    eps.push(ep);
+  }
+  return { show, season, episodes: eps };
+}
+
+export async function makePlaylist(
+  db: TestDb,
+  over: { serverId: string; ownerViewerId: string | null; visibility?: "private" | "server"; name?: string }
+) {
+  const [playlist] = await db
+    .insert(schema.playlists)
+    .values({ name: "list", visibility: "private", ...over })
+    .returning();
+  return playlist;
+}
+
+export async function addMember(
+  db: TestDb,
+  playlistId: string,
+  viewerId: string,
+  role: "editor" | "sharer" | "viewer" = "viewer",
+  grantedByViewerId: string | null = null
+) {
+  await db.insert(schema.playlistMembers).values({ playlistId, viewerId, role, grantedByViewerId });
+}
+
+export async function addItem(
+  db: TestDb,
+  playlistId: string,
+  target: { titleId: string } | { episodeId: string },
+  position = 1024
+) {
+  const [item] = await db
+    .insert(schema.playlistItems)
+    .values({ playlistId, position, ...("titleId" in target ? { titleId: target.titleId } : { episodeId: target.episodeId }) })
+    .returning();
+  return item;
 }
