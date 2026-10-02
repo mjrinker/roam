@@ -4,14 +4,42 @@
  * IN SQL, so items a profile may not watch are simply absent: pages, cursors
  * and counts never reveal them. Episode items are rated by their show.
  */
-import { and, asc, count, eq, gt, inArray, or, sql } from "drizzle-orm";
+import { and, asc, count, eq, exists, gt, inArray, or, sql, type SQL, type SQLWrapper } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import { contentFilter, type AccessProfile } from "@/lib/content/access";
-import { episodes, libraries, playlistItems, seasons, titles } from "@/lib/db/schema";
+import { episodes, libraries, mediaFiles, playlistItems, seasons, titles } from "@/lib/db/schema";
 import type { Executor } from "./executor";
 import { POSITION_GAP } from "./position";
 
 const showTitles = alias(titles, "show_titles");
+const candEpisodes = alias(episodes, "cand_episodes");
+const candSeasons = alias(seasons, "cand_seasons");
+
+/**
+ * SQL: does the show whose id is `showIdColumn` have at least one episode with a
+ * media file (i.e. something playable)? A show entry with none is shown disabled
+ * and skipped by "Play all". The show's own age rating is applied by the caller's
+ * item filter, since episodes inherit it.
+ */
+export function hasCandidateEpisodes(ex: Executor, showIdColumn: SQLWrapper): SQL {
+  return exists(
+    ex
+      .select({ one: candEpisodes.id })
+      .from(candEpisodes)
+      .innerJoin(candSeasons, eq(candSeasons.id, candEpisodes.seasonId))
+      .where(
+        and(
+          eq(candSeasons.titleId, sql`${showIdColumn}`),
+          exists(
+            ex
+              .select({ one: mediaFiles.id })
+              .from(mediaFiles)
+              .where(and(eq(mediaFiles.ownerKind, "episode"), eq(mediaFiles.ownerId, candEpisodes.id)))
+          )
+        )
+      )
+  );
+}
 
 // An item's title is the title itself, or the show an episode belongs to.
 const effectiveLibraryId = sql`coalesce(${titles.libraryId}, ${showTitles.libraryId})`;
@@ -31,6 +59,8 @@ export interface PlaylistItemView {
   episodeNumber: number | null;
   showName: string | null;
   showId: string | null;
+  /** False for a show entry with nothing playable (shown disabled, skipped by Play all). */
+  playable: boolean;
 }
 
 export interface ItemCursor {
@@ -65,6 +95,7 @@ export async function listVisibleItems(
       episodeName: episodes.name,
       showName: showTitles.name,
       showId: showTitles.id,
+      playable: sql<boolean>`(${playlistItems.episodeId} IS NOT NULL OR ${titles.kind} <> 'show' OR ${hasCandidateEpisodes(ex, titles.id)})`,
     })
     .from(playlistItems)
     .leftJoin(titles, eq(titles.id, playlistItems.titleId))
@@ -102,6 +133,7 @@ export async function listVisibleItems(
     episodeNumber: r.episodeNumber,
     showName: r.showName,
     showId: r.showId,
+    playable: Boolean(r.playable),
   }));
   const last = page[page.length - 1];
   return { items, nextCursor: rows.length > limit && last ? { position: last.position, id: last.id } : null };

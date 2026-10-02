@@ -4,6 +4,8 @@ import { db } from "@/lib/db/client";
 import { episodes, libraries, seasons, titles } from "@/lib/db/schema";
 import { requireServerMember } from "@/lib/auth/guards";
 import { isAllowed } from "@/lib/content/access";
+import { isUuid } from "@/lib/playlists/http";
+import { queueNext } from "@/lib/playlists/next";
 import { SeamlessPlayer } from "@/components/player/seamless-player";
 
 async function loadMovie(serverId: string, id: string) {
@@ -90,8 +92,10 @@ async function loadEpisode(serverId: string, id: string) {
 
 export default async function WatchPage({
   params,
+  searchParams,
 }: PageProps<"/s/[serverId]/watch/[ownerKind]/[ownerId]">) {
   const { serverId, ownerKind, ownerId } = await params;
+  const query = await searchParams;
   const { viewer } = await requireServerMember(serverId);
 
   if (ownerKind !== "title" && ownerKind !== "episode") notFound();
@@ -103,6 +107,28 @@ export default async function WatchPage({
   // A blocked title 404s exactly like a nonexistent one — see lib/content/access.
   if (!loaded || !isAllowed(viewer, loaded.ratingAges)) notFound();
 
+  // Opened from a playlist ("Play all", or a playlist row)? If the queue context is
+  // genuine, the end-card's next link follows the playlist instead of the show; if it
+  // isn't (stale, tampered, or not this item), the parameters are simply ignored.
+  let nextHref = loaded.nextHref;
+  let nextLabel = loaded.nextLabel;
+  const playlistId = typeof query.playlist === "string" ? query.playlist : null;
+  const itemId = typeof query.item === "string" ? query.item : null;
+  if (playlistId && itemId && isUuid(playlistId) && isUuid(itemId)) {
+    const queue = await queueNext(db, {
+      playlistId,
+      itemId,
+      viewerId: viewer.id,
+      titleId: ownerKind === "title" ? ownerId : undefined,
+      episodeId: ownerKind === "episode" ? ownerId : undefined,
+      replay: query.replay === "1",
+    });
+    if (queue.valid) {
+      nextHref = queue.next?.href;
+      nextLabel = queue.next?.label;
+    }
+  }
+
   return (
     <SeamlessPlayer
       ownerKind={ownerKind}
@@ -110,8 +136,8 @@ export default async function WatchPage({
       title={loaded.displayTitle}
       subtitle={loaded.subtitle}
       backHref={loaded.backHref}
-      nextHref={loaded.nextHref}
-      nextLabel={loaded.nextLabel}
+      nextHref={nextHref}
+      nextLabel={nextLabel}
     />
   );
 }

@@ -3,8 +3,10 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { eq } from "drizzle-orm";
 import { playlistItems, playlists, viewers } from "@/lib/db/schema";
 import { addItem, listItems, moveItem, removeItem } from "./item-service";
+import { listEditablePlaylistsForItem } from "./for-item";
 import { copyPlaylist, createPlaylist, deletePlaylist, getPlaylistDetail, listPlaylists, patchPlaylist } from "./service";
 import {
+  addEpisodeFile,
   addItem as seedItem,
   addMember,
   createTestDb,
@@ -355,5 +357,57 @@ describe("moveItem", () => {
     const foreignItem = await seedItem(db, other.id, { titleId: (await makeTitle(db, library.id, { ratingAges: { US: 0 } })).id });
     expect(await moveItem(db, { playlistId: p.id, viewerId: kid.id, itemId: blocked.id, afterItemId: null })).toMatchObject({ ok: false, status: 404 });
     expect(await moveItem(db, { playlistId: p.id, viewerId: kid.id, itemId: ok1.id, afterItemId: foreignItem.id })).toMatchObject({ ok: false, status: 404 });
+  });
+});
+
+describe("listVisibleItems playable flag and listEditablePlaylistsForItem", () => {
+  it("marks a show with nothing playable as not playable", async () => {
+    const { owner, server, library } = await world();
+    const p = await makePlaylist(db, { serverId: server.id, ownerViewerId: owner.viewer.id });
+    const { show: empty } = await makeShow(db, library.id, 1);
+    const { show: playable, episodes: [ep] } = await makeShow(db, library.id, 1);
+    await addEpisodeFile(db, ep.id);
+    await seedItem(db, p.id, { titleId: empty.id }, 1024);
+    await seedItem(db, p.id, { titleId: playable.id }, 2048);
+    await seedItem(db, p.id, { titleId: (await makeTitle(db, library.id)).id }, 3072);
+    const page = await listItems(db, { playlistId: p.id, viewerId: owner.viewer.id });
+    expect(page.ok && page.value.items.map((i) => i.playable)).toEqual([false, true, true]);
+  });
+
+  it("lists only playlists the viewer can edit, marking which already hold the item", async () => {
+    const { owner, server, library, guest } = await world();
+    const t = await makeTitle(db, library.id);
+    const mine = await makePlaylist(db, { serverId: server.id, ownerViewerId: guest.viewer.id, name: "mine" });
+    const asEditor = await makePlaylist(db, { serverId: server.id, ownerViewerId: owner.viewer.id, name: "editor" });
+    await addMember(db, asEditor.id, guest.viewer.id, "editor");
+    const asViewer = await makePlaylist(db, { serverId: server.id, ownerViewerId: owner.viewer.id, name: "viewer-only" });
+    await addMember(db, asViewer.id, guest.viewer.id, "viewer");
+    await makePlaylist(db, { serverId: server.id, ownerViewerId: owner.viewer.id, visibility: "server", name: "public" });
+    const orphan = await makePlaylist(db, { serverId: server.id, ownerViewerId: null, name: "orphan" });
+    await addMember(db, orphan.id, guest.viewer.id, "editor");
+    const held = await seedItem(db, mine.id, { titleId: t.id });
+
+    const r = await listEditablePlaylistsForItem(db, { serverId: server.id, viewerId: guest.viewer.id, titleId: t.id });
+    expect(r.ok && r.value.map((p) => p.name).sort()).toEqual(["editor", "mine"]);
+    expect(r.ok && r.value.find((p) => p.name === "mine")?.itemId).toBe(held.id);
+    expect(r.ok && r.value.find((p) => p.name === "editor")?.itemId).toBeNull();
+  });
+
+  it("is a 404 for a target the viewer can't add (blocked, other server, or no server membership)", async () => {
+    const { owner, server, library } = await world();
+    const kid = await makeViewer(db, owner.accountId, { role: "limited", maxAge: 12, allowUnrated: false });
+    const adult = await makeTitle(db, library.id, { ratingAges: { US: 17 } });
+    expect(await listEditablePlaylistsForItem(db, { serverId: server.id, viewerId: kid.id, titleId: adult.id })).toMatchObject({ ok: false, status: 404 });
+    const outsider = await makeAccount(db, "outsider");
+    expect(await listEditablePlaylistsForItem(db, { serverId: server.id, viewerId: outsider.viewer.id, titleId: adult.id })).toMatchObject({ ok: false, status: 404 });
+  });
+
+  it("works for episodes too", async () => {
+    const { owner, server, library } = await world();
+    const { episodes: [ep] } = await makeShow(db, library.id, 1);
+    const p = await makePlaylist(db, { serverId: server.id, ownerViewerId: owner.viewer.id });
+    const held = await seedItem(db, p.id, { episodeId: ep.id });
+    const r = await listEditablePlaylistsForItem(db, { serverId: server.id, viewerId: owner.viewer.id, episodeId: ep.id });
+    expect(r.ok && r.value[0]).toMatchObject({ id: p.id, itemId: held.id });
   });
 });

@@ -10,6 +10,7 @@ import { formatRemaining, formatRuntime } from "@/lib/format";
 import { Badge } from "@/components/ui/badge";
 import { AudibleMatchButton } from "@/components/admin/audible-match-dialog";
 import { TitleResyncButton } from "@/components/admin/title-resync-button";
+import { AddToPlaylistMenu } from "@/components/playlists/add-to-playlist-menu";
 import { BookChapters, BookPlayButton } from "@/components/audio/book-controls";
 import { Breadcrumbs } from "@/components/shell/breadcrumbs";
 
@@ -164,6 +165,9 @@ export default async function BookDetailPage({ params }: PageProps<"/s/[serverId
                 </span>
               </div>
             )}
+            <div className="flex flex-wrap justify-center gap-2 md:justify-start">
+              <AddToPlaylistMenu serverId={serverId} target={{ titleId: book.id }} />
+            </div>
             {role === "admin" && (
               <div className="flex flex-wrap justify-center gap-2 md:justify-start">
                 <AudibleMatchButton titleId={book.id} titleName={book.name} author={book.folderAuthor} />

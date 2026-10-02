@@ -14,6 +14,7 @@ import { TmdbMatchButton } from "@/components/admin/tmdb-match-button";
 import { FixAudioButton } from "@/components/admin/fix-audio-button";
 import { needsAudioFix } from "@/lib/scan/codec-support";
 import { DetailHero } from "@/components/library/detail-hero";
+import { AddToPlaylistMenu } from "@/components/playlists/add-to-playlist-menu";
 import { Breadcrumbs } from "@/components/shell/breadcrumbs";
 
 export default async function TitleDetailPage({
@@ -118,6 +119,7 @@ export default async function TitleDetailPage({
           </span>
         </div>
       )}
+      <AddToPlaylistMenu serverId={serverId} target={{ titleId: title.id }} />
       {role === "admin" && <TitleResyncButton titleId={title.id} titleName={title.name} />}
       {role === "admin" && <TmdbMatchButton titleId={title.id} titleName={title.name} kind="movie" />}
       {role === "admin" && needsAudioFix(segments) && <FixAudioButton titleId={title.id} titleName={title.name} />}

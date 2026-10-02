@@ -34,6 +34,7 @@ import * as nextRoute from "./[id]/next/route";
 import * as serverPlaylists from "../servers/[serverId]/playlists/route";
 import * as moderationRoute from "../servers/[serverId]/playlists/moderation/route";
 import * as pickerRoute from "../servers/[serverId]/viewers/route";
+import * as forItemRoute from "../servers/[serverId]/playlists/for-item/route";
 
 let db: import("@/lib/playlists/test-db").TestDb;
 beforeAll(() => {
@@ -213,8 +214,8 @@ describe("isolation", () => {
     const { owner, server } = await world();
     await signInAs(owner.accountId, owner.viewer.id);
     const p = await makePlaylist(db, { serverId: server.id, ownerViewerId: owner.viewer.id });
-    expect((await nextRoute.GET(req("GET"), ctx({ id: p.id }))).status).toBe(400);
     expect((await nextRoute.GET(req("GET", undefined, "http://x/api?after=zzz"), ctx({ id: p.id }))).status).toBe(400);
+    expect((await nextRoute.GET(req("GET", undefined, `http://x/api?episode=zzz`), ctx({ id: p.id }))).status).toBe(400);
   });
 });
 
@@ -251,5 +252,41 @@ describe("moderation and sharing limits", () => {
     expect((await playlistRoute.PATCH(req("PATCH", { name: "Nope" }), ctx({ id: p.id }))).status).toBe(403);
     expect((await membersRoute.PATCH(req("PATCH", { viewerId: friend.viewer.id, role: "editor" }), ctx({ id: p.id }))).status).toBe(403);
     expect((await membersRoute.DELETE(req("DELETE"), ctx({ id: p.id }))).status).toBe(200);
+  });
+});
+
+describe("for-item lookup and starting a queue", () => {
+  it("lists editable playlists for an item with their membership flag, and validates its parameters", async () => {
+    const { owner, server, library, friend } = await world();
+    const t = await makeTitle(db, library.id, { name: "Pick me" });
+    const holds = await makePlaylist(db, { serverId: server.id, ownerViewerId: owner.viewer.id, name: "holds it" });
+    const empty = await makePlaylist(db, { serverId: server.id, ownerViewerId: owner.viewer.id, name: "empty" });
+    await makePlaylist(db, { serverId: server.id, ownerViewerId: friend.viewer.id, name: "not mine" });
+    const item = await addItem(db, holds.id, { titleId: t.id });
+    await signInAs(owner.accountId, owner.viewer.id);
+
+    const c = ctx({ serverId: server.id });
+    const res = await body(await forItemRoute.GET(req("GET", undefined, `http://x/api?titleId=${t.id}`), c));
+    const byName = Object.fromEntries(res.playlists.map((p: { name: string; itemId: string | null }) => [p.name, p.itemId]));
+    expect(byName).toEqual({ "holds it": item.id, empty: null });
+    expect(empty.id).toBeTruthy();
+
+    expect((await forItemRoute.GET(req("GET"), c)).status).toBe(400); // neither id
+    expect((await forItemRoute.GET(req("GET", undefined, `http://x/api?titleId=${t.id}&episodeId=${t.id}`), c)).status).toBe(400); // both
+    expect((await forItemRoute.GET(req("GET", undefined, "http://x/api?titleId=nope"), c)).status).toBe(400);
+    const missing = "http://x/api?titleId=00000000-0000-4000-8000-0000000000ef";
+    expect((await forItemRoute.GET(req("GET", undefined, missing), c)).status).toBe(404);
+  });
+
+  it("returns the first playable item when `after` is omitted", async () => {
+    const { owner, server, library } = await world();
+    const p = await makePlaylist(db, { serverId: server.id, ownerViewerId: owner.viewer.id });
+    const m = await makeTitle(db, library.id);
+    const first = await addItem(db, p.id, { titleId: m.id });
+    await signInAs(owner.accountId, owner.viewer.id);
+    const res = await body(await nextRoute.GET(req("GET"), ctx({ id: p.id })));
+    expect(res.next).toMatchObject({ kind: "movie", id: m.id, itemId: first.id });
+    const empty = await makePlaylist(db, { serverId: server.id, ownerViewerId: owner.viewer.id });
+    expect(await body(await nextRoute.GET(req("GET"), ctx({ id: empty.id })))).toEqual({ next: null });
   });
 });

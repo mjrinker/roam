@@ -5,6 +5,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { Check, Loader2, Play, Tv } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { AddToPlaylistMenu } from "@/components/playlists/add-to-playlist-menu";
 
 export interface EpisodeRowData {
   id: string;
@@ -90,15 +91,22 @@ function EpisodeRow({ ep, serverId }: { ep: EpisodeRowData; serverId: string }) 
 
   const classes =
     "group/ep flex gap-4 rounded-xl p-2.5 transition-colors sm:gap-5";
-  return ep.ready ? (
-    <Link
-      href={`/s/${serverId}/watch/episode/${ep.id}`}
-      className={cn(classes, "hover:bg-white/[0.05]")}
-    >
-      {body}
-    </Link>
-  ) : (
-    <div className={cn(classes, "opacity-70")}>{body}</div>
+  return (
+    <div className="relative">
+      {ep.ready ? (
+        <Link
+          href={`/s/${serverId}/watch/episode/${ep.id}`}
+          className={cn(classes, "pr-12 hover:bg-white/[0.05]")}
+        >
+          {body}
+        </Link>
+      ) : (
+        <div className={cn(classes, "pr-12 opacity-70")}>{body}</div>
+      )}
+      <div className="absolute top-2 right-2">
+        <AddToPlaylistMenu serverId={serverId} target={{ episodeId: ep.id }} variant="icon" />
+      </div>
+    </div>
   );
 }
 

@@ -11,13 +11,11 @@ import { contentFilter } from "@/lib/content/access";
 import { episodes, libraries, mediaFiles, playlistItems, seasons, titles, watchState } from "@/lib/db/schema";
 import { loadContext } from "./context";
 import type { Executor } from "./executor";
-import { findVisibleItem } from "./items";
+import { findVisibleItem, hasCandidateEpisodes } from "./items";
 import { nextEpisodeAfter, pickStartEpisode, type EpisodeCandidate } from "./next-episode";
 import { NOT_FOUND, ok, type Result } from "./results";
 
 const showTitles = alias(titles, "show_titles");
-const candEpisodes = alias(episodes, "cand_episodes");
-const candSeasons = alias(seasons, "cand_seasons");
 
 export interface NextTarget {
   /** The playlist item this target belongs to. */
@@ -72,13 +70,14 @@ export async function candidateEpisodes(ex: Executor, args: { showId: string; vi
 }
 
 /**
- * The target after `afterItemId`. `currentEpisodeId` (with `replay`) is the
- * episode just watched when the finished item is a show entry. Ok(null) means
- * the queue is over; NOT_FOUND means the playlist or item isn't available.
+ * The target after `afterItemId` — or the FIRST playable item when it is omitted
+ * ("Play all"). `currentEpisodeId` (with `replay`) is the episode just watched
+ * when the finished item is a show entry. Ok(null) means the queue is over (or
+ * empty); NOT_FOUND means the playlist or item isn't available.
  */
 export async function nextAfter(
   ex: Executor,
-  args: { playlistId: string; viewerId: string; afterItemId: string; currentEpisodeId?: string; replay?: boolean }
+  args: { playlistId: string; viewerId: string; afterItemId?: string; currentEpisodeId?: string; replay?: boolean }
 ): Promise<Result<NextTarget | null>> {
   const ctx = await loadContext(ex, args);
   if (!ctx) return NOT_FOUND;
@@ -87,8 +86,10 @@ export async function nextAfter(
   const base = `/s/${serverId}`;
   const replayIn = args.replay === true;
 
-  const after = await findVisibleItem(ex, { playlistId: playlist.id, itemId: args.afterItemId, serverId, viewer: access });
-  if (!after) return NOT_FOUND;
+  const after = args.afterItemId
+    ? await findVisibleItem(ex, { playlistId: playlist.id, itemId: args.afterItemId, serverId, viewer: access })
+    : null;
+  if (args.afterItemId && !after) return NOT_FOUND;
 
   const episodeTarget = (itemId: string, episodeId: string, replay: boolean): NextTarget => ({
     itemId,
@@ -99,35 +100,21 @@ export async function nextAfter(
   });
 
   // 1) Still inside a show entry? Step to its next episode.
-  const [afterRow] = await ex
-    .select({ titleId: playlistItems.titleId, titleKind: titles.kind })
-    .from(playlistItems)
-    .leftJoin(titles, eq(titles.id, playlistItems.titleId))
-    .where(eq(playlistItems.id, after.id));
-  if (afterRow?.titleKind === "show" && afterRow.titleId && args.currentEpisodeId) {
+  const [afterRow] = after
+    ? await ex
+        .select({ titleId: playlistItems.titleId, titleKind: titles.kind })
+        .from(playlistItems)
+        .leftJoin(titles, eq(titles.id, playlistItems.titleId))
+        .where(eq(playlistItems.id, after.id))
+    : [];
+  if (after && afterRow?.titleKind === "show" && afterRow.titleId && args.currentEpisodeId) {
     const candidates = await candidateEpisodes(ex, { showId: afterRow.titleId, viewerId: ctx.viewer.id });
     const nextEpisodeId = nextEpisodeAfter(candidates, args.currentEpisodeId, replayIn);
     if (nextEpisodeId) return ok(episodeTarget(after.id, nextEpisodeId, replayIn));
   }
 
   // 2) The next playable item the viewer can see, in one query.
-  const hasCandidates = exists(
-    ex
-      .select({ one: candEpisodes.id })
-      .from(candEpisodes)
-      .innerJoin(candSeasons, eq(candSeasons.id, candEpisodes.seasonId))
-      .where(
-        and(
-          eq(candSeasons.titleId, titles.id),
-          exists(
-            ex
-              .select({ one: mediaFiles.id })
-              .from(mediaFiles)
-              .where(and(eq(mediaFiles.ownerKind, "episode"), eq(mediaFiles.ownerId, candEpisodes.id)))
-          )
-        )
-      )
-  );
+  const hasCandidates = hasCandidateEpisodes(ex, titles.id);
   const [next] = await ex
     .select({
       id: playlistItems.id,
@@ -146,10 +133,12 @@ export async function nextAfter(
         eq(playlistItems.playlistId, playlist.id),
         eq(libraries.serverId, serverId),
         contentFilter(access, sql`coalesce(${titles.ratingAges}, ${showTitles.ratingAges})`),
-        or(
-          gt(playlistItems.position, after.position),
-          and(eq(playlistItems.position, after.position), gt(playlistItems.id, after.id))
-        ),
+        after
+          ? or(
+              gt(playlistItems.position, after.position),
+              and(eq(playlistItems.position, after.position), gt(playlistItems.id, after.id))
+            )
+          : undefined,
         // A show entry with nothing playable is skipped; everything else is one stop.
         or(sql`${playlistItems.episodeId} IS NOT NULL`, ne(titles.kind, "show"), hasCandidates)
       )
@@ -182,4 +171,65 @@ export async function nextAfter(
     });
   }
   return ok(null);
+}
+
+export type QueueNext =
+  | { valid: false }
+  | { valid: true; next: { href: string; label: string } | null };
+
+/**
+ * For a watch/book page opened with `?playlist=&item=` (&replay=1): checks the
+ * queue context is genuine — the viewer can view the playlist, the item is still
+ * in it and visible to them, and the thing being played IS that item (or an
+ * episode of the show it names) — and, if so, what comes next. `valid: false`
+ * means "ignore the parameters and behave normally"; `valid: true, next: null`
+ * means the queue is over, so no next link at all.
+ */
+export async function queueNext(
+  ex: Executor,
+  args: { playlistId: string; itemId: string; viewerId: string; titleId?: string; episodeId?: string; replay?: boolean }
+): Promise<QueueNext> {
+  const ctx = await loadContext(ex, { playlistId: args.playlistId, viewerId: args.viewerId });
+  if (!ctx) return { valid: false };
+  const visible = await findVisibleItem(ex, {
+    playlistId: ctx.playlist.id,
+    itemId: args.itemId,
+    serverId: ctx.playlist.serverId,
+    viewer: ctx.access,
+  });
+  if (!visible) return { valid: false };
+
+  const [item] = await ex
+    .select({ titleId: playlistItems.titleId, episodeId: playlistItems.episodeId, titleKind: titles.kind })
+    .from(playlistItems)
+    .leftJoin(titles, eq(titles.id, playlistItems.titleId))
+    .where(eq(playlistItems.id, args.itemId));
+  if (!item) return { valid: false };
+
+  let matches = false;
+  if (item.episodeId) {
+    matches = args.episodeId === item.episodeId;
+  } else if (item.titleId && item.titleKind === "show") {
+    if (args.episodeId) {
+      const [ep] = await ex
+        .select({ id: episodes.id })
+        .from(episodes)
+        .innerJoin(seasons, eq(seasons.id, episodes.seasonId))
+        .where(and(eq(episodes.id, args.episodeId), eq(seasons.titleId, item.titleId)));
+      matches = Boolean(ep);
+    }
+  } else if (item.titleId) {
+    matches = args.titleId === item.titleId;
+  }
+  if (!matches) return { valid: false };
+
+  const next = await nextAfter(ex, {
+    playlistId: ctx.playlist.id,
+    viewerId: args.viewerId,
+    afterItemId: args.itemId,
+    currentEpisodeId: item.titleKind === "show" ? args.episodeId : undefined,
+    replay: args.replay,
+  });
+  if (!next.ok || !next.value) return { valid: true, next: null };
+  return { valid: true, next: { href: next.value.href, label: "Next in playlist" } };
 }

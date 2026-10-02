@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Clapperboard, Film, Headphones, House, Settings, Tv, X } from "lucide-react";
+import { Clapperboard, Film, Headphones, House, ListVideo, Settings, Tv, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { ServerSwitcher } from "@/components/nav/server-switcher";
 import { BrandLogo } from "@/components/shell/brand";
@@ -119,6 +119,14 @@ export function AppSidebar({
         <nav className="flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto">
           <NavLink href={home} icon={House} active={pathname === home} onNavigate={close}>
             Home
+          </NavLink>
+          <NavLink
+            href={`/s/${serverId}/playlists`}
+            icon={ListVideo}
+            active={pathname.startsWith(`/s/${serverId}/playlists`)}
+            onNavigate={close}
+          >
+            Playlists
           </NavLink>
 
           <p className="mt-5 mb-1 px-3 text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground/70">
