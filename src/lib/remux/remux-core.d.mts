@@ -22,4 +22,5 @@ export function uploadFile(args: {
   name: string;
   filePath: string;
   replaceFileId?: string;
+  onProgress?: (p: { part: number; parts: number; uploadedBytes: number; size: number }) => void;
 }): Promise<UploadResult>;

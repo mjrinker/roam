@@ -184,7 +184,7 @@ async function uploadSimple({ getToken, folderId, name, filePath, replaceFileId 
   return { id: entry.id, name: entry.name, size: entry.size };
 }
 
-async function uploadChunked({ getToken, folderId, name, filePath, size, replaceFileId }) {
+async function uploadChunked({ getToken, folderId, name, filePath, size, replaceFileId, onProgress }) {
   const sessionUrl = replaceFileId
     ? `https://upload.box.com/api/2.0/files/${replaceFileId}/upload_sessions`
     : "https://upload.box.com/api/2.0/files/upload_sessions";
@@ -230,6 +230,7 @@ async function uploadChunked({ getToken, folderId, name, filePath, size, replace
       }));
       if (!partRes.ok) throw await errorFrom(partRes, "part upload");
       parts.push((await partRes.json()).part);
+      onProgress?.({ part: parts.length, parts: Math.ceil(size / partSize), uploadedBytes: offset + length, size });
     }
   } finally {
     await handle.close();
@@ -267,9 +268,9 @@ async function uploadChunked({ getToken, folderId, name, filePath, size, replace
  * With `replaceFileId`, uploads a new VERSION of that existing file instead
  * (same Box file id, so anything keyed on it keeps working).
  */
-export async function uploadFile({ getToken, folderId, name, filePath, replaceFileId }) {
+export async function uploadFile({ getToken, folderId, name, filePath, replaceFileId, onProgress }) {
   const { size } = await stat(filePath);
   return size >= CHUNKED_UPLOAD_MIN_BYTES
-    ? uploadChunked({ getToken, folderId, name, filePath, size, replaceFileId })
+    ? uploadChunked({ getToken, folderId, name, filePath, size, replaceFileId, onProgress })
     : uploadSimple({ getToken, folderId, name, filePath, replaceFileId });
 }

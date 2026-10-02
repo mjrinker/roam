@@ -234,7 +234,15 @@ async function remuxGroup(ffmpeg: string, g: Group, replaceFileId: string | null
     const upload = async (replace: string | null) => {
       for (let attempt = 1; ; attempt++) {
         try {
-          return await uploadFile({ getToken, folderId: g.folderId, name, filePath: output, replaceFileId: replace ?? undefined });
+          return await uploadFile({
+            getToken,
+            folderId: g.folderId,
+            name,
+            filePath: output,
+            replaceFileId: replace ?? undefined,
+            onProgress: ({ part, parts, uploadedBytes, size }) =>
+              console.log(`   part ${part}/${parts} (${Math.round((uploadedBytes / size) * 100)}%)`),
+          });
         } catch (err) {
           if (attempt >= 3) throw err;
           console.warn(`   upload attempt ${attempt} failed (${(err as Error).message}); retrying in 30s`);
