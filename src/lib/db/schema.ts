@@ -12,9 +12,10 @@ import {
   pgEnum,
   uniqueIndex,
   index,
+  check,
   type AnyPgColumn,
 } from "drizzle-orm/pg-core";
-import { relations } from "drizzle-orm";
+import { relations, sql } from "drizzle-orm";
 
 // ── Enums ────────────────────────────────────────────────────────────────
 
@@ -544,6 +545,83 @@ export const scanRuns = pgTable("scan_runs", {
   titlesAdded: integer("titles_added").notNull().default(0),
   errors: jsonb("errors").$type<string[]>().default([]),
 });
+
+// ── playlists ────────────────────────────────────────────────────────────
+// A playlist lives on ONE server and is owned by a viewer (profile). Shares
+// point at specific viewers; `visibility = 'server'` makes it readable by every
+// member of that server. See lib/playlists for the permission rules.
+
+export const playlistVisibilityEnum = pgEnum("playlist_visibility", ["private", "server"]);
+export const playlistRoleEnum = pgEnum("playlist_role", ["editor", "sharer", "viewer"]);
+
+export const playlists = pgTable(
+  "playlists",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    serverId: uuid("server_id")
+      .notNull()
+      .references(() => servers.id, { onDelete: "cascade" }),
+    // Null once the owner's profile is deleted: the playlist (if it was
+    // shared) stays, view-only for everyone.
+    ownerViewerId: uuid("owner_viewer_id").references(() => viewers.id, { onDelete: "set null" }),
+    name: text("name").notNull(),
+    description: text("description"),
+    visibility: playlistVisibilityEnum("visibility").notNull().default("private"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("playlists_server_idx").on(t.serverId), index("playlists_owner_idx").on(t.ownerViewerId)]
+);
+
+export const playlistItems = pgTable(
+  "playlist_items",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    playlistId: uuid("playlist_id")
+      .notNull()
+      .references(() => playlists.id, { onDelete: "cascade" }),
+    // Exactly one of these is set. Real foreign keys, so removing a title or
+    // episode from Roam removes it from every playlist.
+    titleId: uuid("title_id").references(() => titles.id, { onDelete: "cascade" }),
+    episodeId: uuid("episode_id").references(() => episodes.id, { onDelete: "cascade" }),
+    // Gaps of 1024 between rows so a move rarely needs a renumber; bigint so
+    // renumbering and appends can never overflow.
+    position: bigint("position", { mode: "number" }).notNull(),
+    addedByViewerId: uuid("added_by_viewer_id").references(() => viewers.id, { onDelete: "set null" }),
+    addedAt: timestamp("added_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    check("playlist_items_one_target", sql`num_nonnulls(${t.titleId}, ${t.episodeId}) = 1`),
+    uniqueIndex("playlist_items_playlist_title_idx").on(t.playlistId, t.titleId).where(sql`${t.titleId} IS NOT NULL`),
+    uniqueIndex("playlist_items_playlist_episode_idx")
+      .on(t.playlistId, t.episodeId)
+      .where(sql`${t.episodeId} IS NOT NULL`),
+    index("playlist_items_title_idx").on(t.titleId),
+    index("playlist_items_episode_idx").on(t.episodeId),
+    index("playlist_items_order_idx").on(t.playlistId, t.position, t.id),
+  ]
+);
+
+export const playlistMembers = pgTable(
+  "playlist_members",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    playlistId: uuid("playlist_id")
+      .notNull()
+      .references(() => playlists.id, { onDelete: "cascade" }),
+    viewerId: uuid("viewer_id")
+      .notNull()
+      .references(() => viewers.id, { onDelete: "cascade" }),
+    role: playlistRoleEnum("role").notNull(),
+    grantedByViewerId: uuid("granted_by_viewer_id").references(() => viewers.id, { onDelete: "set null" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("playlist_members_playlist_viewer_idx").on(t.playlistId, t.viewerId),
+    index("playlist_members_viewer_idx").on(t.viewerId),
+  ]
+);
 
 // ── relations ────────────────────────────────────────────────────────────
 
