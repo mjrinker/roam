@@ -262,22 +262,39 @@ export interface ModerationRow {
   createdAt: Date;
 }
 
-/** Server admins only: the server's PUBLIC playlists (the only ones an admin may delete). */
+/** Server admins only: one page of the server's PUBLIC playlists (the only ones an admin may delete). */
 export async function listPublicForAdmin(
   ex: Executor,
-  args: { serverId: string; viewerId: string }
-): Promise<Result<ModerationRow[]>> {
+  args: { serverId: string; viewerId: string; limit?: number; after?: { name: string; id: string } | null }
+): Promise<Result<{ playlists: ModerationRow[]; nextCursor: { name: string; id: string } | null }>> {
   const membership = await serverMembershipOf(ex, args.viewerId, args.serverId);
   const [me] = await ex.select().from(viewers).where(eq(viewers.id, args.viewerId));
   if (!membership || !me || membership.role !== "admin" || me.role === "limited") return NOT_FOUND;
+  const limit = Math.min(Math.max(args.limit ?? 50, 1), 100);
   const rows = await ex
     .select({ p: playlists, v: viewers })
     .from(playlists)
     .leftJoin(viewers, eq(viewers.id, playlists.ownerViewerId))
-    .where(and(eq(playlists.serverId, args.serverId), eq(playlists.visibility, "server")))
+    .where(
+      and(
+        eq(playlists.serverId, args.serverId),
+        eq(playlists.visibility, "server"),
+        args.after
+          ? or(gt(playlists.name, args.after.name), and(eq(playlists.name, args.after.name), gt(playlists.id, args.after.id)))
+          : undefined
+      )
+    )
     .orderBy(asc(playlists.name), asc(playlists.id))
-    .limit(500);
-  return ok(
-    rows.map((r) => ({ id: r.p.id, name: r.p.name, owner: r.v ? maskViewer(r.v, me.accountId) : null, createdAt: r.p.createdAt }))
-  );
+    .limit(limit + 1);
+  const page = rows.slice(0, limit);
+  const last = page[page.length - 1];
+  return ok({
+    playlists: page.map((r) => ({
+      id: r.p.id,
+      name: r.p.name,
+      owner: r.v ? maskViewer(r.v, me.accountId) : null,
+      createdAt: r.p.createdAt,
+    })),
+    nextCursor: rows.length > limit && last ? { name: last.p.name, id: last.p.id } : null,
+  });
 }

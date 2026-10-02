@@ -307,9 +307,19 @@ describe("listPublicForAdmin", () => {
     await makePlaylist(db, { serverId: server.id, ownerViewerId: friend.viewer.id, visibility: "server", name: "Public one" });
     await makePlaylist(db, { serverId: server.id, ownerViewerId: friend.viewer.id, name: "Private one" });
     const asAdmin = await listPublicForAdmin(db, { serverId: server.id, viewerId: owner.viewer.id });
-    expect(asAdmin.ok && asAdmin.value.map((p) => p.name)).toEqual(["Public one"]);
+    expect(asAdmin.ok && asAdmin.value.playlists.map((p) => p.name)).toEqual(["Public one"]);
     expect(await listPublicForAdmin(db, { serverId: server.id, viewerId: friend.viewer.id })).toMatchObject({ ok: false, status: 404 });
     const limitedAdmin = await makeViewer(db, owner.accountId, { role: "limited" });
     expect(await listPublicForAdmin(db, { serverId: server.id, viewerId: limitedAdmin.id })).toMatchObject({ ok: false, status: 404 });
+  });
+
+  it("paginates with a cursor", async () => {
+    const { owner, server, friend } = await world();
+    for (const name of ["a", "b", "c"]) await makePlaylist(db, { serverId: server.id, ownerViewerId: friend.viewer.id, visibility: "server", name });
+    const first = await listPublicForAdmin(db, { serverId: server.id, viewerId: owner.viewer.id, limit: 2 });
+    expect(first.ok && first.value.playlists.map((p) => p.name)).toEqual(["a", "b"]);
+    const second = await listPublicForAdmin(db, { serverId: server.id, viewerId: owner.viewer.id, limit: 2, after: first.ok ? first.value.nextCursor : null });
+    expect(second.ok && second.value.playlists.map((p) => p.name)).toEqual(["c"]);
+    expect(second.ok && second.value.nextCursor).toBeNull();
   });
 });
