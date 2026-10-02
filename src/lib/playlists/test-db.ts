@@ -120,3 +120,23 @@ export async function addItem(
     .returning();
   return item;
 }
+
+export async function addEpisodeFile(db: TestDb, episodeId: string) {
+  await db.insert(schema.mediaFiles).values({ ownerKind: "episode", ownerId: episodeId, boxFileId: slug(), filename: `${slug()}.mp4` });
+}
+
+export async function setProgress(
+  db: TestDb,
+  viewerId: string,
+  episodeId: string,
+  state: { finished?: boolean; positionSeconds?: number; updatedAt?: Date }
+) {
+  await db.insert(schema.watchState).values({
+    viewerId,
+    ownerKind: "episode",
+    ownerId: episodeId,
+    finished: state.finished ?? false,
+    positionSeconds: state.positionSeconds ?? 0,
+    ...(state.updatedAt ? { updatedAt: state.updatedAt } : {}),
+  });
+}

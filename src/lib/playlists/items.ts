@@ -9,6 +9,7 @@ import { alias } from "drizzle-orm/pg-core";
 import { contentFilter, type AccessProfile } from "@/lib/content/access";
 import { episodes, libraries, playlistItems, seasons, titles } from "@/lib/db/schema";
 import type { Executor } from "./executor";
+import { POSITION_GAP } from "./position";
 
 const showTitles = alias(titles, "show_titles");
 
@@ -131,4 +132,105 @@ export async function countVisibleItems(
     .groupBy(playlistItems.playlistId);
   for (const r of rows) counts.set(r.playlistId, Number(r.n));
   return counts;
+}
+
+export type AddableTarget = { titleId: string } | { episodeId: string };
+
+/**
+ * Resolves what a viewer is trying to add: the title or episode must exist in a
+ * library of THIS server and pass the viewer's age restrictions (episodes are
+ * rated by their show). Null for anything else — callers answer 404.
+ */
+export async function findAddableTarget(
+  ex: Executor,
+  args: { serverId: string; viewer: AccessProfile; titleId?: string; episodeId?: string }
+): Promise<AddableTarget | null> {
+  if (args.titleId) {
+    const [row] = await ex
+      .select({ id: titles.id })
+      .from(titles)
+      .innerJoin(libraries, eq(libraries.id, titles.libraryId))
+      .where(and(eq(titles.id, args.titleId), eq(libraries.serverId, args.serverId), contentFilter(args.viewer, titles.ratingAges)));
+    return row ? { titleId: row.id } : null;
+  }
+  if (args.episodeId) {
+    const [row] = await ex
+      .select({ id: episodes.id })
+      .from(episodes)
+      .innerJoin(seasons, eq(seasons.id, episodes.seasonId))
+      .innerJoin(showTitles, eq(showTitles.id, seasons.titleId))
+      .innerJoin(libraries, eq(libraries.id, showTitles.libraryId))
+      .where(
+        and(eq(episodes.id, args.episodeId), eq(libraries.serverId, args.serverId), contentFilter(args.viewer, showTitles.ratingAges))
+      );
+    return row ? { episodeId: row.id } : null;
+  }
+  return null;
+}
+
+/** An item the viewer may see (in this playlist, on this server, passing their restrictions), or null. */
+export async function findVisibleItem(
+  ex: Executor,
+  args: { playlistId: string; itemId: string; serverId: string; viewer: AccessProfile }
+): Promise<{ id: string; position: number } | null> {
+  const [row] = await ex
+    .select({ id: playlistItems.id, position: playlistItems.position })
+    .from(playlistItems)
+    .leftJoin(titles, eq(titles.id, playlistItems.titleId))
+    .leftJoin(episodes, eq(episodes.id, playlistItems.episodeId))
+    .leftJoin(seasons, eq(seasons.id, episodes.seasonId))
+    .leftJoin(showTitles, eq(showTitles.id, seasons.titleId))
+    .innerJoin(libraries, eq(libraries.id, effectiveLibraryId))
+    .where(
+      and(
+        eq(playlistItems.id, args.itemId),
+        eq(playlistItems.playlistId, args.playlistId),
+        eq(libraries.serverId, args.serverId),
+        contentFilter(args.viewer, effectiveRatingAges)
+      )
+    );
+  return row ?? null;
+}
+
+/**
+ * Copies, in ONE statement, the items of `sourcePlaylistId` that THIS viewer may
+ * see into `targetPlaylistId`, renumbering positions 1024, 2048, ... in source
+ * order (the window function runs after the restriction filter, so there are no
+ * gaps). Returns the number of items copied.
+ */
+export async function copyVisibleItems(
+  ex: Executor,
+  args: { sourcePlaylistId: string; targetPlaylistId: string; serverId: string; viewer: AccessProfile; copierViewerId: string }
+): Promise<number> {
+  const rows = await ex
+    .insert(playlistItems)
+    .select(
+      ex
+        .select({
+          id: sql<string>`gen_random_uuid()`.as("id"),
+          playlistId: sql<string>`${args.targetPlaylistId}::uuid`.as("playlist_id"),
+          titleId: playlistItems.titleId,
+          episodeId: playlistItems.episodeId,
+          position: sql<number>`(row_number() over (order by ${playlistItems.position}, ${playlistItems.id})) * ${POSITION_GAP}`.as(
+            "position"
+          ),
+          addedByViewerId: sql<string>`${args.copierViewerId}::uuid`.as("added_by_viewer_id"),
+          addedAt: sql<Date>`now()`.as("added_at"),
+        })
+        .from(playlistItems)
+        .leftJoin(titles, eq(titles.id, playlistItems.titleId))
+        .leftJoin(episodes, eq(episodes.id, playlistItems.episodeId))
+        .leftJoin(seasons, eq(seasons.id, episodes.seasonId))
+        .leftJoin(showTitles, eq(showTitles.id, seasons.titleId))
+        .innerJoin(libraries, eq(libraries.id, effectiveLibraryId))
+        .where(
+          and(
+            eq(playlistItems.playlistId, args.sourcePlaylistId),
+            eq(libraries.serverId, args.serverId),
+            contentFilter(args.viewer, effectiveRatingAges)
+          )
+        )
+    )
+    .returning({ id: playlistItems.id });
+  return rows.length;
 }

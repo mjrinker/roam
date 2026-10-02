@@ -93,15 +93,26 @@ describe("lib/playlists modules that read content apply the age filter", () => {
 
   it("found the playlist modules it expects", () => {
     expect(libFiles).toContain("items.ts");
+    expect(libFiles).toContain("item-service.ts");
   });
 
+  // These are grep-level smell tests, not proofs: they catch a new module that reads
+  // content and forgets the restriction entirely.
   for (const file of libFiles) {
     const source = readFileSync(path.join(PLAYLIST_LIB, file), "utf8");
-    if (!schemaImports(source).some((n) => CONTENT_TABLES.includes(n))) continue;
-    it(`${file} references contentFilter or isAllowed`, () => {
-      // A grep-level smell test, not proof: it catches a new module that reads
-      // titles/episodes/playlist_items and forgets the restriction entirely.
-      expect(/\bcontentFilter\b|\bisAllowed\b/.test(source)).toBe(true);
-    });
+    const imported = schemaImports(source);
+    const readsContent = imported.some((n) => n === "titles" || n === "episodes");
+    const touchesItems = imported.includes("playlistItems");
+    const filters = /\bcontentFilter\b|\bisAllowed\b/.test(source);
+
+    if (readsContent) {
+      it(`${file} (reads titles/episodes) references contentFilter or isAllowed`, () => {
+        expect(filters).toBe(true);
+      });
+    } else if (touchesItems) {
+      it(`${file} (touches playlist items only) filters or uses the filtered helpers from ./items`, () => {
+        expect(filters || /from\s+["']\.\/items["']/.test(source)).toBe(true);
+      });
+    }
   }
 });

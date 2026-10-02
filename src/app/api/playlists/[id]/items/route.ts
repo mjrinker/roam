@@ -1,0 +1,46 @@
+import { z } from "zod";
+import { db } from "@/lib/db/client";
+import { addItem, listItems, moveItem } from "@/lib/playlists/item-service";
+import { badRequest, decodeCursor, encodeCursor, isUuid, limitParam, notFound, readJson, requireActor, respond, throttled } from "@/lib/playlists/http";
+
+const addSchema = z
+  .object({ titleId: z.string().uuid().optional(), episodeId: z.string().uuid().optional() })
+  .refine((v) => Boolean(v.titleId) !== Boolean(v.episodeId), "Provide exactly one of titleId or episodeId");
+const moveSchema = z.object({ itemId: z.string().uuid(), afterItemId: z.string().uuid().nullable() });
+const cursorSchema = z.object({ position: z.number(), id: z.string().uuid() });
+
+/** One page of the items this profile may see, in playlist order. */
+export async function GET(request: Request, ctx: RouteContext<"/api/playlists/[id]/items">) {
+  const { id } = await ctx.params;
+  if (!isUuid(id)) return notFound();
+  const who = await requireActor();
+  if ("response" in who) return who.response;
+  const url = new URL(request.url);
+  const after = decodeCursor(url.searchParams.get("after"), cursorSchema);
+  if (after === "invalid") return badRequest("Invalid cursor");
+  const result = await listItems(db, { playlistId: id, viewerId: who.actor.viewerId, limit: limitParam(url.searchParams.get("limit")), after });
+  return respond(result, (page) => ({ items: page.items, nextCursor: page.nextCursor ? encodeCursor(page.nextCursor) : null }));
+}
+
+export async function POST(request: Request, ctx: RouteContext<"/api/playlists/[id]/items">) {
+  const { id } = await ctx.params;
+  if (!isUuid(id)) return notFound();
+  const who = await requireActor();
+  if ("response" in who) return who.response;
+  const parsed = addSchema.safeParse(await readJson(request));
+  if (!parsed.success) return badRequest(parsed.error);
+  const slow = await throttled(who.actor.accountId, "playlist_item_add", 240, 60);
+  if (slow) return slow;
+  return respond(await addItem(db, { playlistId: id, viewerId: who.actor.viewerId, ...parsed.data }), (v) => v, 201);
+}
+
+/** Move one item to just after another (or to the top with afterItemId: null). */
+export async function PATCH(request: Request, ctx: RouteContext<"/api/playlists/[id]/items">) {
+  const { id } = await ctx.params;
+  if (!isUuid(id)) return notFound();
+  const who = await requireActor();
+  if ("response" in who) return who.response;
+  const parsed = moveSchema.safeParse(await readJson(request));
+  if (!parsed.success) return badRequest(parsed.error);
+  return respond(await moveItem(db, { playlistId: id, viewerId: who.actor.viewerId, ...parsed.data }));
+}
