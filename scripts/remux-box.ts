@@ -54,6 +54,8 @@ const workRoot = flag("--tmp") ?? join(tmpdir(), "roam-remux-local");
 const FFMPEG_TIMEOUT_MS = 6 * 60 * 60_000;
 /** Header reads are small and independent; do this many at once while deciding what needs work. */
 const CLASSIFY_CONCURRENCY = 6;
+/** Whole-upload attempts per file (each a fresh upload session), with growing waits between them. */
+const UPLOAD_ATTEMPTS = 6;
 
 type Group = {
   serverId: string;
@@ -247,9 +249,11 @@ async function remuxGroup(ffmpeg: string, g: Group, replaceFileId: string | null
               console.log(`   part ${part}/${parts} (${Math.round((uploadedBytes / size) * 100)}%)`),
           });
         } catch (err) {
-          if (attempt >= 3) throw err;
-          console.warn(`   upload attempt ${attempt} failed (${(err as Error).message}); retrying in 30s`);
-          await new Promise((r) => setTimeout(r, 30_000));
+          if (attempt >= UPLOAD_ATTEMPTS) throw err;
+          // A network or database blip can last a few minutes; wait it out rather than redo the download + encode.
+          const waitSeconds = Math.min(30 * attempt, 120);
+          console.warn(`   upload attempt ${attempt} failed (${(err as Error).message.split("\n")[0]}); retrying in ${waitSeconds}s`);
+          await new Promise((r) => setTimeout(r, waitSeconds * 1000));
         }
       }
     };
