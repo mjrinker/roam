@@ -31,7 +31,7 @@ import { db } from "@/lib/db/client";
 import { episodes, libraries, mediaFiles, seasons, titles } from "@/lib/db/schema";
 import { isBrowserSafeAudioCodec } from "@/lib/scan/codec-support";
 import { variantFileName } from "@/lib/scan/conventions";
-import { upsertVariant } from "@/lib/scan/media-files";
+import { probeFiles, upsertVariant } from "@/lib/scan/media-files";
 import { probeMp4AudioTrack } from "@/lib/scan/mp4-duration";
 import { createBoxProviderForServer, getFreshDownloadUrl } from "@/lib/storage/box";
 import { withBoxClient } from "@/lib/storage/box-token-storage";
@@ -204,7 +204,7 @@ function tokenProvider(serverId: string): TokenProvider {
     });
 }
 
-async function remuxGroup(ffmpeg: string, g: Group, replaceFileId: string | null) {
+async function remuxGroup(ffmpeg: string, g: Group, replaceFileId: string | null, headerCodec: string | null) {
   const dir = join(workRoot, randomUUID());
   await mkdir(dir, { recursive: true });
   try {
@@ -263,6 +263,22 @@ async function remuxGroup(ffmpeg: string, g: Group, replaceFileId: string | null
       .update(mediaFiles)
       .set({ sizeBytes: uploaded.size })
       .where(and(eq(mediaFiles.boxFileId, uploaded.id), isNotNull(mediaFiles.variantOfMediaFileId)));
+
+    // Playback only swaps in the copy when the original's codec is recorded and the copy has been probed,
+    // so do both now instead of waiting for the next scan.
+    if (headerCodec) {
+      await db
+        .update(mediaFiles)
+        .set({ audioCodec: headerCodec, codecProbed: true })
+        .where(and(inArray(mediaFiles.id, g.primaryIds), eq(mediaFiles.codecProbed, false)));
+    }
+    const variantRows = await db
+      .select()
+      .from(mediaFiles)
+      .where(and(eq(mediaFiles.boxFileId, uploaded.id), isNotNull(mediaFiles.variantOfMediaFileId)));
+    const probeErrors: string[] = [];
+    await probeFiles(createBoxProviderForServer(g.serverId), variantRows, Date.now() + 120_000, probeErrors);
+    if (probeErrors.length) console.warn(`   copy uploaded and linked, but probing it failed (${probeErrors[0]}); a Roam scan will retry`);
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
@@ -318,7 +334,7 @@ async function main() {
       }
       console.log(`[${verb}] ${label} ...`);
       const started = Date.now();
-      await remuxGroup(ffmpeg, g, replaceFileId);
+      await remuxGroup(ffmpeg, g, replaceFileId, g.codecProbed ? null : codec);
       console.log(`[done] ${g.label} -> ${variantFileName(g.filename)} (${Math.round((Date.now() - started) / 1000)}s)`);
       c[replaceFileId ? "redone" : "remuxed"]++;
     } catch (err) {
