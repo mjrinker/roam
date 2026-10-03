@@ -108,7 +108,7 @@ export const viewers = pgTable(
       .defaultNow(),
   },
   (t) => [index("viewers_account_idx").on(t.accountId)]
-);
+).enableRLS();
 
 export type Viewer = typeof viewers.$inferSelect;
 export type ViewerRole = (typeof viewerRoleEnum.enumValues)[number];
@@ -571,7 +571,7 @@ export const playlists = pgTable(
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [index("playlists_server_idx").on(t.serverId), index("playlists_owner_idx").on(t.ownerViewerId)]
-);
+).enableRLS();
 
 export const playlistItems = pgTable(
   "playlist_items",
@@ -600,7 +600,7 @@ export const playlistItems = pgTable(
     index("playlist_items_episode_idx").on(t.episodeId),
     index("playlist_items_order_idx").on(t.playlistId, t.position, t.id),
   ]
-);
+).enableRLS();
 
 export const playlistMembers = pgTable(
   "playlist_members",
@@ -621,7 +621,7 @@ export const playlistMembers = pgTable(
     uniqueIndex("playlist_members_playlist_viewer_idx").on(t.playlistId, t.viewerId),
     index("playlist_members_viewer_idx").on(t.viewerId),
   ]
-);
+).enableRLS();
 
 // ── relations ────────────────────────────────────────────────────────────
 
