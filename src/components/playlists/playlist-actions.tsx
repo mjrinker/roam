@@ -3,12 +3,14 @@
 import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Copy, LogOut, Pencil, Play, Trash2 } from "lucide-react";
+import { Copy, LogOut, Pencil, Play, Share2, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/playlists/confirm-dialog";
 import { NameDialog } from "@/components/playlists/name-dialog";
 import { playlistApi } from "@/components/playlists/playlist-api";
+import { ShareDialog } from "@/components/playlists/share-dialog";
+import { showShareButton, type ShareCaps } from "@/components/playlists/sharing";
 
 export interface PlaylistActionFlags {
   rename: boolean;
@@ -26,6 +28,9 @@ export function PlaylistActions({
   name,
   playHref,
   can,
+  visibility,
+  ownerId,
+  shareCaps,
 }: {
   serverId: string;
   playlistId: string;
@@ -33,12 +38,16 @@ export function PlaylistActions({
   /** Where "Play all" goes, or null when nothing in the playlist is playable. */
   playHref: string | null;
   can: PlaylistActionFlags;
+  visibility: "private" | "server";
+  ownerId: string | null;
+  shareCaps: ShareCaps;
 }) {
   const router = useRouter();
   const [renaming, setRenaming] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [leaving, setLeaving] = useState(false);
   const [copying, setCopying] = useState(false);
+  const [sharing, setSharing] = useState(false);
   const listHref = `/s/${serverId}/playlists`;
 
   async function copy() {
@@ -73,6 +82,11 @@ export function PlaylistActions({
             <Copy className="size-4" /> {copying ? "Copying…" : "Copy"}
           </Button>
         )}
+        {showShareButton(shareCaps) && (
+          <Button variant="secondary" className={secondary} onClick={() => setSharing(true)}>
+            <Share2 className="size-4" /> Share
+          </Button>
+        )}
         {can.rename && (
           <Button variant="secondary" className={secondary} onClick={() => setRenaming(true)}>
             <Pencil className="size-4" /> Rename
@@ -90,6 +104,18 @@ export function PlaylistActions({
         )}
       </div>
 
+      {sharing && (
+        <ShareDialog
+          open
+          onOpenChange={setSharing}
+          serverId={serverId}
+          playlistId={playlistId}
+          visibility={visibility}
+          ownerId={ownerId}
+          caps={shareCaps}
+          onChanged={() => router.refresh()}
+        />
+      )}
       {renaming && (
         <NameDialog
           open

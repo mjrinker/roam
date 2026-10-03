@@ -67,6 +67,15 @@ export default async function PlaylistPage({ params }: PageProps<"/s/[serverId]/
         name={playlist.name}
         playHref={playHref}
         can={{ rename: playlist.can.rename, delete: playlist.can.delete, leave: playlist.can.leave, copy: playlist.can.copy }}
+        visibility={playlist.visibility}
+        ownerId={playlist.owner?.id ?? null}
+        shareCaps={{
+          share: playlist.can.share,
+          grantRoles: playlist.can.grantRoles,
+          manageMembers: playlist.can.manageMembers,
+          makePublic: playlist.can.makePublic,
+          makePrivate: playlist.can.makePrivate,
+        }}
       />
 
       <PlaylistItems

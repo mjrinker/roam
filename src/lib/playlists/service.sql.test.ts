@@ -128,6 +128,26 @@ describe("listPlaylists / getPlaylistDetail", () => {
     expect(asOwner.ok && asOwner.value.can).toMatchObject({ editItems: true, delete: true, transfer: true, makePublic: true });
     const asSharer = await getPlaylistDetail(db, { playlistId: p.id, viewerId: guest.viewer.id });
     expect(asSharer.ok && asSharer.value.can).toMatchObject({ editItems: false, delete: false, leave: true, copy: true, makePublic: false });
+    expect(asOwner.ok && asOwner.value.can).toMatchObject({ share: true, grantRoles: ["viewer", "sharer", "editor"], manageMembers: true });
+    expect(asSharer.ok && asSharer.value.can).toMatchObject({ share: true, grantRoles: ["viewer"], manageMembers: false });
+  });
+
+  it("detail reports no sharing powers for plain members, ownerless playlists, or a limited owner beyond their account", async () => {
+    const { owner, server, guest } = await world();
+    const p = await makePlaylist(db, { serverId: server.id, ownerViewerId: owner.viewer.id });
+    await addMember(db, p.id, guest.viewer.id, "editor");
+    const asEditor = await getPlaylistDetail(db, { playlistId: p.id, viewerId: guest.viewer.id });
+    expect(asEditor.ok && asEditor.value.can).toMatchObject({ share: false, grantRoles: [], manageMembers: false });
+
+    const ownerless = await makePlaylist(db, { serverId: server.id, ownerViewerId: null });
+    await addMember(db, ownerless.id, guest.viewer.id, "sharer");
+    const orphan = await getPlaylistDetail(db, { playlistId: ownerless.id, viewerId: guest.viewer.id });
+    expect(orphan.ok && orphan.value.can).toMatchObject({ share: false, grantRoles: [], manageMembers: false });
+
+    const kid = await makeViewer(db, guest.accountId, { role: "limited" });
+    const kids = await makePlaylist(db, { serverId: server.id, ownerViewerId: kid.id });
+    const asKid = await getPlaylistDetail(db, { playlistId: kids.id, viewerId: kid.id });
+    expect(asKid.ok && asKid.value.can).toMatchObject({ share: true, makePublic: false });
   });
 });
 

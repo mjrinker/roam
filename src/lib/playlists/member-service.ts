@@ -134,6 +134,8 @@ export async function removeMember(
 export interface MemberView extends PublicViewer {
   role: MemberRole;
   isMe: boolean;
+  /** This share was granted by the viewer asking (a sharer may remove those). */
+  grantedByMe: boolean;
 }
 
 /** Owner and editors see every share; a sharer sees their own plus those they granted; a viewer only their own. */
@@ -171,7 +173,12 @@ export async function listMembers(
   const page = rows.slice(0, limit);
   const last = page[page.length - 1];
   return ok({
-    members: page.map((r) => ({ ...maskViewer(r.v, ctx.viewer.accountId), role: r.m.role, isMe: r.v.id === ctx.viewer.id })),
+    members: page.map((r) => ({
+      ...maskViewer(r.v, ctx.viewer.accountId),
+      role: r.m.role,
+      isMe: r.v.id === ctx.viewer.id,
+      grantedByMe: r.m.grantedByViewerId === ctx.viewer.id,
+    })),
     nextCursor: rows.length > limit && last ? { createdAt: last.m.createdAt.toISOString(), id: last.m.id } : null,
   });
 }

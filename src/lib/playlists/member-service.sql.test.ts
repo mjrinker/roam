@@ -197,6 +197,17 @@ describe("listMembers", () => {
     expect(await ids(b.viewer.id)).toEqual([b.viewer.id]);
   });
 
+  it("flags the shares the asking viewer granted", async () => {
+    const { owner, friend, playlist } = await world();
+    const a = await makeAccount(db, "a");
+    await joinServer(db, playlist.serverId, a.accountId);
+    await seedMember(db, playlist.id, friend.viewer.id, "sharer", owner.viewer.id);
+    await seedMember(db, playlist.id, a.viewer.id, "viewer", friend.viewer.id);
+    const asSharer = await listMembers(db, { playlistId: playlist.id, viewerId: friend.viewer.id });
+    const granted = asSharer.ok ? Object.fromEntries(asSharer.value.members.map((m) => [m.id, m.grantedByMe])) : {};
+    expect(granted).toEqual({ [friend.viewer.id]: false, [a.viewer.id]: true });
+  });
+
   it("masks a hidden profile for readers on other accounts only", async () => {
     const { owner, friend, playlist } = await world();
     await db.update(viewers).set({ visibleOnServer: false, name: "Secret Name" }).where(eq(viewers.id, friend.viewer.id));

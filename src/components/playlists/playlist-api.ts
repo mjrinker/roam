@@ -40,6 +40,21 @@ export interface ItemRow {
   playable: boolean;
 }
 
+export interface MemberRow {
+  id: string;
+  name: string;
+  avatarKey: string;
+  role: "viewer" | "sharer" | "editor";
+  isMe: boolean;
+  grantedByMe: boolean;
+}
+
+export interface PickerViewer {
+  id: string;
+  name: string;
+  avatarKey: string;
+}
+
 export const playlistApi = {
   create: (serverId: string, name: string) =>
     call<{ id: string; name: string }>(`/api/servers/${serverId}/playlists`, { method: "POST", body: JSON.stringify({ name }) }),
@@ -69,4 +84,25 @@ export const playlistApi = {
   copy: (playlistId: string) => call<{ id: string; name: string; itemsCopied: number }>(`/api/playlists/${playlistId}/copy`, { method: "POST", body: "{}" }),
 
   leave: (playlistId: string) => call<{ ok: true }>(`/api/playlists/${playlistId}/members`, { method: "DELETE" }),
+
+  setVisibility: (playlistId: string, visibility: "private" | "server") =>
+    call<{ id: string; visibility: "private" | "server" }>(`/api/playlists/${playlistId}`, { method: "PATCH", body: JSON.stringify({ visibility }) }),
+
+  members: (playlistId: string, after: string | null) =>
+    call<{ members: MemberRow[]; nextCursor: string | null }>(`/api/playlists/${playlistId}/members${after ? `?after=${encodeURIComponent(after)}` : ""}`),
+
+  share: (playlistId: string, viewerId: string, role: MemberRow["role"]) =>
+    call<{ viewerId: string; role: MemberRow["role"] }>(`/api/playlists/${playlistId}/members`, { method: "POST", body: JSON.stringify({ viewerId, role }) }),
+
+  changeRole: (playlistId: string, viewerId: string, role: MemberRow["role"]) =>
+    call<{ viewerId: string; role: MemberRow["role"] }>(`/api/playlists/${playlistId}/members`, { method: "PATCH", body: JSON.stringify({ viewerId, role }) }),
+
+  removeMember: (playlistId: string, viewerId: string) =>
+    call<{ ok: true }>(`/api/playlists/${playlistId}/members?viewerId=${viewerId}`, { method: "DELETE" }),
+
+  picker: (serverId: string, after: string | null) =>
+    call<{ viewers: PickerViewer[]; nextCursor: string | null }>(`/api/servers/${serverId}/viewers${after ? `?after=${encodeURIComponent(after)}` : ""}`),
+
+  transfer: (playlistId: string, viewerId: string) =>
+    call<{ ok: true }>(`/api/playlists/${playlistId}/transfer`, { method: "POST", body: JSON.stringify({ viewerId }) }),
 };

@@ -207,6 +207,12 @@ export interface PlaylistDetail {
     copy: boolean;
     makePublic: boolean;
     makePrivate: boolean;
+    /** May share with at least one profile (so the Share dialog is useful). */
+    share: boolean;
+    /** The roles this profile may grant, strongest last; empty when it can't share. */
+    grantRoles: ("viewer" | "sharer" | "editor")[];
+    /** Owner-only: change roles, remove anyone's share. */
+    manageMembers: boolean;
   };
 }
 
@@ -241,6 +247,9 @@ export async function getPlaylistDetail(
       copy: caps.canCopy,
       makePublic: caps.canSetVisibility("server"),
       makePrivate: caps.canSetVisibility("private"),
+      share: caps.canShare("viewer", ctx.viewer.accountId),
+      grantRoles: (["viewer", "sharer", "editor"] as const).filter((r) => caps.canShare(r, ctx.viewer.accountId)),
+      manageMembers: caps.canTransfer && caps.canShare("editor", ctx.viewer.accountId),
     },
   });
 }

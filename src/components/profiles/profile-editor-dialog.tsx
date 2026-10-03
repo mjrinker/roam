@@ -265,6 +265,12 @@ export function ProfileEditorDialog({
                 />
                 Show this profile to other members of the server
               </label>
+              {profile && profile.visibleOnServer && !visibleOnServer && (
+                <p className="-mt-2 text-xs text-muted-foreground">
+                  Hiding this profile also removes its access to playlists other people have shared with it. Showing it again won&apos;t bring
+                  those back — they&apos;d need to share them again.
+                </p>
+              )}
 
               <div className="grid gap-1.5">
                 <Label htmlFor="profile-pin">{profile?.hasPin ? "Change PIN" : "PIN (optional)"}</Label>
