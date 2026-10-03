@@ -56,16 +56,20 @@ export function AuthForm({ mode, initialEmail = "", inviteToken }: AuthFormProps
   const [creatingAccount, setCreatingAccount] = useState(mode === "invite");
 
   const supabase = createSupabaseBrowserClient();
-  const callbackUrl = new URL(`${process.env.NEXT_PUBLIC_APP_URL}/auth/callback`);
-  if (inviteToken) callbackUrl.searchParams.set("invite_token", inviteToken);
-  const redirectTo = callbackUrl.toString();
+  // Built from the page's own origin when used (never at render: this also renders on the
+  // server, and preview deployments change domain on every deploy and have no APP_URL).
+  function redirectTarget() {
+    const callbackUrl = new URL("/auth/callback", window.location.origin);
+    if (inviteToken) callbackUrl.searchParams.set("invite_token", inviteToken);
+    return callbackUrl.toString();
+  }
 
   async function handleMagicLink(e: React.FormEvent) {
     e.preventDefault();
     setLoading("magic-link");
     const { error } = await supabase.auth.signInWithOtp({
       email,
-      options: { emailRedirectTo: redirectTo },
+      options: { emailRedirectTo: redirectTarget() },
     });
     setLoading(null);
     if (error) toast.error(error.message);
@@ -76,7 +80,7 @@ export function AuthForm({ mode, initialEmail = "", inviteToken }: AuthFormProps
     setLoading("google");
     const { error } = await supabase.auth.signInWithOAuth({
       provider: "google",
-      options: { redirectTo },
+      options: { redirectTo: redirectTarget() },
     });
     if (error) {
       setLoading(null);

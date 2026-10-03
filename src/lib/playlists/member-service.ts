@@ -5,7 +5,7 @@
  * FOR SHARE so a profile hiding itself can't race a new share). Every way a
  * target can be invalid answers with the same 404, because viewer ids are guessable.
  */
-import { and, asc, eq, gt, inArray, ne, or } from "drizzle-orm";
+import { and, asc, eq, gt, inArray, ne, or, sql } from "drizzle-orm";
 import { playlistMembers, playlists, serverMembers, viewers } from "@/lib/db/schema";
 import { loadContext } from "./context";
 import type { Executor } from "./executor";
@@ -152,6 +152,8 @@ export async function listMembers(
       : ctx.caps.role === "sharer"
         ? or(eq(playlistMembers.viewerId, ctx.viewer.id), eq(playlistMembers.grantedByViewerId, ctx.viewer.id))
         : eq(playlistMembers.viewerId, ctx.viewer.id);
+  // Compared at millisecond precision, the most a JS cursor can carry (Postgres keeps microseconds).
+  const createdMs = sql`date_trunc('milliseconds', ${playlistMembers.createdAt})`;
   const rows = await ex
     .select({ m: playlistMembers, v: viewers })
     .from(playlistMembers)
@@ -162,13 +164,13 @@ export async function listMembers(
         sees,
         args.after
           ? or(
-              gt(playlistMembers.createdAt, new Date(args.after.createdAt)),
-              and(eq(playlistMembers.createdAt, new Date(args.after.createdAt)), gt(playlistMembers.id, args.after.id))
+              sql`${createdMs} > ${args.after.createdAt}::timestamptz`,
+              and(sql`${createdMs} = ${args.after.createdAt}::timestamptz`, gt(playlistMembers.id, args.after.id))
             )
           : undefined
       )
     )
-    .orderBy(asc(playlistMembers.createdAt), asc(playlistMembers.id))
+    .orderBy(asc(createdMs), asc(playlistMembers.id))
     .limit(limit + 1);
   const page = rows.slice(0, limit);
   const last = page[page.length - 1];

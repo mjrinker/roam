@@ -5,7 +5,6 @@ import type { ItemRow } from "./playlist-api";
 
 const row = (over: Partial<ItemRow>): ItemRow => ({
   id: "item-1",
-  position: 1024,
   titleId: "title-1",
   episodeId: null,
   titleKind: "movie",

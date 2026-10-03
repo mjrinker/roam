@@ -4,7 +4,7 @@ import { badRequest, decodeCursor, encodeCursor, isUuid, limitParam, notFound, p
 import { createPlaylist, listPlaylists, type ListScope } from "@/lib/playlists/service";
 
 const createSchema = z.object({ name: playlistName, description: playlistDescription.optional() });
-const cursorSchema = z.object({ updatedAt: z.string(), id: z.string().uuid() });
+const cursorSchema = z.object({ updatedAt: z.string().datetime(), id: z.string().uuid() });
 const SCOPES: ListScope[] = ["all", "mine", "shared", "public"];
 
 /** The playlists this profile can see on a server: its own, ones shared with it, and public ones. */

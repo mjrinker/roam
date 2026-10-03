@@ -4,7 +4,7 @@
  * client), re-reads everything it needs, and runs mutations inside a transaction
  * that locks the playlist row first. Routes stay thin wrappers around these.
  */
-import { and, desc, eq, exists, inArray, lt, or, type SQL } from "drizzle-orm";
+import { and, desc, eq, exists, inArray, lt, or, sql, type SQL } from "drizzle-orm";
 import { playlistMembers, playlists, serverMembers, viewers } from "@/lib/db/schema";
 import { loadContext, type PlaylistContext } from "./context";
 import type { Executor } from "./executor";
@@ -96,10 +96,12 @@ export async function listPlaylists(
   const isPublic = eq(playlists.visibility, "server");
   const scoped: SQL | undefined =
     scope === "mine" ? mine : scope === "shared" ? sharedWithMe : scope === "public" ? isPublic : or(mine, sharedWithMe, isPublic);
+  // Compared at millisecond precision, the most a JS cursor can carry (Postgres keeps microseconds).
+  const updatedMs = sql`date_trunc('milliseconds', ${playlists.updatedAt})`;
   const cursor = args.after
     ? or(
-        lt(playlists.updatedAt, new Date(args.after.updatedAt)),
-        and(eq(playlists.updatedAt, new Date(args.after.updatedAt)), lt(playlists.id, args.after.id))
+        sql`${updatedMs} < ${args.after.updatedAt}::timestamptz`,
+        and(sql`${updatedMs} = ${args.after.updatedAt}::timestamptz`, lt(playlists.id, args.after.id))
       )
     : undefined;
 
@@ -115,7 +117,7 @@ export async function listPlaylists(
     .from(playlists)
     .leftJoin(viewers, eq(viewers.id, playlists.ownerViewerId))
     .where(and(eq(playlists.serverId, args.serverId), scoped, cursor))
-    .orderBy(desc(playlists.updatedAt), desc(playlists.id))
+    .orderBy(desc(updatedMs), desc(playlists.id))
     .limit(limit + 1);
 
   const page = rows.slice(0, limit);

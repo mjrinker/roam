@@ -19,7 +19,7 @@ export async function GET(request: Request, ctx: RouteContext<"/api/playlists/[i
   const after = decodeCursor(url.searchParams.get("after"), cursorSchema);
   if (after === "invalid") return badRequest("Invalid cursor");
   const result = await listItems(db, { playlistId: id, viewerId: who.actor.viewerId, limit: limitParam(url.searchParams.get("limit")), after });
-  return respond(result, (page) => ({ items: page.items, nextCursor: page.nextCursor ? encodeCursor(page.nextCursor) : null }));
+  return respond(result, (page) => ({ items: page.items.map((item) => ({ ...item, position: undefined })), nextCursor: page.nextCursor ? encodeCursor(page.nextCursor) : null }));
 }
 
 export async function POST(request: Request, ctx: RouteContext<"/api/playlists/[id]/items">) {
@@ -31,7 +31,7 @@ export async function POST(request: Request, ctx: RouteContext<"/api/playlists/[
   if (!parsed.success) return badRequest(parsed.error);
   const slow = await throttled(who.actor.accountId, "playlist_item_add", 240, 60);
   if (slow) return slow;
-  return respond(await addItem(db, { playlistId: id, viewerId: who.actor.viewerId, ...parsed.data }), (v) => v, 201);
+  return respond(await addItem(db, { playlistId: id, viewerId: who.actor.viewerId, ...parsed.data }), (v) => ({ id: v.id }), 201);
 }
 
 /** Move one item to just after another (or to the top with afterItemId: null). */
@@ -42,5 +42,5 @@ export async function PATCH(request: Request, ctx: RouteContext<"/api/playlists/
   if ("response" in who) return who.response;
   const parsed = moveSchema.safeParse(await readJson(request));
   if (!parsed.success) return badRequest(parsed.error);
-  return respond(await moveItem(db, { playlistId: id, viewerId: who.actor.viewerId, ...parsed.data }));
+  return respond(await moveItem(db, { playlistId: id, viewerId: who.actor.viewerId, ...parsed.data }), () => ({ ok: true }));
 }

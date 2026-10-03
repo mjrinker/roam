@@ -5,7 +5,7 @@ import { badRequest, decodeCursor, encodeCursor, isUuid, limitParam, notFound, r
 
 const roleSchema = z.enum(["editor", "sharer", "viewer"]);
 const shareSchema = z.object({ viewerId: z.string().uuid(), role: roleSchema });
-const cursorSchema = z.object({ createdAt: z.string(), id: z.string().uuid() });
+const cursorSchema = z.object({ createdAt: z.string().datetime(), id: z.string().uuid() });
 
 export async function GET(request: Request, ctx: RouteContext<"/api/playlists/[id]/members">) {
   const { id } = await ctx.params;

@@ -17,7 +17,7 @@ const TABS: { scope: ListScope; label: string }[] = [
   { scope: "shared", label: "Shared with me" },
   { scope: "public", label: "Everyone on this server" },
 ];
-const cursorSchema = z.object({ updatedAt: z.string(), id: z.string().uuid() });
+const cursorSchema = z.object({ updatedAt: z.string().datetime(), id: z.string().uuid() });
 
 export default async function PlaylistsPage({
   params,

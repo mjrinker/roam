@@ -26,7 +26,6 @@ export interface EditablePlaylist {
 
 export interface ItemRow {
   id: string;
-  position: number;
   titleId: string | null;
   episodeId: string | null;
   titleKind: "movie" | "show" | "audiobook" | null;
@@ -65,13 +64,13 @@ export const playlistApi = {
   },
 
   addItem: (playlistId: string, target: ItemTarget) =>
-    call<{ id: string; position: number }>(`/api/playlists/${playlistId}/items`, { method: "POST", body: JSON.stringify(target) }),
+    call<{ id: string }>(`/api/playlists/${playlistId}/items`, { method: "POST", body: JSON.stringify(target) }),
 
   removeItem: (playlistId: string, itemId: string) =>
     call<{ ok: true }>(`/api/playlists/${playlistId}/items/${itemId}`, { method: "DELETE" }),
 
   moveItem: (playlistId: string, itemId: string, afterItemId: string | null) =>
-    call<{ position: number }>(`/api/playlists/${playlistId}/items`, { method: "PATCH", body: JSON.stringify({ itemId, afterItemId }) }),
+    call<{ ok: true }>(`/api/playlists/${playlistId}/items`, { method: "PATCH", body: JSON.stringify({ itemId, afterItemId }) }),
 
   items: (playlistId: string, after: string | null) =>
     call<{ items: ItemRow[]; nextCursor: string | null }>(`/api/playlists/${playlistId}/items${after ? `?after=${encodeURIComponent(after)}` : ""}`),
