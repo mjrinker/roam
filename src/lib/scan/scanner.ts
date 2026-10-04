@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { and, eq, inArray, isNull, lt, notInArray, or, sql } from "drizzle-orm";
 import { db } from "@/lib/db/client";
 import {
@@ -36,6 +37,7 @@ import {
   syncAudiobookTopFolder,
   syncSingleAudiobook,
 } from "@/lib/scan/audiobooks";
+import { markCycleUnclean, pruneMissingVideos, pruneNote } from "@/lib/scan/video-prune";
 import { conflictNote, probeVideoLibrary, syncVideoDirectory, syncVideoTopFolder, unsupportedSummary } from "@/lib/scan/video-library";
 import { resolveEpisodeSplits } from "@/lib/scan/episode-split-pass";
 import {
@@ -133,14 +135,24 @@ export async function scanLibrary(
 
   const plan = planScan(trigger, library);
   let cursor: ScanCursor | null = plan.mode === "continue" ? plan.cursor : null;
+  // Video libraries: the scan cycle this pass belongs to. A full pass starts a new one; a continuing
+  // pass carries on with the cycle on the library row (null for one begun before cycles existed, which
+  // can never remove anything).
+  let cycleId: string | null = library.kind === "video" && plan.mode !== "full" ? library.scanCycleId : null;
 
   try {
     if (plan.mode === "full") {
       // A fresh cycle: unconditional reset, so any in-flight chained pass
       // fails its next compare-and-set and stops rather than fighting us.
+      if (library.kind === "video") cycleId = randomUUID();
       await db
         .update(libraries)
-        .set({ scanCursor: null, scanFoldersTotal: 0, scanFoldersDone: 0 })
+        .set({
+          scanCursor: null,
+          scanFoldersTotal: 0,
+          scanFoldersDone: 0,
+          ...(cycleId ? { scanCycleId: cycleId, scanCycleClean: true } : {}),
+        })
         .where(eq(libraries.id, libraryId));
     }
 
@@ -160,7 +172,8 @@ export async function scanLibrary(
       // per cycle, up front (idempotent, batched), outside the folder cursor.
       if (library.kind === "video" && plan.mode === "full") {
         try {
-          const r = await syncVideoDirectory(library.id, library.boxFolderId, "", topLevel);
+          const r = await syncVideoDirectory(library.id, library.boxFolderId, "", topLevel, cycleId);
+          if (r.stale) superseded = true;
           titlesAdded += r.added;
           filesSeen += r.seen;
           unsupportedSkipped += r.unsupported;
@@ -168,12 +181,14 @@ export async function scanLibrary(
         } catch (err) {
           if (err instanceof BoxReauthRequiredError) throw err;
           errors.push(`(library root): ${(err as Error).message}`);
+          await markCycleUnclean(library.id, cycleId);
         }
       }
 
       let processed = 0;
       let loopFinished = true;
       for (const folder of titleFolders) {
+        if (superseded) break;
         // Always finish at least one folder per pass so a slow one can't
         // make every pass time out before recording any progress.
         if (processed > 0 && Date.now() - startedAt > FOLDER_SYNC_TIME_BUDGET_MS) {
@@ -222,6 +237,7 @@ export async function scanLibrary(
             }
             case "video": {
               const res = await syncVideoTopFolder(provider, library.id, folder, {
+                cycleId,
                 afterSub: cursor?.folder === folder.name ? (cursor.sub ?? null) : null,
                 errors,
                 budgetExhausted: () => processed > 0 && Date.now() - startedAt > FOLDER_SYNC_TIME_BUDGET_MS,
@@ -236,6 +252,7 @@ export async function scanLibrary(
               titlesAdded += res.titlesAdded;
               filesSeen += res.filesSeen;
               unsupportedSkipped += res.unsupported;
+              if (res.hadErrors) await markCycleUnclean(library.id, cycleId);
               if (res.superseded) {
                 superseded = true;
                 stopLoop = true;
@@ -255,6 +272,8 @@ export async function scanLibrary(
           // clear error instead of one near-identical message per folder.
           if (err instanceof BoxReauthRequiredError) throw err;
           errors.push(`${folder.name}: ${(err as Error).message}`);
+          // This folder was stepped past without being fully seen, so the cycle can't vouch for what's missing.
+          if (library.kind === "video") await markCycleUnclean(library.id, cycleId);
         }
         if (stopLoop) break;
         processed++;
@@ -271,8 +290,14 @@ export async function scanLibrary(
 
       // Folder loop reached the end: clear the cursor. Folder sync is done
       // for this cycle; any remaining work is probing.
-      if (loopFinished && !superseded && !(await advanceScanCursor(libraryId, cursor, null))) {
+      if (loopFinished && !superseded && !(await advanceScanCursor(libraryId, cursor, null, library.kind === "video" ? cycleId : undefined))) {
         superseded = true;
+      }
+
+      // The pass that finishes a clean cycle removes videos that have left Box (see video-prune for every guard).
+      if (library.kind === "video" && library.pruneMissing && cycleId && loopFinished && !superseded) {
+        const note = pruneNote(await pruneMissingVideos(provider, library.id, cycleId, startedAt + SCAN_TIME_BUDGET_MS));
+        if (note) errors.push(note);
       }
     }
 
@@ -335,7 +360,9 @@ export async function scanLibrary(
 async function advanceScanCursor(
   libraryId: string,
   from: ScanCursor | null,
-  to: ScanCursor | null
+  to: ScanCursor | null,
+  /** Video libraries: also require the library to still be in this scan cycle, so a pass from an older cycle can't finish (or prune) a newer one. */
+  requireCycle?: string | null
 ): Promise<boolean> {
   // Both sides are cast from JSON text in SQL so the stored value and the
   // comparison can't disagree about how the driver encodes jsonb.
@@ -356,7 +383,8 @@ async function advanceScanCursor(
     .where(
       and(
         eq(libraries.id, libraryId),
-        sql`${libraries.scanCursor} IS NOT DISTINCT FROM ${fromJson}::jsonb`
+        sql`${libraries.scanCursor} IS NOT DISTINCT FROM ${fromJson}::jsonb`,
+        requireCycle ? eq(libraries.scanCycleId, requireCycle) : undefined
       )
     )
     .returning({ id: libraries.id });

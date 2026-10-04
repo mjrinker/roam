@@ -102,7 +102,7 @@ describe("syncVideoDirectory", () => {
       file("notes.txt", "d"),
       folder("sub", "Sub"),
     ]);
-    expect(r).toEqual({ added: 2, seen: 2, unsupported: 1, conflicts: 0 });
+    expect(r).toEqual({ added: 2, seen: 2, unsupported: 1, conflicts: 0, stale: false });
     const rows = (await titlesOf(lib.id)).sort((x, y) => x.name.localeCompare(y.name));
     expect(rows.map((t) => [t.name, t.year, t.kind, t.boxFolderId, t.folderPath, t.parentFolderId, t.nameSource, t.ratingAges])).toEqual([
       ["Beach Day", 2019, "movie", "file:a", "Vacations/2019", "box-folder-1", "filename", { ANY: 13 }],

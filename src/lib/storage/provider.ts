@@ -47,6 +47,12 @@ export interface StorageProvider {
    */
   fetchThumbnail?(fileId: string): Promise<{ contentType: "image/jpeg"; bytes: Uint8Array } | null>;
 
+  /**
+   * Whether a file still exists and isn't in the trash. False only for a definite "gone"; anything
+   * else the provider can't tell throws. Optional: without it nothing is ever removed for being missing.
+   */
+  fileExists?(fileId: string): Promise<boolean>;
+
   /** Fetches an inclusive byte range of a file's raw bytes (for format probing). */
   fetchByteRange(
     fileId: string,

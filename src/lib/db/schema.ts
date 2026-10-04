@@ -224,6 +224,14 @@ export const libraries = pgTable(
     // {ANY: minimumAge}; null = unrated. Copied onto each of the library's titles (see
     // lib/libraries/video-rating) so lib/content/access keeps working unchanged.
     ratingAges: jsonb("rating_ages").$type<Record<string, number> | null>(),
+    // Video libraries: what lets a scan tell a video that left Box from one it simply hasn't reached
+    // yet. A full pass starts a new cycle (id + clean=true); each video seen is stamped with the id;
+    // anything that goes wrong in the cycle marks it unclean. Only a cycle that finished cleanly may
+    // remove videos (see lib/scan/video-prune).
+    scanCycleId: uuid("scan_cycle_id"),
+    scanCycleClean: boolean("scan_cycle_clean").notNull().default(true),
+    // Remove a video's entry (and its watch history and playlist spots) once it has left Box.
+    pruneMissing: boolean("prune_missing").notNull().default(true),
     lastScannedAt: timestamp("last_scanned_at", { withTimezone: true }),
     // Updated at the START of every scan attempt, success or failure —
     // distinct from lastScannedAt (which only advances on completion, and
@@ -311,6 +319,8 @@ export const titles = pgTable(
     parentFolderId: text("parent_folder_id"),
     nameSource: text("name_source").$type<"filename" | "embedded">(),
     tagsAttemptedAt: timestamp("tags_attempted_at", { withTimezone: true }),
+    // The scan cycle (libraries.scan_cycle_id) in which this video was last seen in Box.
+    lastSeenCycle: uuid("last_seen_cycle"),
     // Failed tries at reading the file's tags; stops at a small cap so an unreadable file isn't
     // retried on every scan.
     tagAttempts: integer("tag_attempts").notNull().default(0),

@@ -37,6 +37,8 @@ export interface LibraryRow {
   access: LibraryAccess;
   /** Video libraries: the library-level age rating as {ANY: minimumAge}; null = unrated. */
   ratingAges: Record<string, number> | null;
+  /** Video libraries: remove a video once it has left Box. */
+  pruneMissing: boolean;
   boxFolderId: string;
   audibleRegion: string;
   lastScannedAt: string | null;
@@ -139,6 +141,34 @@ function VideoRatingSelect({ libraryId, initial }: { libraryId: string; initial:
       >
         <RatingOptions />
       </select>
+    </label>
+  );
+}
+
+/** Whether a video library forgets videos that were deleted from Box (along with their watch history and playlist spots). */
+function PruneToggle({ libraryId, initial }: { libraryId: string; initial: boolean }) {
+  const [enabled, setEnabled] = useState(initial);
+
+  async function change(next: boolean) {
+    const previous = enabled;
+    setEnabled(next);
+    const res = await fetch(`/api/libraries/${libraryId}/prune`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ enabled: next }),
+    });
+    if (!res.ok) {
+      setEnabled(previous);
+      toast.error("Couldn't change the setting.");
+      return;
+    }
+    toast.success(next ? "Deleted videos will be removed after a scan." : "Deleted videos will stay listed.");
+  }
+
+  return (
+    <label className="mt-2 flex items-center gap-2 text-xs text-muted-foreground">
+      <input type="checkbox" className="size-3.5 accent-[var(--primary)]" checked={enabled} onChange={(e) => change(e.target.checked)} />
+      Remove videos that were deleted from Box (and their watch history and playlist spots)
     </label>
   );
 }
@@ -474,6 +504,7 @@ export function LibraryManager({
               )}
               {lib.kind === "audiobooks" && <AudibleRegionSelect libraryId={lib.id} initial={lib.audibleRegion} />}
               {lib.kind === "video" && <VideoRatingSelect libraryId={lib.id} initial={agesToRating(lib.ratingAges)} />}
+              {lib.kind === "video" && <PruneToggle libraryId={lib.id} initial={lib.pruneMissing} />}
               {statusById[lib.id] && <ScanProgress status={statusById[lib.id]} />}
               {lib.lastScan && <ScanErrors errors={lib.lastScan.errors} />}
             </CardContent>

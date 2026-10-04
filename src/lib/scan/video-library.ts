@@ -87,6 +87,8 @@ export interface DirectorySyncResult {
   unsupported: number;
   /** Files whose Box id already belongs to a title in a DIFFERENT library (overlapping folders); left untouched. */
   conflicts: number;
+  /** The library moved on to a newer scan cycle while this pass was running: nothing was written, and this pass should stop. */
+  stale?: boolean;
 }
 
 /**
@@ -100,7 +102,9 @@ export async function syncVideoDirectory(
   libraryId: string,
   parentFolderId: string,
   folderPath: string,
-  entries: StorageEntry[]
+  entries: StorageEntry[],
+  /** The scan cycle this pass belongs to (null when there is none, e.g. a cycle that began before cycles existed). Videos seen are stamped with it. */
+  cycleId: string | null = null
 ): Promise<DirectorySyncResult> {
   const files = entries.filter((e) => e.kind === "file");
   const unsupported = files.filter((f) => isUnsupportedVideo(f.name)).length;
@@ -115,11 +119,16 @@ export async function syncVideoDirectory(
   const outcome = await db.transaction(async (tx) => {
     await tx.execute(sql`SET LOCAL lock_timeout = '5s'`);
     const [library] = await tx
-      .select({ ratingAges: libraries.ratingAges })
+      .select({ ratingAges: libraries.ratingAges, scanCycleId: libraries.scanCycleId })
       .from(libraries)
       .where(eq(libraries.id, libraryId))
       .for("share");
     if (!library) throw new Error("This library no longer exists.");
+    // A newer scan cycle began (a manual rescan, a webhook): this pass is the loser and must not write,
+    // least of all stamp videos with a cycle that is no longer current.
+    if (cycleId !== null && library.scanCycleId !== cycleId) {
+      return { added: 0, seen: 0, conflicts: 0, stale: true as const };
+    }
     const rating = library.ratingAges ?? null;
 
     const keyOf = (f: StorageEntry) => `file:${f.id}`;
@@ -151,6 +160,7 @@ export async function syncVideoDirectory(
               parentFolderId,
               nameSource: "filename" as const,
               ratingAges: rating,
+              ...(cycleId !== null ? { lastSeenCycle: cycleId } : {}),
             };
           })
         )
@@ -168,6 +178,7 @@ export async function syncVideoDirectory(
             parentFolderId,
             // Always the library's current rating (read under the lock above), never a stale one.
             ratingAges: rating,
+            ...(cycleId !== null ? { lastSeenCycle: cycleId } : {}),
             updatedAt: new Date(),
           },
         })
@@ -228,13 +239,15 @@ export async function syncVideoDirectory(
     }
 
     await linkVariantFiles("title", [...titleIdByKey.values()], owned, variants, tx);
-    return { added: owned.filter((f) => !existing.has(keyOf(f))).length, seen: owned.length, conflicts: primaries.length - owned.length };
+    return { added: owned.filter((f) => !existing.has(keyOf(f))).length, seen: owned.length, conflicts: primaries.length - owned.length, stale: false as const };
   });
 
   return { ...outcome, unsupported };
 }
 
 export interface VideoTopFolderResult {
+  /** Something went wrong in this folder (an unreadable or unwritable directory): the scan cycle can't be trusted to have seen every video. */
+  hadErrors: boolean;
   titlesAdded: number;
   filesSeen: number;
   unsupported: number;
@@ -260,9 +273,11 @@ export async function syncVideoTopFolder(
     onUnitDone: (sub: string) => Promise<boolean>;
     /** Pause between listing retries (tests pass 0). */
     retryDelayMs?: number;
+    /** The scan cycle this pass belongs to; see syncVideoDirectory. */
+    cycleId?: string | null;
   }
 ): Promise<VideoTopFolderResult> {
-  const result: VideoTopFolderResult = { titlesAdded: 0, filesSeen: 0, unsupported: 0, finished: true, superseded: false };
+  const result: VideoTopFolderResult = { hadErrors: false, titlesAdded: 0, filesSeen: 0, unsupported: 0, finished: true, superseded: false };
   const walker = walkVideoTree(provider, top, decodeSub(opts.afterSub), { retryDelayMs: opts.retryDelayMs });
 
   while (true) {
@@ -278,20 +293,27 @@ export async function syncVideoTopFolder(
     const where = libraryPath(top.name, dir.namePath) || top.name;
     if (dir.error) {
       // Couldn't be listed (and its subfolders weren't visited): say so, and carry on with the rest.
+      result.hadErrors = true;
       opts.errors.push(`${where}: couldn't be read (${dir.error}); it will be tried again on the next full scan.`);
     } else {
       try {
         // A directory write that hits a lock timeout (a rating change in flight) or a deadlock is simply tried again.
         const r = await retryOnContention(
-          () => syncVideoDirectory(libraryId, dir.idPath[dir.idPath.length - 1] ?? top.id, libraryPath(top.name, dir.namePath), dir.entries),
+          () => syncVideoDirectory(libraryId, dir.idPath[dir.idPath.length - 1] ?? top.id, libraryPath(top.name, dir.namePath), dir.entries, opts.cycleId ?? null),
           [...CONTENTION_CODES, LOCK_TIMEOUT]
         );
+        if (r.stale) {
+          result.superseded = true;
+          await walker.return(undefined);
+          return result;
+        }
         result.titlesAdded += r.added;
         result.filesSeen += r.seen;
         result.unsupported += r.unsupported;
         if (r.conflicts > 0) opts.errors.push(`${where}: ${conflictNote(r.conflicts)}`);
       } catch (err) {
         if (err instanceof BoxReauthRequiredError) throw err;
+        result.hadErrors = true;
         opts.errors.push(`${where}: ${(err as Error).message}`);
       }
     }

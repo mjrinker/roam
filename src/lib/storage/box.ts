@@ -185,6 +185,20 @@ async function fetchByteRange(
   return res.arrayBuffer();
 }
 
+/** True while the file exists in Box and isn't trashed; false for a 404 or a trashed/deleted item; anything else throws. */
+async function fileExists(serverId: string, fileId: string): Promise<boolean> {
+  return withBoxClient(serverId, async (client) => {
+    try {
+      const file = await client.files.getFileById(fileId, { queryParams: { fields: ["item_status"] } });
+      const status = file.itemStatus === undefined ? "active" : String(file.itemStatus);
+      return status === "active";
+    } catch (err) {
+      if (err instanceof BoxApiError && err.responseInfo?.statusCode === 404) return false;
+      throw err;
+    }
+  });
+}
+
 const MAX_THUMBNAIL_BYTES = 512 * 1024;
 
 /** Box's own thumbnail of a file (a 320px JPEG; for a video, a frame), or null if Box has none to give yet. */
@@ -226,6 +240,7 @@ export function createBoxProviderForServer(serverId: string): StorageProvider {
     fetchByteRange: (fileId, startByte, endByte) =>
       fetchByteRange(serverId, fileId, startByte, endByte),
     fetchThumbnail: (fileId) => fetchThumbnail(serverId, fileId),
+    fileExists: (fileId) => fileExists(serverId, fileId),
   };
 }
 
