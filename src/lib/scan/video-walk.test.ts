@@ -27,7 +27,12 @@ const top = folder("R", "Top");
 const ORDER: string[][] = [[], ["early"], ["early", "inner"], ["a"], ["a", "b"], ["a", "b", "deep"], ["a", "c"], ["d"]];
 
 function fake(over: Tree = tree) {
-  return { listFolder: vi.fn(async (id: string, _opts?: { strict?: boolean }) => over[id] ?? []) };
+  return {
+    listFolder: vi.fn(async (id: string, opts?: { strict?: boolean }) => {
+      void opts; // recorded by the mock for the strictness assertion
+      return over[id] ?? [];
+    }),
+  };
 }
 async function collect(gen: AsyncGenerator<WalkedDir>) {
   const out: WalkedDir[] = [];

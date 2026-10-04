@@ -1,5 +1,5 @@
 import { and, eq, inArray, lt, notInArray, or, sql } from "drizzle-orm";
-import { alias } from "drizzle-orm/pg-core";
+import { alias, type PgDatabase, type PgQueryResultHKT } from "drizzle-orm/pg-core";
 import { db } from "@/lib/db/client";
 import { mediaFiles, titles } from "@/lib/db/schema";
 import { BoxReauthRequiredError } from "@/lib/storage/box-token-storage";
@@ -14,6 +14,9 @@ import { probeMp3 } from "@/lib/scan/mp3-duration";
 import { probeMp4, probeMp4Codecs, type Mp4Chapter } from "@/lib/scan/mp4-duration";
 
 type MediaFileRow = typeof mediaFiles.$inferSelect;
+
+/** Either the global connection or an open transaction. Code that already holds a transaction must pass it: the app has ONE connection, so a nested call on `db` would wait on itself forever. */
+export type Db = PgDatabase<PgQueryResultHKT, Record<string, unknown>>;
 
 // ── Segments ─────────────────────────────────────────────────────────────
 
@@ -91,10 +94,11 @@ export async function upsertMediaSegments(
 export async function upsertVariant(
   primaryRowIds: string[],
   file: Pick<StorageEntry, "id" | "name" | "sizeBytes">,
-  jobToken?: string
+  jobToken?: string,
+  ex: Db = db
 ): Promise<boolean> {
   if (primaryRowIds.length === 0) return true;
-  return db.transaction(async (tx) => {
+  return ex.transaction(async (tx) => {
     const guard = jobToken
       ? and(inArray(mediaFiles.id, primaryRowIds), eq(mediaFiles.remuxCallbackToken, jobToken))
       : inArray(mediaFiles.id, primaryRowIds);
@@ -155,11 +159,12 @@ export async function linkVariantFiles(
   ownerKind: "title" | "episode",
   ownerIds: string[],
   normalFiles: StorageEntry[],
-  variantFiles: StorageEntry[]
+  variantFiles: StorageEntry[],
+  ex: Db = db
 ): Promise<void> {
   if (ownerIds.length === 0) return;
 
-  const primaryRows = await db
+  const primaryRows = await ex
     .select({ id: mediaFiles.id, boxFileId: mediaFiles.boxFileId })
     .from(mediaFiles)
     .where(and(eq(mediaFiles.ownerKind, ownerKind), inArray(mediaFiles.ownerId, ownerIds)));
@@ -169,12 +174,12 @@ export async function linkVariantFiles(
     const original = normalByName.get(stripVariantSuffix(variant.name).toLowerCase());
     if (!original) continue;
     const ids = primaryRows.filter((r) => r.boxFileId === original.id).map((r) => r.id);
-    await upsertVariant(ids, variant);
+    await upsertVariant(ids, variant, undefined, ex);
   }
 
   if (primaryRows.length === 0) return;
   const liveVariantIds = variantFiles.map((f) => f.id);
-  const orphaned = await db
+  const orphaned = await ex
     .delete(mediaFiles)
     .where(
       and(
@@ -185,7 +190,7 @@ export async function linkVariantFiles(
     .returning({ primaryId: mediaFiles.variantOfMediaFileId });
   const resetIds = orphaned.map((o) => o.primaryId).filter((id): id is string => id !== null);
   if (resetIds.length > 0) {
-    await db
+    await ex
       .update(mediaFiles)
       .set({ remuxStatus: null, remuxAttempts: 0 })
       .where(inArray(mediaFiles.id, resetIds));

@@ -36,6 +36,7 @@ import {
   syncAudiobookTopFolder,
   syncSingleAudiobook,
 } from "@/lib/scan/audiobooks";
+import { conflictNote, probeVideoLibrary, syncVideoDirectory, syncVideoTopFolder, unsupportedSummary } from "@/lib/scan/video-library";
 import { resolveEpisodeSplits } from "@/lib/scan/episode-split-pass";
 import {
   linkVariantFiles,
@@ -122,6 +123,7 @@ export async function scanLibrary(
 
   let filesSeen = 0;
   let titlesAdded = 0;
+  let unsupportedSkipped = 0;
   let incomplete = false;
   // Set when another scan takes over the cursor mid-pass; this pass then
   // stops without touching the library's scan state.
@@ -151,6 +153,21 @@ export async function scanLibrary(
           .update(libraries)
           .set({ scanFoldersTotal: sortedFolders.length })
           .where(eq(libraries.id, libraryId));
+      }
+
+      // A video library's loose files at the top level aren't in any folder, so they're synced once
+      // per cycle, up front (idempotent, batched), outside the folder cursor.
+      if (library.kind === "video" && plan.mode === "full") {
+        try {
+          const r = await syncVideoDirectory(library.id, library.boxFolderId, "", topLevel);
+          titlesAdded += r.added;
+          filesSeen += r.seen;
+          unsupportedSkipped += r.unsupported;
+          if (r.conflicts > 0) errors.push(`(library root): ${conflictNote(r.conflicts)}`);
+        } catch (err) {
+          if (err instanceof BoxReauthRequiredError) throw err;
+          errors.push(`(library root): ${(err as Error).message}`);
+        }
       }
 
       let processed = 0;
@@ -202,9 +219,32 @@ export async function scanLibrary(
               }
               break;
             }
-            case "video":
-              // Scanning for video libraries arrives in a later step; creating one isn't possible yet.
-              throw new Error("Video libraries can't be scanned yet.");
+            case "video": {
+              const res = await syncVideoTopFolder(provider, library.id, folder, {
+                afterSub: cursor?.folder === folder.name ? (cursor.sub ?? null) : null,
+                errors,
+                budgetExhausted: () => processed > 0 && Date.now() - startedAt > FOLDER_SYNC_TIME_BUDGET_MS,
+                onUnitDone: async (sub) => {
+                  const next: ScanCursor = { folder: folder.name, sub };
+                  if (!(await advanceScanCursor(libraryId, cursor, next))) return false;
+                  cursor = next;
+                  processed++;
+                  return true;
+                },
+              });
+              titlesAdded += res.titlesAdded;
+              filesSeen += res.filesSeen;
+              unsupportedSkipped += res.unsupported;
+              if (res.superseded) {
+                superseded = true;
+                stopLoop = true;
+              } else if (!res.finished) {
+                incomplete = true;
+                loopFinished = false;
+                stopLoop = true;
+              }
+              break;
+            }
             default:
               assertNever(library.kind);
           }
@@ -242,13 +282,18 @@ export async function scanLibrary(
       if (library.kind === "audiobooks") {
         const moreToMatch = await enrichPendingAudiobooks(library.id, library.audibleRegion, enrichDeadline);
         incomplete = incomplete || moreToMatch;
+      } else if (library.kind === "video") {
+        // Everything comes from the files themselves: no TMDB, OMDb or Audible lookups, ever.
       } else {
         const moreRatings = await backfillRatings(library.id, enrichDeadline);
         const moreExternalRatings = await backfillExternalRatings(library.id, enrichDeadline);
         incomplete = incomplete || moreRatings || moreExternalRatings;
       }
       const audibleRegion = library.kind === "audiobooks" ? library.audibleRegion : null;
-      const probeIncomplete = await probePendingDurations(provider, library.id, probeDeadline, errors, audibleRegion);
+      const probeIncomplete =
+        library.kind === "video"
+          ? await probeVideoLibrary(provider, library.id, probeDeadline, errors)
+          : await probePendingDurations(provider, library.id, probeDeadline, errors, audibleRegion);
       incomplete = incomplete || probeIncomplete;
     }
   } catch (err) {
@@ -259,6 +304,8 @@ export async function scanLibrary(
     }
   }
 
+  const skippedNote = unsupportedSummary(unsupportedSkipped);
+  if (skippedNote) errors.push(skippedNote);
   await db
     .update(scanRuns)
     .set({ finishedAt: new Date(), filesSeen, titlesAdded, errors })
