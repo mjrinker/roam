@@ -233,7 +233,7 @@ export async function syncVideoDirectory(
         .where(and(eq(mediaFiles.ownerKind, "title"), inArray(mediaFiles.ownerId, ids)));
       await tx
         .update(titles)
-        .set({ tagsAttemptedAt: null, tagAttempts: 0, thumbAttempts: 0, thumbAttemptedAt: null })
+        .set({ tagsAttemptedAt: null, tagAttempts: 0, thumbAttempts: 0, thumbAttemptedAt: null, chapters: null, chaptersSource: null })
         .where(inArray(titles.id, ids));
     }
 
@@ -346,6 +346,25 @@ export function unsupportedSummary(count: number, profile: TreeProfile = VIDEO_P
     : null;
 }
 
+// ── Chapters ──
+
+/**
+ * A one-file title's chapters live on its media file once probed; the audio player reads them from the
+ * title. Copies them across for titles that have none yet. Never touches Audible-sourced chapters
+ * (generic audio has none) and never runs a title with no embedded chapters.
+ */
+export async function copyEmbeddedChapters(libraryId: string): Promise<void> {
+  await db.execute(sql`
+    UPDATE titles t
+    SET chapters = m.chapters, chapters_source = 'embedded'
+    FROM media_files m
+    WHERE t.library_id = ${libraryId}
+      AND m.owner_kind = 'title' AND m.owner_id = t.id AND m.part_index = 0
+      AND t.chapters IS NULL
+      AND m.probe_status = 'ok'
+      AND m.chapters IS NOT NULL AND jsonb_array_length(m.chapters) > 0`);
+}
+
 // ── Probing ──────────────────────────────────────────────────────────────
 
 const primaryFiles = alias(mediaFiles, "primary_files");
@@ -398,6 +417,9 @@ export async function probeVideoLibrary(
     if (codecFiles.length === PROBE_BATCH) incomplete = true;
     await probeCodecsForPending(provider, codecFiles.map((r) => r.file), now + (deadline - now) / 3);
   }
+
+  // Embedded chapters (m4b, MP3 CHAP) onto the titles whose files were just probed, where the player reads them.
+  if (profile.chapters) await copyEmbeddedChapters(libraryId);
 
   // Names, years, descriptions and pictures read from the files themselves.
   incomplete = (await readTagsAndArtwork(provider, libraryId, deadline, errors, profile)) || incomplete;

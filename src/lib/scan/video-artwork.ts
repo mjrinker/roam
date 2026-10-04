@@ -11,6 +11,7 @@ import { db } from "@/lib/db/client";
 import { mediaFiles, titleArtwork, titles } from "@/lib/db/schema";
 import { BoxReauthRequiredError } from "@/lib/storage/box-token-storage";
 import type { StorageProvider } from "@/lib/storage/provider";
+import { probeMp3Tags } from "@/lib/scan/id3-tags";
 import { probeMp4Tags } from "@/lib/scan/mp4-duration";
 import type { Db } from "@/lib/scan/media-files";
 import { VIDEO_PROFILE, type TreeProfile } from "@/lib/scan/tree-profile";
@@ -54,6 +55,47 @@ async function inBatches<T>(items: T[], deadline: number, fn: (item: T) => Promi
   return false;
 }
 
+interface FileTags {
+  title: string | null;
+  artist: string | null;
+  album: string | null;
+  year: number | null;
+  description: string | null;
+  cover: { contentType: "image/jpeg" | "image/png"; bytes: Uint8Array } | null;
+}
+
+/** An MP3 carries ID3 tags; everything else Roam reads (MP4 video, m4a, m4b) carries MP4 atoms. */
+async function readFileTags(
+  provider: StorageProvider,
+  file: { fileId: string; size: number | null; container: string | null },
+  profile: TreeProfile
+): Promise<FileTags> {
+  const fetchRange = (s: number, e: number) => provider.fetchByteRange(file.fileId, s, e);
+  const size = file.size as number;
+  if (profile.libraryKind === "audio" && (file.container ?? "").toLowerCase() === "mp3") {
+    return { ...(await probeMp3Tags(fetchRange, size)), description: null };
+  }
+  return probeMp4Tags(fetchRange, size);
+}
+
+/**
+ * What a read's tags set on the title. Every kind: the embedded title (which a rescan then never
+ * overwrites) and year. Video: the description. Audio: the artist as the author (explicitly null when
+ * the file names none, so a replaced file can't keep a stale one), the description, and the album as the
+ * series, but only when it isn't just the title again (an m4b's album usually is).
+ */
+function titleColumns(tags: FileTags, profile: TreeProfile, currentName: string) {
+  const base = {
+    ...(tags.title ? { name: tags.title, nameSource: "embedded" as const } : {}),
+    ...(tags.year ? { year: tags.year } : {}),
+    ...(tags.description ? { overview: tags.description } : {}),
+  };
+  if (profile.libraryKind !== "audio") return base;
+  const effectiveTitle = (tags.title ?? currentName).trim().toLowerCase();
+  const album = tags.album && tags.album.trim().toLowerCase() !== effectiveTitle ? tags.album : null;
+  return { ...base, authors: tags.artist ? [tags.artist] : null, seriesName: album };
+}
+
 /** Returns true when work remains (batch cap or deadline hit), so the scan stays incomplete and another pass follows. */
 export async function readTagsAndArtwork(
   provider: StorageProvider,
@@ -64,7 +106,14 @@ export async function readTagsAndArtwork(
 ): Promise<boolean> {
   // 1. Tags: videos whose duration probe succeeded and whose tags haven't been read.
   const untagged = await db
-    .select({ titleId: titles.id, fileId: mediaFiles.boxFileId, filename: mediaFiles.filename, size: mediaFiles.sizeBytes })
+    .select({
+      titleId: titles.id,
+      currentName: titles.name,
+      fileId: mediaFiles.boxFileId,
+      filename: mediaFiles.filename,
+      container: mediaFiles.container,
+      size: mediaFiles.sizeBytes,
+    })
     .from(titles)
     .innerJoin(mediaFiles, and(eq(mediaFiles.ownerKind, "title"), eq(mediaFiles.ownerId, titles.id), eq(mediaFiles.partIndex, 0)))
     .where(
@@ -86,15 +135,13 @@ export async function readTagsAndArtwork(
       // poisoned file can never stall every future scan.
       await db.update(titles).set({ tagAttempts: sql`${titles.tagAttempts} + 1` }).where(eq(titles.id, t.titleId));
       try {
-        const tags = await probeMp4Tags((s, e) => provider.fetchByteRange(t.fileId, s, e), t.size as number);
+        const tags = await readFileTags(provider, t, profile);
         await db.transaction(async (tx) => {
           const now = new Date();
           await tx
             .update(titles)
             .set({
-              ...(tags.title ? { name: tags.title, nameSource: "embedded" as const } : {}),
-              ...(tags.year ? { year: tags.year } : {}),
-              ...(tags.description ? { overview: tags.description } : {}),
+              ...titleColumns(tags, profile, t.currentName),
               tagsAttemptedAt: now,
               // The attempt counted up front succeeded, so it doesn't count against the thumbnail tries.
               tagAttempts: sql`greatest(${titles.tagAttempts} - 1, 0)`,

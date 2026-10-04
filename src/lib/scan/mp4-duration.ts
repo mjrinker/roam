@@ -318,6 +318,9 @@ async function probeMoov(r: RangeReader, moov: Box, wantChapters: boolean): Prom
 
 export interface Mp4Tags {
   title: string | null;
+  /** ©ART, else the album artist (aART). */
+  artist: string | null;
+  album: string | null;
   year: number | null;
   description: string | null;
   /** The first embedded image that is a real JPEG/PNG within the size cap, else null. */
@@ -340,9 +343,15 @@ function imageType(bytes: Uint8Array): "image/jpeg" | "image/png" | null {
   return null;
 }
 
+/** The album artist is only a fallback for the track artist, whichever atom comes first. */
+const albumArtists = new WeakMap<Mp4Tags, string>();
+
 function applyText(tags: Mp4Tags, atom: string, text: string | null) {
   if (!text) return;
   if (atom === ATOM("nam") && tags.title === null) tags.title = text.slice(0, 300);
+  else if (atom === ATOM("ART") && tags.artist === null) tags.artist = text.slice(0, 300);
+  else if (atom === "aART" && !albumArtists.has(tags)) albumArtists.set(tags, text.slice(0, 300));
+  else if (atom === ATOM("alb") && tags.album === null) tags.album = text.slice(0, 300);
   else if (atom === ATOM("day") && tags.year === null) {
     const y = Number(/^(\d{4})/.exec(text)?.[1]);
     if (y >= 1888 && y <= 2100) tags.year = y;
@@ -350,7 +359,8 @@ function applyText(tags: Mp4Tags, atom: string, text: string | null) {
 }
 
 /** An iTunes-style `ilst` atom's `data` children: u8 version, u24 type flags, u32 locale, then the value. */
-const tagsComplete = (t: Mp4Tags) => t.title !== null && t.year !== null && t.description !== null && t.cover !== null;
+const tagsComplete = (t: Mp4Tags) =>
+  t.title !== null && t.artist !== null && t.album !== null && t.year !== null && t.description !== null && t.cover !== null;
 /** A file whose tags take more than this many atom reads to find is hostile or broken: stop. */
 const MAX_TAG_ATOM_READS = 64;
 
@@ -358,7 +368,9 @@ async function readIlst(r: RangeReader, ilst: Box, tags: Mp4Tags) {
   let reads = 0;
   for await (const atom of childBoxes(r, ilst, MOOV_PREFETCH)) {
     if (tagsComplete(tags) || reads >= MAX_TAG_ATOM_READS) return;
-    const wanted = atom.type === ATOM("nam") || atom.type === ATOM("day") || atom.type === "desc" || atom.type === "ldes" || atom.type === "covr";
+    const wanted =
+      atom.type === ATOM("nam") || atom.type === ATOM("ART") || atom.type === "aART" || atom.type === ATOM("alb") ||
+      atom.type === ATOM("day") || atom.type === "desc" || atom.type === "ldes" || atom.type === "covr";
     if (!wanted) continue;
     for await (const data of childBoxes(r, atom, 4096)) {
       if (data.type !== "data") continue;
@@ -395,7 +407,7 @@ async function readUdtaTags(r: RangeReader, udta: Box, tags: Mp4Tags) {
   for await (const child of childBoxes(r, udta, MOOV_PREFETCH)) {
     if (child.type === "meta") {
       await readMetaTags(r, child, tags);
-    } else if (child.type === ATOM("nam") || child.type === ATOM("day")) {
+    } else if (child.type === ATOM("nam") || child.type === ATOM("day") || child.type === ATOM("ART") || child.type === ATOM("alb")) {
       // QuickTime text atom: u16 length, u16 language, then the text.
       const length = child.end - child.contentStart - 4;
       if (length <= 0) continue;
@@ -415,7 +427,7 @@ async function readUdtaTags(r: RangeReader, udta: Box, tags: Mp4Tags) {
 export async function probeMp4Tags(fetchRange: ByteRangeFetcher, fileSizeBytes: number): Promise<Mp4Tags> {
   const r = new RangeReader(fetchRange, fileSizeBytes);
   const moov = await findMoov(r, fileSizeBytes);
-  const tags: Mp4Tags = { title: null, year: null, description: null, cover: null };
+  const tags: Mp4Tags = { title: null, artist: null, album: null, year: null, description: null, cover: null };
   try {
     for await (const child of childBoxes(r, moov, MOOV_PREFETCH)) {
       try {
@@ -428,6 +440,7 @@ export async function probeMp4Tags(fetchRange: ByteRangeFetcher, fileSizeBytes: 
   } catch {
     // The moov's own box list went bad partway; same.
   }
+  tags.artist ??= albumArtists.get(tags) ?? null;
   return tags;
 }
 

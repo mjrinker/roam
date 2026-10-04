@@ -43,6 +43,18 @@ describe("probeMp4Tags", () => {
     expect(Array.from(tags.cover!.bytes)).toEqual(JPEG);
   });
 
+  it("reads artist and album, falling back to the album artist, from iTunes and QuickTime layouts", async () => {
+    const ilst = await probe(file(box("udta", isoMeta(textItem("nam", "Track"), textItem("ART", "Track Artist"), textItem("alb", "The Album")))));
+    expect(ilst).toMatchObject({ title: "Track", artist: "Track Artist", album: "The Album" });
+    const albumArtistOnly = await probe(file(box("udta", isoMeta(box("aART", data(1, utf8("Album Artist")))))));
+    expect(albumArtistOnly.artist).toBe("Album Artist");
+    const both = await probe(file(box("udta", isoMeta(box("aART", data(1, utf8("Album Artist"))), textItem("ART", "Track Artist")))));
+    expect(both.artist).toBe("Track Artist"); // the track artist wins even though the album artist came first
+    const textAtom = (name: string, text: string) => box("\u00a9" + name, [...u16be(utf8(text).length), ...u16be(0), ...utf8(text)]);
+    const qt = await probe(file(box("udta", [...textAtom("ART", "QT Artist"), ...textAtom("alb", "QT Album")].flat())));
+    expect(qt).toMatchObject({ artist: "QT Artist", album: "QT Album" });
+  });
+
   it("reads the QuickTime layout: © atoms directly in udta, and a meta box without version bytes", async () => {
     const textAtom = (name: string, text: string) => box("©" + name, [...u16be(utf8(text).length), ...u16be(0), ...utf8(text)]);
     const direct = await probe(file(box("udta", [...textAtom("nam", "Old Movie"), ...textAtom("day", "1987")].flat())));
@@ -72,8 +84,8 @@ describe("probeMp4Tags", () => {
   });
 
   it("returns all nulls for a file with no tags", async () => {
-    expect(await probe(file())).toEqual({ title: null, year: null, description: null, cover: null });
-    expect(await probe(file(box("udta", [])))).toEqual({ title: null, year: null, description: null, cover: null });
+    expect(await probe(file())).toEqual({ title: null, artist: null, album: null, year: null, description: null, cover: null });
+    expect(await probe(file(box("udta", [])))).toEqual({ title: null, artist: null, album: null, year: null, description: null, cover: null });
   });
 
   it("keeps what it read before a malformed section instead of failing", async () => {

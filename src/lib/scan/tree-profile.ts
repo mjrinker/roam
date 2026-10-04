@@ -24,6 +24,8 @@ export interface TreeProfile {
   probeCodecs: boolean;
   /** Ask Box for a generated thumbnail when a file has no embedded cover (Box makes none for audio). */
   thumbnails: boolean;
+  /** Carry a file's embedded chapters (m4b chapters, MP3 CHAP frames) onto its title, where the audio player reads them. */
+  chapters: boolean;
 }
 
 const hasExtension = (set: ReadonlySet<string>, fileName: string) => {
@@ -44,6 +46,7 @@ export const VIDEO_PROFILE: TreeProfile = {
   linkVariants: true,
   probeCodecs: true,
   thumbnails: true,
+  chapters: false,
 };
 
 export const AUDIO_PROFILE: TreeProfile = {
@@ -56,6 +59,7 @@ export const AUDIO_PROFILE: TreeProfile = {
   linkVariants: false,
   probeCodecs: false,
   thumbnails: false,
+  chapters: true,
 };
 
 export function treeProfileFor(kind: FileTreeKind): TreeProfile {
