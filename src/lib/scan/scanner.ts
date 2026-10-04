@@ -38,7 +38,8 @@ import {
   syncSingleAudiobook,
 } from "@/lib/scan/audiobooks";
 import { markCycleUnclean, pruneMissingVideos, pruneNote } from "@/lib/scan/video-prune";
-import { libraryKindUsesExternalMetadata } from "@/lib/libraries/profile";
+import { isFileTreeLibraryKind, libraryKindUsesExternalMetadata } from "@/lib/libraries/profile";
+import { treeProfileFor } from "@/lib/scan/tree-profile";
 import { conflictNote, probeVideoLibrary, syncVideoDirectory, syncVideoTopFolder, unsupportedSummary } from "@/lib/scan/video-library";
 import { resolveEpisodeSplits } from "@/lib/scan/episode-split-pass";
 import {
@@ -134,18 +135,21 @@ export async function scanLibrary(
   const errors: string[] = [];
   const provider = createBoxProviderForServer(library.serverId);
 
+  // File-tree libraries (video, audio) share one scanning engine; this says how the kind differs.
+  const treeProfile = isFileTreeLibraryKind(library.kind) ? treeProfileFor(library.kind) : null;
+
   const plan = planScan(trigger, library);
   let cursor: ScanCursor | null = plan.mode === "continue" ? plan.cursor : null;
   // Video libraries: the scan cycle this pass belongs to. A full pass starts a new one; a continuing
   // pass carries on with the cycle on the library row (null for one begun before cycles existed, which
   // can never remove anything).
-  let cycleId: string | null = library.kind === "video" && plan.mode !== "full" ? library.scanCycleId : null;
+  let cycleId: string | null = treeProfile && plan.mode !== "full" ? library.scanCycleId : null;
 
   try {
     if (plan.mode === "full") {
       // A fresh cycle: unconditional reset, so any in-flight chained pass
       // fails its next compare-and-set and stops rather than fighting us.
-      if (library.kind === "video") cycleId = randomUUID();
+      if (treeProfile) cycleId = randomUUID();
       await db
         .update(libraries)
         .set({
@@ -159,7 +163,7 @@ export async function scanLibrary(
 
     if (plan.mode !== "probe-only") {
       // A video library acts on what the root listing LACKS (it links remuxed copies and counts files), so a silently shortened list must fail the scan, not pass for a smaller library.
-      const topLevel = await provider.listFolder(library.boxFolderId, library.kind === "video" ? { strict: true } : undefined);
+      const topLevel = await provider.listFolder(library.boxFolderId, treeProfile ? { strict: true } : undefined);
       const sortedFolders = sortForScan(topLevel.filter((e) => e.kind === "folder"));
       const titleFolders = entriesAfterCursor(sortedFolders, cursor);
       if (plan.mode === "full") {
@@ -171,9 +175,9 @@ export async function scanLibrary(
 
       // A video library's loose files at the top level aren't in any folder, so they're synced once
       // per cycle, up front (idempotent, batched), outside the folder cursor.
-      if (library.kind === "video" && plan.mode === "full") {
+      if (treeProfile && plan.mode === "full") {
         try {
-          const r = await syncVideoDirectory(library.id, library.boxFolderId, "", topLevel, cycleId);
+          const r = await syncVideoDirectory(library.id, library.boxFolderId, "", topLevel, cycleId, treeProfile);
           if (r.stale) superseded = true;
           titlesAdded += r.added;
           filesSeen += r.seen;
@@ -237,10 +241,9 @@ export async function scanLibrary(
               break;
             }
             case "audio":
-              // Scanning audio libraries arrives in a later step; creating one isn't possible yet.
-              throw new Error("Audio libraries can't be scanned yet.");
             case "video": {
               const res = await syncVideoTopFolder(provider, library.id, folder, {
+                profile: treeProfile ?? undefined,
                 cycleId,
                 onError: () => markCycleUnclean(library.id, cycleId),
                 afterSub: cursor?.folder === folder.name ? (cursor.sub ?? null) : null,
@@ -278,7 +281,7 @@ export async function scanLibrary(
           if (err instanceof BoxReauthRequiredError) throw err;
           errors.push(`${folder.name}: ${(err as Error).message}`);
           // This folder was stepped past without being fully seen, so the cycle can't vouch for what's missing.
-          if (library.kind === "video") await markCycleUnclean(library.id, cycleId);
+          if (treeProfile) await markCycleUnclean(library.id, cycleId);
         }
         if (stopLoop) break;
         processed++;
@@ -295,13 +298,13 @@ export async function scanLibrary(
 
       // Folder loop reached the end: clear the cursor. Folder sync is done
       // for this cycle; any remaining work is probing.
-      if (loopFinished && !superseded && !(await advanceScanCursor(libraryId, cursor, null, library.kind === "video" ? cycleId : undefined))) {
+      if (loopFinished && !superseded && !(await advanceScanCursor(libraryId, cursor, null, treeProfile ? cycleId : undefined))) {
         superseded = true;
       }
 
       // The pass that finishes a clean cycle removes videos that have left Box (see video-prune for every guard).
-      if (library.kind === "video" && library.pruneMissing && cycleId && loopFinished && !superseded) {
-        const note = pruneNote(await pruneMissingVideos(provider, library.id, cycleId, startedAt + SCAN_TIME_BUDGET_MS));
+      if (treeProfile && library.pruneMissing && cycleId && loopFinished && !superseded) {
+        const note = pruneNote(await pruneMissingVideos(provider, library.id, cycleId, startedAt + SCAN_TIME_BUDGET_MS, treeProfile), treeProfile);
         if (note) errors.push(note);
       }
     }
@@ -313,7 +316,7 @@ export async function scanLibrary(
       if (library.kind === "audiobooks") {
         const moreToMatch = await enrichPendingAudiobooks(library.id, library.audibleRegion, enrichDeadline);
         incomplete = incomplete || moreToMatch;
-      } else if (library.kind === "video") {
+      } else if (treeProfile) {
         // Everything comes from the files themselves: no TMDB, OMDb or Audible lookups, ever.
       } else {
         const moreRatings = await backfillRatings(library.id, enrichDeadline);
@@ -322,8 +325,8 @@ export async function scanLibrary(
       }
       const audibleRegion = library.kind === "audiobooks" ? library.audibleRegion : null;
       const probeIncomplete =
-        library.kind === "video"
-          ? await probeVideoLibrary(provider, library.id, probeDeadline, errors)
+        treeProfile
+          ? await probeVideoLibrary(provider, library.id, probeDeadline, errors, treeProfile)
           : await probePendingDurations(provider, library.id, probeDeadline, errors, audibleRegion);
       incomplete = incomplete || probeIncomplete;
     }
@@ -335,7 +338,7 @@ export async function scanLibrary(
     }
   }
 
-  const skippedNote = unsupportedSummary(unsupportedSkipped);
+  const skippedNote = unsupportedSummary(unsupportedSkipped, treeProfile ?? undefined);
   if (skippedNote) errors.push(skippedNote);
   await db
     .update(scanRuns)

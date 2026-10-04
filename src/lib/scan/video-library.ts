@@ -18,7 +18,8 @@ import { db } from "@/lib/db/client";
 import { libraries, mediaFiles, titles } from "@/lib/db/schema";
 import { BoxReauthRequiredError } from "@/lib/storage/box-token-storage";
 import type { StorageEntry, StorageProvider } from "@/lib/storage/provider";
-import { isBrowserFriendlyVariant, isVideoFile, stripVariantSuffix } from "@/lib/scan/conventions";
+import { isBrowserFriendlyVariant, stripVariantSuffix } from "@/lib/scan/conventions";
+import { VIDEO_PROFILE, type TreeProfile } from "@/lib/scan/tree-profile";
 import {
   linkVariantFiles,
   pendingCodecProbeCondition,
@@ -38,13 +39,7 @@ const CHUNK = 500;
 /** Per pass, so a huge library's probing is spread over passes instead of loading every pending row at once. */
 const PROBE_BATCH = 300;
 
-/** Video-ish files Roam can't read or play (it handles .mp4 .m4v .mov); counted so the admin is told, never listed as titles. */
-const UNSUPPORTED_VIDEO_EXTENSIONS = new Set([".mkv", ".avi", ".webm", ".wmv", ".flv", ".mpg", ".mpeg", ".ts", ".m2ts", ".3gp", ".ogv"]);
-
-export function isUnsupportedVideo(fileName: string): boolean {
-  const dot = fileName.lastIndexOf(".");
-  return dot !== -1 && UNSUPPORTED_VIDEO_EXTENSIONS.has(fileName.slice(dot).toLowerCase());
-}
+export const isUnsupportedVideo = (fileName: string): boolean => VIDEO_PROFILE.isUnsupported(fileName);
 
 /**
  * A display name (and year, when the name ends in "(YYYY)") from a filename: extension dropped;
@@ -104,14 +99,16 @@ export async function syncVideoDirectory(
   folderPath: string,
   entries: StorageEntry[],
   /** The scan cycle this pass belongs to (null when there is none, e.g. a cycle that began before cycles existed). Videos seen are stamped with it. */
-  cycleId: string | null = null
+  cycleId: string | null = null,
+  profile: TreeProfile = VIDEO_PROFILE
 ): Promise<DirectorySyncResult> {
   const files = entries.filter((e) => e.kind === "file");
-  const unsupported = files.filter((f) => isUnsupportedVideo(f.name)).length;
-  const video = files.filter((f) => isVideoFile(f.name));
+  const unsupported = files.filter((f) => profile.isUnsupported(f.name)).length;
+  const video = files.filter((f) => profile.isMedia(f.name));
   const plainNames = new Set(video.filter((f) => !isBrowserFriendlyVariant(f.name)).map((f) => f.name.toLowerCase()));
   // A remuxed copy (`name.aac.mp4`) is linked to its original; one whose original isn't here is the only copy there is, so it is a title.
-  const isLinkedVariant = (f: StorageEntry) => isBrowserFriendlyVariant(f.name) && plainNames.has(stripVariantSuffix(f.name).toLowerCase());
+  // Only for video: in an audio library "x.aac.m4a" is just a file called that.
+  const isLinkedVariant = (f: StorageEntry) => profile.linkVariants && isBrowserFriendlyVariant(f.name) && plainNames.has(stripVariantSuffix(f.name).toLowerCase());
   const variants = video.filter(isLinkedVariant);
   const primaries = video.filter((f) => !isLinkedVariant(f));
   if (primaries.length === 0) return { added: 0, seen: 0, unsupported, conflicts: 0 };
@@ -149,10 +146,10 @@ export async function syncVideoDirectory(
         .values(
           chunk.map((f) => {
             // An orphaned remux copy is named after the original it stands in for ("Only.aac.mp4" -> "Only").
-            const { name, year } = titleFromFileName(stripVariantSuffix(f.name));
+            const { name, year } = titleFromFileName(profile.linkVariants ? stripVariantSuffix(f.name) : f.name);
             return {
               libraryId,
-              kind: "movie" as const,
+              kind: profile.titleKind,
               name,
               year,
               boxFolderId: keyOf(f),
@@ -277,6 +274,8 @@ export async function syncVideoTopFolder(
     retryDelayMs?: number;
     /** The scan cycle this pass belongs to; see syncVideoDirectory. */
     cycleId?: string | null;
+    /** Which kind of file-tree library (default video). */
+    profile?: TreeProfile;
     /**
      * Awaited when a directory failed, BEFORE the cursor is moved past it. If the process dies between
      * stepping past an unread directory and flagging the cycle, the next pass would otherwise treat a
@@ -308,7 +307,7 @@ export async function syncVideoTopFolder(
       try {
         // A directory write that hits a lock timeout (a rating change in flight) or a deadlock is simply tried again.
         const r = await retryOnContention(
-          () => syncVideoDirectory(libraryId, dir.idPath[dir.idPath.length - 1] ?? top.id, libraryPath(top.name, dir.namePath), dir.entries, opts.cycleId ?? null),
+          () => syncVideoDirectory(libraryId, dir.idPath[dir.idPath.length - 1] ?? top.id, libraryPath(top.name, dir.namePath), dir.entries, opts.cycleId ?? null, opts.profile ?? VIDEO_PROFILE),
           [...CONTENTION_CODES, LOCK_TIMEOUT]
         );
         if (r.stale) {
@@ -341,9 +340,9 @@ export function conflictNote(count: number): string {
 }
 
 /** The summary line the admin sees after a scan that skipped files in formats Roam can't play. */
-export function unsupportedSummary(count: number): string | null {
+export function unsupportedSummary(count: number, profile: TreeProfile = VIDEO_PROFILE): string | null {
   return count > 0
-    ? `${count} file${count === 1 ? "" : "s"} skipped: unsupported format (Roam plays .mp4, .m4v and .mov).`
+    ? `${count} file${count === 1 ? "" : "s"} skipped: unsupported format (${profile.supportedHint}).`
     : null;
 }
 
@@ -360,7 +359,8 @@ export async function probeVideoLibrary(
   provider: StorageProvider,
   libraryId: string,
   deadline: number,
-  errors: string[]
+  errors: string[],
+  profile: TreeProfile = VIDEO_PROFILE
 ): Promise<boolean> {
   const inLibrary = eq(titles.libraryId, libraryId);
 
@@ -387,7 +387,7 @@ export async function probeVideoLibrary(
 
   // Codecs for files probed before codec detection (or whose inline read failed); a third of the time left.
   const now = Date.now();
-  if (deadline > now) {
+  if (profile.probeCodecs && deadline > now) {
     const codecFiles = await db
       .select({ file: mediaFiles })
       .from(mediaFiles)
@@ -400,7 +400,7 @@ export async function probeVideoLibrary(
   }
 
   // Names, years, descriptions and pictures read from the files themselves.
-  incomplete = (await readTagsAndArtwork(provider, libraryId, deadline, errors)) || incomplete;
+  incomplete = (await readTagsAndArtwork(provider, libraryId, deadline, errors, profile)) || incomplete;
 
   // Runtimes only for titles whose files were just probed (not a query per title in the library).
   const probedTitleIds = [...new Set(pendingTitleFiles.map((r) => r.file.ownerId).filter((id): id is string => id !== null))];

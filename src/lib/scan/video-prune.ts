@@ -18,6 +18,7 @@ import { db } from "@/lib/db/client";
 import { libraries, mediaFiles, titles, watchState } from "@/lib/db/schema";
 import { BoxReauthRequiredError } from "@/lib/storage/box-token-storage";
 import type { StorageProvider } from "@/lib/storage/provider";
+import { VIDEO_PROFILE, type TreeProfile } from "@/lib/scan/tree-profile";
 
 /**
  * A video must stay gone this long before it is removed. Box's trash is restorable for weeks, and a
@@ -99,7 +100,8 @@ export async function pruneMissingVideos(
   provider: Pick<StorageProvider, "fileExists">,
   libraryId: string,
   cycleId: string,
-  deadline: number
+  deadline: number,
+  profile: TreeProfile = VIDEO_PROFILE
 ): Promise<PruneResult> {
   const result: PruneResult = { removed: 0, candidates: 0, unverified: 0, waiting: 0, skipped: null };
   if (!provider.fileExists) return { ...result, skipped: "unsupported" };
@@ -123,7 +125,7 @@ export async function pruneMissingVideos(
 
   const unseen = and(
     eq(titles.libraryId, libraryId),
-    eq(titles.kind, "movie"),
+    eq(titles.kind, profile.titleKind),
     sql`${titles.boxFolderId} LIKE 'file:%'`,
     sql`${titles.lastSeenCycle} IS DISTINCT FROM ${cycleId}`
   );
@@ -179,14 +181,15 @@ export async function pruneMissingVideos(
 }
 
 /** What the admin is told after a prune, or null for nothing worth saying. */
-export function pruneNote(r: PruneResult): string | null {
+export function pruneNote(r: PruneResult, profile: TreeProfile = VIDEO_PROFILE): string | null {
   const plural = (n: number, one: string, many: string) => (n === 1 ? one : many);
+  const { one, many } = profile.noun;
   if (r.skipped === "too_many") {
-    return `Cleanup skipped: ${r.candidates} videos look like they were removed from Box, which is more than is safe to remove automatically, so none were removed. Check that the Box folder is intact.`;
+    return `Cleanup skipped: ${r.candidates} ${many} look like they were removed from Box, which is more than is safe to remove automatically, so none were removed. Check that the Box folder is intact.`;
   }
   const parts: string[] = [];
-  if (r.waiting > 0) parts.push(`${r.waiting} ${plural(r.waiting, "video is", "videos are")} no longer in Box; ${plural(r.waiting, "it", "they")} will be removed from Roam if ${plural(r.waiting, "it stays", "they stay")} gone for ${Math.round(pruneSettings.graceMs / 86_400_000)} days.`);
-  if (r.removed > 0) parts.push(`Removed ${r.removed} ${plural(r.removed, "video that is", "videos that are")} no longer in Box.`);
-  if (r.unverified > 0) parts.push(`${r.unverified} ${plural(r.unverified, "video", "videos")} couldn't be checked against Box and ${plural(r.unverified, "was", "were")} kept.`);
+  if (r.waiting > 0) parts.push(`${r.waiting} ${plural(r.waiting, `${one} is`, `${many} are`)} no longer in Box; ${plural(r.waiting, "it", "they")} will be removed from Roam if ${plural(r.waiting, "it stays", "they stay")} gone for ${Math.round(pruneSettings.graceMs / 86_400_000)} days.`);
+  if (r.removed > 0) parts.push(`Removed ${r.removed} ${plural(r.removed, `${one} that is`, `${many} that are`)} no longer in Box.`);
+  if (r.unverified > 0) parts.push(`${r.unverified} ${plural(r.unverified, one, many)} couldn't be checked against Box and ${plural(r.unverified, "was", "were")} kept.`);
   return parts.length ? parts.join(" ") : null;
 }

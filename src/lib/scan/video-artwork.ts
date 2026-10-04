@@ -13,6 +13,7 @@ import { BoxReauthRequiredError } from "@/lib/storage/box-token-storage";
 import type { StorageProvider } from "@/lib/storage/provider";
 import { probeMp4Tags } from "@/lib/scan/mp4-duration";
 import type { Db } from "@/lib/scan/media-files";
+import { VIDEO_PROFILE, type TreeProfile } from "@/lib/scan/tree-profile";
 
 export const MAX_TAG_ATTEMPTS = 3;
 export const MAX_THUMB_ATTEMPTS = 3;
@@ -58,7 +59,8 @@ export async function readTagsAndArtwork(
   provider: StorageProvider,
   libraryId: string,
   deadline: number,
-  errors: string[]
+  errors: string[],
+  profile: TreeProfile = VIDEO_PROFILE
 ): Promise<boolean> {
   // 1. Tags: videos whose duration probe succeeded and whose tags haven't been read.
   const untagged = await db
@@ -110,7 +112,7 @@ export async function readTagsAndArtwork(
   // 2. Pictures: titles that still have none (no embedded cover): Box's own thumbnail. Independent of the
   // tag read (a file whose tags can't be read can still have a thumbnail), with its own attempt count and
   // a pause between asks, since Box answers "not ready yet" for a while after a file appears.
-  if (!provider.fetchThumbnail) return incomplete;
+  if (!profile.thumbnails || !provider.fetchThumbnail) return incomplete;
   const fetchThumbnail = provider.fetchThumbnail.bind(provider);
   const retryBefore = new Date(Date.now() - THUMB_RETRY_AFTER_MS);
   const pictureless = await db
