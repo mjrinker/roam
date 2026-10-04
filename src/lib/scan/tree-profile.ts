@@ -24,6 +24,8 @@ export interface TreeProfile {
   probeCodecs: boolean;
   /** Ask Box for a generated thumbnail when a file has no embedded cover (Box makes none for audio). */
   thumbnails: boolean;
+  /** A file's artist becomes its title's author, and its album the series (audio); video files have neither. */
+  artistAsAuthor: boolean;
   /** Carry a file's embedded chapters (m4b chapters, MP3 CHAP frames) onto its title, where the audio player reads them. */
   chapters: boolean;
 }
@@ -46,6 +48,7 @@ export const VIDEO_PROFILE: TreeProfile = {
   linkVariants: true,
   probeCodecs: true,
   thumbnails: true,
+  artistAsAuthor: false,
   chapters: false,
 };
 
@@ -59,6 +62,7 @@ export const AUDIO_PROFILE: TreeProfile = {
   linkVariants: false,
   probeCodecs: false,
   thumbnails: false,
+  artistAsAuthor: true,
   chapters: true,
 };
 

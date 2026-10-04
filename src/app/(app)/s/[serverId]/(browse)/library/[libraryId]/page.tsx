@@ -14,6 +14,7 @@ import { Button } from "@/components/ui/button";
 import { Breadcrumbs } from "@/components/shell/breadcrumbs";
 import { VideoFolderView } from "@/components/library/video-folder-view";
 import { listFolder as listVideoFolder, normalizeFolderPath } from "@/lib/libraries/folder-browse";
+import { isFileTreeLibraryKind } from "@/lib/libraries/profile";
 import { decodeCursor, encodeCursor } from "@/lib/playlists/http";
 import {
   LibraryBrowser,
@@ -43,8 +44,8 @@ export default async function LibraryDetailPage({
     .limit(1);
   if (!library) notFound();
 
-  // A video library is browsed folder by folder (the folder and the page of videos come from the URL).
-  if (library.kind === "video") {
+  // A file-tree library (video, audio) is browsed folder by folder (the folder and the page of files come from the URL).
+  if (isFileTreeLibraryKind(library.kind)) {
     const path = normalizeFolderPath(typeof query.path === "string" ? query.path : null);
     if (path === null) notFound();
     const after = decodeCursor(typeof query.after === "string" ? query.after : null, folderCursorSchema);
@@ -63,7 +64,10 @@ export default async function LibraryDetailPage({
         <Breadcrumbs serverId={serverId} trail={[{ label: library.name }]} className="-mb-2" />
         <div className="flex items-center gap-3">
           <span className="flex size-10 items-center justify-center rounded-xl bg-white/[0.06] ring-1 ring-white/10">
-            <Clapperboard className="size-5 text-primary" />
+            {(() => {
+              const TreeIcon = KIND_ICON[library.kind];
+              return <TreeIcon className="size-5 text-primary" />;
+            })()}
           </span>
           <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">{library.name}</h1>
         </div>
@@ -75,6 +79,7 @@ export default async function LibraryDetailPage({
           folders={page.folders}
           items={page.items}
           nextHref={page.nextCursor ? `${here}after=${encodeCursor(page.nextCursor)}` : null}
+          itemKind={library.kind === "audio" ? "audiobook" : "movie"}
         />
       </div>
     );

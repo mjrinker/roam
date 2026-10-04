@@ -12,6 +12,7 @@ export function VideoFolderView({
   folders,
   items,
   nextHref,
+  itemKind = "movie",
 }: {
   serverId: string;
   libraryId: string;
@@ -22,6 +23,8 @@ export function VideoFolderView({
   items: FolderItem[];
   /** Link to the next page of videos, or null. */
   nextHref: string | null;
+  /** What each item is: a video plays like a movie (poster card, /title), an audio file like an audiobook (square card, /book). */
+  itemKind?: "movie" | "audiobook";
 }) {
   const base = `/s/${serverId}/library/${libraryId}`;
   const at = (p: string) => (p === "" ? base : `${base}?path=${encodeURIComponent(p)}`);
@@ -77,9 +80,17 @@ export function VideoFolderView({
             <li key={item.id} className="min-w-0">
               <PosterCard
                 serverId={serverId}
-                title={{ id: item.id, kind: "movie", name: item.name, year: item.year, posterUrl: item.posterUrl }}
+                title={{
+                  id: item.id,
+                  kind: itemKind,
+                  name: item.name,
+                  year: item.year,
+                  posterUrl: item.posterUrl,
+                  subtitle: item.authors && item.authors.length > 0 ? item.authors.join(", ") : null,
+                }}
               />
               <p className="mt-2 line-clamp-2 text-sm font-medium">{item.name}</p>
+              {item.authors && item.authors.length > 0 && <p className="line-clamp-1 text-xs text-muted-foreground">{item.authors.join(", ")}</p>}
             </li>
           ))}
         </ul>
@@ -89,13 +100,13 @@ export function VideoFolderView({
         <div className="mx-auto flex max-w-sm flex-col items-center gap-3 py-24 text-center">
           <Clapperboard className="size-8 text-muted-foreground/60" />
           <p className="text-lg font-medium">Nothing here</p>
-          <p className="text-sm text-muted-foreground">There are no videos in this folder yet.</p>
+          <p className="text-sm text-muted-foreground">There is nothing in this folder yet.</p>
         </div>
       )}
 
       {nextHref && (
         <Link href={nextHref} className="mx-auto flex h-10 items-center rounded-xl bg-white/[0.06] px-6 text-sm ring-1 ring-white/[0.08] transition hover:bg-white/[0.09]">
-          More videos
+          Load more
         </Link>
       )}
     </div>

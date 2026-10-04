@@ -67,12 +67,12 @@ interface FileTags {
 /** An MP3 carries ID3 tags; everything else Roam reads (MP4 video, m4a, m4b) carries MP4 atoms. */
 async function readFileTags(
   provider: StorageProvider,
-  file: { fileId: string; size: number | null; container: string | null },
-  profile: TreeProfile
+  file: { fileId: string; size: number | null; container: string | null }
 ): Promise<FileTags> {
   const fetchRange = (s: number, e: number) => provider.fetchByteRange(file.fileId, s, e);
   const size = file.size as number;
-  if (profile.libraryKind === "audio" && (file.container ?? "").toLowerCase() === "mp3") {
+  // An MP3 can only be in an audio library (video libraries don't accept the extension), so the file type decides.
+  if ((file.container ?? "").toLowerCase() === "mp3") {
     return { ...(await probeMp3Tags(fetchRange, size)), description: null };
   }
   return probeMp4Tags(fetchRange, size);
@@ -90,7 +90,7 @@ function titleColumns(tags: FileTags, profile: TreeProfile, currentName: string)
     ...(tags.year ? { year: tags.year } : {}),
     ...(tags.description ? { overview: tags.description } : {}),
   };
-  if (profile.libraryKind !== "audio") return base;
+  if (!profile.artistAsAuthor) return base;
   const effectiveTitle = (tags.title ?? currentName).trim().toLowerCase();
   const album = tags.album && tags.album.trim().toLowerCase() !== effectiveTitle ? tags.album : null;
   return { ...base, authors: tags.artist ? [tags.artist] : null, seriesName: album };
@@ -135,7 +135,7 @@ export async function readTagsAndArtwork(
       // poisoned file can never stall every future scan.
       await db.update(titles).set({ tagAttempts: sql`${titles.tagAttempts} + 1` }).where(eq(titles.id, t.titleId));
       try {
-        const tags = await readFileTags(provider, t, profile);
+        const tags = await readFileTags(provider, t);
         await db.transaction(async (tx) => {
           const now = new Date();
           await tx

@@ -20,6 +20,7 @@ import { FolderBrowser } from "@/components/admin/folder-browser";
 import type { LibraryAccess, LibraryKind } from "@/lib/db/schema";
 import { LibraryAccessDialog } from "@/components/admin/library-access-dialog";
 import { AUDIBLE_REGIONS } from "@/lib/audible/client";
+import { isFileTreeLibraryKind } from "@/lib/libraries/profile";
 import { agesToRating, VIDEO_RATING_OPTIONS, type VideoRating } from "@/lib/libraries/video-rating-options";
 
 export interface LastScanInfo {
@@ -128,7 +129,7 @@ function VideoRatingSelect({ libraryId, initial }: { libraryId: string; initial:
       toast.error("Couldn't change the rating.");
       return;
     }
-    toast.success("Rating updated for every video in this library.");
+    toast.success("Rating updated for everything in this library.");
   }
 
   return (
@@ -168,7 +169,7 @@ function PruneToggle({ libraryId, initial }: { libraryId: string; initial: boole
   return (
     <label className="mt-2 flex items-center gap-2 text-xs text-muted-foreground">
       <input type="checkbox" className="size-3.5 accent-[var(--primary)]" checked={enabled} onChange={(e) => change(e.target.checked)} />
-      Remove videos that were deleted from Box (and their watch history and playlist spots)
+      Remove items that were deleted from Box (and their watch history and playlist spots)
     </label>
   );
 }
@@ -313,7 +314,7 @@ export function LibraryManager({
     const res = await fetch("/api/libraries", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ serverId, name, kind, boxFolderId: selectedFolder.id, ...(kind === "video" ? { rating } : {}) }),
+      body: JSON.stringify({ serverId, name, kind, boxFolderId: selectedFolder.id, ...(isFileTreeLibraryKind(kind) ? { rating } : {}) }),
     });
     setCreating(false);
     if (!res.ok) {
@@ -402,14 +403,17 @@ export function LibraryManager({
                   <option value="shows">TV Shows</option>
                   <option value="audiobooks">Audiobooks</option>
                   <option value="video">Other videos</option>
+                  <option value="audio">Other audio</option>
                 </select>
-                {kind === "video" && (
+                {isFileTreeLibraryKind(kind) && (
                   <p className="text-xs text-muted-foreground">
-                    Any videos in folders, named from the files themselves (no online lookups). Plays .mp4, .m4v and .mov.
+                    {kind === "audio"
+                      ? "Any audio files in folders (podcasts, recordings, lectures), named from the files themselves with no online lookups. Plays .mp3, .m4a and .m4b."
+                      : "Any videos in folders, named from the files themselves (no online lookups). Plays .mp4, .m4v and .mov."}
                   </p>
                 )}
               </div>
-              {kind === "video" && (
+              {isFileTreeLibraryKind(kind) && (
                 <div className="grid gap-1.5">
                   <Label htmlFor="lib-rating">Rating</Label>
                   <select
@@ -421,7 +425,7 @@ export function LibraryManager({
                     <RatingOptions />
                   </select>
                   <p className="text-xs text-muted-foreground">
-                    Applies to every video in the library. Profiles with an age limit only see it if the rating fits.
+                    Applies to everything in the library. Profiles with an age limit only see it if the rating fits.
                   </p>
                 </div>
               )}
@@ -503,8 +507,8 @@ export function LibraryManager({
                 />
               )}
               {lib.kind === "audiobooks" && <AudibleRegionSelect libraryId={lib.id} initial={lib.audibleRegion} />}
-              {lib.kind === "video" && <VideoRatingSelect libraryId={lib.id} initial={agesToRating(lib.ratingAges)} />}
-              {lib.kind === "video" && <PruneToggle libraryId={lib.id} initial={lib.pruneMissing} />}
+              {isFileTreeLibraryKind(lib.kind) && <VideoRatingSelect libraryId={lib.id} initial={agesToRating(lib.ratingAges)} />}
+              {isFileTreeLibraryKind(lib.kind) && <PruneToggle libraryId={lib.id} initial={lib.pruneMissing} />}
               {statusById[lib.id] && <ScanProgress status={statusById[lib.id]} />}
               {lib.lastScan && <ScanErrors errors={lib.lastScan.errors} />}
             </CardContent>

@@ -57,6 +57,8 @@ export interface FolderItem {
   year: number | null;
   posterUrl: string | null;
   runtimeSeconds: number | null;
+  /** Audio files: the artist(s), shown under the title; null for video. */
+  authors: string[] | null;
 }
 
 export interface FolderPage {
@@ -114,6 +116,7 @@ export async function listFolder(
       year: titles.year,
       posterUrl: titles.posterUrl,
       runtimeSeconds: titles.runtimeSeconds,
+      authors: titles.authors,
     })
     .from(titles)
     .innerJoin(libraries, eq(libraries.id, titles.libraryId))

@@ -146,6 +146,16 @@ describe("POST /api/libraries (video)", () => {
     expect((await unrated.json()).library.ratingAges).toBeNull();
   });
 
+  it("creates an audio library the same way: rating required, restricted to start", async () => {
+    const w = await world();
+    h.admin = { profile: { id: "x" }, role: "admin" };
+    const base = { serverId: w.server.id, name: "Podcasts", kind: "audio", boxFolderId: "box-podcasts" };
+    expect((await create(base)).status).toBe(400); // no rating
+    const ok = await create({ ...base, rating: 7 });
+    expect(ok.status).toBe(200);
+    expect((await ok.json()).library).toMatchObject({ kind: "audio", access: "restricted", ratingAges: { ANY: 7 } });
+  });
+
   it("rejects a rating on any other kind of library", async () => {
     const w = await world();
     h.admin = { profile: { id: "x" }, role: "admin" };

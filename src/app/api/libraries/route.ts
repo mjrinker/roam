@@ -4,6 +4,7 @@ import { count, eq } from "drizzle-orm";
 import { getCurrentServerAdmin } from "@/lib/auth/guards";
 import { db } from "@/lib/db/client";
 import { libraries } from "@/lib/db/schema";
+import { isFileTreeLibraryKind } from "@/lib/libraries/profile";
 import { isVideoRating, ratingToAges } from "@/lib/libraries/video-rating";
 
 const MAX_LIBRARIES_PER_SERVER = Number(process.env.MAX_LIBRARIES_PER_SERVER ?? 5);
@@ -11,9 +12,9 @@ const MAX_LIBRARIES_PER_SERVER = Number(process.env.MAX_LIBRARIES_PER_SERVER ?? 
 const bodySchema = z.object({
   serverId: z.string().uuid(),
   name: z.string().min(1),
-  kind: z.enum(["movies", "shows", "audiobooks", "video"]),
+  kind: z.enum(["movies", "shows", "audiobooks", "video", "audio"]),
   boxFolderId: z.string().min(1),
-  // Only for video libraries (required there): the minimum age that may see it, or null = unrated.
+  // Only for file-tree libraries (video, audio), where it is required: the minimum age that may see it, or null = unrated.
   rating: z.number().int().nullable().optional(),
 });
 
@@ -24,12 +25,13 @@ export async function POST(request: Request) {
   }
 
   const { rating, ...fields } = parsed.data;
-  if (fields.kind === "video") {
+  const isTree = isFileTreeLibraryKind(fields.kind);
+  if (isTree) {
     if (rating === undefined || !isVideoRating(rating)) {
       return NextResponse.json({ error: "Choose a rating for this library." }, { status: 400 });
     }
   } else if (rating !== undefined) {
-    return NextResponse.json({ error: "Only video libraries have a library rating." }, { status: 400 });
+    return NextResponse.json({ error: "Only video and audio libraries have a library rating." }, { status: 400 });
   }
 
   const admin = await getCurrentServerAdmin(parsed.data.serverId);
@@ -48,6 +50,6 @@ export async function POST(request: Request) {
     );
   }
 
-  const [library] = await db.insert(libraries).values({ ...fields, access: "restricted", ratingAges: fields.kind === "video" ? ratingToAges(rating ?? null) : null }).returning();
+  const [library] = await db.insert(libraries).values({ ...fields, access: "restricted", ratingAges: isTree ? ratingToAges(rating ?? null) : null }).returning();
   return NextResponse.json({ library });
 }
