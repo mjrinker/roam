@@ -314,6 +314,114 @@ async function probeMoov(r: RangeReader, moov: Box, wantChapters: boolean): Prom
   return { durationSeconds, chapters: null, chaptersSource: null, ...codecs };
 }
 
+// ── Descriptive tags (title, year, description, cover) ───────────────────
+
+export interface Mp4Tags {
+  title: string | null;
+  year: number | null;
+  description: string | null;
+  /** The first embedded image that is a real JPEG/PNG within the size cap, else null. */
+  cover: { contentType: "image/jpeg" | "image/png"; bytes: Uint8Array } | null;
+}
+
+const MAX_COVER_BYTES = 256 * 1024;
+const MAX_TAG_TEXT = 2000;
+const ATOM = (name: string) => "\u00a9" + name; // QuickTime/iTunes text atoms start with the © byte (0xA9)
+
+function cleanTagText(bytes: Uint8Array, max = MAX_TAG_TEXT): string | null {
+  const text = new TextDecoder("utf-8").decode(bytes).replace(/[\u0000-\u001f\u007f]+/g, " ").replace(/\s+/g, " ").trim();
+  return text ? text.slice(0, max) : null;
+}
+
+function imageType(bytes: Uint8Array): "image/jpeg" | "image/png" | null {
+  if (bytes.length > 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) return "image/jpeg";
+  const png = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
+  if (bytes.length > 8 && png.every((b, i) => bytes[i] === b)) return "image/png";
+  return null;
+}
+
+function applyText(tags: Mp4Tags, atom: string, text: string | null) {
+  if (!text) return;
+  if (atom === ATOM("nam") && tags.title === null) tags.title = text.slice(0, 300);
+  else if (atom === ATOM("day") && tags.year === null) {
+    const y = Number(/^(\d{4})/.exec(text)?.[1]);
+    if (y >= 1888 && y <= 2100) tags.year = y;
+  } else if ((atom === "desc" || atom === "ldes") && tags.description === null) tags.description = text;
+}
+
+/** An iTunes-style `ilst` atom's `data` children: u8 version, u24 type flags, u32 locale, then the value. */
+async function readIlst(r: RangeReader, ilst: Box, tags: Mp4Tags) {
+  for await (const atom of childBoxes(r, ilst, MOOV_PREFETCH)) {
+    const wanted = atom.type === ATOM("nam") || atom.type === ATOM("day") || atom.type === "desc" || atom.type === "ldes" || atom.type === "covr";
+    if (!wanted) continue;
+    for await (const data of childBoxes(r, atom, 4096)) {
+      if (data.type !== "data") continue;
+      const length = data.end - data.contentStart - 8;
+      if (length <= 0) continue;
+      if (atom.type === "covr") {
+        if (tags.cover || length > MAX_COVER_BYTES) continue;
+        const view = await r.read(data.contentStart + 8, length, length);
+        if (view.byteLength < length) continue;
+        const bytes = new Uint8Array(view.buffer, view.byteOffset, view.byteLength).slice();
+        const contentType = imageType(bytes);
+        if (contentType) tags.cover = { contentType, bytes };
+      } else {
+        const view = await r.read(data.contentStart + 8, Math.min(length, MAX_TAG_TEXT * 4), length);
+        applyText(tags, atom.type, cleanTagText(new Uint8Array(view.buffer, view.byteOffset, view.byteLength)));
+      }
+    }
+  }
+}
+
+/** `meta` is a full box in ISO files (4 bytes of version/flags first) but not in QuickTime ones; tell them apart by where `hdlr` sits. */
+async function readMetaTags(r: RangeReader, meta: Box, tags: Mp4Tags) {
+  const head = await r.read(meta.contentStart, 8, 8);
+  const quickTime = head.byteLength >= 8 && fourcc(head, 4) === "hdlr";
+  const children = { contentStart: quickTime ? meta.contentStart : meta.contentStart + 4, end: meta.end };
+  for await (const child of childBoxes(r, children, MOOV_PREFETCH)) {
+    if (child.type === "ilst") await readIlst(r, child, tags);
+  }
+}
+
+async function readUdtaTags(r: RangeReader, udta: Box, tags: Mp4Tags) {
+  for await (const child of childBoxes(r, udta, MOOV_PREFETCH)) {
+    if (child.type === "meta") {
+      await readMetaTags(r, child, tags);
+    } else if (child.type === ATOM("nam") || child.type === ATOM("day")) {
+      // QuickTime text atom: u16 length, u16 language, then the text.
+      const length = child.end - child.contentStart - 4;
+      if (length <= 0) continue;
+      const view = await r.read(child.contentStart + 4, Math.min(length, MAX_TAG_TEXT * 4), length);
+      applyText(tags, child.type, cleanTagText(new Uint8Array(view.buffer, view.byteOffset, view.byteLength)));
+    }
+  }
+}
+
+/**
+ * A video file's own descriptive tags: title, year, description and cover image, from the iTunes
+ * (`moov/udta/meta/ilst`) or QuickTime (`moov/udta/©nam`) layouts. Best effort: a malformed section
+ * keeps whatever was read before it, and a file with no tags returns all nulls. Only a missing
+ * `moov` or a failed Box read throws.
+ */
+export async function probeMp4Tags(fetchRange: ByteRangeFetcher, fileSizeBytes: number): Promise<Mp4Tags> {
+  const r = new RangeReader(fetchRange, fileSizeBytes);
+  const moov = await findMoov(r, fileSizeBytes);
+  const tags: Mp4Tags = { title: null, year: null, description: null, cover: null };
+  try {
+    for await (const child of childBoxes(r, moov, MOOV_PREFETCH)) {
+      try {
+        if (child.type === "udta") await readUdtaTags(r, child, tags);
+        else if (child.type === "meta") await readMetaTags(r, child, tags);
+      } catch {
+        // This section is malformed; keep what earlier ones gave us.
+      }
+    }
+  } catch {
+    // The moov's own box list went bad partway; same.
+  }
+  return tags;
+}
+
 // ── chpl (Nero chapters) ─────────────────────────────────────────────────
 
 /**
