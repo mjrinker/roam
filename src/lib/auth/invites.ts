@@ -45,7 +45,6 @@ export interface CreateInviteError {
 /** Rate-limited (10/hour/inviter) and capped per-server (pending invites). */
 export async function createInvite(
   email: string,
-  role: "admin" | "viewer",
   serverId: string,
   invitedBy: string
 ): Promise<CreateInviteResult | CreateInviteError> {
@@ -72,7 +71,6 @@ export async function createInvite(
     const [updated] = await db
       .update(invites)
       .set({
-        role,
         invitedBy,
         expiresAt: new Date(now.getTime() + INVITE_TTL_DAYS * 24 * 60 * 60 * 1000),
       })
@@ -100,7 +98,7 @@ export async function createInvite(
 
   const [invite] = await db
     .insert(invites)
-    .values({ serverId, email: normalizedEmail, role, token, invitedBy, expiresAt })
+    .values({ serverId, email: normalizedEmail, role: "viewer", token, invitedBy, expiresAt })
     .returning();
 
   return { invite };
@@ -138,13 +136,12 @@ export async function acceptInvite(
     return { ok: false, reason: "email_mismatch" };
   }
 
+  // A server has exactly one admin (whoever created it), so an invite only ever makes a viewer, and
+  // accepting one never changes the role of someone who's already a member.
   await db
     .insert(serverMembers)
-    .values({ serverId: invite.serverId, profileId: profile.id, role: invite.role })
-    .onConflictDoUpdate({
-      target: [serverMembers.serverId, serverMembers.profileId],
-      set: { role: invite.role },
-    });
+    .values({ serverId: invite.serverId, profileId: profile.id, role: "viewer" })
+    .onConflictDoNothing({ target: [serverMembers.serverId, serverMembers.profileId] });
 
   await db.update(invites).set({ acceptedAt: new Date() }).where(eq(invites.id, invite.id));
 

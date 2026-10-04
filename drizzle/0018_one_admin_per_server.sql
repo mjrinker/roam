@@ -1,0 +1,2 @@
+CREATE UNIQUE INDEX "server_members_one_admin_idx" ON "server_members" USING btree ("server_id") WHERE "server_members"."role" = 'admin';--> statement-breakpoint
+ALTER TABLE "invites" ADD CONSTRAINT "invites_viewer_only" CHECK ("invites"."role" = 'viewer');

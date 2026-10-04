@@ -6,13 +6,11 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 
 export interface InviteRow {
   id: string;
   email: string;
-  role: "admin" | "viewer";
   acceptedAt: string | null;
   expiresAt: string;
 }
@@ -26,7 +24,6 @@ export function InviteManager({
 }) {
   const router = useRouter();
   const [email, setEmail] = useState("");
-  const [role, setRole] = useState<"admin" | "viewer">("viewer");
   const [isPending, startTransition] = useTransition();
 
   async function sendInvite(e: React.FormEvent) {
@@ -34,7 +31,7 @@ export function InviteManager({
     const res = await fetch("/api/invites", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ serverId, email, role }),
+      body: JSON.stringify({ serverId, email }),
     });
     if (!res.ok) {
       const body = await res.json().catch(() => ({}));
@@ -65,18 +62,6 @@ export function InviteManager({
             className="w-64"
           />
         </div>
-        <div className="grid gap-1.5">
-          <Label htmlFor="invite-role">Role</Label>
-          <select
-            id="invite-role"
-            className="h-9 rounded-md border border-input bg-transparent px-3 text-sm"
-            value={role}
-            onChange={(e) => setRole(e.target.value as "admin" | "viewer")}
-          >
-            <option value="viewer">Viewer</option>
-            <option value="admin">Admin</option>
-          </select>
-        </div>
         <Button type="submit" disabled={isPending}>
           Send invite
         </Button>
@@ -88,7 +73,6 @@ export function InviteManager({
             <CardContent className="flex items-center justify-between py-3">
               <div className="flex items-center gap-2">
                 <span className="text-sm">{invite.email}</span>
-                <Badge variant="secondary">{invite.role}</Badge>
               </div>
               <span className="text-xs text-muted-foreground">
                 {invite.acceptedAt

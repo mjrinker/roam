@@ -165,6 +165,8 @@ export const serverMembers = pgTable(
       t.profileId
     ),
     index("server_members_profile_idx").on(t.profileId),
+    // A server has exactly one admin: whoever created it. Everyone else is a viewer.
+    uniqueIndex("server_members_one_admin_idx").on(t.serverId).where(sql`${t.role} = 'admin'`),
   ]
 );
 
@@ -560,7 +562,11 @@ export const invites = pgTable(
       .notNull()
       .defaultNow(),
   },
-  (t) => [index("invites_server_idx").on(t.serverId)]
+  (t) => [
+    index("invites_server_idx").on(t.serverId),
+    // Invites only ever make viewers (see server_members_one_admin_idx).
+    check("invites_viewer_only", sql`${t.role} = 'viewer'`),
+  ]
 );
 
 // ── scan_runs ────────────────────────────────────────────────────────────

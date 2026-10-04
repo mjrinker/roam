@@ -9,7 +9,6 @@ import { invites } from "@/lib/db/schema";
 const bodySchema = z.object({
   serverId: z.string().uuid(),
   email: z.string().email(),
-  role: z.enum(["admin", "viewer"]).default("viewer"),
 });
 
 export async function POST(request: Request) {
@@ -23,12 +22,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
-  const result = await createInvite(
-    parsed.data.email,
-    parsed.data.role,
-    parsed.data.serverId,
-    admin.profile.id
-  );
+  const result = await createInvite(parsed.data.email, parsed.data.serverId, admin.profile.id);
   if (result.error) {
     const message =
       result.error === "rate_limited"
