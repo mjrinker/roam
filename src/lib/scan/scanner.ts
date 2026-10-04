@@ -235,6 +235,9 @@ export async function scanLibrary(
               }
               break;
             }
+            case "audio":
+              // Scanning audio libraries arrives in a later step; creating one isn't possible yet.
+              throw new Error("Audio libraries can't be scanned yet.");
             case "video": {
               const res = await syncVideoTopFolder(provider, library.id, folder, {
                 cycleId,

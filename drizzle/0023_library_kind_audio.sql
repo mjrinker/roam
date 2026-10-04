@@ -1,0 +1,1 @@
+ALTER TYPE "public"."library_kind" ADD VALUE 'audio';

@@ -61,7 +61,7 @@ export async function joinServer(db: TestDb, serverId: string, accountId: string
 export async function makeLibrary(
   db: TestDb,
   serverId: string,
-  kind: "movies" | "shows" | "audiobooks" | "video" = "movies",
+  kind: "movies" | "shows" | "audiobooks" | "video" | "audio" = "movies",
   access: "everyone" | "restricted" = "everyone"
 ) {
   const [library] = await db.insert(schema.libraries).values({ serverId, name: slug(), kind, access, boxFolderId: slug() }).returning();
