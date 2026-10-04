@@ -202,6 +202,9 @@ export async function scanLibrary(
               }
               break;
             }
+            case "video":
+              // Scanning for video libraries arrives in a later step; creating one isn't possible yet.
+              throw new Error("Video libraries can't be scanned yet.");
             default:
               assertNever(library.kind);
           }

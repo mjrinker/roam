@@ -14,6 +14,7 @@ const LIBRARY_ICONS: Record<LibraryKind, React.ComponentType<{ className?: strin
   movies: Film,
   shows: Tv,
   audiobooks: Headphones,
+  video: Clapperboard,
 };
 
 export interface SidebarLibrary {

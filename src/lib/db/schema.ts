@@ -22,7 +22,7 @@ import { relations, sql } from "drizzle-orm";
 // ── Enums ────────────────────────────────────────────────────────────────
 
 export const userRoleEnum = pgEnum("user_role", ["admin", "viewer"]);
-export const libraryKindEnum = pgEnum("library_kind", ["movies", "shows", "audiobooks"]);
+export const libraryKindEnum = pgEnum("library_kind", ["movies", "shows", "audiobooks", "video"]);
 // Who may see a library: everyone on the server, or only server admins and the accounts listed in library_members.
 export const libraryAccessEnum = pgEnum("library_access", ["everyone", "restricted"]);
 export const titleKindEnum = pgEnum("title_kind", ["movie", "show", "audiobook"]);

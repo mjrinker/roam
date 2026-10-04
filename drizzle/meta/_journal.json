@@ -134,6 +134,13 @@
       "when": 1791103116638,
       "tag": "0018_one_admin_per_server",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1791131492905,
+      "tag": "0019_library_kind_video",
+      "breakpoints": true
     }
   ]
 }
