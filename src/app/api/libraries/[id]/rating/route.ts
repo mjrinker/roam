@@ -33,7 +33,7 @@ export async function PUT(request: Request, ctx: RouteContext<"/api/libraries/[i
   if (!result.ok) {
     return result.reason === "not_found"
       ? notFound()
-      : NextResponse.json({ error: "Only video libraries have a library rating." }, { status: 400 });
+      : NextResponse.json({ error: "Only video and audio libraries have a library rating." }, { status: 400 });
   }
   return NextResponse.json({ ok: true });
 }

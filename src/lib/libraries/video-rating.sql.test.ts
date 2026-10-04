@@ -72,7 +72,7 @@ describe("setVideoLibraryRating", () => {
 
   it("refuses libraries that aren't video libraries, and unknown ones", async () => {
     const w = await world();
-    expect(await setVideoLibraryRating(db, w.movies.id, 7)).toEqual({ ok: false, reason: "not_video" });
+    expect(await setVideoLibraryRating(db, w.movies.id, 7)).toEqual({ ok: false, reason: "unsupported_kind" });
     expect(await setVideoLibraryRating(db, "00000000-0000-4000-8000-0000000000aa", 7)).toEqual({ ok: false, reason: "not_found" });
     const [other] = await db.select().from(titles).where(eq(titles.id, w.other.id));
     expect(other.ratingAges).toEqual({ US: 12 });

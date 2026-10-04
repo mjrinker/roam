@@ -8,6 +8,7 @@ import { InviteManager } from "@/components/admin/invite-manager";
 import { UnmatchedTitles } from "@/components/admin/unmatched-titles";
 import { Button } from "@/components/ui/button";
 import { Breadcrumbs } from "@/components/shell/breadcrumbs";
+import { libraryKindUsesExternalMetadata } from "@/lib/libraries/profile";
 import { Card, CardContent } from "@/components/ui/card";
 
 const BOX_ERROR_MESSAGES: Record<string, string> = {
@@ -41,7 +42,7 @@ export default async function AdminPage({
     .orderBy(desc(invites.createdAt));
 
   // Video libraries take everything from the files themselves, so nothing there is ever "unmatched".
-  const matchableLibraryIds = allLibraries.filter((l) => l.kind !== "video").map((l) => l.id);
+  const matchableLibraryIds = allLibraries.filter((l) => libraryKindUsesExternalMetadata(l.kind)).map((l) => l.id);
   const unmatchedTitles = matchableLibraryIds.length
     ? await db
         .select()

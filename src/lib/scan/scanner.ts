@@ -38,6 +38,7 @@ import {
   syncSingleAudiobook,
 } from "@/lib/scan/audiobooks";
 import { markCycleUnclean, pruneMissingVideos, pruneNote } from "@/lib/scan/video-prune";
+import { libraryKindUsesExternalMetadata } from "@/lib/libraries/profile";
 import { conflictNote, probeVideoLibrary, syncVideoDirectory, syncVideoTopFolder, unsupportedSummary } from "@/lib/scan/video-library";
 import { resolveEpisodeSplits } from "@/lib/scan/episode-split-pass";
 import {
@@ -1026,6 +1027,12 @@ export async function syncSingleTitle(titleId: string): Promise<{ errors: string
     .where(eq(libraries.id, title.libraryId))
     .limit(1);
   if (!library) throw new Error(`Library ${title.libraryId} not found`);
+  // Resync re-lists the title's Box FOLDER and matches it against outside services. A file-tree library's
+  // titles are single files with a file key, so none of that applies (and any kind not named as
+  // externally matched is refused, not just the ones we know about).
+  if (!libraryKindUsesExternalMetadata(library.kind)) {
+    return { errors: ["Resync isn't available for items in this kind of library."] };
+  }
 
   const provider = createBoxProviderForServer(library.serverId);
   const errors: string[] = [];

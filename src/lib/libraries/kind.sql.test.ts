@@ -1,8 +1,7 @@
-/** Video-library detection, and a guard that every TMDB/Audible/folder-based admin route refuses video titles. */
-import { readFileSync } from "node:fs";
-import path from "node:path";
+/** Which libraries use outside metadata services, and the guard that keeps every other kind away from them. */
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { isVideoLibraryKind, libraryKindOfTitle } from "./kind";
+import { libraryKindOfTitle, NOT_FOR_THIS_LIBRARY, refuseUnlessExternalMetadata } from "./kind";
+import { FILE_TREE_KINDS, EXTERNAL_METADATA_KINDS, isFileTreeLibraryKind, libraryKindUsesExternalMetadata } from "./profile";
 import { createTestDb, makeAccount, makeLibrary, makeServer, makeTitle, type TestDb } from "@/lib/playlists/test-db";
 
 let db: TestDb;
@@ -14,32 +13,39 @@ afterAll(async () => {
   await close();
 });
 
-describe("libraryKindOfTitle", () => {
-  it("returns the kind of the title's library, or null for an unknown title", async () => {
-    const admin = await makeAccount(db, "a");
-    const server = await makeServer(db, admin.accountId);
-    const movies = await makeLibrary(db, server.id, "movies", "everyone");
-    const video = await makeLibrary(db, server.id, "video", "everyone");
-    const a = await makeTitle(db, movies.id);
-    const b = await makeTitle(db, video.id, { boxFolderId: "file:1" });
-    expect(await libraryKindOfTitle(db, a.id)).toBe("movies");
-    expect(await libraryKindOfTitle(db, b.id)).toBe("video");
-    expect(await libraryKindOfTitle(db, "00000000-0000-4000-8000-000000000abc")).toBeNull();
-    expect(isVideoLibraryKind("video")).toBe(true);
-    expect(isVideoLibraryKind("movies")).toBe(false);
-    expect(isVideoLibraryKind(null)).toBe(false);
+describe("library kind families", () => {
+  it("are explicit, disjoint lists: a kind in neither is treated as neither", () => {
+    for (const kind of EXTERNAL_METADATA_KINDS) {
+      expect(libraryKindUsesExternalMetadata(kind)).toBe(true);
+      expect(isFileTreeLibraryKind(kind)).toBe(false);
+    }
+    for (const kind of FILE_TREE_KINDS) {
+      expect(libraryKindUsesExternalMetadata(kind)).toBe(false);
+      expect(isFileTreeLibraryKind(kind)).toBe(true);
+    }
+    // Unknown, missing or future kinds are in neither family.
+    for (const kind of [null, undefined, "photos", "music", "ebooks"] as never[]) {
+      expect(libraryKindUsesExternalMetadata(kind), String(kind)).toBe(false);
+      expect(isFileTreeLibraryKind(kind), String(kind)).toBe(false);
+    }
   });
 });
 
-describe("admin title routes refuse video-library titles", () => {
-  // These routes assume a TMDB/Audible match or that box_folder_id is a real Box folder; a video
-  // title's box_folder_id is a file key, so acting on it would call Box with a bogus folder id.
-  for (const route of ["match", "match-audible", "sync", "fix-audio"]) {
-    it(`api/titles/[id]/${route}`, () => {
-      const source = readFileSync(path.join(__dirname, `../../app/api/titles/[id]/${route}/route.ts`), "utf8");
-      expect(source).toContain("isVideoLibraryKind(await libraryKindOfTitle(db, id))");
-      // The guard runs after the admin check, so non-admins still can't probe library kinds.
-      expect(source.indexOf("getCurrentServerAdmin(serverId)")).toBeLessThan(source.indexOf("isVideoLibraryKind("));
-    });
-  }
+describe("libraryKindOfTitle / refuseUnlessExternalMetadata", () => {
+  it("lets titles of externally matched libraries through and refuses every other kind, and missing titles", async () => {
+    const admin = await makeAccount(db, "a");
+    const server = await makeServer(db, admin.accountId);
+    const outcomes: Record<string, number | null> = {};
+    for (const kind of ["movies", "shows", "audiobooks", "video", "audio"] as const) {
+      const lib = await makeLibrary(db, server.id, kind, "everyone");
+      const title = await makeTitle(db, lib.id, { boxFolderId: `${kind}-${Math.random()}` });
+      expect(await libraryKindOfTitle(db, title.id)).toBe(kind);
+      outcomes[kind] = (await refuseUnlessExternalMetadata(db, title.id))?.status ?? null;
+    }
+    expect(outcomes).toEqual({ movies: null, shows: null, audiobooks: null, video: 400, audio: 400 });
+    const missing = await refuseUnlessExternalMetadata(db, "00000000-0000-4000-8000-0000000000aa");
+    expect(missing?.status).toBe(404);
+    expect(await libraryKindOfTitle(db, "00000000-0000-4000-8000-0000000000aa")).toBeNull();
+    expect(NOT_FOR_THIS_LIBRARY.length).toBeGreaterThan(0);
+  });
 });

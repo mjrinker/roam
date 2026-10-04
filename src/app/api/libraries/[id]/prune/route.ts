@@ -5,6 +5,7 @@ import { getCurrentServerAdmin } from "@/lib/auth/guards";
 import { resolveServerIdForLibrary } from "@/lib/auth/resolve-server";
 import { db } from "@/lib/db/client";
 import { libraries } from "@/lib/db/schema";
+import { isFileTreeLibraryKind } from "@/lib/libraries/profile";
 
 const notFound = () => NextResponse.json({ error: "Not found" }, { status: 404 });
 
@@ -23,7 +24,7 @@ export async function PUT(request: Request, ctx: RouteContext<"/api/libraries/[i
 
   const [library] = await db.select({ kind: libraries.kind }).from(libraries).where(eq(libraries.id, id));
   if (!library) return notFound();
-  if (library.kind !== "video") return NextResponse.json({ error: "Only video libraries have this setting." }, { status: 400 });
+  if (!isFileTreeLibraryKind(library.kind)) return NextResponse.json({ error: "Only video and audio libraries have this setting." }, { status: 400 });
   await db.update(libraries).set({ pruneMissing: body.enabled }).where(eq(libraries.id, id));
   return NextResponse.json({ ok: true });
 }

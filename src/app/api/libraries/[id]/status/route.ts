@@ -4,6 +4,7 @@ import { db } from "@/lib/db/client";
 import { libraries, mediaFiles, scanRuns, titles } from "@/lib/db/schema";
 import { getCurrentServerAdmin } from "@/lib/auth/guards";
 import { resolveServerIdForLibrary } from "@/lib/auth/resolve-server";
+import { isFileTreeLibraryKind } from "@/lib/libraries/profile";
 import { resolveLibraryOwnerIds } from "@/lib/scan/scanner";
 
 export interface LibraryStatusDto {
@@ -70,7 +71,7 @@ export async function GET(
 
   // A video library can hold tens of thousands of titles, so it is counted with joins in SQL; the
   // other kinds list their ids (bounded by how many titles and episodes a library realistically has).
-  const isVideo = library.kind === "video";
+  const isVideo = isFileTreeLibraryKind(library.kind);
   const { titleIds, episodeIds } = isVideo ? { titleIds: [] as string[], episodeIds: [] as string[] } : await resolveLibraryOwnerIds(libraryId);
   const videoTitleCount = isVideo
     ? (await db.select({ n: sql<number>`count(*)::int` }).from(titles).where(eq(titles.libraryId, libraryId)))[0].n

@@ -16,6 +16,7 @@ import { BookChapters, BookPlayButton, BookQueueAutoStart } from "@/components/a
 import { isUuid } from "@/lib/playlists/http";
 import { queueNext } from "@/lib/playlists/next";
 import { Breadcrumbs } from "@/components/shell/breadcrumbs";
+import { libraryKindUsesExternalMetadata } from "@/lib/libraries/profile";
 
 export default async function BookDetailPage({ params, searchParams }: PageProps<"/s/[serverId]/book/[id]">) {
   const { serverId, id } = await params;
@@ -26,7 +27,7 @@ export default async function BookDetailPage({ params, searchParams }: PageProps
   // Join through libraries so a book id from a DIFFERENT server 404s here,
   // rather than trusting the bare id from the URL.
   const [row] = await db
-    .select({ title: titles, libraryId: libraries.id, libraryName: libraries.name })
+    .select({ title: titles, libraryId: libraries.id, libraryName: libraries.name, libraryKind: libraries.kind })
     .from(titles)
     .innerJoin(libraries, eq(titles.libraryId, libraries.id))
     .where(and(eq(titles.id, id), libraryVisible(db, lib)))
@@ -184,7 +185,7 @@ export default async function BookDetailPage({ params, searchParams }: PageProps
             <div className="flex flex-wrap justify-center gap-2 md:justify-start">
               <AddToPlaylistMenu serverId={serverId} target={{ titleId: book.id }} />
             </div>
-            {role === "admin" && (
+            {role === "admin" && libraryKindUsesExternalMetadata(row.libraryKind) && (
               <div className="flex flex-wrap justify-center gap-2 md:justify-start">
                 <AudibleMatchButton titleId={book.id} titleName={book.name} author={book.folderAuthor} />
                 <TitleResyncButton titleId={book.id} titleName={book.name} />

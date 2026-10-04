@@ -5,6 +5,7 @@ import { getCurrentServerAdmin, getCurrentProfile } from "@/lib/auth/guards";
 import { resolveServerIdForTitle } from "@/lib/auth/resolve-server";
 import { db } from "@/lib/db/client";
 import { libraries, titles } from "@/lib/db/schema";
+import { refuseUnlessExternalMetadata } from "@/lib/libraries/kind";
 import { narratorHintForTitle } from "@/lib/scan/audiobooks";
 import { checkRateLimit } from "@/lib/rate-limit";
 import { AudibleRateLimitedError, AudibleUnavailableError, searchAudible } from "@/lib/audible/client";
@@ -38,6 +39,9 @@ export async function GET(request: Request) {
   if (!serverId) return NextResponse.json({ error: "Not found" }, { status: 404 });
   const admin = await getCurrentServerAdmin(serverId);
   if (!admin) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+
+  const refused = await refuseUnlessExternalMetadata(db, parsed.data.titleId);
+  if (refused) return refused;
 
   const profile = await getCurrentProfile();
   if (!profile || !(await checkRateLimit(profile.id, "audible_search", 20, 60))) {

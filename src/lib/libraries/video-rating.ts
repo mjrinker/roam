@@ -6,12 +6,13 @@
  */
 import { eq, sql } from "drizzle-orm";
 import { libraries, titles } from "@/lib/db/schema";
+import { isFileTreeLibraryKind } from "@/lib/libraries/profile";
 import type { Db } from "@/lib/scan/media-files";
 
 export { agesToRating, isVideoRating, ratingToAges, VIDEO_RATING_OPTIONS, type VideoRating } from "@/lib/libraries/video-rating-options";
 import { ratingToAges, type VideoRating } from "@/lib/libraries/video-rating-options";
 
-export type SetRatingResult = { ok: true } | { ok: false; reason: "not_found" | "not_video" };
+export type SetRatingResult = { ok: true } | { ok: false; reason: "not_found" | "unsupported_kind" };
 
 /**
  * Sets a video library's rating and rewrites every title in it, atomically. The library row is
@@ -24,7 +25,7 @@ export async function setVideoLibraryRating(ex: Db, libraryId: string, rating: V
     await tx.execute(sql`SET LOCAL lock_timeout = '5s'`);
     const [library] = await tx.select({ kind: libraries.kind }).from(libraries).where(eq(libraries.id, libraryId)).for("update");
     if (!library) return { ok: false, reason: "not_found" };
-    if (library.kind !== "video") return { ok: false, reason: "not_video" };
+    if (!isFileTreeLibraryKind(library.kind)) return { ok: false, reason: "unsupported_kind" };
     const ages = ratingToAges(rating);
     await tx.update(libraries).set({ ratingAges: ages }).where(eq(libraries.id, libraryId));
     await tx.update(titles).set({ ratingAges: ages }).where(eq(titles.libraryId, libraryId));

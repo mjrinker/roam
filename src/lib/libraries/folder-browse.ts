@@ -4,11 +4,12 @@
  * the viewer can actually see (library access and age limit applied BEFORE grouping), so a folder
  * that is empty or holds only hidden videos never appears and its name never leaks.
  */
-import { and, asc, eq, gt, or, sql } from "drizzle-orm";
+import { and, asc, eq, gt, inArray, or, sql } from "drizzle-orm";
 import type { PgDatabase, PgQueryResultHKT } from "drizzle-orm/pg-core";
 import { contentFilter, type AccessProfile } from "@/lib/content/access";
 import { libraryVisible, type LibraryActor } from "@/lib/content/library-access";
 import { libraries, titles } from "@/lib/db/schema";
+import { FILE_TREE_KINDS } from "@/lib/libraries/profile";
 
 type Db = PgDatabase<PgQueryResultHKT, Record<string, unknown>>;
 
@@ -84,7 +85,7 @@ export async function listFolder(
   const limit = Math.min(Math.max(args.limit ?? 60, 1), 200);
   const visible = and(
     eq(titles.libraryId, args.libraryId),
-    eq(libraries.kind, "video"),
+    inArray(libraries.kind, [...FILE_TREE_KINDS]),
     libraryVisible(ex, args.actor),
     contentFilter(args.viewer, titles.ratingAges)
   );
@@ -138,7 +139,7 @@ export async function listFolder(
     const [lib] = await ex
       .select({ id: libraries.id })
       .from(libraries)
-      .where(and(eq(libraries.id, args.libraryId), eq(libraries.kind, "video"), libraryVisible(ex, args.actor)))
+      .where(and(eq(libraries.id, args.libraryId), inArray(libraries.kind, [...FILE_TREE_KINDS]), libraryVisible(ex, args.actor)))
       .limit(1);
     if (!lib) return null;
   }

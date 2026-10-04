@@ -17,6 +17,7 @@ import { needsAudioFix } from "@/lib/scan/codec-support";
 import { DetailHero } from "@/components/library/detail-hero";
 import { AddToPlaylistMenu } from "@/components/playlists/add-to-playlist-menu";
 import { Breadcrumbs } from "@/components/shell/breadcrumbs";
+import { isFileTreeLibraryKind } from "@/lib/libraries/profile";
 
 export default async function TitleDetailPage({
   params,
@@ -35,7 +36,7 @@ export default async function TitleDetailPage({
     .limit(1);
   const title = row?.title;
   // Videos in a video library have no TMDB match to fix and aren't resynced by folder.
-  const isGeneric = row?.libraryKind === "video";
+  const isGeneric = isFileTreeLibraryKind(row?.libraryKind);
   if (!title || !isAllowed(viewer, title.ratingAges)) notFound();
   // This page is movie-only; shows have their own season/episode browser.
   if (title.kind === "show") redirect(`/s/${serverId}/show/${id}`);
