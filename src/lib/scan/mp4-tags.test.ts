@@ -97,6 +97,36 @@ describe("probeMp4Tags", () => {
     expect(blank).toMatchObject({ title: null, year: null });
   });
 
+  it("a file that claims enormous tags never makes it read more than a small window", async () => {
+    // Every box on the path to the tags claims to run to the end of a 50 MB file. A 60 KB filler atom puts the
+    // description text at the far end of the reader's 64 KB window, so reading it needs a fresh fetch: the
+    // moment an unbounded prefetch would go to the network.
+    const FILE_SIZE = 50_000_000;
+    const huge = (type: string, payload: number[], start: number) => [...u32be(FILE_SIZE - start), ...fourcc(type), ...payload];
+    const ftypLen = FTYP.length;
+    const moovStart = ftypLen;
+    const real = [
+      ...FTYP,
+      ...huge("moov", [
+        ...MVHD,
+        ...huge("udta", [
+          // meta is a full box (4 bytes of version/flags), then hdlr and an ilst whose first atom is a huge `desc`.
+          ...huge("meta", [0, 0, 0, 0, ...HDLR, ...huge("ilst", [...box("zzzz", new Array(60_000).fill(0)), ...huge("desc", [...huge("data", [0, 0, 0, 1, ...u32be(0), ...utf8("A description that never ends")], 0)], 0)], 0)], 0),
+        ], 0),
+      ], moovStart),
+    ];
+    const requested: number[] = [];
+    const tags = await probeMp4Tags(async (start, end) => {
+      requested.push(end - start + 1);
+      const out = new Uint8Array(end - start + 1);
+      for (let i = start; i <= Math.min(end, real.length - 1); i++) out[i - start] = real[i];
+      return out.buffer;
+    }, FILE_SIZE);
+    expect(Math.max(...requested)).toBeLessThanOrEqual(70 * 1024); // no single read near the declared size
+    expect(requested.reduce((a, b) => a + b, 0)).toBeLessThan(1024 * 1024); // nor many of them adding up
+    expect(typeof tags.description === "string" || tags.description === null).toBe(true);
+  });
+
   it("throws only when there is no moov at all", async () => {
     await expect(probe([...FTYP])).rejects.toThrow();
   });

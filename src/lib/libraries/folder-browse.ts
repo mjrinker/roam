@@ -19,7 +19,7 @@ const MAX_FOLDERS = 1000;
 /**
  * Validates a folder path from a URL. '' (or missing) is the library root. Anything odd
  * (empty segments, '.', '..', backslashes, control characters, a leading or trailing '/', too
- * long or too deep) is rejected with null, so callers answer the same 404 as for a folder
+ * long or too deep; the scanner stores folder names with those characters replaced) is rejected with null, so callers answer the same 404 as for a folder
  * that doesn't exist.
  */
 export function normalizeFolderPath(raw: string | null | undefined): string | null {
@@ -28,7 +28,7 @@ export function normalizeFolderPath(raw: string | null | undefined): string | nu
   if (/[\\\u0000-\u001f\u007f]/.test(raw)) return null;
   const segments = raw.split("/");
   if (segments.length > MAX_DEPTH) return null;
-  if (segments.some((s) => s === "" || s === "." || s === ".." || s.trim() !== s)) return null;
+  if (segments.some((s) => s === "" || s === "." || s === "..")) return null;
   return segments.join("/");
 }
 

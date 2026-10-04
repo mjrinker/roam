@@ -100,6 +100,20 @@ describe("readTagsAndArtwork", () => {
     expect(t.provider.fetchByteRange.mock.calls.length).toBeGreaterThan(0);
   });
 
+  it("counts the attempt before reading the file, so a read that takes the function down still counts", async () => {
+    const t = await setup([{ name: "poison.mp4", bytes: mp4WithTags({ title: "Fine", cover: TEST_JPEG }) }]);
+    const seen: number[] = [];
+    const original = t.provider.fetchByteRange.getMockImplementation()!;
+    t.provider.fetchByteRange.mockImplementation(async (id: string, s: number, e: number) => {
+      seen.push((await db.select().from(titles).where(eq(titles.libraryId, t.lib.id)))[0].tagAttempts);
+      return original(id, s, e);
+    });
+    await readTagsAndArtwork(t.provider, t.lib.id, farFuture(), []);
+    expect(seen.length).toBeGreaterThan(0);
+    expect(new Set(seen)).toEqual(new Set([1])); // already counted while the file was being read
+    expect((await db.select().from(titles).where(eq(titles.libraryId, t.lib.id)))[0].tagAttempts).toBe(0); // given back on success
+  });
+
   it("skips files whose duration probe hasn't succeeded, and does nothing once the deadline has passed", async () => {
     const t = await setup([
       { name: "unprobed.mp4", bytes: mp4WithTags({ title: "Should Wait" }), probed: false },

@@ -19,6 +19,9 @@ export async function POST(request: Request, ctx: RouteContext<"/api/titles/[id]
   if (!serverId) return NextResponse.json({ error: "Not found" }, { status: 404 });
   const admin = await getCurrentServerAdmin(serverId);
   if (!admin) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  if (isVideoLibraryKind(await libraryKindOfTitle(db, id))) {
+    return NextResponse.json({ error: NOT_FOR_VIDEO_LIBRARIES }, { status: 400 });
+  }
 
   const parsed = bodySchema.safeParse(await request.json().catch(() => null));
   if (!parsed.success) return NextResponse.json({ error: "Invalid ASIN" }, { status: 400 });
@@ -39,9 +42,6 @@ export async function POST(request: Request, ctx: RouteContext<"/api/titles/[id]
     if (err instanceof AudibleRateLimitedError || err instanceof AudibleUnavailableError) {
       return NextResponse.json({ error: "Audible is unavailable right now. Try again shortly." }, { status: 502 });
     }
-  if (isVideoLibraryKind(await libraryKindOfTitle(db, id))) {
-    return NextResponse.json({ error: NOT_FOR_VIDEO_LIBRARIES }, { status: 400 });
-  }
     return NextResponse.json({ error: (err as Error).message }, { status: 400 });
   }
   return NextResponse.json({ ok: true });

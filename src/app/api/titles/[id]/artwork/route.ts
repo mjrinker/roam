@@ -37,7 +37,7 @@ export async function GET(request: Request, ctx: RouteContext<"/api/titles/[id]/
   const bytes = new Uint8Array(art.bytes);
   const etag = `"${art.updatedAt.getTime()}-${bytes.length}"`;
   const headers = {
-    "Cache-Control": "private, max-age=86400, must-revalidate",
+    "Cache-Control": "private, max-age=300, must-revalidate",
     Vary: "Cookie",
     ETag: etag,
     "X-Content-Type-Options": "nosniff",

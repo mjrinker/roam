@@ -153,12 +153,18 @@ export async function getBoxFileEntry(serverId: string, fileId: string): Promise
   });
 }
 
+/** The largest single range any probe legitimately asks for (the biggest are MP4 tables, capped at 512 KiB). A bigger request is a bug or a hostile file. */
+const MAX_RANGE_BYTES = 4 * 1024 * 1024;
+
 async function fetchByteRange(
   serverId: string,
   fileId: string,
   startByte: number,
   endByte: number
 ): Promise<ArrayBuffer> {
+  if (endByte - startByte + 1 > MAX_RANGE_BYTES) {
+    throw new Error(`Box: refusing a ${endByte - startByte + 1}-byte range read for file ${fileId}`);
+  }
   // Reuse the same pre-authenticated download URL path the browser will
   // eventually use, so the probe exercises the real range-request behavior.
   const { url } = await getStreamingUrl(serverId, fileId);
@@ -169,6 +175,12 @@ async function fetchByteRange(
     throw new Error(
       `Box: byte-range fetch failed for file ${fileId} (${res.status})`
     );
+  }
+  // A server that ignores Range answers 200 with the WHOLE file; never read that into memory.
+  const declared = Number(res.headers.get("content-length") ?? 0);
+  if (declared > MAX_RANGE_BYTES) {
+    await res.body?.cancel();
+    throw new Error(`Box: file ${fileId} came back whole (${declared} bytes) instead of the requested range`);
   }
   return res.arrayBuffer();
 }

@@ -23,7 +23,7 @@ import {
 const KIND_ICON = { movies: Film, shows: Tv, audiobooks: Headphones, video: Clapperboard } as const;
 const KIND_LABEL = { movies: "Movies", shows: "TV Shows", audiobooks: "Audiobooks", video: "Videos" } as const;
 
-const folderCursorSchema = z.object({ name: z.string(), id: z.string().uuid() });
+const folderCursorSchema = z.object({ name: z.string().max(500).regex(/^[^\u0000]*$/), id: z.string().uuid() });
 
 export default async function LibraryDetailPage({
   params,

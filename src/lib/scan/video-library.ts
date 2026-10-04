@@ -63,9 +63,16 @@ export function titleFromFileName(fileName: string): { name: string; year: numbe
   return { name: base || fileName, year };
 }
 
+/** A folder name made safe to store in a path: control characters and backslashes become "_", and "." / ".." can't be segments. */
+function pathSegment(name: string): string {
+  // eslint-disable-next-line no-control-regex
+  const clean = name.replace(/[\\\u0000-\u001f\u007f]/g, "_");
+  return clean === "" || clean === "." || clean === ".." ? "_" : clean;
+}
+
 /** Library-relative folder path for a directory: the top-level folder's name, then the names beneath it. */
 export function libraryPath(topName: string | null, namePath: string[]): string {
-  return [...(topName === null ? [] : [topName]), ...namePath].join("/");
+  return [...(topName === null ? [] : [topName]), ...namePath].map(pathSegment).join("/");
 }
 
 export interface DirectorySyncResult {

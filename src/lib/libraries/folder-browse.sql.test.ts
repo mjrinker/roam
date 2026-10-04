@@ -24,10 +24,11 @@ describe("normalizeFolderPath", () => {
     expect(normalizeFolderPath("Vacations")).toBe("Vacations");
     expect(normalizeFolderPath("Vacations/2019/Beach Day")).toBe("Vacations/2019/Beach Day");
     expect(normalizeFolderPath("100%_x")).toBe("100%_x");
+    expect(normalizeFolderPath(" padded /name ")).toBe(" padded /name "); // Box folder names can have edge spaces
   });
 
   it("rejects traversal, empty segments, slashes at the ends, backslashes and control characters", () => {
-    for (const bad of ["..", "a/../b", ".", "a/./b", "/a", "a/", "a//b", "a\\b", "a\u0000b", "a\nb", " a", "a /b", "x".repeat(1025), Array(40).fill("a").join("/")]) {
+    for (const bad of ["..", "a/../b", ".", "a/./b", "/a", "a/", "a//b", "a\\b", "a\u0000b", "a\nb", "x".repeat(1025), Array(40).fill("a").join("/")]) {
       expect(normalizeFolderPath(bad), JSON.stringify(bad)).toBeNull();
     }
   });

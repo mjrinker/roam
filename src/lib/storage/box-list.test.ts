@@ -38,6 +38,12 @@ describe("Box folder listing", () => {
     await expect(provider.listFolder("x", { strict: true })).rejects.toBeInstanceOf(ListingTruncatedError);
   });
 
+  it("refuses a byte-range read larger than any probe legitimately needs, before touching the network", async () => {
+    const provider = createBoxProviderForServer("s");
+    await expect(provider.fetchByteRange("file", 0, 5 * 1024 * 1024)).rejects.toThrow(/refusing/);
+    await expect(provider.fetchByteRange("file", 100, 100 + 50_000_000)).rejects.toThrow(/refusing/);
+  });
+
   it("a folder of exactly the cap is complete, not truncated", async () => {
     h.total = 20_000;
     const provider = createBoxProviderForServer("s");

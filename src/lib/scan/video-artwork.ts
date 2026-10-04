@@ -77,6 +77,9 @@ export async function readTagsAndArtwork(
 
   incomplete =
     (await inBatches(untagged, deadline, async (t) => {
+      // Counted up front: if reading this file takes the whole function down, it still counts, so one
+      // poisoned file can never stall every future scan.
+      await db.update(titles).set({ tagAttempts: sql`${titles.tagAttempts} + 1` }).where(eq(titles.id, t.titleId));
       try {
         const tags = await probeMp4Tags((s, e) => provider.fetchByteRange(t.fileId, s, e), t.size as number);
         await db.transaction(async (tx) => {
@@ -88,6 +91,8 @@ export async function readTagsAndArtwork(
               ...(tags.year ? { year: tags.year } : {}),
               ...(tags.description ? { overview: tags.description } : {}),
               tagsAttemptedAt: now,
+              // The attempt counted up front succeeded, so it doesn't count against the thumbnail tries.
+              tagAttempts: sql`greatest(${titles.tagAttempts} - 1, 0)`,
               updatedAt: now,
             })
             .where(and(eq(titles.id, t.titleId), isNull(titles.tagsAttemptedAt)));
@@ -96,7 +101,6 @@ export async function readTagsAndArtwork(
       } catch (err) {
         if (err instanceof BoxReauthRequiredError) throw err;
         errors.push(`tags ${t.filename}: ${(err as Error).message}`);
-        await db.update(titles).set({ tagAttempts: sql`${titles.tagAttempts} + 1` }).where(eq(titles.id, t.titleId));
       }
     })) || incomplete;
 

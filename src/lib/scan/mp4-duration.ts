@@ -350,12 +350,19 @@ function applyText(tags: Mp4Tags, atom: string, text: string | null) {
 }
 
 /** An iTunes-style `ilst` atom's `data` children: u8 version, u24 type flags, u32 locale, then the value. */
+const tagsComplete = (t: Mp4Tags) => t.title !== null && t.year !== null && t.description !== null && t.cover !== null;
+/** A file whose tags take more than this many atom reads to find is hostile or broken: stop. */
+const MAX_TAG_ATOM_READS = 64;
+
 async function readIlst(r: RangeReader, ilst: Box, tags: Mp4Tags) {
+  let reads = 0;
   for await (const atom of childBoxes(r, ilst, MOOV_PREFETCH)) {
+    if (tagsComplete(tags) || reads >= MAX_TAG_ATOM_READS) return;
     const wanted = atom.type === ATOM("nam") || atom.type === ATOM("day") || atom.type === "desc" || atom.type === "ldes" || atom.type === "covr";
     if (!wanted) continue;
     for await (const data of childBoxes(r, atom, 4096)) {
       if (data.type !== "data") continue;
+      if (++reads > MAX_TAG_ATOM_READS) return;
       const length = data.end - data.contentStart - 8;
       if (length <= 0) continue;
       if (atom.type === "covr") {
@@ -366,7 +373,8 @@ async function readIlst(r: RangeReader, ilst: Box, tags: Mp4Tags) {
         const contentType = imageType(bytes);
         if (contentType) tags.cover = { contentType, bytes };
       } else {
-        const view = await r.read(data.contentStart + 8, Math.min(length, MAX_TAG_TEXT * 4), length);
+        const want = Math.min(length, MAX_TAG_TEXT * 4);
+        const view = await r.read(data.contentStart + 8, want, want);
         applyText(tags, atom.type, cleanTagText(new Uint8Array(view.buffer, view.byteOffset, view.byteLength)));
       }
     }
@@ -391,7 +399,8 @@ async function readUdtaTags(r: RangeReader, udta: Box, tags: Mp4Tags) {
       // QuickTime text atom: u16 length, u16 language, then the text.
       const length = child.end - child.contentStart - 4;
       if (length <= 0) continue;
-      const view = await r.read(child.contentStart + 4, Math.min(length, MAX_TAG_TEXT * 4), length);
+      const want = Math.min(length, MAX_TAG_TEXT * 4);
+      const view = await r.read(child.contentStart + 4, want, want);
       applyText(tags, child.type, cleanTagText(new Uint8Array(view.buffer, view.byteOffset, view.byteLength)));
     }
   }

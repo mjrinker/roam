@@ -56,7 +56,7 @@ describe("artwork route", () => {
     const res = await get(w.title.id);
     expect(res.status).toBe(200);
     expect(res.headers.get("content-type")).toBe("image/jpeg");
-    expect(res.headers.get("cache-control")).toBe("private, max-age=86400, must-revalidate");
+    expect(res.headers.get("cache-control")).toBe("private, max-age=300, must-revalidate");
     expect(res.headers.get("vary")).toBe("Cookie");
     expect(res.headers.get("x-content-type-options")).toBe("nosniff");
     expect(Array.from(new Uint8Array(await res.arrayBuffer()))).toEqual(TEST_JPEG);

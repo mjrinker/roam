@@ -59,7 +59,8 @@ import { libraries, mediaFiles, scanRuns, titles } from "@/lib/db/schema";
 import { makeAccount, makeLibrary, makeServer, type TestDb } from "@/lib/playlists/test-db";
 import type { StorageEntry } from "@/lib/storage/provider";
 import { scanLibrary } from "./scanner";
-import { conflictNote, probeVideoLibrary, syncVideoDirectory, syncVideoTopFolder, titleFromFileName, unsupportedSummary } from "./video-library";
+import { normalizeFolderPath } from "@/lib/libraries/folder-browse";
+import { conflictNote, libraryPath, probeVideoLibrary, syncVideoDirectory, syncVideoTopFolder, titleFromFileName, unsupportedSummary } from "./video-library";
 
 let db: TestDb;
 beforeAll(() => {
@@ -192,6 +193,15 @@ describe("syncVideoDirectory", () => {
     await db.update(libraries).set({ ratingAges: null }).where(eq(libraries.id, lib.id));
     await syncVideoDirectory(lib.id, "p", "", [file("v.mp4", "r1"), file("w.mp4", "r2")]);
     expect((await titlesOf(lib.id)).map((t) => t.ratingAges)).toEqual([null, null]);
+  });
+});
+
+describe("odd folder names", () => {
+  it("stores control characters, backslashes and dot segments safely, so the folder stays browsable", () => {
+    expect(libraryPath("Trips", ["Sum\u0001mer", "a\\b", "..", "."])).toBe("Trips/Sum_mer/a_b/_/_");
+    expect(libraryPath(null, ["plain"])).toBe("plain");
+    expect(libraryPath("Edge Space ", [" lead"])).toBe("Edge Space / lead");
+    expect(normalizeFolderPath(libraryPath("Trips", ["Sum\u0001mer", "a\\b"]))).not.toBeNull();
   });
 });
 
