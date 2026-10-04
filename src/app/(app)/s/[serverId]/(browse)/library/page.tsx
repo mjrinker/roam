@@ -1,9 +1,10 @@
 import Link from "next/link";
-import { and, asc, desc, eq, inArray } from "drizzle-orm";
+import { and, asc, desc, eq, exists, inArray, or } from "drizzle-orm";
 import { FolderPlus, Library } from "lucide-react";
 import { db } from "@/lib/db/client";
 import { episodes, libraries, seasons, titles, watchState } from "@/lib/db/schema";
 import { requireServerMember } from "@/lib/auth/guards";
+import { libraryActor, libraryVisible } from "@/lib/content/library-access";
 import { formatRemaining } from "@/lib/format";
 import { Button } from "@/components/ui/button";
 import { HeroBanner, type HeroBannerData } from "@/components/library/hero-banner";
@@ -20,18 +21,42 @@ export default async function LibraryHomePage({
   params,
 }: PageProps<"/s/[serverId]/library">) {
   const { serverId } = await params;
-  const { viewer, role } = await requireServerMember(serverId);
+  const { profile, viewer, role } = await requireServerMember(serverId);
+  const lib = libraryActor({ profile, role }, serverId);
 
   const serverLibraries = await db
     .select()
     .from(libraries)
-    .where(eq(libraries.serverId, serverId))
+    .where(libraryVisible(db, lib))
     .orderBy(asc(libraries.name));
 
+  // Only progress on things this profile can still see on THIS server: filtered here, before the
+  // limit, so hidden or other-server rows can't crowd out the visible ones.
+  const visibleMovie = db
+    .select({ one: titles.id })
+    .from(titles)
+    .innerJoin(libraries, eq(titles.libraryId, libraries.id))
+    .where(and(eq(titles.id, watchState.ownerId), libraryVisible(db, lib), contentFilter(viewer, titles.ratingAges)));
+  const visibleEpisode = db
+    .select({ one: episodes.id })
+    .from(episodes)
+    .innerJoin(seasons, eq(episodes.seasonId, seasons.id))
+    .innerJoin(titles, eq(seasons.titleId, titles.id))
+    .innerJoin(libraries, eq(titles.libraryId, libraries.id))
+    .where(and(eq(episodes.id, watchState.ownerId), libraryVisible(db, lib), contentFilter(viewer, titles.ratingAges)));
   const inProgress = await db
     .select()
     .from(watchState)
-    .where(and(eq(watchState.viewerId, viewer.id), eq(watchState.finished, false)))
+    .where(
+      and(
+        eq(watchState.viewerId, viewer.id),
+        eq(watchState.finished, false),
+        or(
+          and(eq(watchState.ownerKind, "title"), exists(visibleMovie)),
+          and(eq(watchState.ownerKind, "episode"), exists(visibleEpisode))
+        )
+      )
+    )
     .orderBy(desc(watchState.updatedAt))
     .limit(CONTINUE_WATCHING_LIMIT);
 
@@ -51,7 +76,7 @@ export default async function LibraryHomePage({
         .from(titles)
         .innerJoin(libraries, eq(titles.libraryId, libraries.id))
         .where(
-          and(inArray(titles.id, movieIds), eq(libraries.serverId, serverId), contentFilter(viewer, titles.ratingAges))
+          and(inArray(titles.id, movieIds), libraryVisible(db, lib), contentFilter(viewer, titles.ratingAges))
         )
     : [];
   const movieById = new Map(movieDetails.map((d) => [d.title.id, d.title]));
@@ -67,7 +92,7 @@ export default async function LibraryHomePage({
         .where(
           and(
             inArray(episodes.id, episodeIds),
-            eq(libraries.serverId, serverId),
+            libraryVisible(db, lib),
             contentFilter(viewer, titles.ratingAges)
           )
         )

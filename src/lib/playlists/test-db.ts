@@ -58,8 +58,13 @@ export async function joinServer(db: TestDb, serverId: string, accountId: string
   await db.insert(schema.serverMembers).values({ serverId, profileId: accountId, role });
 }
 
-export async function makeLibrary(db: TestDb, serverId: string, kind: "movies" | "shows" | "audiobooks" = "movies") {
-  const [library] = await db.insert(schema.libraries).values({ serverId, name: slug(), kind, boxFolderId: slug() }).returning();
+export async function makeLibrary(
+  db: TestDb,
+  serverId: string,
+  kind: "movies" | "shows" | "audiobooks" = "movies",
+  access: "everyone" | "restricted" = "everyone"
+) {
+  const [library] = await db.insert(schema.libraries).values({ serverId, name: slug(), kind, access, boxFolderId: slug() }).returning();
   return library;
 }
 
@@ -139,4 +144,9 @@ export async function setProgress(
     positionSeconds: state.positionSeconds ?? 0,
     ...(state.updatedAt ? { updatedAt: state.updatedAt } : {}),
   });
+}
+
+/** A server admin's view of the libraries on `serverId` (admins see every library). */
+export function adminLib(serverId: string) {
+  return { serverId, accountId: "00000000-0000-4000-8000-000000000000", isAdmin: true };
 }

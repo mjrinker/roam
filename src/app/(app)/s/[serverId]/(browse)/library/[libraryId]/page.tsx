@@ -5,6 +5,7 @@ import { Film, Headphones, Tv } from "lucide-react";
 import { db } from "@/lib/db/client";
 import { episodes, libraries, mediaFiles, seasons, titles, watchState } from "@/lib/db/schema";
 import { requireServerMember } from "@/lib/auth/guards";
+import { libraryActor, libraryVisible } from "@/lib/content/library-access";
 import { contentFilter, effectiveAge } from "@/lib/content/access";
 import { countryFromLocale, displayCertification } from "@/lib/content/ratings";
 import { needsAudioFix } from "@/lib/scan/codec-support";
@@ -19,14 +20,15 @@ export default async function LibraryDetailPage({
   params,
 }: PageProps<"/s/[serverId]/library/[libraryId]">) {
   const { serverId, libraryId } = await params;
-  const { viewer, role } = await requireServerMember(serverId);
+  const { profile, viewer, role } = await requireServerMember(serverId);
+  const lib = libraryActor({ profile, role }, serverId);
 
   // Confirm the library actually belongs to this server before showing
   // anything — don't trust the bare id from the URL.
   const [library] = await db
     .select()
     .from(libraries)
-    .where(and(eq(libraries.id, libraryId), eq(libraries.serverId, serverId)))
+    .where(and(eq(libraries.id, libraryId), libraryVisible(db, lib)))
     .limit(1);
   if (!library) notFound();
 

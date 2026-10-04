@@ -5,6 +5,7 @@ import { Play } from "lucide-react";
 import { db } from "@/lib/db/client";
 import { episodes, libraries, mediaFiles, seasons, titles, watchState } from "@/lib/db/schema";
 import { requireServerMember } from "@/lib/auth/guards";
+import { libraryActor, libraryVisible } from "@/lib/content/library-access";
 import { isAllowed } from "@/lib/content/access";
 import { formatRuntime } from "@/lib/format";
 import { countryFromLocale, displayCertification } from "@/lib/content/ratings";
@@ -22,13 +23,14 @@ export default async function ShowDetailPage({
   params,
 }: PageProps<"/s/[serverId]/show/[id]">) {
   const { serverId, id } = await params;
-  const { viewer, role } = await requireServerMember(serverId);
+  const { profile, viewer, role } = await requireServerMember(serverId);
+  const lib = libraryActor({ profile, role }, serverId);
 
   const [row] = await db
     .select({ show: titles, libraryId: libraries.id, libraryName: libraries.name })
     .from(titles)
     .innerJoin(libraries, eq(titles.libraryId, libraries.id))
-    .where(and(eq(titles.id, id), eq(libraries.serverId, serverId)))
+    .where(and(eq(titles.id, id), libraryVisible(db, lib)))
     .limit(1);
   const show = row?.show;
   if (!show || !isAllowed(viewer, show.ratingAges)) notFound();

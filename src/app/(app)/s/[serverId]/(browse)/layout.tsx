@@ -1,7 +1,8 @@
-import { asc, eq } from "drizzle-orm";
+import { asc } from "drizzle-orm";
 import { db } from "@/lib/db/client";
 import { libraries } from "@/lib/db/schema";
 import { requireServerMember } from "@/lib/auth/guards";
+import { libraryActor, libraryVisible } from "@/lib/content/library-access";
 import { listServerMemberships } from "@/lib/auth/servers";
 import { MiniPlayer } from "@/components/audio/mini-player";
 import { PlayerErrorBoundary } from "@/components/audio/player-error-boundary";
@@ -23,7 +24,7 @@ export default async function BrowseLayout({
     db
       .select({ id: libraries.id, name: libraries.name, kind: libraries.kind })
       .from(libraries)
-      .where(eq(libraries.serverId, serverId))
+      .where(libraryVisible(db, libraryActor({ profile, role }, serverId)))
       .orderBy(asc(libraries.name)),
   ]);
   const current = memberships.find((m) => m.serverId === serverId);

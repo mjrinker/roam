@@ -28,7 +28,7 @@ export async function listEditablePlaylistsForItem(
   const [viewer] = await ex.select().from(viewers).where(eq(viewers.id, args.viewerId));
   if (!viewer) return NOT_FOUND;
   const access = { locale: viewer.locale, maxAge: viewer.maxAge, allowUnrated: viewer.allowUnrated };
-  const target = await findAddableTarget(ex, { serverId: args.serverId, viewer: access, titleId: args.titleId, episodeId: args.episodeId });
+  const target = await findAddableTarget(ex, { lib: { serverId: args.serverId, accountId: viewer.accountId, isAdmin: membership.role === "admin" }, viewer: access, titleId: args.titleId, episodeId: args.episodeId });
   if (!target) return NOT_FOUND;
 
   // My playlists and ones I'm a member of (the pure rules below decide who can really edit).

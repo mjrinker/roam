@@ -8,6 +8,7 @@
 import { and, asc, eq, exists, gt, ne, or, sql } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import { contentFilter } from "@/lib/content/access";
+import { libraryVisible } from "@/lib/content/library-access";
 import { episodes, libraries, mediaFiles, playlistItems, seasons, titles, watchState } from "@/lib/db/schema";
 import { loadContext } from "./context";
 import type { Executor } from "./executor";
@@ -87,7 +88,7 @@ export async function nextAfter(
   const replayIn = args.replay === true;
 
   const after = args.afterItemId
-    ? await findVisibleItem(ex, { playlistId: playlist.id, itemId: args.afterItemId, serverId, viewer: access })
+    ? await findVisibleItem(ex, { playlistId: playlist.id, itemId: args.afterItemId, lib: ctx.lib, viewer: access })
     : null;
   if (args.afterItemId && !after) return NOT_FOUND;
 
@@ -131,7 +132,7 @@ export async function nextAfter(
     .where(
       and(
         eq(playlistItems.playlistId, playlist.id),
-        eq(libraries.serverId, serverId),
+        libraryVisible(ex, ctx.lib),
         contentFilter(access, sql`coalesce(${titles.ratingAges}, ${showTitles.ratingAges})`),
         after
           ? or(
@@ -194,7 +195,7 @@ export async function queueNext(
   const visible = await findVisibleItem(ex, {
     playlistId: ctx.playlist.id,
     itemId: args.itemId,
-    serverId: ctx.playlist.serverId,
+    lib: ctx.lib,
     viewer: ctx.access,
   });
   if (!visible) return { valid: false };

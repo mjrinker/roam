@@ -5,6 +5,7 @@ import { Loader2, Play } from "lucide-react";
 import { db } from "@/lib/db/client";
 import { libraries, mediaFiles, titles, watchState } from "@/lib/db/schema";
 import { requireServerMember } from "@/lib/auth/guards";
+import { libraryActor, libraryVisible } from "@/lib/content/library-access";
 import { isAllowed } from "@/lib/content/access";
 import { formatRemaining, formatRuntime } from "@/lib/format";
 import { countryFromLocale, displayCertification } from "@/lib/content/ratings";
@@ -21,7 +22,8 @@ export default async function TitleDetailPage({
   params,
 }: PageProps<"/s/[serverId]/title/[id]">) {
   const { serverId, id } = await params;
-  const { viewer, role } = await requireServerMember(serverId);
+  const { profile, viewer, role } = await requireServerMember(serverId);
+  const lib = libraryActor({ profile, role }, serverId);
 
   // Join through libraries so a title id from a DIFFERENT server 404s here,
   // rather than trusting the bare id from the URL.
@@ -29,7 +31,7 @@ export default async function TitleDetailPage({
     .select({ title: titles, libraryId: libraries.id, libraryName: libraries.name })
     .from(titles)
     .innerJoin(libraries, eq(titles.libraryId, libraries.id))
-    .where(and(eq(titles.id, id), eq(libraries.serverId, serverId)))
+    .where(and(eq(titles.id, id), libraryVisible(db, lib)))
     .limit(1);
   const title = row?.title;
   if (!title || !isAllowed(viewer, title.ratingAges)) notFound();

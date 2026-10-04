@@ -7,6 +7,7 @@
 import { and, asc, count, eq, exists, gt, inArray, or, sql, type SQL, type SQLWrapper } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import { contentFilter, type AccessProfile } from "@/lib/content/access";
+import { libraryVisible, type LibraryActor } from "@/lib/content/library-access";
 import { episodes, libraries, mediaFiles, playlistItems, seasons, titles } from "@/lib/db/schema";
 import type { Executor } from "./executor";
 import { POSITION_GAP } from "./position";
@@ -77,7 +78,7 @@ export interface ItemsPage {
 /** One page of the items this viewer may see, in playlist order. `limit` is the page size (capped at 200). */
 export async function listVisibleItems(
   ex: Executor,
-  args: { playlistId: string; serverId: string; viewer: AccessProfile; limit?: number; after?: ItemCursor | null }
+  args: { playlistId: string; lib: LibraryActor; viewer: AccessProfile; limit?: number; after?: ItemCursor | null }
 ): Promise<ItemsPage> {
   const limit = Math.min(Math.max(args.limit ?? 50, 1), 200);
   const rows = await ex
@@ -106,7 +107,7 @@ export async function listVisibleItems(
     .where(
       and(
         eq(playlistItems.playlistId, args.playlistId),
-        eq(libraries.serverId, args.serverId),
+        libraryVisible(ex, args.lib),
         contentFilter(args.viewer, effectiveRatingAges),
         args.after
           ? or(
@@ -142,7 +143,7 @@ export async function listVisibleItems(
 /** How many items each of these playlists shows THIS viewer (post-filter), in one grouped query. */
 export async function countVisibleItems(
   ex: Executor,
-  args: { playlistIds: string[]; serverId: string; viewer: AccessProfile }
+  args: { playlistIds: string[]; lib: LibraryActor; viewer: AccessProfile }
 ): Promise<Map<string, number>> {
   const counts = new Map<string, number>(args.playlistIds.map((id) => [id, 0]));
   if (args.playlistIds.length === 0) return counts;
@@ -157,7 +158,7 @@ export async function countVisibleItems(
     .where(
       and(
         inArray(playlistItems.playlistId, args.playlistIds),
-        eq(libraries.serverId, args.serverId),
+        libraryVisible(ex, args.lib),
         contentFilter(args.viewer, effectiveRatingAges)
       )
     )
@@ -175,14 +176,14 @@ export type AddableTarget = { titleId: string } | { episodeId: string };
  */
 export async function findAddableTarget(
   ex: Executor,
-  args: { serverId: string; viewer: AccessProfile; titleId?: string; episodeId?: string }
+  args: { lib: LibraryActor; viewer: AccessProfile; titleId?: string; episodeId?: string }
 ): Promise<AddableTarget | null> {
   if (args.titleId) {
     const [row] = await ex
       .select({ id: titles.id })
       .from(titles)
       .innerJoin(libraries, eq(libraries.id, titles.libraryId))
-      .where(and(eq(titles.id, args.titleId), eq(libraries.serverId, args.serverId), contentFilter(args.viewer, titles.ratingAges)));
+      .where(and(eq(titles.id, args.titleId), libraryVisible(ex, args.lib), contentFilter(args.viewer, titles.ratingAges)));
     return row ? { titleId: row.id } : null;
   }
   if (args.episodeId) {
@@ -193,7 +194,7 @@ export async function findAddableTarget(
       .innerJoin(showTitles, eq(showTitles.id, seasons.titleId))
       .innerJoin(libraries, eq(libraries.id, showTitles.libraryId))
       .where(
-        and(eq(episodes.id, args.episodeId), eq(libraries.serverId, args.serverId), contentFilter(args.viewer, showTitles.ratingAges))
+        and(eq(episodes.id, args.episodeId), libraryVisible(ex, args.lib), contentFilter(args.viewer, showTitles.ratingAges))
       );
     return row ? { episodeId: row.id } : null;
   }
@@ -203,7 +204,7 @@ export async function findAddableTarget(
 /** An item the viewer may see (in this playlist, on this server, passing their restrictions), or null. */
 export async function findVisibleItem(
   ex: Executor,
-  args: { playlistId: string; itemId: string; serverId: string; viewer: AccessProfile }
+  args: { playlistId: string; itemId: string; lib: LibraryActor; viewer: AccessProfile }
 ): Promise<{ id: string; position: number } | null> {
   const [row] = await ex
     .select({ id: playlistItems.id, position: playlistItems.position })
@@ -217,7 +218,7 @@ export async function findVisibleItem(
       and(
         eq(playlistItems.id, args.itemId),
         eq(playlistItems.playlistId, args.playlistId),
-        eq(libraries.serverId, args.serverId),
+        libraryVisible(ex, args.lib),
         contentFilter(args.viewer, effectiveRatingAges)
       )
     );
@@ -232,7 +233,7 @@ export async function findVisibleItem(
  */
 export async function copyVisibleItems(
   ex: Executor,
-  args: { sourcePlaylistId: string; targetPlaylistId: string; serverId: string; viewer: AccessProfile; copierViewerId: string }
+  args: { sourcePlaylistId: string; targetPlaylistId: string; lib: LibraryActor; viewer: AccessProfile; copierViewerId: string }
 ): Promise<number> {
   const rows = await ex
     .insert(playlistItems)
@@ -258,7 +259,7 @@ export async function copyVisibleItems(
         .where(
           and(
             eq(playlistItems.playlistId, args.sourcePlaylistId),
-            eq(libraries.serverId, args.serverId),
+            libraryVisible(ex, args.lib),
             contentFilter(args.viewer, effectiveRatingAges)
           )
         )

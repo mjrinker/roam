@@ -105,9 +105,14 @@ describe("lib/playlists modules that read content apply the age filter", () => {
     const touchesItems = imported.includes("playlistItems");
     const filters = /\bcontentFilter\b|\bisAllowed\b/.test(source);
 
+    const gatesLibraries = /\blibraryVisible\b/.test(source);
+
     if (readsContent) {
       it(`${file} (reads titles/episodes) references contentFilter or isAllowed`, () => {
         expect(filters).toBe(true);
+      });
+      it(`${file} (reads titles/episodes) also gates by library access (libraryVisible)`, () => {
+        expect(gatesLibraries).toBe(true);
       });
     } else if (touchesItems) {
       it(`${file} (touches playlist items only) filters or uses the filtered helpers from ./items`, () => {

@@ -3,18 +3,19 @@ import { and, asc, eq, gt } from "drizzle-orm";
 import { db } from "@/lib/db/client";
 import { episodes, libraries, seasons, titles } from "@/lib/db/schema";
 import { requireServerMember } from "@/lib/auth/guards";
+import { libraryActor, libraryVisible, type LibraryActor } from "@/lib/content/library-access";
 import { isAllowed } from "@/lib/content/access";
 import { isUuid } from "@/lib/playlists/http";
 import { queueNext } from "@/lib/playlists/next";
 import { SeamlessPlayer } from "@/components/player/seamless-player";
 
-async function loadMovie(serverId: string, id: string) {
+async function loadMovie(lib: LibraryActor, id: string) {
   const [title] = await db
     .select({ title: titles })
     .from(titles)
     .innerJoin(libraries, eq(titles.libraryId, libraries.id))
     .where(
-      and(eq(titles.id, id), eq(titles.kind, "movie"), eq(libraries.serverId, serverId))
+      and(eq(titles.id, id), eq(titles.kind, "movie"), libraryVisible(db, lib))
     )
     .limit(1)
     .then((rows) => rows.map((r) => r.title));
@@ -22,14 +23,14 @@ async function loadMovie(serverId: string, id: string) {
   return {
     displayTitle: title.name,
     subtitle: title.year ? String(title.year) : null,
-    backHref: `/s/${serverId}/title/${title.id}`,
+    backHref: `/s/${lib.serverId}/title/${title.id}`,
     nextHref: undefined,
     nextLabel: undefined,
     ratingAges: title.ratingAges,
   };
 }
 
-async function loadEpisode(serverId: string, id: string) {
+async function loadEpisode(lib: LibraryActor, id: string) {
   const [row] = await db
     .select({
       episode: episodes,
@@ -40,7 +41,7 @@ async function loadEpisode(serverId: string, id: string) {
     .innerJoin(seasons, eq(episodes.seasonId, seasons.id))
     .innerJoin(titles, eq(seasons.titleId, titles.id))
     .innerJoin(libraries, eq(titles.libraryId, libraries.id))
-    .where(and(eq(episodes.id, id), eq(libraries.serverId, serverId)))
+    .where(and(eq(episodes.id, id), libraryVisible(db, lib)))
     .limit(1);
   if (!row) return null;
 
@@ -83,8 +84,8 @@ async function loadEpisode(serverId: string, id: string) {
   return {
     displayTitle,
     subtitle,
-    backHref: `/s/${serverId}/show/${row.show.id}`,
-    nextHref: nextEpisodeId ? `/s/${serverId}/watch/episode/${nextEpisodeId}` : undefined,
+    backHref: `/s/${lib.serverId}/show/${row.show.id}`,
+    nextHref: nextEpisodeId ? `/s/${lib.serverId}/watch/episode/${nextEpisodeId}` : undefined,
     nextLabel,
     ratingAges,
   };
@@ -96,14 +97,15 @@ export default async function WatchPage({
 }: PageProps<"/s/[serverId]/watch/[ownerKind]/[ownerId]">) {
   const { serverId, ownerKind, ownerId } = await params;
   const query = await searchParams;
-  const { viewer } = await requireServerMember(serverId);
+  const { profile, viewer, role } = await requireServerMember(serverId);
+  const lib = libraryActor({ profile, role }, serverId);
 
   if (ownerKind !== "title" && ownerKind !== "episode") notFound();
 
   const loaded =
     ownerKind === "title"
-      ? await loadMovie(serverId, ownerId)
-      : await loadEpisode(serverId, ownerId);
+      ? await loadMovie(lib, ownerId)
+      : await loadEpisode(lib, ownerId);
   // A blocked title 404s exactly like a nonexistent one — see lib/content/access.
   if (!loaded || !isAllowed(viewer, loaded.ratingAges)) notFound();
 

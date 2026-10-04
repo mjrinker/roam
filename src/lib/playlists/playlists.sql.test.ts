@@ -11,6 +11,7 @@ import { countVisibleItems, listVisibleItems } from "./items";
 import { deleteOwnedUnsharedPlaylists, purgeOrphansForAccount, revokeCrossAccountShares } from "./lifecycle";
 import { purgeOrphanPlaylists } from "./purge";
 import {
+  adminLib,
   addItem,
   addMember,
   createTestDb,
@@ -250,17 +251,17 @@ describe("listVisibleItems / countVisibleItems", () => {
     await addItem(db, p.id, { titleId: pg.id }, 3000);
     await addItem(db, p.id, { titleId: unrated.id }, 4000);
 
-    const all = await listVisibleItems(db, { playlistId: p.id, serverId: server.id, viewer: adult });
+    const all = await listVisibleItems(db, { playlistId: p.id, lib: adminLib(server.id), viewer: adult });
     expect(all.items.map((i) => i.name)).toEqual(["G", "R", "PG", "Unrated"]);
     expect(all.nextCursor).toBeNull();
 
     // The kid never sees R or the unrated title, and page lengths don't reveal the gap.
-    const first = await listVisibleItems(db, { playlistId: p.id, serverId: server.id, viewer: kid, limit: 1 });
+    const first = await listVisibleItems(db, { playlistId: p.id, lib: adminLib(server.id), viewer: kid, limit: 1 });
     expect(first.items.map((i) => i.name)).toEqual(["G"]);
     expect(first.nextCursor).not.toBeNull();
     const second = await listVisibleItems(db, {
       playlistId: p.id,
-      serverId: server.id,
+      lib: adminLib(server.id),
       viewer: kid,
       limit: 1,
       after: first.nextCursor,
@@ -268,9 +269,9 @@ describe("listVisibleItems / countVisibleItems", () => {
     expect(second.items.map((i) => i.name)).toEqual(["PG"]);
     expect(second.nextCursor).toBeNull();
 
-    const counts = await countVisibleItems(db, { playlistIds: [p.id], serverId: server.id, viewer: kid });
+    const counts = await countVisibleItems(db, { playlistIds: [p.id], lib: adminLib(server.id), viewer: kid });
     expect(counts.get(p.id)).toBe(2);
-    const adultCounts = await countVisibleItems(db, { playlistIds: [p.id], serverId: server.id, viewer: adult });
+    const adultCounts = await countVisibleItems(db, { playlistIds: [p.id], lib: adminLib(server.id), viewer: adult });
     expect(adultCounts.get(p.id)).toBe(4);
   });
 
@@ -279,9 +280,9 @@ describe("listVisibleItems / countVisibleItems", () => {
     const p = await makePlaylist(db, { serverId: server.id, ownerViewerId: owner.viewer.id });
     const { show, episodes: [ep] } = await makeShow(db, library.id, 1, { name: "Grown-up Show", ratingAges: { US: 17 } });
     await addItem(db, p.id, { episodeId: ep.id });
-    const forKid = await listVisibleItems(db, { playlistId: p.id, serverId: server.id, viewer: kid });
+    const forKid = await listVisibleItems(db, { playlistId: p.id, lib: adminLib(server.id), viewer: kid });
     expect(forKid.items).toHaveLength(0);
-    const forAdult = await listVisibleItems(db, { playlistId: p.id, serverId: server.id, viewer: adult });
+    const forAdult = await listVisibleItems(db, { playlistId: p.id, lib: adminLib(server.id), viewer: adult });
     expect(forAdult.items[0]).toMatchObject({ showName: "Grown-up Show", showId: show.id, seasonNumber: 1, episodeNumber: 1 });
   });
 
@@ -291,17 +292,17 @@ describe("listVisibleItems / countVisibleItems", () => {
     const p = await makePlaylist(db, { serverId: mine.server.id, ownerViewerId: mine.owner.viewer.id });
     const foreignTitle = await makeTitle(db, theirs.library.id, { name: "Elsewhere" });
     await addItem(db, p.id, { titleId: foreignTitle.id });
-    const page = await listVisibleItems(db, { playlistId: p.id, serverId: mine.server.id, viewer: adult });
+    const page = await listVisibleItems(db, { playlistId: p.id, lib: adminLib(mine.server.id), viewer: adult });
     expect(page.items).toHaveLength(0);
-    const counts = await countVisibleItems(db, { playlistIds: [p.id], serverId: mine.server.id, viewer: adult });
+    const counts = await countVisibleItems(db, { playlistIds: [p.id], lib: adminLib(mine.server.id), viewer: adult });
     expect(counts.get(p.id)).toBe(0);
   });
 
   it("counts zero for empty playlists and ignores unknown ids", async () => {
     const { owner, server } = await world();
     const p = await makePlaylist(db, { serverId: server.id, ownerViewerId: owner.viewer.id });
-    const counts = await countVisibleItems(db, { playlistIds: [p.id], serverId: server.id, viewer: adult });
+    const counts = await countVisibleItems(db, { playlistIds: [p.id], lib: adminLib(server.id), viewer: adult });
     expect(counts.get(p.id)).toBe(0);
-    expect((await countVisibleItems(db, { playlistIds: [], serverId: server.id, viewer: adult })).size).toBe(0);
+    expect((await countVisibleItems(db, { playlistIds: [], lib: adminLib(server.id), viewer: adult })).size).toBe(0);
   });
 });

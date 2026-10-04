@@ -36,6 +36,6 @@ export async function POST(request: Request) {
     );
   }
 
-  const [library] = await db.insert(libraries).values(parsed.data).returning();
+  const [library] = await db.insert(libraries).values({ ...parsed.data, access: "restricted" }).returning();
   return NextResponse.json({ library });
 }

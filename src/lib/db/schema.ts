@@ -13,6 +13,8 @@ import {
   uniqueIndex,
   index,
   check,
+  primaryKey,
+  foreignKey,
   type AnyPgColumn,
 } from "drizzle-orm/pg-core";
 import { relations, sql } from "drizzle-orm";
@@ -21,7 +23,10 @@ import { relations, sql } from "drizzle-orm";
 
 export const userRoleEnum = pgEnum("user_role", ["admin", "viewer"]);
 export const libraryKindEnum = pgEnum("library_kind", ["movies", "shows", "audiobooks"]);
+// Who may see a library: everyone on the server, or only server admins and the accounts listed in library_members.
+export const libraryAccessEnum = pgEnum("library_access", ["everyone", "restricted"]);
 export const titleKindEnum = pgEnum("title_kind", ["movie", "show", "audiobook"]);
+export type LibraryAccess = (typeof libraryAccessEnum.enumValues)[number];
 export type LibraryKind = (typeof libraryKindEnum.enumValues)[number];
 export type TitleKind = (typeof titleKindEnum.enumValues)[number];
 export const ownerKindEnum = pgEnum("owner_kind", ["title", "episode"]);
@@ -202,6 +207,9 @@ export const libraries = pgTable(
     name: text("name").notNull(),
     kind: libraryKindEnum("kind").notNull(),
     boxFolderId: text("box_folder_id").notNull().unique(),
+    // Fails closed: a library inserted without saying otherwise is restricted. (The migration
+    // backfilled every library that existed before this column as 'everyone'.)
+    access: libraryAccessEnum("access").notNull().default("restricted"),
     lastScannedAt: timestamp("last_scanned_at", { withTimezone: true }),
     // Updated at the START of every scan attempt, success or failure —
     // distinct from lastScannedAt (which only advances on completion, and
@@ -232,8 +240,34 @@ export const libraries = pgTable(
       .notNull()
       .defaultNow(),
   },
-  (t) => [index("libraries_server_idx").on(t.serverId)]
+  (t) => [
+    index("libraries_server_idx").on(t.serverId),
+    // Lets library_members reference (library, server) together, so a grant can't cross servers.
+    uniqueIndex("libraries_id_server_idx").on(t.id, t.serverId),
+  ]
 );
+
+// ── library_members ──────────────────────────────────────────────────────
+// Which ACCOUNTS (server members) may see a restricted library. Server admins always can.
+// serverId is carried so composite foreign keys tie the grant to a real membership of the
+// library's own server: removing the membership or the library removes the grant.
+export const libraryMembers = pgTable(
+  "library_members",
+  {
+    libraryId: uuid("library_id").notNull(),
+    serverId: uuid("server_id").notNull(),
+    accountId: uuid("account_id").notNull(),
+    grantedByAccountId: uuid("granted_by_account_id").references(() => profiles.id, { onDelete: "set null" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.libraryId, t.accountId] }),
+    foreignKey({ columns: [t.libraryId, t.serverId], foreignColumns: [libraries.id, libraries.serverId] }).onDelete("cascade"),
+    foreignKey({ columns: [t.serverId, t.accountId], foreignColumns: [serverMembers.serverId, serverMembers.profileId] }).onDelete("cascade"),
+    index("library_members_account_idx").on(t.accountId),
+    index("library_members_granted_by_idx").on(t.grantedByAccountId),
+  ]
+).enableRLS();
 
 // ── titles ───────────────────────────────────────────────────────────────
 // A movie, or a show's top-level record.

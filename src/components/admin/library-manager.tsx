@@ -17,7 +17,8 @@ import {
 } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { FolderBrowser } from "@/components/admin/folder-browser";
-import type { LibraryKind } from "@/lib/db/schema";
+import type { LibraryAccess, LibraryKind } from "@/lib/db/schema";
+import { LibraryAccessDialog } from "@/components/admin/library-access-dialog";
 import { AUDIBLE_REGIONS } from "@/lib/audible/client";
 
 export interface LastScanInfo {
@@ -32,6 +33,7 @@ export interface LibraryRow {
   id: string;
   name: string;
   kind: LibraryKind;
+  access: LibraryAccess;
   boxFolderId: string;
   audibleRegion: string;
   lastScannedAt: string | null;
@@ -170,6 +172,9 @@ export function LibraryManager({
   const router = useRouter();
   const [scanningId, setScanningId] = useState<string | null>(null);
   const [showForm, setShowForm] = useState(libraries.length === 0);
+  const [accessFor, setAccessFor] = useState<string | null>(null);
+  // Access changes made in this session, so the badge updates without a refresh.
+  const [access, setAccess] = useState<Record<string, LibraryAccess>>({});
   const [name, setName] = useState("");
   const [kind, setKind] = useState<LibraryKind>("movies");
   const [selectedFolder, setSelectedFolder] = useState<{ id: string; name: string } | null>(
@@ -350,6 +355,9 @@ export function LibraryManager({
                   <div className="flex items-center gap-2">
                     <p className="font-medium">{lib.name}</p>
                     <Badge variant="secondary">{lib.kind}</Badge>
+                    <Badge variant={(access[lib.id] ?? lib.access) === "restricted" ? "outline" : "secondary"}>
+                      {(access[lib.id] ?? lib.access) === "restricted" ? "Restricted" : "Everyone"}
+                    </Badge>
                   </div>
                   <p className="text-xs text-muted-foreground">
                     last scanned{" "}
@@ -365,6 +373,10 @@ export function LibraryManager({
                     )}
                   </p>
                 </div>
+                <div className="flex items-center gap-2">
+                <Button variant="secondary" size="sm" onClick={() => setAccessFor(lib.id)}>
+                  Access
+                </Button>
                 <Button
                   variant="secondary"
                   size="sm"
@@ -373,7 +385,17 @@ export function LibraryManager({
                 >
                   {scanningId === lib.id || statusById[lib.id]?.scanning ? "Scanning…" : "Rescan"}
                 </Button>
+                </div>
               </div>
+              {accessFor === lib.id && (
+                <LibraryAccessDialog
+                  libraryId={lib.id}
+                  libraryName={lib.name}
+                  open
+                  onOpenChange={(o) => !o && setAccessFor(null)}
+                  onSaved={(next) => setAccess((cur) => ({ ...cur, [lib.id]: next }))}
+                />
+              )}
               {lib.kind === "audiobooks" && <AudibleRegionSelect libraryId={lib.id} initial={lib.audibleRegion} />}
               {statusById[lib.id] && <ScanProgress status={statusById[lib.id]} />}
               {lib.lastScan && <ScanErrors errors={lib.lastScan.errors} />}

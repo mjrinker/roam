@@ -4,6 +4,7 @@ import { episodes, libraries, seasons, titles } from "@/lib/db/schema";
 import type { PlayOwnerKind } from "@/lib/player/types";
 import { getCurrentServerMember, type ServerMembership } from "@/lib/auth/guards";
 import { isAllowed } from "@/lib/content/access";
+import { canSeeLibrary, libraryActor } from "@/lib/content/library-access";
 import type { RatingAges } from "@/lib/content/ratings";
 
 /**
@@ -46,10 +47,10 @@ export async function resolveServerIdForOwner(
 export async function resolveOwner(
   ownerKind: PlayOwnerKind,
   ownerId: string
-): Promise<{ serverId: string; ratingAges: RatingAges | null } | null> {
+): Promise<{ serverId: string; libraryId: string; ratingAges: RatingAges | null } | null> {
   if (ownerKind === "title") {
     const [row] = await db
-      .select({ serverId: libraries.serverId, ratingAges: titles.ratingAges })
+      .select({ serverId: libraries.serverId, libraryId: libraries.id, ratingAges: titles.ratingAges })
       .from(titles)
       .innerJoin(libraries, eq(titles.libraryId, libraries.id))
       .where(eq(titles.id, ownerId))
@@ -58,7 +59,7 @@ export async function resolveOwner(
   }
 
   const [row] = await db
-    .select({ serverId: libraries.serverId, ratingAges: titles.ratingAges })
+    .select({ serverId: libraries.serverId, libraryId: libraries.id, ratingAges: titles.ratingAges })
     .from(episodes)
     .innerJoin(seasons, eq(episodes.seasonId, seasons.id))
     .innerJoin(titles, eq(seasons.titleId, titles.id))
@@ -75,7 +76,8 @@ export type OwnerAuthorization =
 /**
  * The single choke point for "may the current profile play/see this title or
  * episode": resolves the owner, checks server membership, and checks the
- * profile's rating limit — all three collapse to 404 on failure so a blocked
+ * profile's rating limit, and that its library is visible to the account (see
+ * lib/content/library-access) — the last two collapse to 404 on failure so a blocked
  * or nonexistent item look the same from the outside (see lib/content/access
  * and enforcement.test.ts). Used by /api/play, the audiobook manifest and
  * segment routes, /api/watch-state, and the watch page.
@@ -88,6 +90,7 @@ export async function authorizeOwner(ownerKind: PlayOwnerKind, ownerId: string):
   if (!member) return { ok: false, status: 403 };
 
   if (!isAllowed(member.viewer, owner.ratingAges)) return { ok: false, status: 404 };
+  if (!(await canSeeLibrary(db, libraryActor(member, owner.serverId), owner.libraryId))) return { ok: false, status: 404 };
   return { ok: true, member, serverId: owner.serverId };
 }
 

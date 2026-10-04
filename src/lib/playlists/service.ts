@@ -123,7 +123,7 @@ export async function listPlaylists(
   const page = rows.slice(0, limit);
   const counts = await countVisibleItems(ex, {
     playlistIds: page.map((r) => r.playlist.id),
-    serverId: args.serverId,
+    lib: { serverId: args.serverId, accountId: viewer.accountId, isAdmin: membership.role === "admin" },
     viewer: { locale: viewer.locale, maxAge: viewer.maxAge, allowUnrated: viewer.allowUnrated },
   });
 
@@ -228,7 +228,7 @@ export async function getPlaylistDetail(
   const [owner] = playlist.ownerViewerId
     ? await ex.select().from(viewers).where(eq(viewers.id, playlist.ownerViewerId))
     : [];
-  const counts = await countVisibleItems(ex, { playlistIds: [playlist.id], serverId: playlist.serverId, viewer: ctx.access });
+  const counts = await countVisibleItems(ex, { playlistIds: [playlist.id], lib: ctx.lib, viewer: ctx.access });
   return ok({
     id: playlist.id,
     serverId: playlist.serverId,
@@ -328,7 +328,7 @@ export async function copyPlaylist(
         const itemsCopied = await copyVisibleItems(tx, {
           sourcePlaylistId: ctx.playlist.id,
           targetPlaylistId: created.id,
-          serverId: ctx.playlist.serverId,
+          lib: ctx.lib,
           viewer: ctx.access,
           copierViewerId: ctx.viewer.id,
         });

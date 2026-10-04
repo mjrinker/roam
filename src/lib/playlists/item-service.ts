@@ -27,7 +27,7 @@ export async function listItems(
   return ok(
     await listVisibleItems(ex, {
       playlistId: ctx.playlist.id,
-      serverId: ctx.playlist.serverId,
+      lib: ctx.lib,
       viewer: ctx.access,
       limit: args.limit,
       after: args.after,
@@ -43,7 +43,7 @@ export async function addItem(
   const pre = await loadContext(ex, args);
   if (!pre) return NOT_FOUND;
   if (!pre.caps.canEditItems) return fail(403, "You can't change this playlist's items.");
-  if (!(await findAddableTarget(ex, { serverId: pre.playlist.serverId, viewer: pre.access, ...pickTarget(args) }))) return NOT_FOUND;
+  if (!(await findAddableTarget(ex, { lib: pre.lib, viewer: pre.access, ...pickTarget(args) }))) return NOT_FOUND;
 
   return retryOnContention(
     () =>
@@ -51,7 +51,7 @@ export async function addItem(
         const ctx = await loadContext(tx, { playlistId: args.playlistId, viewerId: args.viewerId, lock: true });
         if (!ctx) return NOT_FOUND;
         if (!ctx.caps.canEditItems) return fail(403, "You can't change this playlist's items.");
-        const target = await findAddableTarget(tx, { serverId: ctx.playlist.serverId, viewer: ctx.access, ...pickTarget(args) });
+        const target = await findAddableTarget(tx, { lib: ctx.lib, viewer: ctx.access, ...pickTarget(args) });
         if (!target) return NOT_FOUND;
 
         // Only the same title / same episode counts as a duplicate (a show and one of its episodes may coexist).
@@ -98,7 +98,7 @@ export async function removeItem(ex: Executor, args: { playlistId: string; viewe
         if (!ctx) return NOT_FOUND;
         if (!ctx.caps.canEditItems) return fail(403, "You can't change this playlist's items.");
         // An item the actor can't see answers exactly like a missing one.
-        if (!(await findVisibleItem(tx, { ...args, serverId: ctx.playlist.serverId, viewer: ctx.access }))) return NOT_FOUND;
+        if (!(await findVisibleItem(tx, { ...args, lib: ctx.lib, viewer: ctx.access }))) return NOT_FOUND;
         await tx.delete(playlistItems).where(and(eq(playlistItems.id, args.itemId), eq(playlistItems.playlistId, ctx.playlist.id)));
         await touch(tx, ctx.playlist.id);
         return ok(true);
@@ -123,7 +123,7 @@ export async function moveItem(
         const ctx = await loadContext(tx, { playlistId: args.playlistId, viewerId: args.viewerId, lock: true });
         if (!ctx) return NOT_FOUND;
         if (!ctx.caps.canEditItems) return fail(403, "You can't change this playlist's items.");
-        const scope = { playlistId: ctx.playlist.id, serverId: ctx.playlist.serverId, viewer: ctx.access };
+        const scope = { playlistId: ctx.playlist.id, lib: ctx.lib, viewer: ctx.access };
         if (!(await findVisibleItem(tx, { ...scope, itemId: args.itemId }))) return NOT_FOUND;
         if (args.afterItemId && !(await findVisibleItem(tx, { ...scope, itemId: args.afterItemId }))) return NOT_FOUND;
 

@@ -15,7 +15,10 @@ import { describe, expect, it } from "vitest";
 
 const APP_DIR = path.join(__dirname, "../../app");
 
-const ENFORCEMENT_IMPORTS = ["@/lib/content/access", "@/lib/auth/resolve-server", "@/lib/playlists/items"];
+// The age check (lib/content/access) alone is no longer enough: content is also gated by library
+// access (lib/content/library-access), which authorizeOwner (resolve-server) and the playlist readers
+// (playlists/items, next) apply for you.
+const ENFORCEMENT_IMPORTS = ["@/lib/content/library-access", "@/lib/auth/resolve-server", "@/lib/playlists/items"];
 
 // path (relative to src/app) -> why it doesn't need to import the above.
 const ALLOWLIST: Record<string, string> = {

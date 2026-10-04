@@ -1,6 +1,7 @@
 import { and, eq } from "drizzle-orm";
 import { playlistMembers, playlists, serverMembers, viewers } from "@/lib/db/schema";
 import type { AccessProfile } from "@/lib/content/access";
+import type { LibraryActor } from "@/lib/content/library-access";
 import type { Executor } from "./executor";
 import {
   capabilities,
@@ -18,6 +19,8 @@ export interface PlaylistContext {
   /** The ACTING viewer, freshly read (never a request-cached copy). */
   viewer: ViewerRow;
   access: AccessProfile;
+  /** Which libraries this actor may see on the playlist's server (see lib/content/library-access). */
+  lib: LibraryActor;
   actor: ActorFacts;
   memberRole: MemberRole | null;
   caps: PlaylistCapabilities;
@@ -81,6 +84,7 @@ export async function loadContext(
     playlist,
     viewer,
     access: { locale: viewer.locale, maxAge: viewer.maxAge, allowUnrated: viewer.allowUnrated },
+    lib: { serverId: playlist.serverId, accountId: viewer.accountId, isAdmin: actor.isServerAdmin },
     actor,
     memberRole,
     caps,
