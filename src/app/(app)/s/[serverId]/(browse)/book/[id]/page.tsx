@@ -11,11 +11,14 @@ import { Badge } from "@/components/ui/badge";
 import { AudibleMatchButton } from "@/components/admin/audible-match-dialog";
 import { TitleResyncButton } from "@/components/admin/title-resync-button";
 import { AddToPlaylistMenu } from "@/components/playlists/add-to-playlist-menu";
-import { BookChapters, BookPlayButton } from "@/components/audio/book-controls";
+import { BookChapters, BookPlayButton, BookQueueAutoStart } from "@/components/audio/book-controls";
+import { isUuid } from "@/lib/playlists/http";
+import { queueNext } from "@/lib/playlists/next";
 import { Breadcrumbs } from "@/components/shell/breadcrumbs";
 
-export default async function BookDetailPage({ params }: PageProps<"/s/[serverId]/book/[id]">) {
+export default async function BookDetailPage({ params, searchParams }: PageProps<"/s/[serverId]/book/[id]">) {
   const { serverId, id } = await params;
+  const query = await searchParams;
   const { viewer, role } = await requireServerMember(serverId);
 
   // Join through libraries so a book id from a DIFFERENT server 404s here,
@@ -56,6 +59,14 @@ export default async function BookDetailPage({ params }: PageProps<"/s/[serverId
     hasProgress && state.durationSeconds ? formatRemaining(state.durationSeconds, state.positionSeconds) : null;
   const progressFraction = hasProgress && state.durationSeconds ? state.positionSeconds / state.durationSeconds : 0;
 
+  // Opened from a playlist queue (?playlist=&item=)? Only trust it if it checks out; otherwise behave normally.
+  const playlistParam = typeof query.playlist === "string" ? query.playlist : null;
+  const itemParam = typeof query.item === "string" ? query.item : null;
+  const queue =
+    ready && playlistParam && itemParam && isUuid(playlistParam) && isUuid(itemParam)
+      ? await queueNext(db, { playlistId: playlistParam, itemId: itemParam, viewerId: viewer.id, titleId: book.id })
+      : null;
+
   const authors = book.authors?.length ? book.authors : book.folderAuthor ? [book.folderAuthor] : [];
   const narrators = book.narrators ?? [];
   const chapters = book.chapters ?? [];
@@ -67,6 +78,9 @@ export default async function BookDetailPage({ params }: PageProps<"/s/[serverId
 
   return (
     <div className="pb-12">
+      {queue?.valid && playlistParam && itemParam && (
+        <BookQueueAutoStart titleId={book.id} playlistId={playlistParam} itemId={itemParam} finished={!!state?.finished} />
+      )}
       <section className="relative isolate -mt-16 overflow-hidden pt-16">
         {book.posterUrl && (
           <Image

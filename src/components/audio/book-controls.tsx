@@ -1,12 +1,12 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Loader2, Pause, Play } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { formatClock } from "@/lib/player/timeline";
 import { Button } from "@/components/ui/button";
-import { useAudioPlayer } from "@/components/audio/audio-player-provider";
+import { useAudioActions, useAudioPlayer } from "@/components/audio/audio-player-provider";
 
 /** Play / Resume / Pause for a book. Starts playback in the persistent player without leaving the page. */
 export function BookPlayButton({ titleId, hasProgress }: { titleId: string; hasProgress: boolean }) {
@@ -101,4 +101,31 @@ export function BookChapters({
       })}
     </ol>
   );
+}
+
+/**
+ * Mounted on a book page opened from a playlist queue: starts the book as soon as the page
+ * loads (a finished book starts over) and remembers the queue so it continues afterwards.
+ * Autoplay can be blocked by the browser when the listener hasn't interacted recently; the
+ * book is then simply loaded and paused.
+ */
+export function BookQueueAutoStart({
+  titleId,
+  playlistId,
+  itemId,
+  finished,
+}: {
+  titleId: string;
+  playlistId: string;
+  itemId: string;
+  finished: boolean;
+}) {
+  const actions = useAudioActions();
+  const started = useRef(false);
+  useEffect(() => {
+    if (!actions || started.current) return;
+    started.current = true;
+    void actions.load(titleId, { autoplay: true, startAt: finished ? 0 : undefined, queue: { playlistId, itemId } });
+  }, [actions, titleId, playlistId, itemId, finished]);
+  return null;
 }

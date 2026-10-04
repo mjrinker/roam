@@ -3,10 +3,11 @@
 import { useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
-import { ArrowDown, ArrowUp, Film, Headphones, Loader2, Play, Tv, X } from "lucide-react";
+import { ArrowDown, ArrowUp, Film, GripVertical, Headphones, Loader2, Play, Tv, X } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { playlistApi, type ItemRow } from "@/components/playlists/playlist-api";
+import { moveTo } from "@/components/playlists/reorder";
 
 const KIND_LABEL = { movie: "Movie", show: "Show", audiobook: "Audiobook", episode: "Episode" } as const;
 
@@ -48,6 +49,9 @@ export function PlaylistItems({
   const [cursor, setCursor] = useState(initialCursor);
   const [loadingMore, setLoadingMore] = useState(false);
   const [busyId, setBusyId] = useState<string | null>(null);
+  // Drag-and-drop (mouse): the row being dragged and the row it is currently over.
+  const [dragFrom, setDragFrom] = useState<number | null>(null);
+  const [dragOver, setDragOver] = useState<number | null>(null);
 
   async function loadMore() {
     setLoadingMore(true);
@@ -72,19 +76,15 @@ export function PlaylistItems({
     setItems((cur) => cur.filter((i) => i.id !== item.id));
   }
 
-  /** Moves the item at `index` one place up (-1) or down (+1) among the loaded items. */
-  async function move(index: number, by: -1 | 1) {
-    const item = items[index];
-    const swapWith = index + by;
-    if (!item || swapWith < 0 || swapWith >= items.length) return;
-    // "After" the item two above when moving up (or null at the top), or after the next one when moving down.
-    const after = by === -1 ? (items[index - 2]?.id ?? null) : items[index + 1].id;
+  /** Moves the item at `from` to index `to` among the loaded items (optimistic; undone if the server refuses). */
+  async function moveItem(from: number, to: number) {
+    const moved = moveTo(items, from, to);
+    const item = items[from];
+    if (!moved || !item) return;
     const before = items;
-    const next = [...items];
-    [next[index], next[swapWith]] = [next[swapWith], next[index]];
-    setItems(next);
+    setItems(moved.items);
     setBusyId(item.id);
-    const res = await playlistApi.moveItem(playlistId, item.id, after);
+    const res = await playlistApi.moveItem(playlistId, item.id, moved.afterId);
     setBusyId(null);
     if (!res.ok) {
       setItems(before);
@@ -105,7 +105,37 @@ export function PlaylistItems({
           const href = itemHref(serverId, playlistId, item);
           const disabled = !item.playable;
           return (
-            <li key={item.id} className={cn("group/item flex items-center gap-3 rounded-xl p-2 transition-colors hover:bg-white/[0.05]", disabled && "opacity-60")}>
+            <li
+              key={item.id}
+              draggable={canEdit && busyId === null}
+              onDragStart={(e) => {
+                setDragFrom(index);
+                e.dataTransfer.effectAllowed = "move";
+              }}
+              onDragOver={(e) => {
+                if (dragFrom === null) return;
+                e.preventDefault();
+                if (dragOver !== index) setDragOver(index);
+              }}
+              onDrop={(e) => {
+                e.preventDefault();
+                const from = dragFrom;
+                setDragFrom(null);
+                setDragOver(null);
+                if (from !== null) void moveItem(from, index);
+              }}
+              onDragEnd={() => {
+                setDragFrom(null);
+                setDragOver(null);
+              }}
+              className={cn(
+                "group/item flex items-center gap-3 rounded-xl p-2 transition-colors hover:bg-white/[0.05]",
+                disabled && "opacity-60",
+                dragFrom === index && "opacity-40",
+                dragOver === index && dragFrom !== null && dragFrom !== index && "ring-2 ring-primary/60"
+              )}
+            >
+              {canEdit && <GripVertical aria-hidden className="-mr-1.5 size-4 shrink-0 cursor-grab text-muted-foreground/50 active:cursor-grabbing" />}
               <span className="w-6 shrink-0 text-center text-xs text-muted-foreground tabular-nums">{index + 1}</span>
               <div className="relative aspect-[2/3] w-10 shrink-0 overflow-hidden rounded-md bg-muted ring-1 ring-white/[0.08]">
                 {item.posterUrl ? (
@@ -146,7 +176,7 @@ export function PlaylistItems({
                       type="button"
                       aria-label="Move up"
                       disabled={index === 0 || busyId !== null}
-                      onClick={() => void move(index, -1)}
+                      onClick={() => void moveItem(index, index - 1)}
                       className="flex size-9 items-center justify-center rounded-full text-muted-foreground transition hover:bg-white/10 hover:text-foreground disabled:opacity-30"
                     >
                       <ArrowUp className="size-4" />
@@ -155,7 +185,7 @@ export function PlaylistItems({
                       type="button"
                       aria-label="Move down"
                       disabled={index === items.length - 1 || busyId !== null}
-                      onClick={() => void move(index, 1)}
+                      onClick={() => void moveItem(index, index + 1)}
                       className="flex size-9 items-center justify-center rounded-full text-muted-foreground transition hover:bg-white/10 hover:text-foreground disabled:opacity-30"
                     >
                       <ArrowDown className="size-4" />

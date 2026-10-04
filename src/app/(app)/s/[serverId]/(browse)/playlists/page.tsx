@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { Globe, ListVideo, Lock } from "lucide-react";
+import { Globe, ListVideo, Lock, ShieldCheck } from "lucide-react";
 import { db } from "@/lib/db/client";
 import { requireServerMember } from "@/lib/auth/guards";
 import { decodeCursor, encodeCursor } from "@/lib/playlists/http";
@@ -25,7 +25,7 @@ export default async function PlaylistsPage({
 }: PageProps<"/s/[serverId]/playlists">) {
   const { serverId } = await params;
   const query = await searchParams;
-  const { viewer } = await requireServerMember(serverId);
+  const { viewer, role } = await requireServerMember(serverId);
 
   const scopeParam = typeof query.scope === "string" ? query.scope : "all";
   const scope = TABS.some((t) => t.scope === scopeParam) ? (scopeParam as ListScope) : "all";
@@ -52,7 +52,17 @@ export default async function PlaylistsPage({
           </span>
           <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">Playlists</h1>
         </div>
-        <NewPlaylistButton serverId={serverId} />
+        <div className="flex items-center gap-2">
+          {role === "admin" && viewer.role !== "limited" && (
+            <Link
+              href={`/s/${serverId}/playlists/moderation`}
+              className="flex h-10 items-center gap-2 rounded-xl bg-white/[0.06] px-4 text-sm ring-1 ring-white/[0.08] transition hover:bg-white/[0.09]"
+            >
+              <ShieldCheck className="size-4" /> Moderate
+            </Link>
+          )}
+          <NewPlaylistButton serverId={serverId} />
+        </div>
       </div>
 
       <nav aria-label="Playlist filter" className="flex flex-wrap gap-2">

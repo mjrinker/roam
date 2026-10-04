@@ -6,11 +6,13 @@ import {
   useCallback,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type Dispatch,
   type ReactNode,
   type SetStateAction,
 } from "react";
+import { useRouter } from "next/navigation";
 import {
   chapterEnd,
   chapterIndexAt,
@@ -19,6 +21,7 @@ import {
   isEffectivelyFinished,
 } from "@/lib/player/timeline";
 import type { AudiobookManifest, AudiobookSegmentUrl } from "@/lib/player/types";
+import { shouldContinueQueue, type BookQueue } from "@/components/audio/queue-handoff";
 
 // One <audio> element for the whole book, mounted above the pages so audio
 // keeps playing as you browse. A single element (rather than the video
@@ -64,7 +67,7 @@ export interface AudioPlayerActions {
   /** Loads a book (resuming where the user left off unless `startAt` is given). */
   load(
     titleId: string,
-    opts?: { autoplay?: boolean; startAt?: number }
+    opts?: { autoplay?: boolean; startAt?: number; queue?: BookQueue }
   ): Promise<{ ok: boolean; error?: string }>;
   play(): void;
   pause(): void;
@@ -134,6 +137,8 @@ interface Engine {
   rateSaveTimeout: ReturnType<typeof setTimeout> | null;
   /** What the user last asked for, kept separately from element state (which flips during part swaps). */
   playRequested: boolean;
+  /** The playlist queue this book was started from, if any; cleared when a different book starts or the player closes. */
+  queue: (BookQueue & { titleId: string }) | null;
 }
 
 function createPlayer(
@@ -156,6 +161,7 @@ function createPlayer(
     sleepTimeout: null,
     rateSaveTimeout: null,
     playRequested: false,
+    queue: null,
   };
 
   const patch = (p: Partial<AudioPlayerState>) => setState((s) => ({ ...s, ...p }));
@@ -350,6 +356,10 @@ function createPlayer(
 
   const actions: AudioPlayerActions = {
     async load(titleId, opts = {}) {
+      // A queue belongs to the book it started with: starting any other book drops it.
+      if (opts.queue) e.queue = { ...opts.queue, titleId };
+      else if (e.queue && e.queue.titleId !== titleId) e.queue = null;
+
       // Same book already loaded: just steer it.
       if (e.book?.titleId === titleId) {
         if (opts.startAt !== undefined) seek(opts.startAt);
@@ -435,6 +445,7 @@ function createPlayer(
 
     close() {
       saveProgress();
+      e.queue = null;
       e.token++;
       e.playRequested = false;
       e.book = null;
@@ -496,6 +507,24 @@ export function AudioPlayerProvider({
   });
 
   const [{ actions, internals }] = useState(() => createPlayer(setState, startRate, viewerId));
+  const router = useRouter();
+  // createPlayer lives outside React, so the end-of-book hand-off reaches the router through this ref.
+  const queueEnded = useRef<(queue: BookQueue) => void>(() => {});
+  useEffect(() => {
+    queueEnded.current = (queue) => {
+      if (!shouldContinueQueue(window.location.search, queue)) return;
+      void (async () => {
+        try {
+          const res = await fetch(`/api/playlists/${queue.playlistId}/next?after=${queue.itemId}`);
+          if (!res.ok) return;
+          const body = (await res.json()) as { next: { href: string } | null };
+          if (body.next?.href) router.push(body.next.href);
+        } catch {
+          /* best-effort: the book simply ends */
+        }
+      })();
+    };
+  }, [router]);
   const attachAudio = useCallback((node: MediaEl | null) => internals.attach(node), [internals]);
 
   // Element events and page lifecycle.
@@ -572,6 +601,10 @@ export function AudioPlayerProvider({
         e.playRequested = false;
         patch({ status: "finished", position: book.durationSeconds, buffering: false });
         internals.saveProgress();
+        // Started from a playlist: carry on with whatever comes next in it.
+        const queue = e.queue;
+        e.queue = null;
+        if (queue && queue.titleId === book.titleId) queueEnded.current(queue);
       }
     }
     function onError() {
