@@ -1,4 +1,4 @@
-import Image from "next/image";
+import { Artwork as Image } from "@/components/ui/artwork";
 import Link from "next/link";
 import { Film, Play } from "lucide-react";
 import { cn } from "@/lib/utils";

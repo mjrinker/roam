@@ -1,4 +1,4 @@
-import Image from "next/image";
+import { Artwork as Image } from "@/components/ui/artwork";
 import { Film, Headphones, Tv } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { ExternalRatings, type ExternalRatingsData } from "@/components/library/external-ratings";

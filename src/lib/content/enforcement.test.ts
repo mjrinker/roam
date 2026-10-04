@@ -32,7 +32,10 @@ const ALLOWLIST: Record<string, string> = {
 const OWNER_TABLE_RE = /\btitles\b|\bepisodes\b|\bwatchState\b/;
 
 function findAppFiles(): string[] {
-  return globSync("**/*.{ts,tsx}", { cwd: APP_DIR }).map((f) => f.replaceAll("\\", "/"));
+  // Test files aren't served, so they can't leak anything; only real pages and routes are checked.
+  return globSync("**/*.{ts,tsx}", { cwd: APP_DIR })
+    .map((f) => f.replaceAll("\\", "/"))
+    .filter((f) => !/\.test\.tsx?$/.test(f));
 }
 
 describe("content access enforcement", () => {

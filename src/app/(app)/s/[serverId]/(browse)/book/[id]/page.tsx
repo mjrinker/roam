@@ -1,4 +1,4 @@
-import Image from "next/image";
+import { Artwork as Image } from "@/components/ui/artwork";
 import { notFound, redirect } from "next/navigation";
 import { and, asc, eq } from "drizzle-orm";
 import { Headphones, Loader2 } from "lucide-react";

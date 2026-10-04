@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import Image from "next/image";
+import { Artwork as Image } from "@/components/ui/artwork";
 import Link from "next/link";
 import { ArrowDown, ArrowUp, Film, GripVertical, Headphones, Loader2, Play, Tv, X } from "lucide-react";
 import { toast } from "sonner";

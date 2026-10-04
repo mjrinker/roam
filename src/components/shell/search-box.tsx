@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import Image from "next/image";
+import { Artwork as Image } from "@/components/ui/artwork";
 import { useRouter } from "next/navigation";
 import { Film, Headphones, Loader2, Search, Tv } from "lucide-react";
 import { cn } from "@/lib/utils";
