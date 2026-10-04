@@ -42,5 +42,7 @@ export async function PATCH(request: Request, ctx: RouteContext<"/api/playlists/
   if ("response" in who) return who.response;
   const parsed = moveSchema.safeParse(await readJson(request));
   if (!parsed.success) return badRequest(parsed.error);
+  const slow = await throttled(who.actor.accountId, "playlist_item_move", 240, 60);
+  if (slow) return slow;
   return respond(await moveItem(db, { playlistId: id, viewerId: who.actor.viewerId, ...parsed.data }), () => ({ ok: true }));
 }

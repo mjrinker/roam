@@ -79,7 +79,7 @@ export async function listPlaylists(
 
   // Housekeeping: never let it turn a read into an error.
   try {
-    await purgeOrphanPlaylists(ex, args.serverId);
+    await ex.transaction((tx) => purgeOrphanPlaylists(tx, args.serverId));
   } catch {
     /* best-effort */
   }

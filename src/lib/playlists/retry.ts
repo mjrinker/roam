@@ -14,21 +14,27 @@ export function dbErrorCode(err: unknown): string | undefined {
   return undefined;
 }
 
+const MAX_ATTEMPTS = 3;
+
 /**
- * Runs `fn`; if it fails with one of `codes` it runs once more (the callback is
- * expected to re-read everything under a fresh lock), then rethrows. Lock order
- * differs between the viewer routes and playlist mutations, so a rare deadlock
- * is expected and retried rather than surfaced as a 500.
+ * Runs `fn`; if it fails with one of `codes` it runs again, up to three attempts in
+ * all with a short random pause between them (the callback is expected to re-read
+ * everything under a fresh lock), then rethrows. Lock order differs between the
+ * viewer routes and playlist mutations, so a rare deadlock is expected and retried
+ * rather than surfaced as a 500; the jitter keeps two colliding requests from
+ * deadlocking again in lockstep.
  */
 export async function retryOnContention<T>(
   fn: () => Promise<T>,
   codes: readonly string[] = CONTENTION_CODES
 ): Promise<T> {
-  try {
-    return await fn();
-  } catch (err) {
-    const code = dbErrorCode(err);
-    if (code && codes.includes(code)) return fn();
-    throw err;
+  for (let attempt = 1; ; attempt++) {
+    try {
+      return await fn();
+    } catch (err) {
+      const code = dbErrorCode(err);
+      if (!code || !codes.includes(code) || attempt >= MAX_ATTEMPTS) throw err;
+      await new Promise((resolve) => setTimeout(resolve, 20 + Math.random() * 60));
+    }
   }
 }

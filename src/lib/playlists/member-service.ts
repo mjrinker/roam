@@ -201,6 +201,8 @@ export async function transferOwnership(
         const ctx = await loadContext(tx, { playlistId: args.playlistId, viewerId: args.viewerId, lock: true });
         if (!ctx) return NOT_FOUND;
         if (!ctx.caps.canTransfer) return fail(403, "Only the owner can transfer a playlist.");
+        // Hold the old owner's row so a concurrent "hide this profile" can't slip past the checks below.
+        await tx.select({ id: viewers.id }).from(viewers).where(eq(viewers.id, ctx.viewer.id)).for("share");
         const target = await lockTarget(tx, { serverId: ctx.playlist.serverId, targetViewerId: args.targetViewerId, actor: ctx.viewer });
         const [share] = target
           ? await tx
@@ -209,9 +211,26 @@ export async function transferOwnership(
               .where(and(eq(playlistMembers.playlistId, ctx.playlist.id), eq(playlistMembers.viewerId, target.id)))
           : [];
         if (!target || !share || target.id === ctx.viewer.id || target.role === "limited") return NOT_FOUND;
+        // A limited profile may never hand a playlist to another account (it can't share outside its own).
+        if (ctx.viewer.role === "limited" && target.accountId !== ctx.viewer.accountId) return NOT_FOUND;
 
         await tx.delete(playlistMembers).where(and(eq(playlistMembers.playlistId, ctx.playlist.id), eq(playlistMembers.viewerId, target.id)));
         await tx.update(playlists).set({ ownerViewerId: target.id, updatedAt: new Date() }).where(eq(playlists.id, ctx.playlist.id));
+        // Hidden profiles have no access to another account's playlists: drop any that are now across accounts.
+        await tx
+          .delete(playlistMembers)
+          .where(
+            and(
+              eq(playlistMembers.playlistId, ctx.playlist.id),
+              inArray(
+                playlistMembers.viewerId,
+                tx
+                  .select({ id: viewers.id })
+                  .from(viewers)
+                  .where(and(eq(viewers.visibleOnServer, false), ne(viewers.accountId, target.accountId)))
+              )
+            )
+          );
         const hiddenAcrossAccounts = !ctx.viewer.visibleOnServer && target.accountId !== ctx.viewer.accountId;
         if (!hiddenAcrossAccounts) {
           await tx

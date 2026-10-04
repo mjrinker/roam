@@ -2,7 +2,7 @@ import { notFound } from "next/navigation";
 import { Globe, Lock } from "lucide-react";
 import { db } from "@/lib/db/client";
 import { requireServerMember } from "@/lib/auth/guards";
-import { encodeCursor } from "@/lib/playlists/http";
+import { encodeCursor, isUuid } from "@/lib/playlists/http";
 import { listItems } from "@/lib/playlists/item-service";
 import { nextAfter } from "@/lib/playlists/next";
 import { getPlaylistDetail } from "@/lib/playlists/service";
@@ -10,7 +10,6 @@ import { Badge } from "@/components/ui/badge";
 import { Breadcrumbs } from "@/components/shell/breadcrumbs";
 import { PlaylistActions } from "@/components/playlists/playlist-actions";
 import { PlaylistItems } from "@/components/playlists/playlist-items";
-import { isUuid } from "@/lib/playlists/http";
 
 export default async function PlaylistPage({ params }: PageProps<"/s/[serverId]/playlists/[id]">) {
   const { serverId, id } = await params;

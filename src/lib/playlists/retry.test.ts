@@ -16,7 +16,7 @@ describe("dbErrorCode", () => {
 });
 
 describe("retryOnContention", () => {
-  it("retries once on a deadlock or serialization failure, then succeeds", async () => {
+  it("retries on a deadlock or serialization failure, then succeeds", async () => {
     for (const code of ["40P01", "40001"]) {
       const fn = vi.fn().mockRejectedValueOnce(pgError(code, true)).mockResolvedValueOnce("ok");
       expect(await retryOnContention(fn)).toBe("ok");
@@ -24,10 +24,14 @@ describe("retryOnContention", () => {
     }
   });
 
-  it("gives up after one retry", async () => {
-    const fn = vi.fn().mockRejectedValue(pgError("40P01"));
-    await expect(retryOnContention(fn)).rejects.toMatchObject({ code: "40P01" });
-    expect(fn).toHaveBeenCalledTimes(2);
+  it("keeps trying through two failures, and gives up on the third", async () => {
+    const twice = vi.fn().mockRejectedValueOnce(pgError("40P01")).mockRejectedValueOnce(pgError("40P01")).mockResolvedValueOnce("ok");
+    expect(await retryOnContention(twice)).toBe("ok");
+    expect(twice).toHaveBeenCalledTimes(3);
+
+    const always = vi.fn().mockRejectedValue(pgError("40P01"));
+    await expect(retryOnContention(always)).rejects.toMatchObject({ code: "40P01" });
+    expect(always).toHaveBeenCalledTimes(3);
   });
 
   it("does not retry other errors", async () => {

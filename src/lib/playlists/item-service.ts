@@ -154,6 +154,10 @@ export async function moveItem(
           return planMove(after ? after.position : null, next ? next.position : null);
         };
 
+        // The anchor can be deleted by a scan (which doesn't take the playlist lock) after the check above.
+        if (args.afterItemId && !(await tx.select({ id: playlistItems.id }).from(playlistItems).where(and(eq(playlistItems.id, args.afterItemId), eq(playlistItems.playlistId, ctx.playlist.id)))).length) {
+          return NOT_FOUND;
+        }
         let plan = await neighbours();
         if ("renumber" in plan) {
           await tx.execute(sql`
@@ -163,10 +167,12 @@ export async function moveItem(
           plan = await neighbours();
         }
         if ("renumber" in plan) return fail(409, "Couldn't move that item; try again.");
-        await tx
+        const moved = await tx
           .update(playlistItems)
           .set({ position: plan.position })
-          .where(and(eq(playlistItems.id, args.itemId), eq(playlistItems.playlistId, ctx.playlist.id)));
+          .where(and(eq(playlistItems.id, args.itemId), eq(playlistItems.playlistId, ctx.playlist.id)))
+          .returning({ id: playlistItems.id });
+        if (moved.length === 0) return NOT_FOUND;
         await touch(tx, ctx.playlist.id);
         return ok({ position: plan.position });
       }),
