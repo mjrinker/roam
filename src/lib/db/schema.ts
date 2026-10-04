@@ -15,6 +15,7 @@ import {
   check,
   primaryKey,
   foreignKey,
+  customType,
   type AnyPgColumn,
 } from "drizzle-orm/pg-core";
 import { relations, sql } from "drizzle-orm";
@@ -22,6 +23,13 @@ import { relations, sql } from "drizzle-orm";
 // ── Enums ────────────────────────────────────────────────────────────────
 
 export const userRoleEnum = pgEnum("user_role", ["admin", "viewer"]);
+// Binary column (artwork bytes); postgres-js returns a Buffer.
+const bytea = customType<{ data: Buffer; driverData: Buffer }>({
+  dataType() {
+    return "bytea";
+  },
+});
+
 export const libraryKindEnum = pgEnum("library_kind", ["movies", "shows", "audiobooks", "video"]);
 // Who may see a library: everyone on the server, or only server admins and the accounts listed in library_members.
 export const libraryAccessEnum = pgEnum("library_access", ["everyone", "restricted"]);
@@ -212,6 +220,10 @@ export const libraries = pgTable(
     // Fails closed: a library inserted without saying otherwise is restricted. (The migration
     // backfilled every library that existed before this column as 'everyone'.)
     access: libraryAccessEnum("access").notNull().default("restricted"),
+    // Video ("generic") libraries only: the age rating the admin gave the whole library, as
+    // {ANY: minimumAge}; null = unrated. Copied onto each of the library's titles (see
+    // lib/libraries/video-rating) so lib/content/access keeps working unchanged.
+    ratingAges: jsonb("rating_ages").$type<Record<string, number> | null>(),
     lastScannedAt: timestamp("last_scanned_at", { withTimezone: true }),
     // Updated at the START of every scan attempt, success or failure —
     // distinct from lastScannedAt (which only advances on completion, and
@@ -286,6 +298,20 @@ export const titles = pgTable(
     year: integer("year"),
     boxFolderId: text("box_folder_id").notNull().unique(),
 
+    // Video ("generic") libraries only; null for everything else. Each video file is one title
+    // whose box_folder_id holds 'file:<Box file id>' (a stable unique key), so:
+    // - folderPath: the folder the file sits in, relative to the library root ('' = the root),
+    //   segments joined by '/'; browsing by folder reads this.
+    // - parentFolderId: the Box id of that folder, for anything that needs a real folder
+    //   (resync, remux uploads). Refreshed on every directory scan.
+    // - nameSource: 'embedded' once the name came from the file's own tags, so a rescan never
+    //   overwrites it with the filename.
+    // - tagsAttemptedAt: when the file's embedded tags/artwork were last read.
+    folderPath: text("folder_path"),
+    parentFolderId: text("parent_folder_id"),
+    nameSource: text("name_source").$type<"filename" | "embedded">(),
+    tagsAttemptedAt: timestamp("tags_attempted_at", { withTimezone: true }),
+
     tmdbId: integer("tmdb_id"),
     overview: text("overview"),
     posterUrl: text("poster_url"),
@@ -344,8 +370,24 @@ export const titles = pgTable(
   (t) => [
     index("titles_library_idx").on(t.libraryId),
     index("titles_name_idx").on(t.name),
+    // Folder browsing (video libraries): prefix matches on folder_path within a library.
+    index("titles_library_folder_idx").on(t.libraryId, t.folderPath.op("text_pattern_ops")),
   ]
 );
+
+// ── title_artwork ────────────────────────────────────────────────────────
+// Image bytes for a title whose artwork lives in Roam itself (video libraries): a cover embedded
+// in the file, or a thumbnail fetched from Box. Kept apart from titles so list queries never
+// read image bytes. Served by /api/titles/[id]/artwork behind the usual access checks.
+export const titleArtwork = pgTable("title_artwork", {
+  titleId: uuid("title_id")
+    .primaryKey()
+    .references(() => titles.id, { onDelete: "cascade" }),
+  contentType: text("content_type").notNull(),
+  bytes: bytea("bytes").notNull(),
+  source: text("source").notNull().$type<"embedded" | "box">(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}).enableRLS();
 
 // ── seasons ──────────────────────────────────────────────────────────────
 
