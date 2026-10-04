@@ -27,6 +27,7 @@ import {
   probeFiles,
   rollupTitleRuntime,
 } from "@/lib/scan/media-files";
+import { readTagsAndArtwork } from "@/lib/scan/video-artwork";
 import { decodeSub, encodeSub, walkVideoTree } from "@/lib/scan/video-walk";
 
 const CHUNK = 500;
@@ -308,6 +309,9 @@ export async function probeVideoLibrary(
     if (codecFiles.length === PROBE_BATCH) incomplete = true;
     await probeCodecsForPending(provider, codecFiles.map((r) => r.file), now + (deadline - now) / 3);
   }
+
+  // Names, years, descriptions and pictures read from the files themselves.
+  incomplete = (await readTagsAndArtwork(provider, libraryId, deadline, errors)) || incomplete;
 
   // Runtimes only for titles whose files were just probed (not a query per title in the library).
   const probedTitleIds = [...new Set(pendingTitleFiles.map((r) => r.file.ownerId).filter((id): id is string => id !== null))];

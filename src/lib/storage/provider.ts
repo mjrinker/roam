@@ -41,6 +41,12 @@ export interface StorageProvider {
   /** Mints a short-lived direct-download URL for a single file. */
   getStreamingUrl(fileId: string): Promise<StreamingUrl>;
 
+  /**
+   * A small preview image the storage service generated for a file (e.g. a video frame), or null
+   * when none is available (not generated yet, unsupported, or the provider has no such thing).
+   */
+  fetchThumbnail?(fileId: string): Promise<{ contentType: "image/jpeg"; bytes: Uint8Array } | null>;
+
   /** Fetches an inclusive byte range of a file's raw bytes (for format probing). */
   fetchByteRange(
     fileId: string,

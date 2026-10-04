@@ -173,6 +173,36 @@ async function fetchByteRange(
   return res.arrayBuffer();
 }
 
+const MAX_THUMBNAIL_BYTES = 512 * 1024;
+
+/** Box's own thumbnail of a file (a 320px JPEG; for a video, a frame), or null if Box has none to give yet. */
+async function fetchThumbnail(serverId: string, fileId: string): Promise<{ contentType: "image/jpeg"; bytes: Uint8Array } | null> {
+  return withBoxClient(serverId, async (client) => {
+    try {
+      const stream = await client.files.getFileThumbnailById(fileId, "jpg", {
+        queryParams: { minHeight: 320, minWidth: 320, maxHeight: 320, maxWidth: 320 },
+      });
+      // undefined means Box is still generating it (HTTP 202): try again on a later scan.
+      if (!stream) return null;
+      const chunks: Buffer[] = [];
+      let total = 0;
+      for await (const chunk of stream) {
+        const buf = Buffer.from(chunk as Uint8Array);
+        total += buf.length;
+        if (total > MAX_THUMBNAIL_BYTES) return null;
+        chunks.push(buf);
+      }
+      const bytes = new Uint8Array(Buffer.concat(chunks));
+      // Only ever hand back what really is a JPEG.
+      return bytes.length > 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff ? { contentType: "image/jpeg", bytes } : null;
+    } catch (err) {
+      // A file Box can't thumbnail (unsupported/corrupt) is "no thumbnail", not a failed scan.
+      if (err instanceof BoxApiError && [400, 404, 415].includes(err.responseInfo?.statusCode ?? 0)) return null;
+      throw err;
+    }
+  });
+}
+
 export function createBoxProviderForServer(serverId: string): StorageProvider {
   return {
     listFolder: (folderId, opts) => listFolder(serverId, folderId, opts),
@@ -180,6 +210,7 @@ export function createBoxProviderForServer(serverId: string): StorageProvider {
     getStreamingUrl: (fileId) => getStreamingUrl(serverId, fileId),
     fetchByteRange: (fileId, startByte, endByte) =>
       fetchByteRange(serverId, fileId, startByte, endByte),
+    fetchThumbnail: (fileId) => fetchThumbnail(serverId, fileId),
   };
 }
 

@@ -311,6 +311,9 @@ export const titles = pgTable(
     parentFolderId: text("parent_folder_id"),
     nameSource: text("name_source").$type<"filename" | "embedded">(),
     tagsAttemptedAt: timestamp("tags_attempted_at", { withTimezone: true }),
+    // Failed tries at reading the file's tags or fetching a Box thumbnail; stops at a small cap so
+    // an unreadable file isn't retried on every scan.
+    tagAttempts: integer("tag_attempts").notNull().default(0),
 
     tmdbId: integer("tmdb_id"),
     overview: text("overview"),

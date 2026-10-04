@@ -1,0 +1,1 @@
+ALTER TABLE "titles" ADD COLUMN "tag_attempts" integer DEFAULT 0 NOT NULL;
