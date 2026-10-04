@@ -32,6 +32,7 @@ export function LibraryAccessDialog({
   const [access, setAccess] = useState<LibraryAccess>("restricted");
   const [people, setPeople] = useState<Person[]>([]);
   const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [initial, setInitial] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -48,7 +49,9 @@ export function LibraryAccessDialog({
         const body = (await res.json()) as { access: LibraryAccess; people: Person[] };
         setAccess(body.access);
         setPeople(body.people);
-        setSelected(new Set(body.people.filter((p) => p.granted).map((p) => p.accountId)));
+        const granted = new Set(body.people.filter((p) => p.granted).map((p) => p.accountId));
+        setSelected(new Set(granted));
+        setInitial(granted);
       }
       setLoading(false);
     })();
@@ -71,7 +74,12 @@ export function LibraryAccessDialog({
     const res = await fetch(`/api/libraries/${libraryId}/access`, {
       method: "PUT",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ access, accountIds: [...selected] }),
+      // Only what changed, so accounts this dialog never listed keep their access.
+      body: JSON.stringify({
+        access,
+        grant: [...selected].filter((id) => !initial.has(id)),
+        revoke: [...initial].filter((id) => !selected.has(id)),
+      }),
     });
     setSaving(false);
     if (!res.ok) {

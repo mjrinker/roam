@@ -15,7 +15,7 @@ ALTER TABLE "libraries" ADD COLUMN "access" "library_access" DEFAULT 'everyone' 
 ALTER TABLE "libraries" ALTER COLUMN "access" SET DEFAULT 'restricted';--> statement-breakpoint
 CREATE UNIQUE INDEX "libraries_id_server_idx" ON "libraries" USING btree ("id","server_id");--> statement-breakpoint
 ALTER TABLE "library_members" ADD CONSTRAINT "library_members_granted_by_account_id_profiles_id_fk" FOREIGN KEY ("granted_by_account_id") REFERENCES "public"."profiles"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "library_members" ADD CONSTRAINT "library_members_library_id_server_id_libraries_id_server_id_fk" FOREIGN KEY ("library_id","server_id") REFERENCES "public"."libraries"("id","server_id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "library_members" ADD CONSTRAINT "library_members_server_id_account_id_server_members_server_id_profile_id_fk" FOREIGN KEY ("server_id","account_id") REFERENCES "public"."server_members"("server_id","profile_id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "library_members" ADD CONSTRAINT "library_members_library_server_fk" FOREIGN KEY ("library_id","server_id") REFERENCES "public"."libraries"("id","server_id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "library_members" ADD CONSTRAINT "library_members_server_account_fk" FOREIGN KEY ("server_id","account_id") REFERENCES "public"."server_members"("server_id","profile_id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 CREATE INDEX "library_members_account_idx" ON "library_members" USING btree ("account_id");--> statement-breakpoint
 CREATE INDEX "library_members_granted_by_idx" ON "library_members" USING btree ("granted_by_account_id");

@@ -1,5 +1,5 @@
 {
-  "id": "51386d76-0211-496e-955a-f0b26a4419f4",
+  "id": "87767e16-799c-4303-9caf-41abfbdbaabb",
   "prevId": "e381cc05-b686-4514-9321-539368acf16e",
   "version": "7",
   "dialect": "postgresql",
@@ -477,8 +477,8 @@
           "onDelete": "set null",
           "onUpdate": "no action"
         },
-        "library_members_library_id_server_id_libraries_id_server_id_fk": {
-          "name": "library_members_library_id_server_id_libraries_id_server_id_fk",
+        "library_members_library_server_fk": {
+          "name": "library_members_library_server_fk",
           "tableFrom": "library_members",
           "tableTo": "libraries",
           "columnsFrom": [
@@ -492,8 +492,8 @@
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
-        "library_members_server_id_account_id_server_members_server_id_profile_id_fk": {
-          "name": "library_members_server_id_account_id_server_members_server_id_profile_id_fk",
+        "library_members_server_account_fk": {
+          "name": "library_members_server_account_fk",
           "tableFrom": "library_members",
           "tableTo": "server_members",
           "columnsFrom": [

@@ -150,31 +150,35 @@ describe("access service", () => {
     expect(await getLibraryAccess(db, "00000000-0000-4000-8000-0000000000bb")).toBeNull();
   });
 
-  it("replaces the grant list, skips admins, and keeps grants when switched to everyone", async () => {
+  it("applies a grant/revoke diff, skips admins, leaves untouched accounts alone, and keeps grants when switched to everyone", async () => {
     const w = await world();
     const set = await setLibraryAccess(db, {
       libraryId: w.secret.id,
       actorAccountId: w.admin.accountId,
       access: "restricted",
-      accountIds: [w.plain.accountId, w.admin.accountId],
+      grant: [w.plain.accountId, w.admin.accountId],
+      revoke: [],
     });
     expect(set).toEqual({ ok: true });
     expect(await canSeeLibrary(db, w.actor(w.plain), w.secret.id)).toBe(true);
-    expect(await canSeeLibrary(db, w.actor(w.granted), w.secret.id)).toBe(false); // dropped from the list
+    expect(await canSeeLibrary(db, w.actor(w.granted), w.secret.id)).toBe(true); // not mentioned: unchanged
     const rows = await db.select().from(libraryMembers).where(eq(libraryMembers.libraryId, w.secret.id));
-    expect(rows.map((r) => r.accountId)).toEqual([w.plain.accountId]); // the admin wasn't stored
+    expect(rows.map((r) => r.accountId).sort()).toEqual([w.granted.accountId, w.plain.accountId].sort()); // the admin wasn't stored
 
-    await setLibraryAccess(db, { libraryId: w.secret.id, actorAccountId: w.admin.accountId, access: "everyone", accountIds: [w.plain.accountId] });
+    await setLibraryAccess(db, { libraryId: w.secret.id, actorAccountId: w.admin.accountId, access: "restricted", grant: [], revoke: [w.granted.accountId] });
+    expect(await canSeeLibrary(db, w.actor(w.granted), w.secret.id)).toBe(false);
+
+    await setLibraryAccess(db, { libraryId: w.secret.id, actorAccountId: w.admin.accountId, access: "everyone", grant: [], revoke: [] });
     expect(await canSeeLibrary(db, w.actor(w.granted), w.secret.id)).toBe(true); // open to all now
-    expect((await db.select().from(libraryMembers).where(eq(libraryMembers.libraryId, w.secret.id))).length).toBe(1); // grants kept
+    expect((await db.select().from(libraryMembers).where(eq(libraryMembers.libraryId, w.secret.id))).length).toBe(1); // plain's grant kept
   });
 
   it("refuses accounts that aren't on the library's server, and a missing library", async () => {
     const w = await world();
-    const r = await setLibraryAccess(db, { libraryId: w.secret.id, actorAccountId: w.admin.accountId, access: "restricted", accountIds: [w.outsider.accountId] });
+    const r = await setLibraryAccess(db, { libraryId: w.secret.id, actorAccountId: w.admin.accountId, access: "restricted", grant: [w.outsider.accountId], revoke: [] });
     expect(r).toEqual({ ok: false, reason: "not_members" });
     expect((await db.select().from(libraryMembers).where(eq(libraryMembers.libraryId, w.secret.id))).map((x) => x.accountId)).toEqual([w.granted.accountId]); // unchanged
-    expect(await setLibraryAccess(db, { libraryId: "00000000-0000-4000-8000-0000000000bb", actorAccountId: w.admin.accountId, access: "restricted", accountIds: [] })).toEqual({ ok: false, reason: "not_found" });
+    expect(await setLibraryAccess(db, { libraryId: "00000000-0000-4000-8000-0000000000bb", actorAccountId: w.admin.accountId, access: "restricted", grant: [], revoke: [] })).toEqual({ ok: false, reason: "not_found" });
   });
 });
 

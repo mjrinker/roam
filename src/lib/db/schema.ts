@@ -262,8 +262,8 @@ export const libraryMembers = pgTable(
   },
   (t) => [
     primaryKey({ columns: [t.libraryId, t.accountId] }),
-    foreignKey({ columns: [t.libraryId, t.serverId], foreignColumns: [libraries.id, libraries.serverId] }).onDelete("cascade"),
-    foreignKey({ columns: [t.serverId, t.accountId], foreignColumns: [serverMembers.serverId, serverMembers.profileId] }).onDelete("cascade"),
+    foreignKey({ name: "library_members_library_server_fk", columns: [t.libraryId, t.serverId], foreignColumns: [libraries.id, libraries.serverId] }).onDelete("cascade"),
+    foreignKey({ name: "library_members_server_account_fk", columns: [t.serverId, t.accountId], foreignColumns: [serverMembers.serverId, serverMembers.profileId] }).onDelete("cascade"),
     index("library_members_account_idx").on(t.accountId),
     index("library_members_granted_by_idx").on(t.grantedByAccountId),
   ]

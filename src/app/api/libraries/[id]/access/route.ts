@@ -7,7 +7,9 @@ import { getLibraryAccess, setLibraryAccess } from "@/lib/libraries/access-servi
 
 const bodySchema = z.object({
   access: z.enum(["everyone", "restricted"]),
-  accountIds: z.array(z.string().uuid()).max(500),
+  /** Accounts to give access to, and accounts to take it from; accounts in neither are left as they are. */
+  grant: z.array(z.string().uuid()).max(500),
+  revoke: z.array(z.string().uuid()).max(500),
 });
 
 const notFound = () => NextResponse.json({ error: "Not found" }, { status: 404 });
@@ -30,7 +32,7 @@ export async function GET(_request: Request, ctx: RouteContext<"/api/libraries/[
   return view ? NextResponse.json(view) : notFound();
 }
 
-/** Replaces the access mode and the list of accounts given access. */
+/** Sets the access mode and adds/removes the listed accounts. */
 export async function PUT(request: Request, ctx: RouteContext<"/api/libraries/[id]/access">) {
   const { id } = await ctx.params;
   const admin = await adminForLibrary(id);
