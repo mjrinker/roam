@@ -19,9 +19,21 @@ export interface StreamingUrl {
   expiresAt: Date;
 }
 
+/** A strict listing couldn't return every entry (too many, or the provider stopped paging early). */
+export class ListingTruncatedError extends Error {
+  constructor(folderId: string) {
+    super(`Folder ${folderId} has more entries than can be listed.`);
+    this.name = "ListingTruncatedError";
+  }
+}
+
 export interface StorageProvider {
-  /** Lists the direct children of a folder (files and subfolders), fully paginated. */
-  listFolder(folderId: string): Promise<StorageEntry[]>;
+  /**
+   * Lists the direct children of a folder (files and subfolders), fully paginated. By default a
+   * runaway folder is cut off silently; with `strict` it throws ListingTruncatedError instead, for
+   * callers that act on absence (a silently shortened list must never look like a complete one).
+   */
+  listFolder(folderId: string, opts?: { strict?: boolean }): Promise<StorageEntry[]>;
 
   /** Fetches a single folder's current metadata (e.g. to pick up a rename). Null if it no longer exists. */
   getFolder(folderId: string): Promise<StorageEntry | null>;

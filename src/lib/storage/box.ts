@@ -1,5 +1,5 @@
 import { BoxApiError, BoxClient, BoxDeveloperTokenAuth } from "box-node-sdk";
-import type { StorageEntry, StorageProvider, StreamingUrl } from "./provider";
+import { ListingTruncatedError, type StorageEntry, type StorageProvider, type StreamingUrl } from "./provider";
 import { ensureFreshAccessToken, withBoxClient } from "./box-token-storage";
 
 /**
@@ -13,7 +13,7 @@ import { ensureFreshAccessToken, withBoxClient } from "./box-token-storage";
 const PAGE_SIZE = 1000;
 const MAX_ENTRIES = 20000; // sanity cap against runaway pagination
 
-async function listFolder(serverId: string, folderId: string): Promise<StorageEntry[]> {
+async function listFolder(serverId: string, folderId: string, opts?: { strict?: boolean }): Promise<StorageEntry[]> {
   return withBoxClient(serverId, async (client) => {
     const entries: StorageEntry[] = [];
     let offset = 0;
@@ -43,7 +43,10 @@ async function listFolder(serverId: string, folderId: string): Promise<StorageEn
 
       const total = page.totalCount ?? entries.length;
       offset += page.entries?.length ?? 0;
-      if (offset >= total || !page.entries?.length || entries.length >= MAX_ENTRIES) {
+      if (offset >= total) break;
+      // More to read but we're about to stop: fine for browsing, never for a caller that needs it all.
+      if (!page.entries?.length || entries.length >= MAX_ENTRIES) {
+        if (opts?.strict) throw new ListingTruncatedError(folderId);
         break;
       }
     }
@@ -172,7 +175,7 @@ async function fetchByteRange(
 
 export function createBoxProviderForServer(serverId: string): StorageProvider {
   return {
-    listFolder: (folderId) => listFolder(serverId, folderId),
+    listFolder: (folderId, opts) => listFolder(serverId, folderId, opts),
     getFolder: (folderId) => getFolder(serverId, folderId),
     getStreamingUrl: (fileId) => getStreamingUrl(serverId, fileId),
     fetchByteRange: (fileId, startByte, endByte) =>
