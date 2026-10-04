@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import { db } from "@/lib/db/client";
-import { libraries, mediaFiles, scanRuns } from "@/lib/db/schema";
+import { libraries, mediaFiles, scanRuns, titles } from "@/lib/db/schema";
 import { getCurrentServerAdmin } from "@/lib/auth/guards";
 import { resolveServerIdForLibrary } from "@/lib/auth/resolve-server";
 import { resolveLibraryOwnerIds } from "@/lib/scan/scanner";
@@ -68,10 +68,23 @@ export async function GET(
     Date.now() - latestRun.finishedAt.getTime() < CONTINUING_GRACE_MS;
   const scanning = running || continuing;
 
-  const { titleIds, episodeIds } = await resolveLibraryOwnerIds(libraryId);
+  // A video library can hold tens of thousands of titles, so it is counted with joins in SQL; the
+  // other kinds list their ids (bounded by how many titles and episodes a library realistically has).
+  const isVideo = library.kind === "video";
+  const { titleIds, episodeIds } = isVideo ? { titleIds: [] as string[], episodeIds: [] as string[] } : await resolveLibraryOwnerIds(libraryId);
+  const videoTitleCount = isVideo
+    ? (await db.select({ n: sql<number>`count(*)::int` }).from(titles).where(eq(titles.libraryId, libraryId)))[0].n
+    : 0;
 
   const [titleProbeRows, episodeProbeRows] = await Promise.all([
-    titleIds.length
+    isVideo
+      ? db
+          .select({ probeStatus: mediaFiles.probeStatus, count: sql<number>`count(*)::int` })
+          .from(mediaFiles)
+          .innerJoin(titles, and(eq(mediaFiles.ownerKind, "title"), eq(titles.id, mediaFiles.ownerId)))
+          .where(eq(titles.libraryId, libraryId))
+          .groupBy(mediaFiles.probeStatus)
+      : titleIds.length
       ? db
           .select({ probeStatus: mediaFiles.probeStatus, count: sql<number>`count(*)::int` })
           .from(mediaFiles)
@@ -94,7 +107,7 @@ export async function GET(
 
   const body: LibraryStatusDto = {
     scanning,
-    titleCount: titleIds.length,
+    titleCount: isVideo ? videoTitleCount : titleIds.length,
     probeCounts,
     lastScannedAt: library.lastScannedAt?.toISOString() ?? null,
     folderProgress:

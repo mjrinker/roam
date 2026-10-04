@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { and, asc, count, eq, inArray, isNotNull, ne, sum } from "drizzle-orm";
 import { notFound } from "next/navigation";
+import { z } from "zod";
 import { Clapperboard, Film, Headphones, Tv } from "lucide-react";
 import { db } from "@/lib/db/client";
 import { episodes, libraries, mediaFiles, seasons, titles, watchState } from "@/lib/db/schema";
@@ -11,6 +12,9 @@ import { countryFromLocale, displayCertification } from "@/lib/content/ratings";
 import { needsAudioFix } from "@/lib/scan/codec-support";
 import { Button } from "@/components/ui/button";
 import { Breadcrumbs } from "@/components/shell/breadcrumbs";
+import { VideoFolderView } from "@/components/library/video-folder-view";
+import { listFolder as listVideoFolder, normalizeFolderPath } from "@/lib/libraries/folder-browse";
+import { decodeCursor, encodeCursor } from "@/lib/playlists/http";
 import {
   LibraryBrowser,
   type LibraryBrowserItem,
@@ -19,10 +23,14 @@ import {
 const KIND_ICON = { movies: Film, shows: Tv, audiobooks: Headphones, video: Clapperboard } as const;
 const KIND_LABEL = { movies: "Movies", shows: "TV Shows", audiobooks: "Audiobooks", video: "Videos" } as const;
 
+const folderCursorSchema = z.object({ name: z.string(), id: z.string().uuid() });
+
 export default async function LibraryDetailPage({
   params,
+  searchParams,
 }: PageProps<"/s/[serverId]/library/[libraryId]">) {
   const { serverId, libraryId } = await params;
+  const query = await searchParams;
   const { profile, viewer, role } = await requireServerMember(serverId);
   const lib = libraryActor({ profile, role }, serverId);
 
@@ -34,6 +42,43 @@ export default async function LibraryDetailPage({
     .where(and(eq(libraries.id, libraryId), libraryVisible(db, lib)))
     .limit(1);
   if (!library) notFound();
+
+  // A video library is browsed folder by folder (the folder and the page of videos come from the URL).
+  if (library.kind === "video") {
+    const path = normalizeFolderPath(typeof query.path === "string" ? query.path : null);
+    if (path === null) notFound();
+    const after = decodeCursor(typeof query.after === "string" ? query.after : null, folderCursorSchema);
+    const page = await listVideoFolder(db, {
+      actor: lib,
+      viewer,
+      libraryId,
+      path,
+      limit: 60,
+      after: after === "invalid" ? null : after,
+    });
+    if (!page) notFound();
+    const here = `/s/${serverId}/library/${libraryId}?${path ? `path=${encodeURIComponent(path)}&` : ""}`;
+    return (
+      <div className="flex flex-col gap-6 px-4 py-8 sm:px-8">
+        <Breadcrumbs serverId={serverId} trail={[{ label: library.name }]} className="-mb-2" />
+        <div className="flex items-center gap-3">
+          <span className="flex size-10 items-center justify-center rounded-xl bg-white/[0.06] ring-1 ring-white/10">
+            <Clapperboard className="size-5 text-primary" />
+          </span>
+          <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">{library.name}</h1>
+        </div>
+        <VideoFolderView
+          serverId={serverId}
+          libraryId={libraryId}
+          libraryName={library.name}
+          path={path}
+          folders={page.folders}
+          items={page.items}
+          nextHref={page.nextCursor ? `${here}after=${encodeCursor(page.nextCursor)}` : null}
+        />
+      </div>
+    );
+  }
 
   // A library's titles are homogeneous in kind (movies|shows) — the
   // scanner only ever writes one kind of title into a given library.

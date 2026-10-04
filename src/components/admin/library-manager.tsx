@@ -20,6 +20,7 @@ import { FolderBrowser } from "@/components/admin/folder-browser";
 import type { LibraryAccess, LibraryKind } from "@/lib/db/schema";
 import { LibraryAccessDialog } from "@/components/admin/library-access-dialog";
 import { AUDIBLE_REGIONS } from "@/lib/audible/client";
+import { agesToRating, VIDEO_RATING_OPTIONS, type VideoRating } from "@/lib/libraries/video-rating-options";
 
 export interface LastScanInfo {
   trigger: "manual" | "cron" | "webhook" | "resume";
@@ -34,6 +35,8 @@ export interface LibraryRow {
   name: string;
   kind: LibraryKind;
   access: LibraryAccess;
+  /** Video libraries: the library-level age rating as {ANY: minimumAge}; null = unrated. */
+  ratingAges: Record<string, number> | null;
   boxFolderId: string;
   audibleRegion: string;
   lastScannedAt: string | null;
@@ -86,6 +89,55 @@ function AudibleRegionSelect({ libraryId, initial }: { libraryId: string; initia
             {REGION_LABELS[code] ?? code}
           </option>
         ))}
+      </select>
+    </label>
+  );
+}
+
+const ratingToValue = (r: VideoRating) => (r === null ? "unrated" : String(r));
+const valueToRating = (v: string): VideoRating => (v === "unrated" ? null : Number(v));
+
+function RatingOptions() {
+  return (
+    <>
+      {VIDEO_RATING_OPTIONS.map((o) => (
+        <option key={ratingToValue(o.value)} value={ratingToValue(o.value)} className="bg-popover">
+          {o.label}
+        </option>
+      ))}
+    </>
+  );
+}
+
+/** A video library's age rating: it applies to every video in it, so changing it re-rates them all. */
+function VideoRatingSelect({ libraryId, initial }: { libraryId: string; initial: VideoRating }) {
+  const [rating, setRating] = useState(initial);
+
+  async function change(next: VideoRating) {
+    const previous = rating;
+    setRating(next);
+    const res = await fetch(`/api/libraries/${libraryId}/rating`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ rating: next }),
+    });
+    if (!res.ok) {
+      setRating(previous);
+      toast.error("Couldn't change the rating.");
+      return;
+    }
+    toast.success("Rating updated for every video in this library.");
+  }
+
+  return (
+    <label className="mt-3 flex items-center gap-2 text-xs text-muted-foreground">
+      Rating
+      <select
+        value={ratingToValue(rating)}
+        onChange={(e) => change(valueToRating(e.target.value))}
+        className="h-8 rounded-md border border-input bg-transparent px-2 text-xs text-foreground"
+      >
+        <RatingOptions />
       </select>
     </label>
   );
@@ -177,6 +229,8 @@ export function LibraryManager({
   const [access, setAccess] = useState<Record<string, LibraryAccess>>({});
   const [name, setName] = useState("");
   const [kind, setKind] = useState<LibraryKind>("movies");
+  // Video libraries are rated as a whole; unrated until the admin says otherwise (the cautious default).
+  const [rating, setRating] = useState<VideoRating>(null);
   const [selectedFolder, setSelectedFolder] = useState<{ id: string; name: string } | null>(
     null
   );
@@ -229,7 +283,7 @@ export function LibraryManager({
     const res = await fetch("/api/libraries", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ serverId, name, kind, boxFolderId: selectedFolder.id }),
+      body: JSON.stringify({ serverId, name, kind, boxFolderId: selectedFolder.id, ...(kind === "video" ? { rating } : {}) }),
     });
     setCreating(false);
     if (!res.ok) {
@@ -317,8 +371,30 @@ export function LibraryManager({
                   <option value="movies">Movies</option>
                   <option value="shows">TV Shows</option>
                   <option value="audiobooks">Audiobooks</option>
+                  <option value="video">Other videos</option>
                 </select>
+                {kind === "video" && (
+                  <p className="text-xs text-muted-foreground">
+                    Any videos in folders, named from the files themselves (no online lookups). Plays .mp4, .m4v and .mov.
+                  </p>
+                )}
               </div>
+              {kind === "video" && (
+                <div className="grid gap-1.5">
+                  <Label htmlFor="lib-rating">Rating</Label>
+                  <select
+                    id="lib-rating"
+                    className="h-9 rounded-md border border-input bg-transparent px-3 text-sm"
+                    value={ratingToValue(rating)}
+                    onChange={(e) => setRating(valueToRating(e.target.value))}
+                  >
+                    <RatingOptions />
+                  </select>
+                  <p className="text-xs text-muted-foreground">
+                    Applies to every video in the library. Profiles with an age limit only see it if the rating fits.
+                  </p>
+                </div>
+              )}
               <div className="grid gap-1.5">
                 <Label>Box folder</Label>
                 {selectedFolder ? (
@@ -397,6 +473,7 @@ export function LibraryManager({
                 />
               )}
               {lib.kind === "audiobooks" && <AudibleRegionSelect libraryId={lib.id} initial={lib.audibleRegion} />}
+              {lib.kind === "video" && <VideoRatingSelect libraryId={lib.id} initial={agesToRating(lib.ratingAges)} />}
               {statusById[lib.id] && <ScanProgress status={statusById[lib.id]} />}
               {lib.lastScan && <ScanErrors errors={lib.lastScan.errors} />}
             </CardContent>
