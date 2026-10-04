@@ -28,12 +28,14 @@ export default async function TitleDetailPage({
   // Join through libraries so a title id from a DIFFERENT server 404s here,
   // rather than trusting the bare id from the URL.
   const [row] = await db
-    .select({ title: titles, libraryId: libraries.id, libraryName: libraries.name })
+    .select({ title: titles, libraryId: libraries.id, libraryName: libraries.name, libraryKind: libraries.kind })
     .from(titles)
     .innerJoin(libraries, eq(titles.libraryId, libraries.id))
     .where(and(eq(titles.id, id), libraryVisible(db, lib)))
     .limit(1);
   const title = row?.title;
+  // Videos in a video library have no TMDB match to fix and aren't resynced by folder.
+  const isGeneric = row?.libraryKind === "video";
   if (!title || !isAllowed(viewer, title.ratingAges)) notFound();
   // This page is movie-only; shows have their own season/episode browser.
   if (title.kind === "show") redirect(`/s/${serverId}/show/${id}`);
@@ -122,9 +124,9 @@ export default async function TitleDetailPage({
         </div>
       )}
       <AddToPlaylistMenu serverId={serverId} target={{ titleId: title.id }} />
-      {role === "admin" && <TitleResyncButton titleId={title.id} titleName={title.name} />}
-      {role === "admin" && <TmdbMatchButton titleId={title.id} titleName={title.name} kind="movie" />}
-      {role === "admin" && needsAudioFix(segments) && <FixAudioButton titleId={title.id} titleName={title.name} />}
+      {role === "admin" && !isGeneric && <TitleResyncButton titleId={title.id} titleName={title.name} />}
+      {role === "admin" && !isGeneric && <TmdbMatchButton titleId={title.id} titleName={title.name} kind="movie" />}
+      {role === "admin" && !isGeneric && needsAudioFix(segments) && <FixAudioButton titleId={title.id} titleName={title.name} />}
     </DetailHero>
   );
 }

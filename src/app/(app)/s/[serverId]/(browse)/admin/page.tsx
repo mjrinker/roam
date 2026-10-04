@@ -40,13 +40,15 @@ export default async function AdminPage({
     .where(eq(invites.serverId, serverId))
     .orderBy(desc(invites.createdAt));
 
-  const unmatchedTitles = libraryIds.length
+  // Video libraries take everything from the files themselves, so nothing there is ever "unmatched".
+  const matchableLibraryIds = allLibraries.filter((l) => l.kind !== "video").map((l) => l.id);
+  const unmatchedTitles = matchableLibraryIds.length
     ? await db
         .select()
         .from(titles)
         .where(
           and(
-            inArray(titles.libraryId, libraryIds),
+            inArray(titles.libraryId, matchableLibraryIds),
             inArray(titles.metadataStatus, ["pending", "not_found"])
           )
         )

@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { and, asc, count, eq, inArray, isNotNull, ne, sum } from "drizzle-orm";
 import { notFound } from "next/navigation";
-import { Film, Headphones, Tv } from "lucide-react";
+import { Clapperboard, Film, Headphones, Tv } from "lucide-react";
 import { db } from "@/lib/db/client";
 import { episodes, libraries, mediaFiles, seasons, titles, watchState } from "@/lib/db/schema";
 import { requireServerMember } from "@/lib/auth/guards";
@@ -15,6 +15,9 @@ import {
   LibraryBrowser,
   type LibraryBrowserItem,
 } from "@/components/library/library-browser";
+
+const KIND_ICON = { movies: Film, shows: Tv, audiobooks: Headphones, video: Clapperboard } as const;
+const KIND_LABEL = { movies: "Movies", shows: "TV Shows", audiobooks: "Audiobooks", video: "Videos" } as const;
 
 export default async function LibraryDetailPage({
   params,
@@ -136,7 +139,7 @@ export default async function LibraryDetailPage({
     };
   });
 
-  const Icon = library.kind === "movies" ? Film : library.kind === "audiobooks" ? Headphones : Tv;
+  const Icon = KIND_ICON[library.kind];
 
   return (
     <div className="flex flex-col gap-6 px-4 py-8 sm:px-8">
@@ -148,7 +151,7 @@ export default async function LibraryDetailPage({
         <div>
           <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">{library.name}</h1>
           <p className="text-sm text-muted-foreground">
-            {library.kind === "movies" ? "Movies" : library.kind === "audiobooks" ? "Audiobooks" : "TV Shows"}
+            {KIND_LABEL[library.kind]}
           </p>
         </div>
       </div>

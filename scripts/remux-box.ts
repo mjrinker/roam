@@ -26,7 +26,7 @@ import { randomUUID } from "node:crypto";
 import { mkdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { and, eq, inArray, isNotNull, isNull } from "drizzle-orm";
+import { and, eq, inArray, isNotNull, isNull, sql } from "drizzle-orm";
 import { db } from "@/lib/db/client";
 import { episodes, libraries, mediaFiles, seasons, titles } from "@/lib/db/schema";
 import { isBrowserSafeAudioCodec } from "@/lib/scan/codec-support";
@@ -99,7 +99,7 @@ async function loadGroups(): Promise<Group[]> {
         audioCodec: mediaFiles.audioCodec,
         codecProbed: mediaFiles.codecProbed,
         serverId: libraries.serverId,
-        folderId: titles.boxFolderId,
+        folderId: sql<string>`coalesce(${titles.parentFolderId}, ${titles.boxFolderId})`,
       })
       .from(mediaFiles)
       .innerJoin(titles, eq(mediaFiles.ownerId, titles.id))

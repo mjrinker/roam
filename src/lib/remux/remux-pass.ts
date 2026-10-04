@@ -58,7 +58,7 @@ export async function resolveOwnerContext(
 ): Promise<OwnerContext | null> {
   if (ownerKind === "title") {
     const [row] = await db
-      .select({ titleId: titles.id, folderId: titles.boxFolderId, serverId: libraries.serverId })
+      .select({ titleId: titles.id, folderId: sql<string>`coalesce(${titles.parentFolderId}, ${titles.boxFolderId})`, serverId: libraries.serverId })
       .from(titles)
       .innerJoin(libraries, eq(titles.libraryId, libraries.id))
       .where(eq(titles.id, ownerId))

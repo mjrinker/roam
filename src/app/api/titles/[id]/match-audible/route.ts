@@ -4,6 +4,7 @@ import { eq } from "drizzle-orm";
 import { getCurrentServerAdmin } from "@/lib/auth/guards";
 import { resolveServerIdForTitle } from "@/lib/auth/resolve-server";
 import { db } from "@/lib/db/client";
+import { isVideoLibraryKind, libraryKindOfTitle, NOT_FOR_VIDEO_LIBRARIES } from "@/lib/libraries/kind";
 import { libraries, titles } from "@/lib/db/schema";
 import { AudibleRateLimitedError, AudibleUnavailableError } from "@/lib/audible/client";
 import { matchAudiobookToAsin, resolveAudiobookChapters } from "@/lib/scan/audiobooks";
@@ -38,6 +39,9 @@ export async function POST(request: Request, ctx: RouteContext<"/api/titles/[id]
     if (err instanceof AudibleRateLimitedError || err instanceof AudibleUnavailableError) {
       return NextResponse.json({ error: "Audible is unavailable right now. Try again shortly." }, { status: 502 });
     }
+  if (isVideoLibraryKind(await libraryKindOfTitle(db, id))) {
+    return NextResponse.json({ error: NOT_FOR_VIDEO_LIBRARIES }, { status: 400 });
+  }
     return NextResponse.json({ error: (err as Error).message }, { status: 400 });
   }
   return NextResponse.json({ ok: true });

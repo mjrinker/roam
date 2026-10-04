@@ -4,6 +4,7 @@ import { eq } from "drizzle-orm";
 import { getCurrentServerAdmin } from "@/lib/auth/guards";
 import { resolveServerIdForTitle } from "@/lib/auth/resolve-server";
 import { db } from "@/lib/db/client";
+import { isVideoLibraryKind, libraryKindOfTitle, NOT_FOR_VIDEO_LIBRARIES } from "@/lib/libraries/kind";
 import { titles } from "@/lib/db/schema";
 import { getMovieDetails, getTvShowDetails, tmdbImageUrl } from "@/lib/tmdb/client";
 import { ratingsFromMovieDetails, ratingsFromTvDetails } from "@/lib/content/ratings";
@@ -29,6 +30,9 @@ export async function POST(
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
+  if (isVideoLibraryKind(await libraryKindOfTitle(db, id))) {
+    return NextResponse.json({ error: NOT_FOR_VIDEO_LIBRARIES }, { status: 400 });
+  }
   const parsed = bodySchema.safeParse(await request.json().catch(() => null));
   if (!parsed.success) {
     return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });

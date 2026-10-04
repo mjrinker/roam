@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { getCurrentServerAdmin } from "@/lib/auth/guards";
 import { resolveServerIdForTitle } from "@/lib/auth/resolve-server";
+import { db } from "@/lib/db/client";
+import { isVideoLibraryKind, libraryKindOfTitle, NOT_FOR_VIDEO_LIBRARIES } from "@/lib/libraries/kind";
 import { syncSingleTitle } from "@/lib/scan/scanner";
 import { BoxReauthRequiredError } from "@/lib/storage/box-token-storage";
 
@@ -22,6 +24,9 @@ export async function POST(
   const admin = await getCurrentServerAdmin(serverId);
   if (!admin) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
+  if (isVideoLibraryKind(await libraryKindOfTitle(db, id))) {
+    return NextResponse.json({ error: NOT_FOR_VIDEO_LIBRARIES }, { status: 400 });
   }
 
   try {

@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { getCurrentServerAdmin } from "@/lib/auth/guards";
 import { resolveServerIdForTitle } from "@/lib/auth/resolve-server";
+import { db } from "@/lib/db/client";
+import { isVideoLibraryKind, libraryKindOfTitle, NOT_FOR_VIDEO_LIBRARIES } from "@/lib/libraries/kind";
 import { MAX_REMUX_ATTEMPTS, probeCodecsForTitle, queueRemux } from "@/lib/remux/remux-pass";
 import { BoxReauthRequiredError } from "@/lib/storage/box-token-storage";
 
@@ -23,6 +25,9 @@ export async function POST(_request: Request, ctx: RouteContext<"/api/titles/[id
   const admin = await getCurrentServerAdmin(serverId);
   if (!admin) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
+  if (isVideoLibraryKind(await libraryKindOfTitle(db, id))) {
+    return NextResponse.json({ error: NOT_FOR_VIDEO_LIBRARIES }, { status: 400 });
   }
 
   try {
