@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import type { StorageEntry } from "@/lib/storage/provider";
 import { ListingTruncatedError } from "@/lib/storage/provider";
+const reauth = () => Object.assign(new Error("Box connection needs to be reconnected"), { name: "BoxReauthRequiredError" });
 import { decodeSub, encodeSub, walkVideoTree, type WalkedDir } from "./video-walk";
 
 type Tree = { [folderId: string]: StorageEntry[] };
@@ -89,20 +90,53 @@ describe("walkVideoTree", () => {
     const provider = fake();
     await collect(walkVideoTree(provider, top, null));
     for (const call of provider.listFolder.mock.calls) expect(call[1]).toEqual({ strict: true });
+  });
 
+  it("reports a folder that is too big to list and carries on with the rest of the tree (no retry for that)", async () => {
     const failing = {
       listFolder: vi.fn(async (id: string) => {
         if (id === "b") throw new ListingTruncatedError(id);
         return tree[id] ?? [];
       }),
     };
-    const seen: string[] = [];
-    await expect(
-      (async () => {
-        for await (const d of walkVideoTree(failing, top, null)) seen.push(d.namePath.join("/"));
-      })()
-    ).rejects.toBeInstanceOf(ListingTruncatedError);
-    expect(seen).toEqual(["", "0-early", "0-early/inner", "A"]); // everything before the failure, nothing after, no restart
+    const dirs = await collect(walkVideoTree(failing, top, null, { retryDelayMs: 0 }));
+    // B can't be listed, so B and its subfolder Deep are skipped; everything else is still visited, in order.
+    expect(dirs.map((d) => d.namePath.join("/"))).toEqual(["", "0-early", "0-early/inner", "A", "A/B", "A/C", "D"]);
+    const broken = dirs.find((d) => d.namePath.join("/") === "A/B")!;
+    expect(broken.error).toMatch(/more entries than can be listed/);
+    expect(broken.entries).toEqual([]);
+    expect(failing.listFolder.mock.calls.filter((c) => c[0] === "b")).toHaveLength(1); // not retried
+    expect(dirs.filter((d) => d.error)).toHaveLength(1);
+  });
+
+  it("retries a transient listing failure, then recovers; gives up after three tries and moves on", async () => {
+    let calls = 0;
+    const flaky = {
+      listFolder: vi.fn(async (id: string) => {
+        if (id === "c" && ++calls < 3) throw new Error("Box: 503");
+        return tree[id] ?? [];
+      }),
+    };
+    const recovered = await collect(walkVideoTree(flaky, top, null, { retryDelayMs: 0 }));
+    expect(recovered.find((d) => d.namePath.join("/") === "A/C")?.error).toBeUndefined();
+    expect(calls).toBe(3);
+
+    const dead = { listFolder: vi.fn(async (id: string) => { if (id === "c") throw new Error("Box: 503"); return tree[id] ?? []; }) };
+    const dirs = await collect(walkVideoTree(dead, top, null, { retryDelayMs: 0 }));
+    expect(dirs.find((d) => d.namePath.join("/") === "A/C")?.error).toBe("Box: 503");
+    expect(dead.listFolder.mock.calls.filter((c) => c[0] === "c")).toHaveLength(3);
+    expect(dirs.map((d) => d.namePath.join("/"))).toContain("D"); // the walk went on
+  });
+
+  it("a lost Box connection stops the walk instead of being reported per folder", async () => {
+    const lost = { listFolder: vi.fn(async (id: string) => { if (id === "a") throw reauth(); return tree[id] ?? []; }) };
+    await expect(collect(walkVideoTree(lost, top, null, { retryDelayMs: 0 }))).rejects.toThrow(/reconnected/);
+    expect(lost.listFolder.mock.calls.filter((c) => c[0] === "a")).toHaveLength(1); // not retried either
+  });
+
+  it("when re-finding the resume point needs a listing that fails, the walk stops (it can't know where it is)", async () => {
+    const provider = { listFolder: vi.fn(async (id: string) => { if (id === "a") throw new Error("Box: 503"); return tree[id] ?? []; }) };
+    await expect(collect(walkVideoTree(provider, top, ["a", "b"], { retryDelayMs: 0 }))).rejects.toThrow("Box: 503");
   });
 
   it("orders siblings the way the scanner does (numbers by value)", async () => {

@@ -1,5 +1,5 @@
 {
-  "id": "1ba90a53-00c4-4660-a28c-b566810aa043",
+  "id": "b9926cb8-7664-4a33-bcb6-340a9056a310",
   "prevId": "ae42bb38-b561-474a-9f44-a90af140082a",
   "version": "7",
   "dialect": "postgresql",
@@ -1936,6 +1936,19 @@
           "primaryKey": false,
           "notNull": true,
           "default": 0
+        },
+        "thumb_attempts": {
+          "name": "thumb_attempts",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "thumb_attempted_at": {
+          "name": "thumb_attempted_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
         },
         "tmdb_id": {
           "name": "tmdb_id",

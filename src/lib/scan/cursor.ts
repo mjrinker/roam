@@ -11,7 +11,8 @@ import type { libraries } from "@/lib/db/schema";
  * only run after a pass completes a full cycle (cursor cleared), never on a
  * partial one. Today nothing prunes titles by absence.
  */
-export type ScanCursor = { folder: string; sub?: string };
+/** `folderId` breaks ties between folder names the comparator treats as equal ("Season 01" / "Season 1"); older cursors lack it. */
+export type ScanCursor = { folder: string; sub?: string; folderId?: string };
 
 // One collator for both ordering and cursor comparison, so "after the
 // cursor" always means the same thing as sort order.
@@ -30,14 +31,21 @@ export function sortForScan<T extends { id: string; name: string }>(entries: T[]
  * strictly after the cursor's folder, plus the cursor's own folder first when
  * the cursor has a `sub` (that folder was only partly done).
  */
-export function entriesAfterCursor<T extends { name: string }>(
+export function entriesAfterCursor<T extends { name: string; id?: string }>(
   sorted: T[],
   cursor: ScanCursor | null
 ): T[] {
   if (!cursor) return sorted;
   return sorted.filter((e) => {
     const order = compareNames(e.name, cursor.folder);
-    return order > 0 || (order === 0 && cursor.sub !== undefined);
+    if (order !== 0) return order > 0;
+    // Names that compare equal: fall back to the id order sortForScan uses, so a pass that stopped
+    // between "Season 01" and "Season 1" doesn't skip the second.
+    if (cursor.folderId !== undefined && e.id !== undefined) {
+      const byId = e.id.localeCompare(cursor.folderId);
+      return byId > 0 || (byId === 0 && cursor.sub !== undefined);
+    }
+    return cursor.sub !== undefined;
   });
 }
 

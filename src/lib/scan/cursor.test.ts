@@ -67,3 +67,28 @@ describe("planScan", () => {
     expect(planScan("resume", { scanIncomplete: false, scanCursor: null })).toEqual({ mode: "full" });
   });
 });
+
+describe("entriesAfterCursor with names that compare equal", () => {
+  // "Season 01" and "Season 1" are equal to the comparator; only their ids tell them apart.
+  const a = { id: "1", name: "Season 01" };
+  const b = { id: "2", name: "Season 1" };
+  const c = { id: "3", name: "Season 2" };
+
+  it("doesn't skip the second of two equal-comparing folders when the pass stopped between them", () => {
+    const sorted = sortForScan([c, b, a]);
+    expect(sorted.map((e) => e.id)).toEqual(["1", "2", "3"]);
+    const after = entriesAfterCursor(sorted, { folder: "Season 01", folderId: "1" });
+    expect(after.map((e) => e.id)).toEqual(["2", "3"]);
+  });
+
+  it("re-includes the cursor's own folder when it was only partly done", () => {
+    const sorted = sortForScan([a, b, c]);
+    expect(entriesAfterCursor(sorted, { folder: "Season 1", folderId: "2", sub: "/x" }).map((e) => e.id)).toEqual(["2", "3"]);
+  });
+
+  it("behaves as before for cursors written without an id", () => {
+    const sorted = sortForScan([a, b, c]);
+    expect(entriesAfterCursor(sorted, { folder: "Season 01" }).map((e) => e.id)).toEqual(["3"]);
+    expect(entriesAfterCursor(sorted, { folder: "Season 01", sub: "x" }).map((e) => e.id)).toEqual(["1", "2", "3"]);
+  });
+});

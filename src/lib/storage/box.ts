@@ -201,7 +201,10 @@ async function fetchThumbnail(serverId: string, fileId: string): Promise<{ conte
       for await (const chunk of stream) {
         const buf = Buffer.from(chunk as Uint8Array);
         total += buf.length;
-        if (total > MAX_THUMBNAIL_BYTES) return null;
+        if (total > MAX_THUMBNAIL_BYTES) {
+          (stream as unknown as { destroy?: () => void }).destroy?.();
+          return null;
+        }
         chunks.push(buf);
       }
       const bytes = new Uint8Array(Buffer.concat(chunks));

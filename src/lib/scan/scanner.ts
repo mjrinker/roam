@@ -145,7 +145,8 @@ export async function scanLibrary(
     }
 
     if (plan.mode !== "probe-only") {
-      const topLevel = await provider.listFolder(library.boxFolderId);
+      // A video library acts on what the root listing LACKS (it links remuxed copies and counts files), so a silently shortened list must fail the scan, not pass for a smaller library.
+      const topLevel = await provider.listFolder(library.boxFolderId, library.kind === "video" ? { strict: true } : undefined);
       const sortedFolders = sortForScan(topLevel.filter((e) => e.kind === "folder"));
       const titleFolders = entriesAfterCursor(sortedFolders, cursor);
       if (plan.mode === "full") {
@@ -200,7 +201,7 @@ export async function scanLibrary(
                 errors,
                 budgetExhausted: () => processed > 0 && Date.now() - startedAt > FOLDER_SYNC_TIME_BUDGET_MS,
                 onUnitDone: async (childName) => {
-                  const next: ScanCursor = { folder: folder.name, sub: childName };
+                  const next: ScanCursor = { folder: folder.name, folderId: folder.id, sub: childName };
                   if (!(await advanceScanCursor(libraryId, cursor, next))) return false;
                   cursor = next;
                   processed++;
@@ -225,7 +226,7 @@ export async function scanLibrary(
                 errors,
                 budgetExhausted: () => processed > 0 && Date.now() - startedAt > FOLDER_SYNC_TIME_BUDGET_MS,
                 onUnitDone: async (sub) => {
-                  const next: ScanCursor = { folder: folder.name, sub };
+                  const next: ScanCursor = { folder: folder.name, folderId: folder.id, sub };
                   if (!(await advanceScanCursor(libraryId, cursor, next))) return false;
                   cursor = next;
                   processed++;
@@ -260,7 +261,7 @@ export async function scanLibrary(
 
         // Advance even after a per-folder error, so one bad folder can't
         // stall the whole cycle.
-        const next: ScanCursor = { folder: folder.name };
+        const next: ScanCursor = { folder: folder.name, folderId: folder.id };
         if (!(await advanceScanCursor(libraryId, cursor, next))) {
           superseded = true;
           break;

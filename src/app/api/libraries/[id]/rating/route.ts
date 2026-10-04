@@ -4,6 +4,7 @@ import { getCurrentServerAdmin } from "@/lib/auth/guards";
 import { resolveServerIdForLibrary } from "@/lib/auth/resolve-server";
 import { db } from "@/lib/db/client";
 import { isVideoRating, setVideoLibraryRating } from "@/lib/libraries/video-rating";
+import { dbErrorCode } from "@/lib/playlists/retry";
 
 const notFound = () => NextResponse.json({ error: "Not found" }, { status: 404 });
 
@@ -21,7 +22,14 @@ export async function PUT(request: Request, ctx: RouteContext<"/api/libraries/[i
   if (!body || !("rating" in body) || !isVideoRating(body.rating)) {
     return NextResponse.json({ error: "Choose one of the ratings." }, { status: 400 });
   }
-  const result = await setVideoLibraryRating(db, id, body.rating);
+  let result;
+  try {
+    result = await setVideoLibraryRating(db, id, body.rating);
+  } catch (err) {
+    // The library is busy for a moment (a scan is writing it): nothing changed, try again.
+    if (dbErrorCode(err) === "55P03") return NextResponse.json({ error: "This library is busy right now. Try again in a moment." }, { status: 409 });
+    throw err;
+  }
   if (!result.ok) {
     return result.reason === "not_found"
       ? notFound()

@@ -12,13 +12,13 @@
  * The app has ONE database connection, so each directory is written in a single transaction that
  * uses only `tx`, and all Box I/O happens before it starts.
  */
-import { and, asc, eq, inArray, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, isNotNull, sql } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import { db } from "@/lib/db/client";
 import { libraries, mediaFiles, titles } from "@/lib/db/schema";
 import { BoxReauthRequiredError } from "@/lib/storage/box-token-storage";
 import type { StorageEntry, StorageProvider } from "@/lib/storage/provider";
-import { isBrowserFriendlyVariant, isVideoFile } from "@/lib/scan/conventions";
+import { isBrowserFriendlyVariant, isVideoFile, stripVariantSuffix } from "@/lib/scan/conventions";
 import {
   linkVariantFiles,
   pendingCodecProbeCondition,
@@ -29,6 +29,10 @@ import {
 } from "@/lib/scan/media-files";
 import { readTagsAndArtwork } from "@/lib/scan/video-artwork";
 import { decodeSub, encodeSub, walkVideoTree } from "@/lib/scan/video-walk";
+import { CONTENTION_CODES, retryOnContention } from "@/lib/playlists/retry";
+
+/** Postgres lock_not_available: the 5 s lock_timeout on the library row fired. */
+const LOCK_TIMEOUT = "55P03";
 
 const CHUNK = 500;
 /** Per pass, so a huge library's probing is spread over passes instead of loading every pending row at once. */
@@ -65,7 +69,6 @@ export function titleFromFileName(fileName: string): { name: string; year: numbe
 
 /** A folder name made safe to store in a path: control characters and backslashes become "_", and "." / ".." can't be segments. */
 function pathSegment(name: string): string {
-  // eslint-disable-next-line no-control-regex
   const clean = name.replace(/[\\\u0000-\u001f\u007f]/g, "_");
   return clean === "" || clean === "." || clean === ".." ? "_" : clean;
 }
@@ -102,8 +105,11 @@ export async function syncVideoDirectory(
   const files = entries.filter((e) => e.kind === "file");
   const unsupported = files.filter((f) => isUnsupportedVideo(f.name)).length;
   const video = files.filter((f) => isVideoFile(f.name));
-  const variants = video.filter((f) => isBrowserFriendlyVariant(f.name));
-  const primaries = video.filter((f) => !isBrowserFriendlyVariant(f.name));
+  const plainNames = new Set(video.filter((f) => !isBrowserFriendlyVariant(f.name)).map((f) => f.name.toLowerCase()));
+  // A remuxed copy (`name.aac.mp4`) is linked to its original; one whose original isn't here is the only copy there is, so it is a title.
+  const isLinkedVariant = (f: StorageEntry) => isBrowserFriendlyVariant(f.name) && plainNames.has(stripVariantSuffix(f.name).toLowerCase());
+  const variants = video.filter(isLinkedVariant);
+  const primaries = video.filter((f) => !isLinkedVariant(f));
   if (primaries.length === 0) return { added: 0, seen: 0, unsupported, conflicts: 0 };
 
   const outcome = await db.transaction(async (tx) => {
@@ -133,7 +139,8 @@ export async function syncVideoDirectory(
         .insert(titles)
         .values(
           chunk.map((f) => {
-            const { name, year } = titleFromFileName(f.name);
+            // An orphaned remux copy is named after the original it stands in for ("Only.aac.mp4" -> "Only").
+            const { name, year } = titleFromFileName(stripVariantSuffix(f.name));
             return {
               libraryId,
               kind: "movie" as const,
@@ -155,7 +162,8 @@ export async function syncVideoDirectory(
           set: {
             // A name/year read from the file's own tags is never overwritten by the filename.
             name: sql`CASE WHEN ${titles.nameSource} = 'embedded' THEN ${titles.name} ELSE excluded.name END`,
-            year: sql`CASE WHEN ${titles.nameSource} = 'embedded' THEN ${titles.year} ELSE excluded.year END`,
+            // A year in the file's tags survives a rescan: a filename without one never wipes it.
+            year: sql`CASE WHEN ${titles.nameSource} = 'embedded' THEN ${titles.year} ELSE COALESCE(excluded.year, ${titles.year}) END`,
             folderPath,
             parentFolderId,
             // Always the library's current rating (read under the lock above), never a stale one.
@@ -168,6 +176,25 @@ export async function syncVideoDirectory(
     }
 
     const owned = primaries.filter((f) => titleIdByKey.has(keyOf(f)));
+
+    // A file replaced in place keeps its Box id but changes size: what we recorded about its contents
+    // (duration, codecs, tags, picture) is stale, so it is read again.
+    const previousSize = new Map<string, number | null>();
+    for (let i = 0; i < owned.length; i += CHUNK) {
+      const ids = owned.slice(i, i + CHUNK).map((f) => titleIdByKey.get(keyOf(f))!);
+      const rows = await tx
+        .select({ ownerId: mediaFiles.ownerId, size: mediaFiles.sizeBytes })
+        .from(mediaFiles)
+        .where(and(eq(mediaFiles.ownerKind, "title"), inArray(mediaFiles.ownerId, ids), eq(mediaFiles.partIndex, 0)));
+      for (const r of rows) if (r.ownerId) previousSize.set(r.ownerId, r.size);
+    }
+    const replaced = owned
+      .filter((f) => {
+        const before = previousSize.get(titleIdByKey.get(keyOf(f))!);
+        return before !== undefined && before !== null && f.sizeBytes !== undefined && before !== f.sizeBytes;
+      })
+      .map((f) => titleIdByKey.get(keyOf(f))!);
+
     for (let i = 0; i < owned.length; i += CHUNK) {
       await tx
         .insert(mediaFiles)
@@ -186,6 +213,18 @@ export async function syncVideoDirectory(
           target: [mediaFiles.ownerKind, mediaFiles.ownerId, mediaFiles.boxFileId],
           set: { partIndex: 0, filename: sql`excluded.filename`, sizeBytes: sql`excluded.size_bytes` },
         });
+    }
+
+    for (let i = 0; i < replaced.length; i += CHUNK) {
+      const ids = replaced.slice(i, i + CHUNK);
+      await tx
+        .update(mediaFiles)
+        .set({ probeStatus: "pending", probeAttempts: 0, durationMs: null, durationSeconds: null, codecProbed: false, codecProbeAttempts: 0 })
+        .where(and(eq(mediaFiles.ownerKind, "title"), inArray(mediaFiles.ownerId, ids)));
+      await tx
+        .update(titles)
+        .set({ tagsAttemptedAt: null, tagAttempts: 0, thumbAttempts: 0, thumbAttemptedAt: null })
+        .where(inArray(titles.id, ids));
     }
 
     await linkVariantFiles("title", [...titleIdByKey.values()], owned, variants, tx);
@@ -219,10 +258,12 @@ export async function syncVideoTopFolder(
     errors: string[];
     budgetExhausted: () => boolean;
     onUnitDone: (sub: string) => Promise<boolean>;
+    /** Pause between listing retries (tests pass 0). */
+    retryDelayMs?: number;
   }
 ): Promise<VideoTopFolderResult> {
   const result: VideoTopFolderResult = { titlesAdded: 0, filesSeen: 0, unsupported: 0, finished: true, superseded: false };
-  const walker = walkVideoTree(provider, top, decodeSub(opts.afterSub));
+  const walker = walkVideoTree(provider, top, decodeSub(opts.afterSub), { retryDelayMs: opts.retryDelayMs });
 
   while (true) {
     // Checked before asking for the next directory, since that is what lists Box.
@@ -235,15 +276,24 @@ export async function syncVideoTopFolder(
     if (done) return result;
 
     const where = libraryPath(top.name, dir.namePath) || top.name;
-    try {
-      const r = await syncVideoDirectory(libraryId, dir.idPath[dir.idPath.length - 1] ?? top.id, libraryPath(top.name, dir.namePath), dir.entries);
-      result.titlesAdded += r.added;
-      result.filesSeen += r.seen;
-      result.unsupported += r.unsupported;
-      if (r.conflicts > 0) opts.errors.push(`${where}: ${conflictNote(r.conflicts)}`);
-    } catch (err) {
-      if (err instanceof BoxReauthRequiredError) throw err;
-      opts.errors.push(`${where}: ${(err as Error).message}`);
+    if (dir.error) {
+      // Couldn't be listed (and its subfolders weren't visited): say so, and carry on with the rest.
+      opts.errors.push(`${where}: couldn't be read (${dir.error}); it will be tried again on the next full scan.`);
+    } else {
+      try {
+        // A directory write that hits a lock timeout (a rating change in flight) or a deadlock is simply tried again.
+        const r = await retryOnContention(
+          () => syncVideoDirectory(libraryId, dir.idPath[dir.idPath.length - 1] ?? top.id, libraryPath(top.name, dir.namePath), dir.entries),
+          [...CONTENTION_CODES, LOCK_TIMEOUT]
+        );
+        result.titlesAdded += r.added;
+        result.filesSeen += r.seen;
+        result.unsupported += r.unsupported;
+        if (r.conflicts > 0) opts.errors.push(`${where}: ${conflictNote(r.conflicts)}`);
+      } catch (err) {
+        if (err instanceof BoxReauthRequiredError) throw err;
+        opts.errors.push(`${where}: ${(err as Error).message}`);
+      }
     }
 
     if (!(await opts.onUnitDone(encodeSub(dir.idPath)))) {
@@ -286,7 +336,7 @@ export async function probeVideoLibrary(
     .select({ file: mediaFiles })
     .from(mediaFiles)
     .innerJoin(titles, and(eq(mediaFiles.ownerKind, "title"), eq(titles.id, mediaFiles.ownerId)))
-    .where(and(inLibrary, pendingProbeCondition))
+    .where(and(inLibrary, pendingProbeCondition, isNotNull(mediaFiles.sizeBytes)))
     .orderBy(asc(mediaFiles.id))
     .limit(PROBE_BATCH);
 
@@ -295,7 +345,7 @@ export async function probeVideoLibrary(
     .from(mediaFiles)
     .innerJoin(primaryFiles, eq(primaryFiles.id, mediaFiles.variantOfMediaFileId))
     .innerJoin(titles, and(eq(primaryFiles.ownerKind, "title"), eq(titles.id, primaryFiles.ownerId)))
-    .where(and(inLibrary, pendingProbeCondition))
+    .where(and(inLibrary, pendingProbeCondition, isNotNull(mediaFiles.sizeBytes)))
     .orderBy(asc(mediaFiles.id))
     .limit(PROBE_BATCH);
 

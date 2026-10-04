@@ -12,7 +12,7 @@ vi.mock("@/lib/db/client", async () => {
 import { mediaFiles, titleArtwork, titles } from "@/lib/db/schema";
 import { makeAccount, makeLibrary, makeServer, type TestDb } from "@/lib/playlists/test-db";
 import type { StorageProvider } from "@/lib/storage/provider";
-import { MAX_TAG_ATTEMPTS, readTagsAndArtwork } from "./video-artwork";
+import { MAX_TAG_ATTEMPTS, MAX_THUMB_ATTEMPTS, readTagsAndArtwork } from "./video-artwork";
 import { syncVideoDirectory } from "./video-library";
 import { mp4WithTags, rangeOf, TEST_JPEG } from "./test-mp4";
 
@@ -79,14 +79,37 @@ describe("readTagsAndArtwork", () => {
     expect(title.posterUrl).toContain(`/api/titles/${title.id}/artwork`);
   });
 
-  it("leaves the poster empty (never a broken URL) when Box has no thumbnail, and stops asking after the cap", async () => {
+  it("leaves the poster empty (never a broken URL) when Box has no thumbnail, waits between asks, and stops at the cap", async () => {
     const t = await setup([{ name: "nothumb.mp4", bytes: mp4WithTags() }]);
-    for (let pass = 0; pass < MAX_TAG_ATTEMPTS + 2; pass++) await readTagsAndArtwork(t.provider, t.lib.id, farFuture(), []);
+    const ago = (minutes: number) => new Date(Date.now() - minutes * 60_000);
+    const rewind = () => db.update(titles).set({ thumbAttemptedAt: ago(11) }).where(eq(titles.libraryId, t.lib.id));
+
+    await readTagsAndArtwork(t.provider, t.lib.id, farFuture(), []);
+    await readTagsAndArtwork(t.provider, t.lib.id, farFuture(), []); // straight away again: Box is given time, not asked twice
+    expect(t.provider.fetchThumbnail).toHaveBeenCalledTimes(1);
+
+    for (let i = 0; i < MAX_THUMB_ATTEMPTS + 2; i++) {
+      await rewind();
+      await readTagsAndArtwork(t.provider, t.lib.id, farFuture(), []);
+    }
     const [title] = Object.values(await t.byName());
     expect(title.posterUrl).toBeNull();
-    expect(title.tagAttempts).toBe(MAX_TAG_ATTEMPTS);
-    expect(t.provider.fetchThumbnail).toHaveBeenCalledTimes(MAX_TAG_ATTEMPTS);
+    expect(title.thumbAttempts).toBe(MAX_THUMB_ATTEMPTS);
+    expect(title.tagAttempts).toBe(0); // thumbnails never use up the tag read's tries
+    expect(t.provider.fetchThumbnail).toHaveBeenCalledTimes(MAX_THUMB_ATTEMPTS);
     expect(await db.select().from(titleArtwork).where(eq(titleArtwork.titleId, title.id))).toHaveLength(0);
+  });
+
+  it("still fetches a thumbnail for a file whose tags can't be read", async () => {
+    const t = await setup([{ name: "garbled.mp4", bytes: Uint8Array.from([1, 2, 3, 4, 5, 6, 7, 8]) }]);
+    t.thumbs.set(t.ids(0), Uint8Array.from(TEST_JPEG));
+    const errors: string[] = [];
+    await readTagsAndArtwork(t.provider, t.lib.id, farFuture(), errors);
+    const [title] = Object.values(await t.byName());
+    expect(title.tagsAttemptedAt).toBeNull(); // tags unreadable
+    expect(title.tagAttempts).toBe(1);
+    const [art] = await db.select().from(titleArtwork).where(eq(titleArtwork.titleId, title.id));
+    expect(art.source).toBe("box");
   });
 
   it("retries a tag read that failed, up to the cap, without marking the title as read", async () => {

@@ -17,6 +17,7 @@ import { libraries, titles } from "@/lib/db/schema";
 import { makeAccount, makeLibrary, makeServer, makeTitle, type TestDb } from "@/lib/playlists/test-db";
 import { PUT as putRating } from "@/app/api/libraries/[id]/rating/route";
 import { POST as createLibrary } from "@/app/api/libraries/route";
+import * as ratingModule from "./video-rating";
 import { agesToRating, isVideoRating, ratingToAges, setVideoLibraryRating, VIDEO_RATING_OPTIONS } from "./video-rating";
 
 let db: TestDb;
@@ -106,6 +107,23 @@ describe("PUT /api/libraries/[id]/rating", () => {
     expect((await put(w.video.id, { rating: null })).status).toBe(200);
     for (const bad of [{ rating: 9 }, { rating: "7" }, {}, null]) expect((await put(w.video.id, bad)).status, JSON.stringify(bad)).toBe(400);
     expect((await put(w.movies.id, { rating: 7 })).status).toBe(400);
+  });
+});
+
+describe("PUT /api/libraries/[id]/rating when the library is busy", () => {
+  it("says to try again (409) instead of failing with a 500 when the lock times out, and changes nothing", async () => {
+    const w = await world();
+    h.admin = { profile: { id: "x" }, role: "admin" };
+    const spy = vi.spyOn(ratingModule, "setVideoLibraryRating").mockRejectedValueOnce(Object.assign(new Error("canceling statement due to lock timeout"), { code: "55P03" }));
+    const res = await put(w.video.id, { rating: 13 });
+    spy.mockRestore();
+    expect(res.status).toBe(409);
+    expect((await res.json()).error).toMatch(/busy/);
+    expect((await db.select().from(libraries).where(eq(libraries.id, w.video.id)))[0].ratingAges).toBeNull();
+    // An error that is not a lock timeout is still surfaced, not swallowed.
+    const boom = vi.spyOn(ratingModule, "setVideoLibraryRating").mockRejectedValueOnce(new Error("disk on fire"));
+    await expect(put(w.video.id, { rating: 13 })).rejects.toThrow("disk on fire");
+    boom.mockRestore();
   });
 });
 

@@ -6,7 +6,7 @@
  * title's `poster_url` is set ONLY once an image really exists, so a card never shows a broken one.
  * `tag_attempts` caps retries so an unreadable file isn't re-tried on every scan.
  */
-import { and, asc, eq, isNotNull, isNull, lt, sql } from "drizzle-orm";
+import { and, asc, eq, isNotNull, isNull, lt, or, sql } from "drizzle-orm";
 import { db } from "@/lib/db/client";
 import { mediaFiles, titleArtwork, titles } from "@/lib/db/schema";
 import { BoxReauthRequiredError } from "@/lib/storage/box-token-storage";
@@ -15,6 +15,9 @@ import { probeMp4Tags } from "@/lib/scan/mp4-duration";
 import type { Db } from "@/lib/scan/media-files";
 
 export const MAX_TAG_ATTEMPTS = 3;
+export const MAX_THUMB_ATTEMPTS = 3;
+/** Box may still be generating a thumbnail; wait this long between asks. */
+const THUMB_RETRY_AFTER_MS = 10 * 60 * 1000;
 const BATCH = 100;
 const CONCURRENCY = 3;
 
@@ -104,28 +107,43 @@ export async function readTagsAndArtwork(
       }
     })) || incomplete;
 
-  // 2. Pictures: titles whose tags were read but that still have none (no embedded cover): Box's own thumbnail.
+  // 2. Pictures: titles that still have none (no embedded cover): Box's own thumbnail. Independent of the
+  // tag read (a file whose tags can't be read can still have a thumbnail), with its own attempt count and
+  // a pause between asks, since Box answers "not ready yet" for a while after a file appears.
   if (!provider.fetchThumbnail) return incomplete;
   const fetchThumbnail = provider.fetchThumbnail.bind(provider);
+  const retryBefore = new Date(Date.now() - THUMB_RETRY_AFTER_MS);
   const pictureless = await db
     .select({ titleId: titles.id, fileId: mediaFiles.boxFileId, filename: mediaFiles.filename })
     .from(titles)
     .innerJoin(mediaFiles, and(eq(mediaFiles.ownerKind, "title"), eq(mediaFiles.ownerId, titles.id), eq(mediaFiles.partIndex, 0)))
-    .where(and(eq(titles.libraryId, libraryId), isNull(titles.posterUrl), isNotNull(titles.tagsAttemptedAt), lt(titles.tagAttempts, MAX_TAG_ATTEMPTS)))
+    .where(
+      and(
+        eq(titles.libraryId, libraryId),
+        isNull(titles.posterUrl),
+        lt(titles.thumbAttempts, MAX_THUMB_ATTEMPTS),
+        or(isNull(titles.thumbAttemptedAt), lt(titles.thumbAttemptedAt, retryBefore)),
+        eq(mediaFiles.probeStatus, "ok"),
+        isNotNull(mediaFiles.sizeBytes)
+      )
+    )
     .orderBy(asc(titles.id))
     .limit(BATCH);
   if (pictureless.length === BATCH) incomplete = true;
 
   return (
     (await inBatches(pictureless, deadline, async (t) => {
+      // Counted and time-stamped up front, like tag reads: a failure that kills the function still counts.
+      await db
+        .update(titles)
+        .set({ thumbAttempts: sql`${titles.thumbAttempts} + 1`, thumbAttemptedAt: new Date() })
+        .where(eq(titles.id, t.titleId));
       try {
         const thumb = await fetchThumbnail(t.fileId);
         if (thumb) await storeArtwork(db, t.titleId, thumb, "box");
-        else await db.update(titles).set({ tagAttempts: sql`${titles.tagAttempts} + 1` }).where(eq(titles.id, t.titleId));
       } catch (err) {
         if (err instanceof BoxReauthRequiredError) throw err;
         errors.push(`thumbnail ${t.filename}: ${(err as Error).message}`);
-        await db.update(titles).set({ tagAttempts: sql`${titles.tagAttempts} + 1` }).where(eq(titles.id, t.titleId));
       }
     })) || incomplete
   );

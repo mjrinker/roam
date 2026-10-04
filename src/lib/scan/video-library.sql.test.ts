@@ -173,6 +173,44 @@ describe("syncVideoDirectory", () => {
     expect(conflictNote(2)).toBe("2 files are already part of another library and were skipped.");
   });
 
+  it("keeps a year read from the file's tags when a rescan's filename has none", async () => {
+    const lib = await newLibrary();
+    await syncVideoDirectory(lib.id, "p", "", [file("clip.mp4", "yr1")]);
+    const [t] = await titlesOf(lib.id);
+    await db.update(titles).set({ year: 2001 }).where(eq(titles.id, t.id)); // as the tag pass would
+    await syncVideoDirectory(lib.id, "p", "", [file("clip.mp4", "yr1")]);
+    expect((await titlesOf(lib.id))[0].year).toBe(2001);
+    await syncVideoDirectory(lib.id, "p", "", [file("clip (1999).mp4", "yr1")]); // a filename that does state one wins over a non-embedded year
+    expect((await titlesOf(lib.id))[0].year).toBe(1999);
+  });
+
+  it("lists a remuxed copy whose original isn't there as a title of its own, since it is the only copy", async () => {
+    const lib = await newLibrary();
+    await syncVideoDirectory(lib.id, "p", "", [file("Only.aac.mp4", "lonely")]);
+    expect((await titlesOf(lib.id)).map((t) => t.name)).toEqual(["Only"]);
+  });
+
+  it("reads a file again when it was replaced in place (same Box id, new size), and leaves untouched files alone", async () => {
+    const lib = await newLibrary();
+    await syncVideoDirectory(lib.id, "p", "", [file("a.mp4", "rp1"), file("b.mp4", "rp2")]);
+    const rows = await titlesOf(lib.id);
+    for (const t of rows) {
+      await db.update(mediaFiles).set({ probeStatus: "ok", durationSeconds: 90, codecProbed: true }).where(eq(mediaFiles.ownerId, t.id));
+      await db.update(titles).set({ tagsAttemptedAt: new Date(), thumbAttempts: 2 }).where(eq(titles.id, t.id));
+    }
+    // a.mp4 is replaced (size changes); b.mp4 is merely seen again.
+    await syncVideoDirectory(lib.id, "p", "", [{ ...file("a.mp4", "rp1"), sizeBytes: 5555 }, file("b.mp4", "rp2")]);
+    const state = async (key: string) => {
+      const [t] = await db.select().from(titles).where(eq(titles.boxFolderId, `file:${key}`));
+      const [m] = await db.select().from(mediaFiles).where(eq(mediaFiles.ownerId, t.id));
+      return { probe: m.probeStatus, dur: m.durationSeconds, codec: m.codecProbed, tags: t.tagsAttemptedAt, thumbs: t.thumbAttempts, size: m.sizeBytes };
+    };
+    expect(await state("rp1")).toEqual({ probe: "pending", dur: null, codec: false, tags: null, thumbs: 0, size: 5555 });
+    const b = await state("rp2");
+    expect([b.probe, b.dur, b.codec, b.thumbs]).toEqual(["ok", 90, true, 2]);
+    expect(b.tags).not.toBeNull();
+  });
+
   it("handles a directory of thousands of files in a few batches", async () => {
     const lib = await newLibrary();
     const many = Array.from({ length: 1200 }, (_, i) => file(`clip ${i}.mp4`, `bulk${i}`));
@@ -260,6 +298,33 @@ describe("syncVideoTopFolder", () => {
     expect((await titlesOf(lib.id)).map((t) => t.name).sort()).toEqual(["a1", "b1", "deep", "t"]);
   });
 
+  it("reports a subfolder that can't be read and still syncs the rest, advancing past it", async () => {
+    const lib = await newLibrary();
+    const p = `bad${++n}-`;
+    h.tree = {
+      top: [file("t.mp4", `${p}t`), folder("good", "Good"), folder("bad", "Bad"), folder("later", "Later")],
+      good: [file("g.mp4", `${p}g`)],
+      bad: [file("never.mp4", `${p}never`)],
+      later: [file("l.mp4", `${p}l`)],
+    };
+    const failing = { listFolder: async (id: string) => { if (id === "bad") throw new Error("Box: 503"); return h.tree[id] ?? []; } };
+    const errors: string[] = [];
+    const subs: string[] = [];
+    const res = await syncVideoTopFolder(failing, lib.id, folder("top", "Top"), {
+      afterSub: null,
+      errors,
+      budgetExhausted: () => false,
+      onUnitDone: async (sub) => (subs.push(sub), true),
+      retryDelayMs: 0,
+    });
+    expect(res).toMatchObject({ finished: true, titlesAdded: 3 });
+    expect((await titlesOf(lib.id)).map((t) => t.name).sort()).toEqual(["g", "l", "t"]);
+    expect(errors).toHaveLength(1);
+    expect(errors[0]).toContain("Top/Bad");
+    expect(errors[0]).toContain("tried again on the next full scan");
+    expect(subs).toHaveLength(4); // the unreadable folder was stepped past like any other
+  });
+
   it("stops without touching scan state when another scan takes over the cursor", async () => {
     const lib = await newLibrary();
     const top = setupTree();
@@ -288,6 +353,25 @@ describe("probeVideoLibrary", () => {
 });
 
 describe("a whole scan of a video library", () => {
+  it("fails the scan (rather than treating a silently shortened listing as the whole library) when the root can't be listed completely", async () => {
+    const lib = await newLibrary();
+    const { ListingTruncatedError } = await import("@/lib/storage/provider");
+    const boxModule = await import("@/lib/storage/box");
+    const spy = vi.spyOn(boxModule, "createBoxProviderForServer").mockReturnValueOnce({
+      listFolder: async (id: string, opts?: { strict?: boolean }) => {
+        if (opts?.strict) throw new ListingTruncatedError(id);
+        return [file("would-be-silently-partial.mp4", "partial")];
+      },
+      getFolder: async () => null,
+      getStreamingUrl: async () => ({ url: "x", expiresAt: new Date() }),
+      fetchByteRange: async () => new ArrayBuffer(0),
+    });
+    const result = await scanLibrary(lib.id, "manual");
+    spy.mockRestore();
+    expect(result.errors.join(" ")).toMatch(/more entries than can be listed/);
+    expect(await titlesOf(lib.id)).toHaveLength(0);
+  });
+
   it("syncs root files and nested folders, tells the admin what it skipped, never calls an external service, and finishes the cycle", async () => {
     const lib = await newLibrary({ ratingAges: { ANY: 7 } });
     h.tree = {
