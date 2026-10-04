@@ -179,6 +179,8 @@ export async function syncVideoDirectory(
             // Always the library's current rating (read under the lock above), never a stale one.
             ratingAges: rating,
             ...(cycleId !== null ? { lastSeenCycle: cycleId } : {}),
+            // Seen in Box again: whatever made it look missing is over.
+            missingSince: null,
             updatedAt: new Date(),
           },
         })
@@ -275,6 +277,12 @@ export async function syncVideoTopFolder(
     retryDelayMs?: number;
     /** The scan cycle this pass belongs to; see syncVideoDirectory. */
     cycleId?: string | null;
+    /**
+     * Awaited when a directory failed, BEFORE the cursor is moved past it. If the process dies between
+     * stepping past an unread directory and flagging the cycle, the next pass would otherwise treat a
+     * cycle that missed a directory as clean.
+     */
+    onError?: () => Promise<void>;
   }
 ): Promise<VideoTopFolderResult> {
   const result: VideoTopFolderResult = { hadErrors: false, titlesAdded: 0, filesSeen: 0, unsupported: 0, finished: true, superseded: false };
@@ -294,6 +302,7 @@ export async function syncVideoTopFolder(
     if (dir.error) {
       // Couldn't be listed (and its subfolders weren't visited): say so, and carry on with the rest.
       result.hadErrors = true;
+      await opts.onError?.();
       opts.errors.push(`${where}: couldn't be read (${dir.error}); it will be tried again on the next full scan.`);
     } else {
       try {
@@ -314,6 +323,7 @@ export async function syncVideoTopFolder(
       } catch (err) {
         if (err instanceof BoxReauthRequiredError) throw err;
         result.hadErrors = true;
+        await opts.onError?.();
         opts.errors.push(`${where}: ${(err as Error).message}`);
       }
     }

@@ -325,6 +325,28 @@ describe("syncVideoTopFolder", () => {
     expect(subs).toHaveLength(4); // the unreadable folder was stepped past like any other
   });
 
+  it("flags the cycle before the cursor moves past a failed directory, not after the whole folder", async () => {
+    const lib = await newLibrary();
+    const p = `ord${++n}-`;
+    h.tree = {
+      top: [folder("good", "Good"), folder("bad", "Bad")],
+      good: [file("g.mp4", `${p}g`)],
+      bad: [file("never.mp4", `${p}never`)],
+    };
+    const failing = { listFolder: async (id: string) => { if (id === "bad") throw new Error("Box: 503"); return h.tree[id] ?? []; } };
+    const events: string[] = [];
+    await syncVideoTopFolder(failing, lib.id, folder("top", "Top"), {
+      afterSub: null,
+      errors: [],
+      budgetExhausted: () => false,
+      onUnitDone: async (sub) => (events.push(`advance ${sub}`), true),
+      onError: async () => void events.push("flag unclean"),
+      retryDelayMs: 0,
+    });
+    // Directories are visited Top, Bad, Good. Bad fails: it is flagged strictly BEFORE the cursor advances past it.
+    expect(events).toEqual(["advance /", "flag unclean", "advance /bad", "advance /good"]);
+  });
+
   it("stops without touching scan state when another scan takes over the cursor", async () => {
     const lib = await newLibrary();
     const top = setupTree();

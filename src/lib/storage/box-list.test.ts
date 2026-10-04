@@ -12,7 +12,7 @@ vi.mock("./box-token-storage", () => ({
         getFileById: async (id: string) => {
           if (id === "missing") throw new BoxApiError({ message: "not found", timestamp: "", error: undefined, requestInfo: {} as never, responseInfo: { statusCode: 404 } as never });
           if (id === "boom") throw new BoxApiError({ message: "server error", timestamp: "", error: undefined, requestInfo: {} as never, responseInfo: { statusCode: 500 } as never });
-          return { id, itemStatus: id === "trashed" ? "trashed" : id === "nostatus" ? undefined : "active" };
+          return { id, itemStatus: id === "trashed" ? "trashed" : id === "destroyed" ? "deleted" : id === "nostatus" ? undefined : id === "strange" ? "something-new" : "active" };
         },
       },
       folders: {
@@ -36,6 +36,8 @@ describe("Box file existence", () => {
     expect(await provider.fileExists!("active-file")).toBe(true);
     expect(await provider.fileExists!("nostatus")).toBe(true); // no status reported: don't call it gone
     expect(await provider.fileExists!("trashed")).toBe(false);
+    expect(await provider.fileExists!("destroyed")).toBe(false);
+    expect(await provider.fileExists!("strange")).toBe(true); // an unfamiliar status is not "gone"
     expect(await provider.fileExists!("missing")).toBe(false);
     await expect(provider.fileExists!("boom")).rejects.toBeInstanceOf(BoxApiError); // a server error is not "gone"
   });

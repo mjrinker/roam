@@ -238,6 +238,7 @@ export async function scanLibrary(
             case "video": {
               const res = await syncVideoTopFolder(provider, library.id, folder, {
                 cycleId,
+                onError: () => markCycleUnclean(library.id, cycleId),
                 afterSub: cursor?.folder === folder.name ? (cursor.sub ?? null) : null,
                 errors,
                 budgetExhausted: () => processed > 0 && Date.now() - startedAt > FOLDER_SYNC_TIME_BUDGET_MS,

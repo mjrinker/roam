@@ -321,6 +321,10 @@ export const titles = pgTable(
     tagsAttemptedAt: timestamp("tags_attempted_at", { withTimezone: true }),
     // The scan cycle (libraries.scan_cycle_id) in which this video was last seen in Box.
     lastSeenCycle: uuid("last_seen_cycle"),
+    // When a scan first found this video gone from Box (null while it is present). Cleanup waits a
+    // grace period after this before removing anything: Box's trash is restorable, and a 404 can
+    // also mean "this account can no longer see it".
+    missingSince: timestamp("missing_since", { withTimezone: true }),
     // Failed tries at reading the file's tags; stops at a small cap so an unreadable file isn't
     // retried on every scan.
     tagAttempts: integer("tag_attempts").notNull().default(0),

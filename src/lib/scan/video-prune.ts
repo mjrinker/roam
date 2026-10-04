@@ -19,6 +19,16 @@ import { libraries, mediaFiles, titles, watchState } from "@/lib/db/schema";
 import { BoxReauthRequiredError } from "@/lib/storage/box-token-storage";
 import type { StorageProvider } from "@/lib/storage/provider";
 
+/**
+ * A video must stay gone this long before it is removed. Box's trash is restorable for weeks, and a
+ * 404 can also mean "this account can no longer see it" (a permissions change), so the first scan that
+ * finds a video missing only notes it (`missing_since`); it is removed once it has stayed gone this long.
+ * Tests set `graceMs` to 0 to remove immediately.
+ */
+export const pruneSettings = { graceMs: 3 * 24 * 60 * 60 * 1000 };
+
+/** Never ask Box about more candidates than this in one cycle: a reorganisation that big is left alone. */
+export const PRUNE_VERIFY_MAX = 1000;
 /** Never remove more than this many in one cycle. */
 export const PRUNE_MAX_ABSOLUTE = 500;
 /** Above this many candidates, never remove more than this share of the library. */
@@ -34,6 +44,8 @@ export interface PruneResult {
   candidates: number;
   /** Candidates Box couldn't answer about; kept. */
   unverified: number;
+  /** Videos Box says are gone but that are still inside the grace period; kept for now. */
+  waiting: number;
   skipped: "not_clean" | "too_many" | "unsupported" | null;
 }
 
@@ -46,10 +58,15 @@ export async function markCycleUnclean(libraryId: string, cycleId: string | null
     .where(and(eq(libraries.id, libraryId), eq(libraries.scanCycleId, cycleId)));
 }
 
-/** The cap: small removals always go through; a large share of the library, or a large absolute number, does not. */
-export function tooManyToRemove(candidates: number, total: number): boolean {
-  if (candidates > PRUNE_MAX_ABSOLUTE) return true;
-  return candidates > PRUNE_FRACTION_FLOOR && candidates > total * PRUNE_MAX_FRACTION;
+/**
+ * The cap, applied to videos Box CONFIRMED gone: small removals go through; a large share of the
+ * library, a large absolute number, or the whole of a library that isn't tiny, does not (that looks like
+ * a wrong folder, an outage or a permissions change, not a clean-up).
+ */
+export function tooManyToRemove(gone: number, total: number): boolean {
+  if (gone > PRUNE_MAX_ABSOLUTE) return true;
+  if (gone === total && total >= 5) return true;
+  return gone > PRUNE_FRACTION_FLOOR && gone > total * PRUNE_MAX_FRACTION;
 }
 
 async function removeTitles(libraryId: string, ids: string[]): Promise<void> {
@@ -84,7 +101,7 @@ export async function pruneMissingVideos(
   cycleId: string,
   deadline: number
 ): Promise<PruneResult> {
-  const result: PruneResult = { removed: 0, candidates: 0, unverified: 0, skipped: null };
+  const result: PruneResult = { removed: 0, candidates: 0, unverified: 0, waiting: 0, skipped: null };
   if (!provider.fileExists) return { ...result, skipped: "unsupported" };
   const fileExists = provider.fileExists.bind(provider);
 
@@ -92,7 +109,15 @@ export async function pruneMissingVideos(
   const claimed = await db
     .update(libraries)
     .set({ scanCycleClean: false })
-    .where(and(eq(libraries.id, libraryId), eq(libraries.scanCycleId, cycleId), eq(libraries.scanCycleClean, true)))
+    .where(
+      and(
+        eq(libraries.id, libraryId),
+        eq(libraries.scanCycleId, cycleId),
+        eq(libraries.scanCycleClean, true),
+        // Read now, not at the start of the pass: switching cleanup off stops a pass that is already running.
+        eq(libraries.pruneMissing, true)
+      )
+    )
     .returning({ id: libraries.id });
   if (claimed.length === 0) return { ...result, skipped: "not_clean" };
 
@@ -102,15 +127,17 @@ export async function pruneMissingVideos(
     sql`${titles.boxFolderId} LIKE 'file:%'`,
     sql`${titles.lastSeenCycle} IS DISTINCT FROM ${cycleId}`
   );
-  const candidates = await db.select({ id: titles.id, key: titles.boxFolderId }).from(titles).where(unseen);
+  const candidates = await db
+    .select({ id: titles.id, key: titles.boxFolderId, missingSince: titles.missingSince })
+    .from(titles)
+    .where(unseen);
   result.candidates = candidates.length;
   if (candidates.length === 0) return result;
-
-  const [{ total }] = await db.select({ total: sql<number>`count(*)::int` }).from(titles).where(eq(titles.libraryId, libraryId));
-  if (tooManyToRemove(candidates.length, total)) return { ...result, skipped: "too_many" };
+  if (candidates.length > PRUNE_VERIFY_MAX) return { ...result, skipped: "too_many" };
 
   // Ask Box about each candidate by id. Any answer but a definite "gone" keeps the video.
-  const gone: string[] = [];
+  const gone: typeof candidates = [];
+  const present: string[] = [];
   for (let i = 0; i < candidates.length; i += CONCURRENCY) {
     if (Date.now() > deadline) {
       result.unverified += candidates.length - i;
@@ -119,7 +146,8 @@ export async function pruneMissingVideos(
     const settled = await Promise.allSettled(candidates.slice(i, i + CONCURRENCY).map((c) => fileExists(c.key.slice("file:".length))));
     for (const [j, outcome] of settled.entries()) {
       if (outcome.status === "fulfilled") {
-        if (!outcome.value) gone.push(candidates[i + j].id);
+        if (outcome.value) present.push(candidates[i + j].id);
+        else gone.push(candidates[i + j]);
       } else if (outcome.reason instanceof BoxReauthRequiredError) {
         throw outcome.reason;
       } else {
@@ -128,8 +156,25 @@ export async function pruneMissingVideos(
     }
   }
 
-  await removeTitles(libraryId, gone);
-  result.removed = gone.length;
+  // Still in Box (just not listed this time): whatever made it look missing is over.
+  for (let i = 0; i < present.length; i += CHUNK) {
+    await db.update(titles).set({ missingSince: null }).where(inArray(titles.id, present.slice(i, i + CHUNK)));
+  }
+
+  // Gone from Box: note when it was first missed; only a video that has stayed gone past the grace is due.
+  const now = Date.now();
+  const due = gone.filter((g) => pruneSettings.graceMs <= 0 || (g.missingSince !== null && g.missingSince.getTime() <= now - pruneSettings.graceMs));
+  const newlyMissing = gone.filter((g) => g.missingSince === null).map((g) => g.id);
+  for (let i = 0; i < newlyMissing.length; i += CHUNK) {
+    await db.update(titles).set({ missingSince: new Date(now) }).where(inArray(titles.id, newlyMissing.slice(i, i + CHUNK)));
+  }
+  result.waiting = gone.length - due.length;
+
+  const [{ total }] = await db.select({ total: sql<number>`count(*)::int` }).from(titles).where(eq(titles.libraryId, libraryId));
+  if (due.length > 0 && tooManyToRemove(due.length, total)) return { ...result, skipped: "too_many", candidates: due.length };
+
+  await removeTitles(libraryId, due.map((g) => g.id));
+  result.removed = due.length;
   return result;
 }
 
@@ -140,6 +185,7 @@ export function pruneNote(r: PruneResult): string | null {
     return `Cleanup skipped: ${r.candidates} videos look like they were removed from Box, which is more than is safe to remove automatically, so none were removed. Check that the Box folder is intact.`;
   }
   const parts: string[] = [];
+  if (r.waiting > 0) parts.push(`${r.waiting} ${plural(r.waiting, "video is", "videos are")} no longer in Box; ${plural(r.waiting, "it", "they")} will be removed from Roam if ${plural(r.waiting, "it stays", "they stay")} gone for ${Math.round(pruneSettings.graceMs / 86_400_000)} days.`);
   if (r.removed > 0) parts.push(`Removed ${r.removed} ${plural(r.removed, "video that is", "videos that are")} no longer in Box.`);
   if (r.unverified > 0) parts.push(`${r.unverified} ${plural(r.unverified, "video", "videos")} couldn't be checked against Box and ${plural(r.unverified, "was", "were")} kept.`);
   return parts.length ? parts.join(" ") : null;

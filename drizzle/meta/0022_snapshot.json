@@ -1,5 +1,5 @@
 {
-  "id": "7f7b9476-0435-446e-ae34-2c6a70dfb632",
+  "id": "e89b5640-87f9-4a99-a369-d7edca87b1dc",
   "prevId": "b9926cb8-7664-4a33-bcb6-340a9056a310",
   "version": "7",
   "dialect": "postgresql",
@@ -1953,6 +1953,12 @@
         "last_seen_cycle": {
           "name": "last_seen_cycle",
           "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "missing_since": {
+          "name": "missing_since",
+          "type": "timestamp with time zone",
           "primaryKey": false,
           "notNull": false
         },

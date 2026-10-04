@@ -43,11 +43,12 @@ import { addItem, makeAccount, makeLibrary, makePlaylist, makeServer, type TestD
 import type { StorageEntry } from "@/lib/storage/provider";
 import { scanLibrary } from "./scanner";
 import { syncVideoDirectory } from "./video-library";
-import { markCycleUnclean, PRUNE_MAX_ABSOLUTE, pruneMissingVideos, pruneNote, tooManyToRemove } from "./video-prune";
+import { markCycleUnclean, PRUNE_MAX_ABSOLUTE, PRUNE_VERIFY_MAX, pruneMissingVideos, pruneNote, pruneSettings, tooManyToRemove } from "./video-prune";
 
 let db: TestDb;
 beforeAll(() => {
   db = h.testDb.db;
+  pruneSettings.graceMs = 0; // most tests are about WHICH videos go; the grace period has its own tests below
 });
 
 let n = 0;
@@ -75,8 +76,11 @@ async function world(opts: { clean?: boolean } = {}) {
 }
 
 describe("tooManyToRemove / pruneNote", () => {
-  it("lets small removals through and stops large or proportionally huge ones", () => {
-    expect(tooManyToRemove(2, 5)).toBe(false); // 40% of a tiny library is fine
+  it("lets small removals through and stops large, proportionally huge, or total ones", () => {
+    expect(tooManyToRemove(2, 5)).toBe(false);
+    expect(tooManyToRemove(4, 5)).toBe(false); // most of a tiny library is fine
+    expect(tooManyToRemove(5, 5)).toBe(true); // ...but never the whole of one that isn't tiny
+    expect(tooManyToRemove(1, 1)).toBe(false); // a one-video library may lose its one video
     expect(tooManyToRemove(20, 30)).toBe(false); // at the floor
     expect(tooManyToRemove(21, 30)).toBe(true); // above the floor and over 20%
     expect(tooManyToRemove(21, 1000)).toBe(false); // above the floor but a small share
@@ -85,11 +89,13 @@ describe("tooManyToRemove / pruneNote", () => {
   });
 
   it("words what happened", () => {
-    expect(pruneNote({ removed: 0, candidates: 0, unverified: 0, skipped: null })).toBeNull();
-    expect(pruneNote({ removed: 1, candidates: 1, unverified: 0, skipped: null })).toBe("Removed 1 video that is no longer in Box.");
-    expect(pruneNote({ removed: 3, candidates: 5, unverified: 2, skipped: null })).toBe("Removed 3 videos that are no longer in Box. 2 videos couldn't be checked against Box and were kept.");
-    expect(pruneNote({ removed: 0, candidates: 40, unverified: 0, skipped: "too_many" })).toContain("none were removed");
-    expect(pruneNote({ removed: 0, candidates: 0, unverified: 0, skipped: "not_clean" })).toBeNull();
+    const base = { removed: 0, candidates: 0, unverified: 0, waiting: 0, skipped: null } as const;
+    expect(pruneNote(base)).toBeNull();
+    expect(pruneNote({ ...base, removed: 1, candidates: 1 })).toBe("Removed 1 video that is no longer in Box.");
+    expect(pruneNote({ ...base, removed: 3, candidates: 5, unverified: 2 })).toBe("Removed 3 videos that are no longer in Box. 2 videos couldn't be checked against Box and were kept.");
+    expect(pruneNote({ ...base, candidates: 40, skipped: "too_many" })).toContain("none were removed");
+    expect(pruneNote({ ...base, skipped: "not_clean" })).toBeNull();
+    expect(pruneNote({ ...base, waiting: 2 })).toBe("2 videos are no longer in Box; they will be removed from Roam if they stay gone for 3 days.".replace("3 days", `${Math.round(pruneSettings.graceMs / 86_400_000)} days`));
   });
 });
 
@@ -181,9 +187,37 @@ describe("pruneMissingVideos", () => {
     for (let i = 0; i < 30; i++) await w.add(`v${i}`, i < 5); // 25 of 30 unseen: far over a fifth, above the floor
     for (let i = 5; i < 30; i++) h.gone.add(w.id(`v${i}`));
     const r = await pruneMissingVideos(provider, w.lib.id, w.cycle, FAR());
-    expect(r).toMatchObject({ removed: 0, candidates: 25, skipped: "too_many" });
-    expect(h.existsCalls).toHaveLength(0);
+    expect(r).toMatchObject({ removed: 0, candidates: 25, skipped: "too_many" }); // 25 confirmed gone: over a fifth and above the floor
     expect(await titlesOf(w.lib.id)).toHaveLength(30);
+  });
+
+  it("a reorganisation that leaves every video in Box is not an alarm: nothing is removed, and the cap isn't what stopped it", async () => {
+    reset();
+    const w = await world();
+    for (let i = 0; i < 30; i++) await w.add(`m${i}`, false); // all unseen, all still in Box (moved around)
+    const r = await pruneMissingVideos(provider, w.lib.id, w.cycle, FAR());
+    expect(r).toMatchObject({ removed: 0, candidates: 30, skipped: null });
+    expect(await titlesOf(w.lib.id)).toHaveLength(30);
+  });
+
+  it("never empties a whole library of any size in one go (that looks like a wrong folder or an outage)", async () => {
+    reset();
+    const w = await world();
+    for (let i = 0; i < 6; i++) {
+      await w.add(`all${i}`, false);
+      h.gone.add(w.id(`all${i}`));
+    }
+    expect(await pruneMissingVideos(provider, w.lib.id, w.cycle, FAR())).toMatchObject({ removed: 0, skipped: "too_many" });
+    expect(await titlesOf(w.lib.id)).toHaveLength(6);
+  });
+
+  it("leaves a cycle with too many candidates to verify alone", async () => {
+    reset();
+    const w = await world();
+    const rows = Array.from({ length: PRUNE_VERIFY_MAX + 1 }, (_, i) => ({ id: crypto.randomUUID(), libraryId: w.lib.id, kind: "movie" as const, name: `n${i}`, boxFolderId: `file:big${n}-${i}`, lastSeenCycle: crypto.randomUUID() }));
+    for (let i = 0; i < rows.length; i += 500) await db.insert(titles).values(rows.slice(i, i + 500));
+    expect(await pruneMissingVideos(provider, w.lib.id, w.cycle, FAR())).toMatchObject({ removed: 0, skipped: "too_many" });
+    expect(h.existsCalls).toHaveLength(0);
   });
 
   it("keeps any video Box couldn't answer about, and removes the ones it could", async () => {
@@ -228,6 +262,63 @@ describe("pruneMissingVideos", () => {
     void reauth;
     await expect(pruneMissingVideos(lost, w.lib.id, w.cycle, FAR())).rejects.toBeInstanceOf(BoxReauthRequiredError);
     expect(await titlesOf(w.lib.id)).toHaveLength(1);
+  });
+
+  it("stops at once if cleanup is switched off after the pass began", async () => {
+    reset();
+    const w = await world();
+    await w.add("gone", false);
+    h.gone.add(w.id("gone"));
+    await db.update(libraries).set({ pruneMissing: false }).where(eq(libraries.id, w.lib.id));
+    expect(await pruneMissingVideos(provider, w.lib.id, w.cycle, FAR())).toMatchObject({ removed: 0, skipped: "not_clean" });
+    expect(await titlesOf(w.lib.id)).toHaveLength(1);
+  });
+
+  describe("grace period", () => {
+    const DAY = 86_400_000;
+    it("only notes a missing video the first time, removes it once it has stayed gone past the grace, and forgives one that returns", async () => {
+      reset();
+      pruneSettings.graceMs = 3 * DAY;
+      try {
+        const w = await world();
+        await w.add("old", false);
+        await w.add("back", false);
+        await w.add("keep1", true);
+        await w.add("keep2", true);
+        h.gone.add(w.id("old"));
+        h.gone.add(w.id("back"));
+        const missingOf = async (name: string) => (await db.select().from(titles).where(eq(titles.boxFolderId, `file:${w.id(name)}`)))[0]?.missingSince ?? null;
+
+        // First cycle: both noted, neither removed.
+        const first = await pruneMissingVideos(provider, w.lib.id, w.cycle, FAR());
+        expect(first).toMatchObject({ removed: 0, waiting: 2 });
+        expect(await missingOf("old")).not.toBeNull();
+        expect(await titlesOf(w.lib.id)).toHaveLength(4);
+
+        // The next cycle comes a little later: still within the grace.
+        await db.update(libraries).set({ scanCycleClean: true }).where(eq(libraries.id, w.lib.id));
+        expect(await pruneMissingVideos(provider, w.lib.id, w.cycle, FAR())).toMatchObject({ removed: 0, waiting: 2 });
+
+        // "back" turns up again in Box (restored from the trash); "old" has been missing for four days.
+        h.gone.delete(w.id("back"));
+        await db.update(titles).set({ missingSince: new Date(Date.now() - 4 * DAY) }).where(eq(titles.boxFolderId, `file:${w.id("old")}`));
+        await db.update(libraries).set({ scanCycleClean: true }).where(eq(libraries.id, w.lib.id));
+        const later = await pruneMissingVideos(provider, w.lib.id, w.cycle, FAR());
+        expect(later).toMatchObject({ removed: 1, waiting: 0 });
+        expect(await missingOf("back")).toBeNull(); // forgiven
+        expect((await titlesOf(w.lib.id)).map((t) => t.boxFolderId).sort()).toEqual([`file:${w.id("back")}`, `file:${w.id("keep1")}`, `file:${w.id("keep2")}`].sort());
+      } finally {
+        pruneSettings.graceMs = 0;
+      }
+    });
+
+    it("seeing a video in a scan clears its missing mark", async () => {
+      const w = await world();
+      await w.add("blip", true);
+      await db.update(titles).set({ missingSince: new Date() }).where(eq(titles.boxFolderId, `file:${w.id("blip")}`));
+      await syncVideoDirectory(w.lib.id, "p", "", [file("blip.mp4", w.id("blip"))], w.cycle);
+      expect((await titlesOf(w.lib.id))[0].missingSince).toBeNull();
+    });
   });
 
   it("never touches another library's videos", async () => {

@@ -190,8 +190,9 @@ async function fileExists(serverId: string, fileId: string): Promise<boolean> {
   return withBoxClient(serverId, async (client) => {
     try {
       const file = await client.files.getFileById(fileId, { queryParams: { fields: ["item_status"] } });
+      // Only the two statuses that mean "in the trash / destroyed" count as gone; any other value keeps the file.
       const status = file.itemStatus === undefined ? "active" : String(file.itemStatus);
-      return status === "active";
+      return !(status === "trashed" || status === "deleted");
     } catch (err) {
       if (err instanceof BoxApiError && err.responseInfo?.statusCode === 404) return false;
       throw err;
