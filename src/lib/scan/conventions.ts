@@ -391,6 +391,15 @@ export function isVideoFile(fileName: string): boolean {
   return VIDEO_EXTENSIONS.has(fileName.slice(dot).toLowerCase());
 }
 
+const IMAGE_EXTENSIONS = new Set([".jpg", ".jpeg", ".png", ".webp", ".gif", ".heic", ".heif"]);
+
+/** A picture Roam shows in a photo library (HEIC and HEIF are shown through Box's own preview). */
+export function isImageFile(fileName: string): boolean {
+  const dot = fileName.lastIndexOf(".");
+  if (dot === -1) return false;
+  return IMAGE_EXTENSIONS.has(fileName.slice(dot).toLowerCase());
+}
+
 // Plex's exact inline-extras suffix convention: "Descriptive Name-Type.ext",
 // hyphen immediately before the type, no space, type immediately before the
 // extension. See support.plex.tv/articles/local-files-for-trailers-and-extras.

@@ -135,7 +135,7 @@ export async function scanLibrary(
   const errors: string[] = [];
   const provider = createBoxProviderForServer(library.serverId);
 
-  // File-tree libraries (video, audio) share one scanning engine; this says how the kind differs.
+  // File-tree libraries (video, audio, photos) share one scanning engine; this says how the kind differs.
   const treeProfile = isFileTreeLibraryKind(library.kind) ? treeProfileFor(library.kind) : null;
 
   const plan = planScan(trigger, library);
@@ -241,8 +241,6 @@ export async function scanLibrary(
               break;
             }
             case "photos":
-              // Scanning photo libraries arrives in a later step; creating one isn't possible yet.
-              throw new Error("Photo libraries can't be scanned yet.");
             case "audio":
             case "video": {
               const res = await syncVideoTopFolder(provider, library.id, folder, {

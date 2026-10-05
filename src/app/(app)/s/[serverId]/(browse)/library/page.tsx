@@ -110,7 +110,7 @@ export default async function LibraryHomePage({
       const movie = movieById.get(w.ownerId);
       if (!movie) continue;
       // Audiobooks have their own "Continue Listening" row below.
-      if (movie.kind === "audiobook") continue;
+      if (movie.kind === "audiobook" || movie.kind === "photo") continue;
       const href = `/s/${serverId}/watch/title/${movie.id}`;
       continueWatching.push({
         href,

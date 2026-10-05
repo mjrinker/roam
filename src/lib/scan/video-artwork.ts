@@ -6,7 +6,7 @@
  * title's `poster_url` is set ONLY once an image really exists, so a card never shows a broken one.
  * `tag_attempts` caps retries so an unreadable file isn't re-tried on every scan.
  */
-import { and, asc, eq, isNotNull, isNull, lt, or, sql } from "drizzle-orm";
+import { and, asc, eq, isNotNull, isNull, lt, ne, or, sql } from "drizzle-orm";
 import { db } from "@/lib/db/client";
 import { mediaFiles, titles } from "@/lib/db/schema";
 import { BoxReauthRequiredError } from "@/lib/storage/box-token-storage";
@@ -98,6 +98,7 @@ export async function readTagsAndArtwork(
     .where(
       and(
         eq(titles.libraryId, libraryId),
+        ne(titles.kind, "photo"),
         isNull(titles.tagsAttemptedAt),
         lt(titles.tagAttempts, MAX_TAG_ATTEMPTS),
         eq(mediaFiles.probeStatus, "ok"),
@@ -148,6 +149,7 @@ export async function readTagsAndArtwork(
     .where(
       and(
         eq(titles.libraryId, libraryId),
+        ne(titles.kind, "photo"),
         isNull(titles.posterUrl),
         lt(titles.thumbAttempts, MAX_THUMB_ATTEMPTS),
         or(isNull(titles.thumbAttemptedAt), lt(titles.thumbAttemptedAt, retryBefore)),

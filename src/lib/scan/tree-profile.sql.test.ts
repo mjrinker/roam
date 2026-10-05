@@ -46,7 +46,7 @@ import { libraries, mediaFiles, titles } from "@/lib/db/schema";
 import { makeAccount, makeLibrary, makeServer, type TestDb } from "@/lib/playlists/test-db";
 import type { StorageEntry } from "@/lib/storage/provider";
 import { scanLibrary } from "./scanner";
-import { AUDIO_PROFILE, VIDEO_PROFILE, treeProfileFor } from "./tree-profile";
+import { AUDIO_PROFILE, PHOTOS_PROFILE, VIDEO_PROFILE, treeProfileFor } from "./tree-profile";
 import { syncVideoDirectory, unsupportedSummary } from "./video-library";
 import { pruneMissingVideos, pruneNote, pruneSettings } from "./video-prune";
 
@@ -72,8 +72,11 @@ describe("profiles", () => {
   it("video keeps exactly what the engine did before; audio accepts mp3/m4a/m4b and reports other audio as unsupported", () => {
     expect(treeProfileFor("video")).toBe(VIDEO_PROFILE);
     expect(treeProfileFor("audio")).toBe(AUDIO_PROFILE);
-    expect(VIDEO_PROFILE).toMatchObject({ titleKind: "movie", linkVariants: true, probeCodecs: true, thumbnails: true });
-    expect(AUDIO_PROFILE).toMatchObject({ titleKind: "audiobook", linkVariants: false, probeCodecs: false, thumbnails: false });
+    expect(VIDEO_PROFILE).toMatchObject({ titleKinds: ["movie"], linkVariants: true, probeCodecs: true, thumbnails: true, readTags: true });
+    expect(AUDIO_PROFILE).toMatchObject({ titleKinds: ["audiobook"], linkVariants: false, probeCodecs: false, thumbnails: false, readTags: true });
+    // Every file of a video library is a movie and every file of an audio library an audiobook, and each is probed.
+    for (const f of ["a.mp4", "b.MOV", "c.m4v"]) expect([VIDEO_PROFILE.titleKindFor(f), VIDEO_PROFILE.needsProbe(f)], f).toEqual(["movie", true]);
+    for (const f of ["a.mp3", "b.m4a", "c.m4b"]) expect([AUDIO_PROFILE.titleKindFor(f), AUDIO_PROFILE.needsProbe(f)], f).toEqual(["audiobook", true]);
     for (const f of ["a.mp3", "b.M4A", "c.m4b"]) expect(AUDIO_PROFILE.isMedia(f), f).toBe(true);
     for (const f of ["a.flac", "b.ogg", "c.wav", "d.opus", "e.WMA"]) {
       expect(AUDIO_PROFILE.isMedia(f), f).toBe(false);
@@ -81,6 +84,21 @@ describe("profiles", () => {
     }
     expect(AUDIO_PROFILE.isUnsupported("movie.mkv")).toBe(false); // video formats aren't "unsupported audio"
     expect(VIDEO_PROFILE.isMedia("a.mp3")).toBe(false);
+  });
+
+  it("photos: pictures become photos with nothing to probe, videos stay movies, everything else is skipped and counted", () => {
+    expect(treeProfileFor("photos")).toBe(PHOTOS_PROFILE);
+    expect(PHOTOS_PROFILE).toMatchObject({ titleKinds: ["photo", "movie"], linkVariants: false, probeCodecs: false, thumbnails: false, readTags: false });
+    for (const f of ["a.jpg", "b.JPEG", "c.png", "d.webp", "e.gif", "f.HEIC", "g.heif"]) {
+      expect([PHOTOS_PROFILE.isMedia(f), PHOTOS_PROFILE.titleKindFor(f), PHOTOS_PROFILE.needsProbe(f)], f).toEqual([true, "photo", false]);
+    }
+    for (const f of ["a.mp4", "b.m4v", "c.MOV"]) {
+      expect([PHOTOS_PROFILE.isMedia(f), PHOTOS_PROFILE.titleKindFor(f), PHOTOS_PROFILE.needsProbe(f)], f).toEqual([true, "movie", true]);
+    }
+    for (const f of ["a.cr2", "b.NEF", "c.dng", "d.tiff", "e.bmp", "f.avif", "g.mkv", "h.avi", "i.webm"]) {
+      expect([PHOTOS_PROFILE.isMedia(f), PHOTOS_PROFILE.isUnsupported(f)], f).toEqual([false, true]);
+    }
+    for (const f of ["a.mp3", "notes.txt", "README", "x.jpg.part"]) expect([PHOTOS_PROFILE.isMedia(f), PHOTOS_PROFILE.isUnsupported(f)], f).toEqual([false, false]);
   });
 
   it("words notes with the right nouns", () => {

@@ -12,12 +12,13 @@
  * The app has ONE database connection, so each directory is written in a single transaction that
  * uses only `tx`, and all Box I/O happens before it starts.
  */
-import { and, asc, eq, inArray, isNotNull, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, isNotNull, ne, sql } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import { db } from "@/lib/db/client";
-import { libraries, mediaFiles, titles } from "@/lib/db/schema";
+import { libraries, mediaFiles, titles, watchState, type TitleKind } from "@/lib/db/schema";
 import { BoxReauthRequiredError } from "@/lib/storage/box-token-storage";
 import type { StorageEntry, StorageProvider } from "@/lib/storage/provider";
+import { PLAYABLE_TITLE_KINDS } from "@/lib/libraries/profile";
 import { naturalSortKey } from "@/lib/libraries/sort-key";
 import { releaseArtwork } from "@/lib/scan/artwork-store";
 import { isBrowserFriendlyVariant, stripVariantSuffix } from "@/lib/scan/conventions";
@@ -131,13 +132,18 @@ export async function syncVideoDirectory(
     const rating = library.ratingAges ?? null;
 
     const keyOf = (f: StorageEntry) => `file:${f.id}`;
+    // What each file was last time (only titles of THIS library: another library's rows are left alone).
     const existing = new Set<string>();
+    const kindBefore = new Map<string, TitleKind>();
     for (let i = 0; i < primaries.length; i += CHUNK) {
       const rows = await tx
-        .select({ key: titles.boxFolderId })
+        .select({ key: titles.boxFolderId, kind: titles.kind, libraryId: titles.libraryId })
         .from(titles)
         .where(inArray(titles.boxFolderId, primaries.slice(i, i + CHUNK).map(keyOf)));
-      for (const r of rows) existing.add(r.key);
+      for (const r of rows) {
+        existing.add(r.key);
+        if (r.libraryId === libraryId) kindBefore.set(r.key, r.kind);
+      }
     }
 
     const titleIdByKey = new Map<string, string>();
@@ -151,7 +157,7 @@ export async function syncVideoDirectory(
             const { name, year } = titleFromFileName(profile.linkVariants ? stripVariantSuffix(f.name) : f.name);
             return {
               libraryId,
-              kind: profile.titleKind,
+              kind: profile.titleKindFor(f.name),
               name,
               year,
               boxFolderId: keyOf(f),
@@ -177,6 +183,8 @@ export async function syncVideoDirectory(
             folderPath,
             parentFolderId,
             sortKey: sql`excluded.sort_key`,
+            // A file renamed from a picture to a video (or back) keeps its Box id but is a different kind of item.
+            kind: sql`excluded.kind`,
             // Always the library's current rating (read under the lock above), never a stale one.
             ratingAges: rating,
             ...(cycleId !== null ? { lastSeenCycle: cycleId } : {}),
@@ -190,6 +198,13 @@ export async function syncVideoDirectory(
     }
 
     const owned = primaries.filter((f) => titleIdByKey.has(keyOf(f)));
+
+    // Files whose kind changed (a picture became a video or the reverse): what we know about the old
+    // kind (progress, picture, tags, probe state) does not describe the new one, so it is reset below.
+    const switchedFiles = owned.filter((f) => {
+      const before = kindBefore.get(keyOf(f));
+      return before !== undefined && before !== profile.titleKindFor(f.name);
+    });
 
     // A file replaced in place keeps its Box id but changes size: what we recorded about its contents
     // (duration, codecs, tags, picture) is stale, so it is read again.
@@ -206,7 +221,6 @@ export async function syncVideoDirectory(
       const before = previousSize.get(titleIdByKey.get(keyOf(f))!);
       return before !== undefined && before !== null && f.sizeBytes !== undefined && before !== f.sizeBytes;
     });
-    const replaced = replacedFiles.map((f) => titleIdByKey.get(keyOf(f))!);
 
     for (let i = 0; i < owned.length; i += CHUNK) {
       await tx
@@ -220,6 +234,8 @@ export async function syncVideoDirectory(
             filename: f.name,
             sizeBytes: f.sizeBytes,
             container: f.name.slice(f.name.lastIndexOf(".") + 1).toLowerCase(),
+            // A picture has nothing to probe: born 'ok', so no prober ever opens it.
+            ...(profile.needsProbe(f.name) ? {} : { probeStatus: "ok" as const }),
           }))
         )
         .onConflictDoUpdate({
@@ -229,25 +245,42 @@ export async function syncVideoDirectory(
     }
 
     // The old picture and tag-derived name belong to the old contents: drop them, so if the new file has no
-    // tags the title falls back to its filename instead of keeping a stale cover and name.
-    await releaseArtwork(tx, replaced);
-    for (const f of replacedFiles) {
+    // tags the title falls back to its filename instead of keeping a stale cover and name. The same goes
+    // for a file whose kind changed, which is also stripped of progress that described the old kind.
+    const resetFiles = [...new Map([...replacedFiles, ...switchedFiles].map((f) => [keyOf(f), f])).values()];
+    const resetIds = resetFiles.map((f) => titleIdByKey.get(keyOf(f))!);
+    await releaseArtwork(tx, resetIds);
+    for (const f of resetFiles) {
       const { name, year } = titleFromFileName(profile.linkVariants ? stripVariantSuffix(f.name) : f.name);
       await tx
         .update(titles)
         .set({ name, year, nameSource: "filename", posterUrl: null })
         .where(eq(titles.id, titleIdByKey.get(keyOf(f))!));
     }
-    for (let i = 0; i < replaced.length; i += CHUNK) {
-      const ids = replaced.slice(i, i + CHUNK);
-      await tx
-        .update(mediaFiles)
-        .set({ probeStatus: "pending", probeAttempts: 0, durationMs: null, durationSeconds: null, codecProbed: false, codecProbeAttempts: 0 })
-        .where(and(eq(mediaFiles.ownerKind, "title"), inArray(mediaFiles.ownerId, ids)));
+    for (let i = 0; i < resetIds.length; i += CHUNK) {
+      const ids = resetIds.slice(i, i + CHUNK);
       await tx
         .update(titles)
-        .set({ tagsAttemptedAt: null, tagAttempts: 0, thumbAttempts: 0, thumbAttemptedAt: null, chapters: null, chaptersSource: null, authors: null, seriesName: null })
+        .set({
+          tagsAttemptedAt: null, tagAttempts: 0, thumbAttempts: 0, thumbAttemptedAt: null, chapters: null, chaptersSource: null, authors: null, seriesName: null,
+          takenAtSource: null, width: null, height: null, metaAttemptedAt: null, metaAttempts: 0,
+        })
         .where(inArray(titles.id, ids));
+    }
+    // Probe state per file: a video is read again, a picture has nothing to read.
+    const idsByNeed = (need: boolean) => resetFiles.filter((f) => profile.needsProbe(f.name) === need).map((f) => titleIdByKey.get(keyOf(f))!);
+    for (const [need, ids] of [[true, idsByNeed(true)], [false, idsByNeed(false)]] as const) {
+      for (let i = 0; i < ids.length; i += CHUNK) {
+        await tx
+          .update(mediaFiles)
+          .set({ probeStatus: need ? "pending" : "ok", probeAttempts: 0, durationMs: null, durationSeconds: null, codecProbed: false, codecProbeAttempts: 0 })
+          .where(and(eq(mediaFiles.ownerKind, "title"), inArray(mediaFiles.ownerId, ids.slice(i, i + CHUNK))));
+      }
+    }
+    // Progress on a file that is no longer something that plays belongs to nothing: dropped.
+    const noLongerPlayable = switchedFiles.filter((f) => !PLAYABLE_TITLE_KINDS.includes(profile.titleKindFor(f.name))).map((f) => titleIdByKey.get(keyOf(f))!);
+    for (let i = 0; i < noLongerPlayable.length; i += CHUNK) {
+      await tx.delete(watchState).where(and(eq(watchState.ownerKind, "title"), inArray(watchState.ownerId, noLongerPlayable.slice(i, i + CHUNK))));
     }
 
     await linkVariantFiles("title", [...titleIdByKey.values()], owned, variants, tx);
@@ -372,6 +405,7 @@ export async function copyEmbeddedChapters(libraryId: string): Promise<void> {
     SET chapters = m.chapters, chapters_source = 'embedded'
     FROM media_files m
     WHERE t.library_id = ${libraryId}
+      AND t.kind <> 'photo'
       AND m.owner_kind = 'title' AND m.owner_id = t.id AND m.part_index = 0
       AND t.chapters IS NULL
       AND m.probe_status = 'ok'
@@ -395,12 +429,14 @@ export async function probeVideoLibrary(
   profile: TreeProfile = VIDEO_PROFILE
 ): Promise<boolean> {
   const inLibrary = eq(titles.libraryId, libraryId);
+  // A picture has no duration or codecs: the MP4 prober must never be pointed at one.
+  const notPhoto = ne(titles.kind, "photo");
 
   const pendingTitleFiles = await db
     .select({ file: mediaFiles })
     .from(mediaFiles)
     .innerJoin(titles, and(eq(mediaFiles.ownerKind, "title"), eq(titles.id, mediaFiles.ownerId)))
-    .where(and(inLibrary, pendingProbeCondition, isNotNull(mediaFiles.sizeBytes)))
+    .where(and(inLibrary, notPhoto, pendingProbeCondition, isNotNull(mediaFiles.sizeBytes)))
     .orderBy(asc(mediaFiles.id))
     .limit(PROBE_BATCH);
 
@@ -424,7 +460,7 @@ export async function probeVideoLibrary(
       .select({ file: mediaFiles })
       .from(mediaFiles)
       .innerJoin(titles, and(eq(mediaFiles.ownerKind, "title"), eq(titles.id, mediaFiles.ownerId)))
-      .where(and(inLibrary, pendingCodecProbeCondition))
+      .where(and(inLibrary, notPhoto, pendingCodecProbeCondition))
       .orderBy(asc(mediaFiles.id))
       .limit(PROBE_BATCH);
     if (codecFiles.length === PROBE_BATCH) incomplete = true;
@@ -435,7 +471,7 @@ export async function probeVideoLibrary(
   if (profile.chapters) await copyEmbeddedChapters(libraryId);
 
   // Names, years, descriptions and pictures read from the files themselves.
-  incomplete = (await readTagsAndArtwork(provider, libraryId, deadline, errors, profile)) || incomplete;
+  if (profile.readTags) incomplete = (await readTagsAndArtwork(provider, libraryId, deadline, errors, profile)) || incomplete;
 
   // Runtimes only for titles whose files were just probed (not a query per title in the library).
   const probedTitleIds = [...new Set(pendingTitleFiles.map((r) => r.file.ownerId).filter((id): id is string => id !== null))];

@@ -128,7 +128,7 @@ export async function pruneMissingVideos(
 
   const unseen = and(
     eq(titles.libraryId, libraryId),
-    eq(titles.kind, profile.titleKind),
+    inArray(titles.kind, [...profile.titleKinds]),
     sql`${titles.boxFolderId} LIKE 'file:%'`,
     sql`${titles.lastSeenCycle} IS DISTINCT FROM ${cycleId}`
   );
