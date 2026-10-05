@@ -24,7 +24,7 @@ export async function PUT(request: Request, ctx: RouteContext<"/api/libraries/[i
 
   const [library] = await db.select({ kind: libraries.kind }).from(libraries).where(eq(libraries.id, id));
   if (!library) return notFound();
-  if (!isFileTreeLibraryKind(library.kind)) return NextResponse.json({ error: "Only video and audio libraries have this setting." }, { status: 400 });
+  if (!isFileTreeLibraryKind(library.kind)) return NextResponse.json({ error: "Only video, audio and photo libraries have this setting." }, { status: 400 });
   await db.update(libraries).set({ pruneMissing: body.enabled }).where(eq(libraries.id, id));
   return NextResponse.json({ ok: true });
 }

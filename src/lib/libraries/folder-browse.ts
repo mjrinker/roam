@@ -53,12 +53,17 @@ const collator = new Intl.Collator("en", { numeric: true, sensitivity: "base" })
 
 export interface FolderItem {
   id: string;
+  /** A photo library holds pictures and videos together; every other file-tree library is all one kind. */
+  kind: "movie" | "audiobook" | "photo";
   name: string;
   year: number | null;
   posterUrl: string | null;
   runtimeSeconds: number | null;
   /** Audio files: the artist(s), shown under the title; null for video. */
   authors: string[] | null;
+  /** Pictures: their size, for laying out a grid; null when unknown or not a picture. */
+  width: number | null;
+  height: number | null;
 }
 
 export interface FolderPage {
@@ -114,11 +119,14 @@ export async function listFolder(
   const itemRows = await ex
     .select({
       id: titles.id,
+      kind: titles.kind,
       name: titles.name,
       year: titles.year,
       posterUrl: titles.posterUrl,
       runtimeSeconds: titles.runtimeSeconds,
       authors: titles.authors,
+      width: titles.width,
+      height: titles.height,
       listKey,
     })
     .from(titles)
@@ -152,7 +160,17 @@ export async function listFolder(
 
   return {
     folders,
-    items: page.map((r) => ({ id: r.id, name: r.name, year: r.year, posterUrl: r.posterUrl, runtimeSeconds: r.runtimeSeconds, authors: r.authors })),
+    items: page.map((r) => ({
+      id: r.id,
+      kind: r.kind === "photo" ? "photo" : r.kind === "audiobook" ? "audiobook" : "movie",
+      name: r.name,
+      year: r.year,
+      posterUrl: r.posterUrl,
+      runtimeSeconds: r.runtimeSeconds,
+      authors: r.authors,
+      width: r.width,
+      height: r.height,
+    })),
     nextCursor: itemRows.length > limit && last ? { key: last.listKey, id: last.id } : null,
   };
 }

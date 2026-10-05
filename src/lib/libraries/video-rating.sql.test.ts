@@ -156,6 +156,22 @@ describe("POST /api/libraries (video)", () => {
     expect((await ok.json()).library).toMatchObject({ kind: "audio", access: "restricted", ratingAges: { ANY: 7 } });
   });
 
+  it("creates a photo library the same way: rating required, restricted to start; and re-rating it re-rates every picture and video in it", async () => {
+    const w = await world();
+    h.admin = { profile: { id: "x" }, role: "admin" };
+    const base = { serverId: w.server.id, name: "Family Photos", kind: "photos", boxFolderId: "box-family-photos" };
+    expect((await create(base)).status).toBe(400); // no rating
+    const ok = await create({ ...base, rating: 0 });
+    expect(ok.status).toBe(200);
+    const { library } = await ok.json();
+    expect(library).toMatchObject({ kind: "photos", access: "restricted", ratingAges: { ANY: 0 } });
+
+    const photo = await makeTitle(db, library.id, { kind: "photo", boxFolderId: `file:${Math.random()}`, ratingAges: { ANY: 0 } });
+    const clip = await makeTitle(db, library.id, { kind: "movie", boxFolderId: `file:${Math.random()}`, ratingAges: { ANY: 0 } });
+    expect(await setVideoLibraryRating(db, library.id, 16)).toEqual({ ok: true });
+    for (const t of [photo, clip]) expect((await db.select().from(titles).where(eq(titles.id, t.id)))[0].ratingAges).toEqual({ ANY: 16 });
+  });
+
   it("has no limit on how many libraries a server can have (it used to stop at five)", async () => {
     const w = await world();
     h.admin = { profile: { id: "x" }, role: "admin" };

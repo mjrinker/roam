@@ -8,12 +8,13 @@
  * EXIF has no fractions), so a cursor of {epoch seconds, id} is exact; it is "wall-clock time as UTC"
  * (see exif.ts), which is why the page formats it in UTC.
  */
-import { and, asc, desc, eq, gt, isNotNull, isNull, lt, or, sql, type SQL } from "drizzle-orm";
+import { and, asc, desc, eq, gt, inArray, isNotNull, isNull, lt, or, sql, type SQL } from "drizzle-orm";
 import type { PgDatabase, PgQueryResultHKT } from "drizzle-orm/pg-core";
 import { z } from "zod";
 import { contentFilter, type AccessProfile } from "@/lib/content/access";
 import { libraryVisible, type LibraryActor } from "@/lib/content/library-access";
 import { libraries, titles } from "@/lib/db/schema";
+import { PHOTO_LIBRARY_KINDS } from "@/lib/libraries/profile";
 
 type Db = PgDatabase<PgQueryResultHKT, Record<string, unknown>>;
 
@@ -44,7 +45,7 @@ const MAX_PAGE = 200;
 function visibleItems(ex: Db, args: { actor: LibraryActor; viewer: AccessProfile; libraryId: string }) {
   return and(
     eq(titles.libraryId, args.libraryId),
-    eq(libraries.kind, "photos"),
+    inArray(libraries.kind, [...PHOTO_LIBRARY_KINDS]),
     libraryVisible(ex, args.actor),
     contentFilter(args.viewer, titles.ratingAges)
   );
@@ -86,7 +87,7 @@ export async function listTimeline(
     const [library] = await ex
       .select({ id: libraries.id })
       .from(libraries)
-      .where(and(eq(libraries.id, args.libraryId), eq(libraries.kind, "photos"), libraryVisible(ex, args.actor)))
+      .where(and(eq(libraries.id, args.libraryId), inArray(libraries.kind, [...PHOTO_LIBRARY_KINDS]), libraryVisible(ex, args.actor)))
       .limit(1);
     if (!library) return null;
   }
@@ -136,7 +137,7 @@ export async function loadPhoto(ex: Db, args: { actor: LibraryActor; viewer: Acc
     })
     .from(titles)
     .innerJoin(libraries, eq(libraries.id, titles.libraryId))
-    .where(and(eq(titles.id, args.id), eq(titles.kind, "photo"), eq(libraries.kind, "photos"), libraryVisible(ex, args.actor), contentFilter(args.viewer, titles.ratingAges)))
+    .where(and(eq(titles.id, args.id), eq(titles.kind, "photo"), inArray(libraries.kind, [...PHOTO_LIBRARY_KINDS]), libraryVisible(ex, args.actor), contentFilter(args.viewer, titles.ratingAges)))
     .limit(1);
   if (!row) return null;
   return { ...row, folderPath: row.folderPath ?? "" };

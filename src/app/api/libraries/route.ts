@@ -9,9 +9,9 @@ import { isVideoRating, ratingToAges } from "@/lib/libraries/video-rating";
 const bodySchema = z.object({
   serverId: z.string().uuid(),
   name: z.string().min(1),
-  kind: z.enum(["movies", "shows", "audiobooks", "video", "audio"]),
+  kind: z.enum(["movies", "shows", "audiobooks", "video", "audio", "photos"]),
   boxFolderId: z.string().min(1),
-  // Only for file-tree libraries (video, audio), where it is required: the minimum age that may see it, or null = unrated.
+  // Only for file-tree libraries (video, audio, photos), where it is required: the minimum age that may see it, or null = unrated.
   rating: z.number().int().nullable().optional(),
 });
 
@@ -28,7 +28,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Choose a rating for this library." }, { status: 400 });
     }
   } else if (rating !== undefined) {
-    return NextResponse.json({ error: "Only video and audio libraries have a library rating." }, { status: 400 });
+    return NextResponse.json({ error: "Only video, audio and photo libraries have a library rating." }, { status: 400 });
   }
 
   const admin = await getCurrentServerAdmin(parsed.data.serverId);

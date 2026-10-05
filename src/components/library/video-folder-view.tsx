@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { Folder, FolderOpen } from "lucide-react";
 import { PosterCard } from "@/components/library/poster-card";
+import { PhotoTile } from "@/components/photos/photo-tile";
 import { folderTrail, parentFolder, type FolderItem } from "@/lib/libraries/folder-browse";
 
 /** One level of a video library, file-manager style: breadcrumbs, subfolders, then the videos in this folder. */
@@ -13,6 +14,7 @@ export function VideoFolderView({
   items,
   nextHref,
   itemKind = "movie",
+  extraQuery,
 }: {
   serverId: string;
   libraryId: string;
@@ -24,10 +26,13 @@ export function VideoFolderView({
   /** Link to the next page of videos, or null. */
   nextHref: string | null;
   /** What each item is: a video plays like a movie (poster card, /title), an audio file like an audiobook (square card, /book). */
-  itemKind?: "movie" | "audiobook";
+  itemKind?: "movie" | "audiobook" | "photo";
+  /** Kept on every link (a photo library's `view=albums`). */
+  extraQuery?: string;
 }) {
   const base = `/s/${serverId}/library/${libraryId}`;
-  const at = (p: string) => (p === "" ? base : `${base}?path=${encodeURIComponent(p)}`);
+  const extra = extraQuery ? `${extraQuery}&` : "";
+  const at = (p: string) => (p === "" ? (extraQuery ? `${base}?${extraQuery}` : base) : `${base}?${extra}path=${encodeURIComponent(p)}`);
   const parent = parentFolder(path);
   const trail = folderTrail(path);
   const empty = folders.length === 0 && items.length === 0;
@@ -74,7 +79,22 @@ export function VideoFolderView({
         </ul>
       )}
 
-      {items.length > 0 && (
+      {items.length > 0 && itemKind === "photo" && (
+        <ul className="grid grid-cols-3 gap-1 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-8">
+          {items.map((item, i) => (
+            <li key={item.id} className="min-w-0">
+              <PhotoTile
+                serverId={serverId}
+                item={{ id: item.id, kind: item.kind === "photo" ? "photo" : "movie", name: item.name, posterUrl: item.posterUrl, runtimeSeconds: item.runtimeSeconds }}
+                from={`from=album&path=${encodeURIComponent(path)}`}
+                priority={i < 12}
+              />
+            </li>
+          ))}
+        </ul>
+      )}
+
+      {items.length > 0 && itemKind !== "photo" && (
         <ul className="grid grid-cols-2 gap-x-4 gap-y-6 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6">
           {items.map((item) => (
             <li key={item.id} className="min-w-0">

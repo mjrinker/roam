@@ -11,6 +11,7 @@ import { authorizeOwner } from "@/lib/auth/resolve-server";
 import { db } from "@/lib/db/client";
 import { mediaFiles } from "@/lib/db/schema";
 import type { TitleKind } from "@/lib/db/schema";
+import { isPhotoLibraryKind } from "@/lib/libraries/profile";
 import { checkRateLimit } from "@/lib/rate-limit";
 import { isBoxHost } from "@/lib/storage/box-representations";
 import { BoxReauthRequiredError } from "@/lib/storage/box-token-storage";
@@ -40,7 +41,7 @@ export async function authorizePhotoFile(
 ): Promise<{ ok: true; file: PhotoFile } | { ok: false; response: Response }> {
   if (!z.string().uuid().safeParse(id).success) return { ok: false, response: notFound() };
   const auth = await authorizeOwner("title", id, { titleKinds: kinds });
-  if (!auth.ok || auth.libraryKind !== "photos") return { ok: false, response: notFound() };
+  if (!auth.ok || !isPhotoLibraryKind(auth.libraryKind)) return { ok: false, response: notFound() };
 
   // Only now that the caller is known to be allowed does a request spend rate-limit budget.
   if (!(await checkRateLimit(auth.member.profile.id, limit.bucket, limit.max, 60))) {

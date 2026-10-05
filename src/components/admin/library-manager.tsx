@@ -404,12 +404,15 @@ export function LibraryManager({
                   <option value="audiobooks">Audiobooks</option>
                   <option value="video">Other videos</option>
                   <option value="audio">Other audio</option>
+                  <option value="photos">Photos and videos</option>
                 </select>
                 {isFileTreeLibraryKind(kind) && (
                   <p className="text-xs text-muted-foreground">
                     {kind === "audio"
                       ? "Any audio files in folders (podcasts, recordings, lectures), named from the files themselves with no online lookups. Plays .mp3, .m4a and .m4b."
-                      : "Any videos in folders, named from the files themselves (no online lookups). Plays .mp4, .m4v and .mov."}
+                      : kind === "photos"
+                        ? "Photos and videos in folders, shown as a timeline by the date each was taken (read from the photo itself) with your Box folders as albums. No online lookups. Shows .jpg, .png, .webp, .gif and .heic, and plays .mp4, .m4v and .mov."
+                        : "Any videos in folders, named from the files themselves (no online lookups). Plays .mp4, .m4v and .mov."}
                   </p>
                 )}
               </div>

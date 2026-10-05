@@ -2,7 +2,7 @@
  * No code outside a short, named list may special-case the file-tree library kinds by writing the kind
  * as a string literal. Everything else asks lib/libraries/profile (isFileTreeLibraryKind,
  * libraryKindUsesExternalMetadata) or the scan tree profile, so a kind added later can't be missed by a
- * stray `=== "video"`. A grep-level guard: it flags a quoted "video" or "audio" next to a comparison, a
+ * stray `=== "video"`. A grep-level guard: it flags a quoted "video", "audio" or "photos" next to a comparison, a
  * case label, an enum list or an object key.
  */
 import { readFileSync } from "node:fs";
@@ -30,7 +30,7 @@ const ALLOWED: Record<string, string> = {
 
 // ANY quoted "video" or "audio" (single, double or backtick quotes) in code, however it is used: compared,
 // passed to a query, listed, a case label, an object value. Object KEYS are caught separately.
-const LITERAL = /["'`](video|audio)["'`]|\b(video|audio)\s*:\s*[A-Z"'`]/;
+const LITERAL = /["'`](video|audio|photos)["'`]|\b(video|audio|photos)\s*:\s*[A-Z"'`]/;
 
 describe("no stray special-casing of file-tree library kinds", () => {
   it("found the source files it expects to scan", () => {
@@ -45,7 +45,7 @@ describe("no stray special-casing of file-tree library kinds", () => {
     it(`${file} names a file-tree kind only if it is on the allowed list`, () => {
       expect(
         ALLOWED[file],
-        `${file} writes "video" or "audio" as a library kind:\n${hits.join("\n")}\nUse isFileTreeLibraryKind / libraryKindUsesExternalMetadata from lib/libraries/profile (or the scan tree profile) instead, or add the file to ALLOWED with a reason.`
+        `${file} writes "video", "audio" or "photos" as a library kind:\n${hits.join("\n")}\nUse isFileTreeLibraryKind / libraryKindUsesExternalMetadata from lib/libraries/profile (or the scan tree profile) instead, or add the file to ALLOWED with a reason.`
       ).toBeTruthy();
     });
   }

@@ -14,7 +14,9 @@ import { Button } from "@/components/ui/button";
 import { Breadcrumbs } from "@/components/shell/breadcrumbs";
 import { VideoFolderView } from "@/components/library/video-folder-view";
 import { listFolder as listVideoFolder, normalizeFolderPath } from "@/lib/libraries/folder-browse";
-import { isFileTreeLibraryKind } from "@/lib/libraries/profile";
+import { isFileTreeLibraryKind, isPhotoLibraryKind } from "@/lib/libraries/profile";
+import { listTimeline } from "@/lib/photos/timeline";
+import { PhotoTimeline } from "@/components/photos/photo-timeline";
 import { decodeCursor, encodeCursor } from "@/lib/playlists/http";
 import {
   LibraryBrowser,
@@ -25,6 +27,26 @@ const KIND_ICON = { movies: Film, shows: Tv, audiobooks: Headphones, video: Clap
 const KIND_LABEL = { movies: "Movies", shows: "TV Shows", audiobooks: "Audiobooks", video: "Videos", audio: "Audio", photos: "Photos" } as const;
 
 const folderCursorSchema = z.object({ key: z.string().max(1000).regex(/^[^\u0000]*$/), id: z.string().uuid() });
+
+/** Timeline | Albums, for a photo library. */
+function PhotoViewTabs({ serverId, libraryId, active }: { serverId: string; libraryId: string; active: "timeline" | "albums" }) {
+  const base = `/s/${serverId}/library/${libraryId}`;
+  const tab = (view: "timeline" | "albums", label: string) => (
+    <Link
+      href={view === "timeline" ? base : `${base}?view=albums`}
+      aria-current={active === view ? "page" : undefined}
+      className={`rounded-lg px-4 py-1.5 text-sm font-medium transition ${active === view ? "bg-white/[0.12] text-foreground" : "text-muted-foreground hover:text-foreground"}`}
+    >
+      {label}
+    </Link>
+  );
+  return (
+    <nav aria-label="Photo views" className="flex w-fit gap-1 rounded-xl bg-white/[0.05] p-1 ring-1 ring-white/[0.08]">
+      {tab("timeline", "Timeline")}
+      {tab("albums", "Albums")}
+    </nav>
+  );
+}
 
 export default async function LibraryDetailPage({
   params,
@@ -44,7 +66,28 @@ export default async function LibraryDetailPage({
     .limit(1);
   if (!library) notFound();
 
-  // A file-tree library (video, audio) is browsed folder by folder (the folder and the page of files come from the URL).
+  // A photo library opens to its timeline (newest first, by month), with an Albums tab for its folders.
+  const photoView = isPhotoLibraryKind(library.kind) ? (query.view === "albums" ? "albums" : "timeline") : null;
+  if (photoView === "timeline") {
+    const page = await listTimeline(db, { actor: lib, viewer, libraryId, limit: 60 });
+    if (!page) notFound();
+    const PhotoIcon = KIND_ICON[library.kind];
+    return (
+      <div className="flex flex-col gap-6 px-4 py-8 sm:px-8">
+        <Breadcrumbs serverId={serverId} trail={[{ label: library.name }]} className="-mb-2" />
+        <div className="flex items-center gap-3">
+          <span className="flex size-10 items-center justify-center rounded-xl bg-white/[0.06] ring-1 ring-white/10">
+            <PhotoIcon className="size-5 text-primary" />
+          </span>
+          <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">{library.name}</h1>
+        </div>
+        <PhotoViewTabs serverId={serverId} libraryId={libraryId} active="timeline" />
+        <PhotoTimeline serverId={serverId} libraryId={libraryId} initialItems={page.items} initialNext={page.next ? encodeCursor(page.next) : null} />
+      </div>
+    );
+  }
+
+  // A file-tree library (video, audio, and a photo library's albums) is browsed folder by folder (the folder and the page of files come from the URL).
   if (isFileTreeLibraryKind(library.kind)) {
     const path = normalizeFolderPath(typeof query.path === "string" ? query.path : null);
     if (path === null) notFound();
@@ -58,7 +101,7 @@ export default async function LibraryDetailPage({
       after: after === "invalid" ? null : after,
     });
     if (!page) notFound();
-    const here = `/s/${serverId}/library/${libraryId}?${path ? `path=${encodeURIComponent(path)}&` : ""}`;
+    const here = `/s/${serverId}/library/${libraryId}?${photoView ? "view=albums&" : ""}${path ? `path=${encodeURIComponent(path)}&` : ""}`;
     return (
       <div className="flex flex-col gap-6 px-4 py-8 sm:px-8">
         <Breadcrumbs serverId={serverId} trail={[{ label: library.name }]} className="-mb-2" />
@@ -71,6 +114,7 @@ export default async function LibraryDetailPage({
           </span>
           <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">{library.name}</h1>
         </div>
+        {photoView && <PhotoViewTabs serverId={serverId} libraryId={libraryId} active="albums" />}
         <VideoFolderView
           serverId={serverId}
           libraryId={libraryId}
@@ -79,7 +123,8 @@ export default async function LibraryDetailPage({
           folders={page.folders}
           items={page.items}
           nextHref={page.nextCursor ? `${here}after=${encodeCursor(page.nextCursor)}` : null}
-          itemKind={library.kind === "audio" ? "audiobook" : "movie"}
+          itemKind={photoView ? "photo" : library.kind === "audio" ? "audiobook" : "movie"}
+          extraQuery={photoView ? "view=albums" : undefined}
         />
       </div>
     );

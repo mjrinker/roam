@@ -30,6 +30,13 @@ export const GLOBALLY_LISTED_LIBRARY_KINDS: readonly LibraryKind[] = ["movies", 
 
 export const EXTERNAL_METADATA_KINDS = ["movies", "shows", "audiobooks"] as const satisfies readonly LibraryKind[];
 
+/** Libraries of pictures (and the videos beside them): browsed as a timeline and albums rather than folder by folder. */
+export const PHOTO_LIBRARY_KINDS = ["photos"] as const satisfies readonly LibraryKind[];
+
+export function isPhotoLibraryKind(kind: LibraryKind | null | undefined): boolean {
+  return kind === "photos";
+}
+
 export function isFileTreeLibraryKind(kind: LibraryKind | null | undefined): kind is FileTreeKind {
   return kind === "video" || kind === "audio" || kind === "photos";
 }
