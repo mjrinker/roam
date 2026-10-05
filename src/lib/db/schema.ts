@@ -323,6 +323,18 @@ export const titles = pgTable(
     parentFolderId: text("parent_folder_id"),
     nameSource: text("name_source").$type<"filename" | "embedded">(),
     tagsAttemptedAt: timestamp("tags_attempted_at", { withTimezone: true }),
+    // Photo libraries. takenAt is a WALL-CLOCK time stored as if it were UTC (an EXIF time has no zone, so
+    // it is never converted: a photo taken at 23:50 stays in that day whatever the viewer's zone); it is
+    // set for every item at scan time (Box's file date, else the scan time, whole seconds) and upgraded
+    // to the EXIF date when one is read (takenAtSource 'exif'; a rescan never replaces an EXIF date).
+    takenAt: timestamp("taken_at", { withTimezone: true }),
+    takenAtSource: text("taken_at_source").$type<"box" | "exif">(),
+    width: integer("width"),
+    height: integer("height"),
+    // Reading the image's own metadata (EXIF, dimensions); separate from the MP4/ID3 tag counters above
+    // so a photo is never fed to a video tag parser.
+    metaAttemptedAt: timestamp("meta_attempted_at", { withTimezone: true }),
+    metaAttempts: integer("meta_attempts").notNull().default(0),
     // The scan cycle (libraries.scan_cycle_id) in which this video was last seen in Box.
     lastSeenCycle: uuid("last_seen_cycle"),
     // When a scan first found this video gone from Box (null while it is present). Cleanup waits a
@@ -397,6 +409,8 @@ export const titles = pgTable(
     index("titles_name_idx").on(t.name),
     // Folder browsing (video libraries): prefix matches on folder_path within a library.
     index("titles_library_folder_idx").on(t.libraryId, t.folderPath.op("text_pattern_ops")),
+    // The photo timeline: newest first within a library.
+    index("titles_library_taken_idx").on(t.libraryId, t.takenAt.desc(), t.id.desc()),
   ]
 );
 

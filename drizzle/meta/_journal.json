@@ -190,6 +190,13 @@
       "when": 1791186424189,
       "tag": "0026_photo_kinds",
       "breakpoints": true
+    },
+    {
+      "idx": 27,
+      "version": "7",
+      "when": 1791186618936,
+      "tag": "0027_photo_columns",
+      "breakpoints": true
     }
   ]
 }
