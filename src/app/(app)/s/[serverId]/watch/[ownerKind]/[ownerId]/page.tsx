@@ -6,27 +6,31 @@ import { requireServerMember } from "@/lib/auth/guards";
 import { libraryActor, libraryVisible, type LibraryActor } from "@/lib/content/library-access";
 import { isAllowed } from "@/lib/content/access";
 import { isUuid } from "@/lib/playlists/http";
+import { isPhotoLibraryKind } from "@/lib/libraries/profile";
 import { queueNext } from "@/lib/playlists/next";
 import { SeamlessPlayer } from "@/components/player/seamless-player";
 
 async function loadMovie(lib: LibraryActor, id: string) {
-  const [title] = await db
-    .select({ title: titles })
+  const title = await db
+    .select({ title: titles, libraryKind: libraries.kind })
     .from(titles)
     .innerJoin(libraries, eq(titles.libraryId, libraries.id))
     .where(
       and(eq(titles.id, id), eq(titles.kind, "movie"), libraryVisible(db, lib))
     )
     .limit(1)
-    .then((rows) => rows.map((r) => r.title));
+    .then((rows) => rows[0]);
   if (!title) return null;
+  const libraryKind = title.libraryKind;
+  const movie = title.title;
   return {
-    displayTitle: title.name,
-    subtitle: title.year ? String(title.year) : null,
-    backHref: `/s/${lib.serverId}/title/${title.id}`,
+    displayTitle: movie.name,
+    subtitle: movie.year ? String(movie.year) : null,
+    // A video in a photo library has no details page worth going back to: back is the library's timeline.
+    backHref: isPhotoLibraryKind(libraryKind) ? `/s/${lib.serverId}/library/${movie.libraryId}` : `/s/${lib.serverId}/title/${movie.id}`,
     nextHref: undefined,
     nextLabel: undefined,
-    ratingAges: title.ratingAges,
+    ratingAges: movie.ratingAges,
   };
 }
 

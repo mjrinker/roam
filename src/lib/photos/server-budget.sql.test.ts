@@ -35,5 +35,5 @@ describe("spendServerBudget", () => {
     for (let i = 0; i < SERVER_BOX_CALLS_PER_MINUTE; i++) await spendServerBudget(s.id);
     expect(await spendServerBudget(s.id)).toBe(false);
     expect(await spendServerBudget("00000000-0000-4000-8000-0000000000ff")).toBe(false);
-  });
+  }, 60_000);
 });

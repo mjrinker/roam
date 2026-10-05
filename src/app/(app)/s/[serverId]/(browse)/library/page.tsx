@@ -37,7 +37,15 @@ export default async function LibraryHomePage({
     .select({ one: titles.id })
     .from(titles)
     .innerJoin(libraries, eq(titles.libraryId, libraries.id))
-    .where(and(eq(titles.id, watchState.ownerId), libraryVisible(db, lib), contentFilter(viewer, titles.ratingAges)));
+    .where(
+      and(
+        eq(titles.id, watchState.ownerId),
+        libraryVisible(db, lib),
+        // A clip in a photo library is part of the photos, not something to "continue watching" on the home page.
+        inArray(libraries.kind, [...GLOBALLY_LISTED_LIBRARY_KINDS]),
+        contentFilter(viewer, titles.ratingAges)
+      )
+    );
   const visibleEpisode = db
     .select({ one: episodes.id })
     .from(episodes)
