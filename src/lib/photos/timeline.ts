@@ -18,7 +18,11 @@ import { PHOTO_LIBRARY_KINDS } from "@/lib/libraries/profile";
 
 type Db = PgDatabase<PgQueryResultHKT, Record<string, unknown>>;
 
-export const timelineCursorSchema = z.object({ t: z.number().int().nullable(), id: z.string().uuid() });
+export const timelineCursorSchema = z.object({
+  // Years 1 to 9999: anything else would only make Postgres refuse the timestamp.
+  t: z.number().int().min(-62135596800).max(253402300799).nullable(),
+  id: z.string().uuid(),
+});
 export type TimelineCursor = z.infer<typeof timelineCursorSchema>;
 
 export interface TimelineItem {
@@ -79,7 +83,7 @@ export async function listTimeline(
     .from(titles)
     .innerJoin(libraries, eq(libraries.id, titles.libraryId))
     .where(and(visibleItems(ex, args), args.after ? afterCursor(args.after) : undefined))
-    .orderBy(sql`${titles.takenAt} DESC NULLS LAST`, desc(titles.id))
+    .orderBy(sql`${titles.takenAt} DESC NULLS LAST`, sql`${titles.id} DESC NULLS LAST`)
     .limit(limit + 1);
 
   // An empty first page still needs the library itself to be visible and a photo library.
@@ -173,8 +177,8 @@ export async function photoNeighbors(
     const t = Math.floor(photo.takenAt.getTime() / 1000);
     const dated = isNotNull(titles.takenAt);
     return {
-      next: await pick(and(dated, or(lt(titles.takenAt, at(t)), and(sql`${titles.takenAt} = ${at(t)}`, lt(titles.id, photo.id)))), [desc(titles.takenAt), desc(titles.id)]),
-      prev: await pick(and(dated, or(gt(titles.takenAt, at(t)), and(sql`${titles.takenAt} = ${at(t)}`, gt(titles.id, photo.id)))), [asc(titles.takenAt), asc(titles.id)]),
+      next: await pick(and(dated, or(lt(titles.takenAt, at(t)), and(sql`${titles.takenAt} = ${at(t)}`, lt(titles.id, photo.id)))), [sql`${titles.takenAt} DESC NULLS LAST`, sql`${titles.id} DESC NULLS LAST`]),
+      prev: await pick(and(dated, or(gt(titles.takenAt, at(t)), and(sql`${titles.takenAt} = ${at(t)}`, gt(titles.id, photo.id)))), [sql`${titles.takenAt} ASC NULLS FIRST`, sql`${titles.id} ASC NULLS FIRST`]),
     };
   }
 

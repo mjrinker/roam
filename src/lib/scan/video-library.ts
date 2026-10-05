@@ -276,7 +276,7 @@ export async function syncVideoDirectory(
         .update(titles)
         .set({
           tagsAttemptedAt: null, tagAttempts: 0, thumbAttempts: 0, thumbAttemptedAt: null, chapters: null, chaptersSource: null, authors: null, seriesName: null,
-          width: null, height: null, metaAttemptedAt: null, metaAttempts: 0,
+          width: null, height: null, metaAttemptedAt: null, metaAttempts: 0, runtimeSeconds: null,
         })
         .where(inArray(titles.id, ids));
     }
@@ -286,7 +286,7 @@ export async function syncVideoDirectory(
       for (let i = 0; i < ids.length; i += CHUNK) {
         await tx
           .update(mediaFiles)
-          .set({ probeStatus: need ? "pending" : "ok", probeAttempts: 0, durationMs: null, durationSeconds: null, codecProbed: false, codecProbeAttempts: 0 })
+          .set({ probeStatus: need ? "pending" : "ok", probeAttempts: 0, durationMs: null, durationSeconds: null, codecProbed: false, codecProbeAttempts: 0, audioCodec: null, videoCodec: null })
           .where(and(eq(mediaFiles.ownerKind, "title"), inArray(mediaFiles.ownerId, ids.slice(i, i + CHUNK))));
       }
     }

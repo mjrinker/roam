@@ -54,7 +54,14 @@ export async function readPhotoMetadata(provider: StorageProvider, libraryId: st
               metaAttempts: 0,
               updatedAt: now,
             })
-            .where(and(eq(titles.id, t.titleId), isNull(titles.metaAttemptedAt)));
+            .where(
+              and(
+                eq(titles.id, t.titleId),
+                isNull(titles.metaAttemptedAt),
+                // Only if the file is still the one we read: a replacement that landed mid-read must be read afresh, not stamped with the old picture's date.
+                sql`EXISTS (SELECT 1 FROM media_files m WHERE m.owner_kind = 'title' AND m.owner_id = ${titles.id} AND m.part_index = 0 AND m.size_bytes = ${t.size})`
+              )
+            );
         } catch (err) {
           if (err instanceof BoxReauthRequiredError) throw err;
           errors.push(`photo ${t.filename}: ${(err as Error).message}`);

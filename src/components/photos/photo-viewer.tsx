@@ -47,7 +47,7 @@ export function PhotoViewer({
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
-      if (!isForUs(event)) return;
+      if (!isForUs(event) || event.repeat) return; // holding a key down must not fire a navigation per repeat
       if (event.key === "ArrowLeft" && prevHref) router.push(prevHref);
       else if (event.key === "ArrowRight" && nextHref) router.push(nextHref);
       else if (event.key === "Escape") router.push(backHref);

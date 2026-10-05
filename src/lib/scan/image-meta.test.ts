@@ -110,6 +110,11 @@ describe("JPEG", () => {
       expect([m.width, m.height], String(o)).toEqual(swapped ? [3000, 4000] : [4000, 3000]);
     }
   });
+  it("falls back to the EXIF size when the frame header declares a zero height (defined later in the file)", async () => {
+    const m = await meta(buildJpeg({ width: 4000, height: 0, tiff: buildTiff({ pixelX: 4000, pixelY: 3000 }) }));
+    expect([m.width, m.height]).toEqual([4000, 3000]);
+    expect(await meta(buildJpeg({ width: 0, height: 0 }))).toMatchObject({ width: null, height: null });
+  });
   it("finds the size of a progressive JPEG, and a JPEG with no EXIF at all", async () => {
     expect(await meta(buildJpeg({ width: 640, height: 480, progressive: true }))).toEqual({ takenAt: null, width: 640, height: 480 });
   });

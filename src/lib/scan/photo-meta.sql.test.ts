@@ -200,6 +200,36 @@ describe("the metadata pass", () => {
     expect([t.takenAt?.toISOString(), t.width, t.height]).toEqual(["2015-01-02T03:04:05.000Z", 100, 200]);
   });
 
+  it("a replacement that lands while a picture is being read is not stamped with the old picture's date", async () => {
+    const { lib, p } = await photoLibrary();
+    await sync(lib.id, [entry("a.jpg", `${p}a`, { sizeBytes: 5000, createdAt: BOX_DATE })]);
+    h.files.set(`${p}a`, EXIF_JPEG);
+    const racing = {
+      fetchByteRange: async (id: string, s: number, e: number) => {
+        await sync(lib.id, [entry("a.jpg", `${p}a`, { sizeBytes: 9999, createdAt: BOX_DATE })]); // replaced during the read
+        return rangeOfBytes(h.files.get(id)!)(s, e);
+      },
+    } as unknown as StorageProvider;
+    await readPhotoMetadata(racing, lib.id, Date.now() + 60_000, []);
+    const t = await byKey(`file:${p}a`);
+    expect([t.takenAtSource, t.width, t.metaAttemptedAt]).toEqual(["box", null, null]); // left for a fresh read
+    await run(lib.id);
+    expect((await byKey(`file:${p}a`)).takenAtSource).toBe("exif");
+  });
+
+  it("a video that becomes a picture loses its runtime and codecs", async () => {
+    const { lib, p } = await photoLibrary();
+    await sync(lib.id, [entry("x.mp4", `${p}x`)]);
+    const before = await byKey(`file:${p}x`);
+    await db.update(titles).set({ runtimeSeconds: 90 }).where(eq(titles.id, before.id));
+    await db.update((await import("@/lib/db/schema")).mediaFiles).set({ audioCodec: "ac-3", videoCodec: "avc1" }).where(eq((await import("@/lib/db/schema")).mediaFiles.ownerId, before.id));
+    await sync(lib.id, [entry("x.jpg", `${p}x`)]);
+    const after = await byKey(`file:${p}x`);
+    expect(after).toMatchObject({ kind: "photo", runtimeSeconds: null });
+    const m = (await db.select().from((await import("@/lib/db/schema")).mediaFiles).where(eq((await import("@/lib/db/schema")).mediaFiles.ownerId, after.id)))[0];
+    expect([m.audioCodec, m.videoCodec]).toEqual([null, null]);
+  });
+
   it("is part of probing a photo library, and its work-remaining flag keeps the scan going", async () => {
     const { lib, p } = await photoLibrary();
     await sync(lib.id, Array.from({ length: 101 }, (_, i) => entry(`p${i}.png`, `${p}${i}`)));

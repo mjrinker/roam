@@ -52,6 +52,9 @@ export interface StorageProvider {
   /** Mints a short-lived direct-download URL for a single file. */
   getStreamingUrl(fileId: string): Promise<StreamingUrl>;
 
+  /** Like getStreamingUrl, but never reused from a cache: for a link handed to a person, who may follow it much later. */
+  getFreshDownloadUrl?(fileId: string): Promise<StreamingUrl>;
+
   /**
    * A small preview image the storage service generated for a file (e.g. a video frame), or null
    * when none is available (not generated yet, unsupported, or the provider has no such thing).

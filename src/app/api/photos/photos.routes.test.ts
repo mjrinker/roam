@@ -9,6 +9,9 @@ const h = vi.hoisted(() => ({
   testDb: null as unknown as { db: import("@/lib/playlists/test-db").TestDb },
   resolution: null as unknown,
   limited: false,
+  limitedBuckets: new Set<string>(),
+  limitChecks: [] as string[],
+  boxStatus: 0,
   calls: [] as string[],
   thumb: { bytes: Uint8Array.from([0xff, 0xd8, 0xff, 0xe0, 9]) } as { bytes: Uint8Array } | null,
   preview: null as { bytes: Uint8Array; size: number } | null,
@@ -22,7 +25,9 @@ vi.mock("@/lib/db/client", async () => {
   return { db: h.testDb.db };
 });
 vi.mock("@/lib/auth/viewer", () => ({ getCurrentViewer: async () => h.resolution }));
-vi.mock("@/lib/rate-limit", () => ({ checkRateLimit: async () => !h.limited }));
+vi.mock("@/lib/rate-limit", () => ({
+  checkRateLimit: async (_subject: string, bucket: string) => (h.limitChecks.push(bucket), !h.limited && !h.limitedBuckets.has(bucket)),
+}));
 vi.mock("@/lib/storage/box", () => ({
   createBoxProviderForServer: () => ({
     fetchThumbnail: async (id: string) => {
@@ -36,6 +41,10 @@ vi.mock("@/lib/storage/box", () => ({
       return h.preview ? { contentType: "image/jpeg", ...h.preview } : null;
     },
     getStreamingUrl: async (id: string) => {
+      h.calls.push(`cached-url:${id}`);
+      return { url: "https://dl.boxcloud.com/cached", expiresAt: new Date(Date.now() + 60_000) };
+    },
+    getFreshDownloadUrl: async (id: string) => {
       h.calls.push(`original:${id}`);
       return { url: h.url, expiresAt: new Date(Date.now() + 60_000) };
     },
@@ -56,6 +65,8 @@ beforeAll(() => {
 });
 beforeEach(() => {
   h.limited = false;
+  h.limitedBuckets.clear();
+  h.limitChecks.length = 0;
   h.calls.length = 0;
   h.thumb = { bytes: Uint8Array.from([0xff, 0xd8, 0xff, 0xe0, 9]) };
   h.preview = null;
@@ -149,14 +160,43 @@ describe("every photo route gives the same 404 for everything that isn't allowed
   });
 });
 
+describe("the server-wide Box budget", () => {
+  it("is spent together with the account's, only by allowed callers, and a server over it gets a 429 with Retry-After", async () => {
+    const w = await world();
+    await thumbRoute(req(), ctx(w.small.id));
+    expect(h.limitChecks).toEqual(["photo_thumb", "photo_box"]);
+    h.limitChecks.length = 0;
+    await thumbRoute(req(), ctx(w.hidden.id)); // not allowed: no budget spent at all
+    expect(h.limitChecks).toEqual([]);
+    h.limitedBuckets.add("photo_box");
+    h.calls.length = 0;
+    for (const route of [thumbRoute, previewRoute, originalRoute]) {
+      const r = await route(req(), ctx(w.small.id));
+      expect([r.status, r.headers.get("retry-after"), r.headers.get("cache-control")]).toEqual([429, "10", "no-store"]);
+    }
+    expect(h.calls).toEqual([]);
+  });
+
+  it("passes Box's own 'slow down' on as a 429, and uses a freshly minted download URL, never the playback cache", async () => {
+    const w = await world();
+    const { BoxApiError } = await import("box-node-sdk");
+    h.thumbError = new BoxApiError({ message: "rate limited", timestamp: "", error: undefined, requestInfo: {} as never, responseInfo: { statusCode: 429 } as never });
+    const limited = await thumbRoute(req(), ctx(w.small.id));
+    expect([limited.status, limited.headers.get("retry-after")]).toEqual([429, "10"]);
+    h.calls.length = 0;
+    await originalRoute(req(), ctx(w.jpg.id));
+    expect(h.calls).toEqual([`original:${w.jpg.fileId}`]);
+  });
+});
+
 describe("thumbnail", () => {
-  it("serves a photo's or a video's JPEG with private, versioned, year-long caching", async () => {
+  it("serves a photo's or a video's JPEG with private, versioned, day-long caching", async () => {
     const w = await world();
     for (const t of [w.small, w.clip]) {
       const r = await thumbRoute(req("http://x/t?v=1ab-2cd"), ctx(t.id));
       expect(r.status).toBe(200);
-      expect(Object.fromEntries(["content-type", "cache-control", "vary", "x-content-type-options", "etag", "referrer-policy"].map((k) => [k, r.headers.get(k)]))).toEqual({
-        "content-type": "image/jpeg", "cache-control": "private, max-age=31536000, immutable", vary: "Cookie", "x-content-type-options": "nosniff", etag: '"t-1ab-2cd"', "referrer-policy": "no-referrer",
+      expect(Object.fromEntries(["content-type", "cache-control", "x-content-type-options", "etag", "referrer-policy"].map((k) => [k, r.headers.get(k)]))).toEqual({
+        "content-type": "image/jpeg", "cache-control": "private, max-age=86400, immutable", "x-content-type-options": "nosniff", etag: '"t-1ab-2cd"', "referrer-policy": "no-referrer",
       });
       expect(await bodyOf(r)).toEqual([0xff, 0xd8, 0xff, 0xe0, 9]);
     }
@@ -204,7 +244,7 @@ describe("preview", () => {
     const w = await world();
     h.preview = { bytes: Uint8Array.from([0xff, 0xd8, 0xff, 1, 2, 3]), size: 2048 };
     const r = await previewRoute(req(), ctx(w.jpg.id));
-    expect([r.status, r.headers.get("content-type"), r.headers.get("cache-control"), r.headers.get("x-preview-size")]).toEqual([200, "image/jpeg", "private, max-age=86400", "2048"]);
+    expect([r.status, r.headers.get("content-type"), r.headers.get("cache-control"), r.headers.get("x-preview-size")]).toEqual([200, "image/jpeg", "private, max-age=300", "2048"]);
     expect(await bodyOf(r)).toEqual([0xff, 0xd8, 0xff, 1, 2, 3]);
   });
 

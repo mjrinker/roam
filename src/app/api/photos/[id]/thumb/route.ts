@@ -20,7 +20,7 @@ export async function GET(request: Request, ctx: RouteContext<"/api/photos/[id]/
   const raw = new URL(request.url).searchParams.get("v");
   const version = raw && VERSION.test(raw) ? raw : null;
   const etag = version ? `"t-${version}"` : null;
-  const cache = version ? "private, max-age=31536000, immutable" : "private, max-age=300";
+  const cache = version ? "private, max-age=86400, immutable" : "private, max-age=300";
   if (etag && request.headers.get("if-none-match") === etag) {
     return new Response(null, { status: 304, headers: { ...PRIVATE_HEADERS, "Cache-Control": cache, ETag: etag } });
   }

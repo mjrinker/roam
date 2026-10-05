@@ -66,8 +66,10 @@ function walkJpeg(b: Uint8Array): { tiff: Uint8Array | null; sof: { width: numbe
 function jpegMeta(b: Uint8Array): ImageMeta {
   const { tiff, sof } = walkJpeg(b);
   const exif = tiff ? parseExif(tiff) : null;
-  const w = sof?.width ?? exif?.width ?? null;
-  const h = sof?.height ?? exif?.height ?? null;
+  // A frame header can declare 0 (height defined later in the file): then the EXIF size, if any, is the better answer.
+  const useSof = sof !== null && validDimension(sof.width) && validDimension(sof.height);
+  const w = useSof ? sof.width : (exif?.width ?? null);
+  const h = useSof ? sof.height : (exif?.height ?? null);
   return { takenAt: exif?.takenAt ?? null, ...oriented(w, h, exif?.orientation ?? null) };
 }
 

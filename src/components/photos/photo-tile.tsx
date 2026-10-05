@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
+import { memo, useEffect, useState } from "react";
 import { Image as ImageIcon, Play } from "lucide-react";
 import { Artwork } from "@/components/ui/artwork";
 import { cn } from "@/lib/utils";
@@ -29,23 +29,34 @@ export function photoHref(serverId: string, item: Pick<PhotoTileData, "id" | "ki
 }
 
 /** One square in a photo grid. A thumbnail that isn't ready (Box makes them on demand) or fails shows a quiet placeholder instead of a broken image. */
-export function PhotoTile({ serverId, item, from, priority = false }: { serverId: string; item: PhotoTileData; from: string; priority?: boolean }) {
+export const PhotoTile = memo(function PhotoTile({ serverId, item, from, priority = false }: { serverId: string; item: PhotoTileData; from: string; priority?: boolean }) {
+  // A thumbnail Box hasn't made yet answers 404 (never cached): look once more after a few seconds before giving up.
+  const [attempt, setAttempt] = useState(0);
   const [failed, setFailed] = useState(false);
+  useEffect(() => {
+    if (attempt !== 0.5) return;
+    const timer = window.setTimeout(() => setAttempt(1), 4000);
+    return () => window.clearTimeout(timer);
+  }, [attempt]);
+  const src = item.posterUrl ? (attempt === 1 ? `${item.posterUrl}${item.posterUrl.includes("?") ? "&" : "?"}r=1` : item.posterUrl) : null;
   const length = item.kind === "movie" ? duration(item.runtimeSeconds) : null;
   return (
     <Link
       href={photoHref(serverId, item, from)}
+      // Each tile would otherwise prefetch its viewer page as it scrolls into view: dozens of server renders per screen.
+      prefetch={false}
       aria-label={item.kind === "movie" ? `Play video ${item.name}` : `Open photo ${item.name}`}
       className="group/tile relative block aspect-square overflow-hidden rounded-md bg-muted outline-none ring-1 ring-white/[0.06] focus-visible:ring-2 focus-visible:ring-primary"
     >
-      {item.posterUrl && !failed ? (
+      {src && !failed ? (
         <Artwork
-          src={item.posterUrl}
+          key={src}
+          src={src}
           alt=""
           fill
           sizes="(min-width: 1280px) 12vw, (min-width: 768px) 18vw, 33vw"
           loading={priority ? "eager" : "lazy"}
-          onError={() => setFailed(true)}
+          onError={() => (attempt === 0 ? setAttempt(0.5) : setFailed(true))}
           className="object-cover transition duration-200 group-hover/tile:scale-[1.03]"
         />
       ) : (
@@ -61,4 +72,4 @@ export function PhotoTile({ serverId, item, from, priority = false }: { serverId
       )}
     </Link>
   );
-}
+});

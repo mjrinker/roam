@@ -30,7 +30,7 @@ export async function GET(_request: Request, ctx: RouteContext<"/api/photos/[id]
       // A connection that needs re-authorising is reported; anything else just means "no rendering", and we fall back.
       if (err instanceof BoxReauthRequiredError) throw err;
     }
-    if (preview) return imageResponse(preview.bytes, "private, max-age=86400", { "X-Preview-Size": String(preview.size) });
+    if (preview) return imageResponse(preview.bytes, "private, max-age=300", { "X-Preview-Size": String(preview.size) });
 
     if (plan.originalFallback) return await redirectToOriginal(file);
 

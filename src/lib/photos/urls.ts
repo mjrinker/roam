@@ -3,7 +3,7 @@
  * scanner, the routes and client components all build them the same way.
  *
  * The thumbnail URL carries a version that changes only when the file's CONTENT changes (its size or
- * modified time in Box), never on a rescan, so a browser can keep a thumbnail for a year and still
+ * modified time in Box), never on a rescan, so a browser can keep a thumbnail for a day and still
  * see a replaced photo's new one. Every route behind these URLs checks access before answering.
  */
 export const photoThumbUrl = (titleId: string, version: string) => `/api/photos/${titleId}/thumb?v=${version}`;

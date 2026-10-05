@@ -91,7 +91,7 @@ describe("GET /api/libraries/[id]/photos", () => {
     const ids = ((await (await get(w.lib.id)).json()).items as { id: string }[]).map((i) => i.id);
     expect(ids).not.toContain(w.made[2].id);
     expect(ids).toHaveLength(2);
-    for (const bad of ["?after=%%%", "?after=bm90LWpzb24", `?after=${Buffer.from(JSON.stringify({ t: "x", id: "y" })).toString("base64url")}`]) {
+    for (const bad of ["?after=%%%", "?after=bm90LWpzb24", `?after=${Buffer.from(JSON.stringify({ t: "x", id: "y" })).toString("base64url")}`, `?after=${Buffer.from(JSON.stringify({ t: 1e300, id: "11111111-1111-4111-8111-111111111111" })).toString("base64url")}`, `?after=${Buffer.from(JSON.stringify({ t: 253402300800, id: "11111111-1111-4111-8111-111111111111" })).toString("base64url")}`]) {
       expect((await get(w.lib.id, bad)).status, bad).toBe(400);
     }
     h.limited = true;

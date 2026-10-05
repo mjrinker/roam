@@ -297,6 +297,7 @@ export function createBoxProviderForServer(serverId: string): StorageProvider {
     listFolder: (folderId, opts) => listFolder(serverId, folderId, opts),
     getFolder: (folderId) => getFolder(serverId, folderId),
     getStreamingUrl: (fileId) => getStreamingUrl(serverId, fileId),
+    getFreshDownloadUrl: (fileId) => getFreshDownloadUrl(serverId, fileId),
     fetchByteRange: (fileId, startByte, endByte) =>
       fetchByteRange(serverId, fileId, startByte, endByte),
     fetchThumbnail: (fileId) => fetchThumbnail(serverId, fileId),
