@@ -10,7 +10,7 @@ import { z } from "zod";
 import { and, eq } from "drizzle-orm";
 import { authorizeOwner } from "@/lib/auth/resolve-server";
 import { db } from "@/lib/db/client";
-import { mediaFiles } from "@/lib/db/schema";
+import { mediaFiles, servers } from "@/lib/db/schema";
 import type { TitleKind } from "@/lib/db/schema";
 import { isPhotoLibraryKind } from "@/lib/libraries/profile";
 import { checkRateLimit } from "@/lib/rate-limit";
@@ -29,6 +29,17 @@ export const PRIVATE_HEADERS = {
 
 /** All photo requests of one server together: well under what Box allows a connected user, leaving room for playback. */
 export const SERVER_BOX_CALLS_PER_MINUTE = 1500;
+
+/**
+ * One server's shared budget for photo requests. The limiter's table is keyed by an ACCOUNT, so the budget
+ * is recorded against the server's owner under a bucket named for the server (any other id would be
+ * refused by the table's foreign key, failing every request).
+ */
+export async function spendServerBudget(serverId: string): Promise<boolean> {
+  const [server] = await db.select({ ownerId: servers.ownerId }).from(servers).where(eq(servers.id, serverId)).limit(1);
+  if (!server) return false;
+  return checkRateLimit(server.ownerId, `photo_box:${serverId}`, SERVER_BOX_CALLS_PER_MINUTE, 60);
+}
 
 export const notFound = () => NextResponse.json({ error: "Not found" }, { status: 404, headers: { "Cache-Control": "no-store" } });
 
@@ -55,7 +66,7 @@ export async function authorizePhotoFile(
   // playback, scans and remuxing, so no one viewer (or a fast scroll) may use up its quota.
   const tooMany = () => ({ ok: false as const, response: NextResponse.json({ error: "Too many requests" }, { status: 429, headers: { "Cache-Control": "no-store", "Retry-After": "10" } }) });
   if (!(await checkRateLimit(auth.member.profile.id, limit.bucket, limit.max, 60))) return tooMany();
-  if (!(await checkRateLimit(auth.serverId, "photo_box", SERVER_BOX_CALLS_PER_MINUTE, 60))) return tooMany();
+  if (!(await spendServerBudget(auth.serverId))) return tooMany();
 
   const [media] = await db
     .select({ fileId: mediaFiles.boxFileId, sizeBytes: mediaFiles.sizeBytes, container: mediaFiles.container })

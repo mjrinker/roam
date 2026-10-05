@@ -26,7 +26,7 @@ vi.mock("@/lib/db/client", async () => {
 });
 vi.mock("@/lib/auth/viewer", () => ({ getCurrentViewer: async () => h.resolution }));
 vi.mock("@/lib/rate-limit", () => ({
-  checkRateLimit: async (_subject: string, bucket: string) => (h.limitChecks.push(bucket), !h.limited && !h.limitedBuckets.has(bucket)),
+  checkRateLimit: async (_subject: string, bucket: string) => (h.limitChecks.push(bucket.split(":")[0]), !h.limited && !h.limitedBuckets.has(bucket.split(":")[0])),
 }));
 vi.mock("@/lib/storage/box", () => ({
   createBoxProviderForServer: () => ({
