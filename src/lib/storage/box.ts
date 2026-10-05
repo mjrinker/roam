@@ -1,6 +1,8 @@
 import { BoxApiError, BoxClient, BoxDeveloperTokenAuth } from "box-node-sdk";
-import { ListingTruncatedError, type StorageEntry, type StorageProvider, type StreamingUrl } from "./provider";
+import { ListingTruncatedError, type PreviewImage, type StorageEntry, type StorageProvider, type StreamingUrl } from "./provider";
 import { ensureFreshAccessToken, withBoxClient } from "./box-token-storage";
+import { boxDate } from "./box-dates";
+import { isJpeg, planRepresentation, readCapped } from "./box-representations";
 
 /**
  * Per-server Box access, authenticated as that server's own connected Box
@@ -21,7 +23,7 @@ async function listFolder(serverId: string, folderId: string, opts?: { strict?: 
     for (;;) {
       const page = await client.folders.getFolderItems(folderId, {
         queryParams: {
-          fields: ["name", "size", "type"],
+          fields: ["name", "size", "type", "content_created_at", "content_modified_at"],
           offset,
           limit: PAGE_SIZE,
         },
@@ -34,6 +36,8 @@ async function listFolder(serverId: string, folderId: string, opts?: { strict?: 
             name: item.name ?? item.id,
             kind: "file",
             sizeBytes: item.size,
+            createdAt: boxDate(item.contentCreatedAt),
+            modifiedAt: boxDate(item.contentModifiedAt),
           });
         } else if (item.type === "folder") {
           entries.push({ id: item.id, name: item.name ?? item.id, kind: "folder" });
@@ -233,6 +237,61 @@ async function fetchThumbnail(serverId: string, fileId: string): Promise<{ conte
   });
 }
 
+const PREVIEW_DIMENSIONS = [2048, 1024] as const;
+/** A 2048px JPEG is a few hundred KiB; anything this big is not a preview. */
+const MAX_PREVIEW_BYTES = 6 * 1024 * 1024;
+const PREVIEW_POLL_MS = 800;
+const DEFAULT_PREVIEW_BUDGET_MS = 8_000;
+
+/**
+ * Box's generated JPEG of a photo (HEIC included), as large as Box will make it: 2048px, else 1024px.
+ * Box builds a representation on first request, so this asks for it, then checks a few times within
+ * `budgetMs`; null if it isn't ready in time (the caller falls back to something smaller). The access
+ * token is only ever sent to a Box host over https.
+ */
+async function fetchPreview(serverId: string, fileId: string, opts?: { budgetMs?: number }): Promise<PreviewImage | null> {
+  const deadline = Date.now() + (opts?.budgetMs ?? DEFAULT_PREVIEW_BUDGET_MS);
+  return withBoxClient(serverId, async (client) => {
+    for (const size of PREVIEW_DIMENSIONS) {
+      let triggered = false;
+      for (;;) {
+        let plan;
+        try {
+          const file = await client.files.getFileById(fileId, {
+            queryParams: { fields: ["representations"] },
+            headers: { xRepHints: `[jpg?dimensions=${size}x${size}]` },
+          });
+          plan = planRepresentation(file.representations?.entries?.[0]);
+        } catch (err) {
+          // A file Box has no representation for (or can't read) has no preview at this size.
+          if (err instanceof BoxApiError && [400, 404, 415].includes(err.responseInfo?.statusCode ?? 0)) break;
+          throw err;
+        }
+
+        if (plan.action === "fetch") {
+          const res = await client.makeRequest({ url: plan.url, method: "GET", responseFormat: "binary" });
+          // 202: still being written; try again like "pending".
+          if (res.status === 200 && res.content) {
+            const bytes = await readCapped(res.content as AsyncIterable<unknown>, MAX_PREVIEW_BYTES);
+            if (bytes && isJpeg(bytes)) return { contentType: "image/jpeg", bytes, size };
+            break;
+          }
+          if (res.status !== 202) break;
+        } else if (plan.action === "trigger" && !triggered) {
+          triggered = true;
+          await client.makeRequest({ url: plan.url, method: "GET", responseFormat: "no_content" }).catch(() => undefined);
+        } else if (plan.action === "none") {
+          break;
+        }
+
+        if (Date.now() + PREVIEW_POLL_MS > deadline) return null;
+        await new Promise((resolve) => setTimeout(resolve, PREVIEW_POLL_MS));
+      }
+    }
+    return null;
+  });
+}
+
 export function createBoxProviderForServer(serverId: string): StorageProvider {
   return {
     listFolder: (folderId, opts) => listFolder(serverId, folderId, opts),
@@ -241,6 +300,7 @@ export function createBoxProviderForServer(serverId: string): StorageProvider {
     fetchByteRange: (fileId, startByte, endByte) =>
       fetchByteRange(serverId, fileId, startByte, endByte),
     fetchThumbnail: (fileId) => fetchThumbnail(serverId, fileId),
+    fetchPreview: (fileId, opts) => fetchPreview(serverId, fileId, opts),
     fileExists: (fileId) => fileExists(serverId, fileId),
   };
 }

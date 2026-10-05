@@ -10,6 +10,17 @@ export interface StorageEntry {
   name: string;
   kind: "folder" | "file";
   sizeBytes?: number;
+  /** When the file's content was created / last changed, as Box reports them (files only; absent when missing or implausible). */
+  createdAt?: Date;
+  modifiedAt?: Date;
+}
+
+/** A generated preview picture: always a JPEG, never larger than the provider's cap. */
+export interface PreviewImage {
+  contentType: "image/jpeg";
+  bytes: Uint8Array;
+  /** The longest edge it was asked at (2048, 1024). */
+  size: number;
 }
 
 export interface StreamingUrl {
@@ -46,6 +57,12 @@ export interface StorageProvider {
    * when none is available (not generated yet, unsupported, or the provider has no such thing).
    */
   fetchThumbnail?(fileId: string): Promise<{ contentType: "image/jpeg"; bytes: Uint8Array } | null>;
+
+  /**
+   * A large preview picture (about 2048px; smaller if that isn't available) of an image or HEIC photo,
+   * or null when none could be made within `budgetMs`. Never the original file.
+   */
+  fetchPreview?(fileId: string, opts?: { budgetMs?: number }): Promise<PreviewImage | null>;
 
   /**
    * Whether a file still exists and isn't in the trash. False only for a definite "gone"; anything
