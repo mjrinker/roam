@@ -24,7 +24,7 @@ vi.mock("@/lib/storage/box", () => ({
     new Proxy({}, { get: (_t, name) => (typeof name === "symbol" || name === "then" ? undefined : () => (h.boxCalls.push(String(name)), Promise.reject(new Error("Box must not be called")))) }),
 }));
 
-import { playlistItems, profiles, viewers } from "@/lib/db/schema";
+import { profiles, viewers } from "@/lib/db/schema";
 import { findAddableTarget, listVisibleItems } from "@/lib/playlists/items";
 import { nextAfter } from "@/lib/playlists/next";
 import { copyPlaylist } from "@/lib/playlists/service";
@@ -115,7 +115,7 @@ describe("playlists never hold or surface a photo", () => {
     // A stale photo entry, inserted directly (as if it predated this rule), between two real ones.
     const playlist = await makePlaylist(db, { serverId: w.server.id, ownerViewerId: w.member.viewer.id });
     const a = await addItem(db, playlist.id, { titleId: w.film.id }, 1024);
-    await db.insert(playlistItems).values({ playlistId: playlist.id, titleId: w.photo.id, position: 2048 });
+    await addItem(db, playlist.id, { titleId: w.photo.id }, 2048); // the helper inserts directly, with no kind check
     const b = await addItem(db, playlist.id, { titleId: w.clip.id }, 3072);
     const page = await listVisibleItems(db, { playlistId: playlist.id, lib, viewer });
     expect(page.items.map((i) => i.id)).toEqual([a.id, b.id]);
