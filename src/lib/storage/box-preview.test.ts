@@ -9,7 +9,7 @@ const h = vi.hoisted(() => ({
   requested: [] as string[],
   requests: [] as { url: string; format?: string }[],
   /** what makeRequest answers for a content URL */
-  content: (_url: string): { status: number; bytes?: Uint8Array; chunks?: number } => ({ status: 404 }),
+  content: ((): { status: number; bytes?: Uint8Array; chunks?: number } => ({ status: 404 })) as (url: string) => { status: number; bytes?: Uint8Array; chunks?: number },
   listing: [] as unknown[],
 }));
 vi.mock("./box-token-storage", () => ({
