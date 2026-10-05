@@ -156,6 +156,16 @@ describe("POST /api/libraries (video)", () => {
     expect((await ok.json()).library).toMatchObject({ kind: "audio", access: "restricted", ratingAges: { ANY: 7 } });
   });
 
+  it("has no limit on how many libraries a server can have (it used to stop at five)", async () => {
+    const w = await world();
+    h.admin = { profile: { id: "x" }, role: "admin" };
+    for (let i = 0; i < 9; i++) {
+      const res = await create({ serverId: w.server.id, name: `Library ${i}`, kind: "movies", boxFolderId: `box-many-${w.server.id}-${i}` });
+      expect(res.status, `library ${i}`).toBe(200);
+    }
+    expect((await db.select().from(libraries).where(eq(libraries.serverId, w.server.id))).length).toBeGreaterThan(10);
+  });
+
   it("rejects a rating on any other kind of library", async () => {
     const w = await world();
     h.admin = { profile: { id: "x" }, role: "admin" };

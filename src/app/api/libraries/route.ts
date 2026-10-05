@@ -1,13 +1,10 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { count, eq } from "drizzle-orm";
 import { getCurrentServerAdmin } from "@/lib/auth/guards";
 import { db } from "@/lib/db/client";
 import { libraries } from "@/lib/db/schema";
 import { isFileTreeLibraryKind } from "@/lib/libraries/profile";
 import { isVideoRating, ratingToAges } from "@/lib/libraries/video-rating";
-
-const MAX_LIBRARIES_PER_SERVER = Number(process.env.MAX_LIBRARIES_PER_SERVER ?? 5);
 
 const bodySchema = z.object({
   serverId: z.string().uuid(),
@@ -37,17 +34,6 @@ export async function POST(request: Request) {
   const admin = await getCurrentServerAdmin(parsed.data.serverId);
   if (!admin) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-  }
-
-  const [{ existingCount }] = await db
-    .select({ existingCount: count() })
-    .from(libraries)
-    .where(eq(libraries.serverId, parsed.data.serverId));
-  if (existingCount >= MAX_LIBRARIES_PER_SERVER) {
-    return NextResponse.json(
-      { error: "This server has reached its limit on libraries." },
-      { status: 429 }
-    );
   }
 
   const [library] = await db.insert(libraries).values({ ...fields, access: "restricted", ratingAges: isTree ? ratingToAges(rating ?? null) : null }).returning();
