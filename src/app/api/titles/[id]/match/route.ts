@@ -106,7 +106,7 @@ export async function POST(
   // it just means a rescan won't be pinned to it by the folder name.
   const { errors: renameErrors } = await stampTmdbIdOnBox(
     serverId,
-    { kind: title.kind, boxFolderId: title.boxFolderId },
+    { kind: title.kind === "show" ? "show" : "movie", boxFolderId: title.boxFolderId },
     parsed.data.tmdbId,
     matchedYear
   ).catch((err) => ({ errors: [(err as Error).message] }));

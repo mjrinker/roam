@@ -240,6 +240,9 @@ export async function scanLibrary(
               }
               break;
             }
+            case "photos":
+              // Scanning photo libraries arrives in a later step; creating one isn't possible yet.
+              throw new Error("Photo libraries can't be scanned yet.");
             case "audio":
             case "video": {
               const res = await syncVideoTopFolder(provider, library.id, folder, {
@@ -1056,6 +1059,9 @@ export async function syncSingleTitle(titleId: string): Promise<{ errors: string
         break;
       case "audiobook":
         await syncSingleAudiobook(provider, library.id, folderInfo);
+        break;
+      case "photo":
+        // Photos live in file-tree libraries, which are refused above; nothing to resync by folder.
         break;
       default:
         assertNever(title.kind);

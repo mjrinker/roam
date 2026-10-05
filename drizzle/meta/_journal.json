@@ -183,6 +183,13 @@
       "when": 1791138470862,
       "tag": "0025_artwork_images_finish",
       "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "7",
+      "when": 1791186424189,
+      "tag": "0026_photo_kinds",
+      "breakpoints": true
     }
   ]
 }

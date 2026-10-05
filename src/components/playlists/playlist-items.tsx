@@ -9,7 +9,7 @@ import { cn } from "@/lib/utils";
 import { playlistApi, type ItemRow } from "@/components/playlists/playlist-api";
 import { moveTo } from "@/components/playlists/reorder";
 
-const KIND_LABEL = { movie: "Movie", show: "Show", audiobook: "Audiobook", episode: "Episode" } as const;
+const KIND_LABEL = { movie: "Movie", show: "Show", audiobook: "Audiobook", episode: "Episode", photo: "Photo" } as const;
 
 function kindOf(item: ItemRow): keyof typeof KIND_LABEL {
   return item.episodeId ? "episode" : (item.titleKind ?? "movie");

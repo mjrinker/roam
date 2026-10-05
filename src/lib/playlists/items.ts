@@ -52,7 +52,7 @@ export interface PlaylistItemView {
   titleId: string | null;
   episodeId: string | null;
   /** The title's kind (movie|show|audiobook), or null for an episode item. */
-  titleKind: "movie" | "show" | "audiobook" | null;
+  titleKind: "movie" | "show" | "audiobook" | "photo" | null;
   name: string | null;
   year: number | null;
   posterUrl: string | null;

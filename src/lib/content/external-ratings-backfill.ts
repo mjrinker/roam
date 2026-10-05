@@ -46,7 +46,7 @@ export async function backfillExternalRatings(libraryId: string, deadline: numbe
     try {
       let imdbId = title.imdbId;
       if (!imdbId) {
-        imdbId = await fetchImdbId(title.kind, title.tmdbId as number);
+        imdbId = await fetchImdbId(title.kind === "photo" ? "movie" : title.kind, title.tmdbId as number);
         if (!imdbId) continue;
         await db.update(titles).set({ imdbId }).where(eq(titles.id, title.id));
       }

@@ -28,7 +28,7 @@ export interface ItemRow {
   id: string;
   titleId: string | null;
   episodeId: string | null;
-  titleKind: "movie" | "show" | "audiobook" | null;
+  titleKind: "movie" | "show" | "audiobook" | "photo" | null;
   name: string | null;
   year: number | null;
   posterUrl: string | null;
