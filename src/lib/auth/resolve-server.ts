@@ -1,6 +1,6 @@
 import { eq } from "drizzle-orm";
 import { db } from "@/lib/db/client";
-import { episodes, libraries, seasons, titles, type TitleKind } from "@/lib/db/schema";
+import { episodes, libraries, seasons, titles, type LibraryKind, type TitleKind } from "@/lib/db/schema";
 import type { PlayOwnerKind } from "@/lib/player/types";
 import { getCurrentServerMember, type ServerMembership } from "@/lib/auth/guards";
 import { isAllowed } from "@/lib/content/access";
@@ -48,10 +48,10 @@ export async function resolveServerIdForOwner(
 export async function resolveOwner(
   ownerKind: PlayOwnerKind,
   ownerId: string
-): Promise<{ serverId: string; libraryId: string; ratingAges: RatingAges | null; titleKind: TitleKind | "episode" } | null> {
+): Promise<{ serverId: string; libraryId: string; libraryKind: LibraryKind; ratingAges: RatingAges | null; titleKind: TitleKind | "episode" } | null> {
   if (ownerKind === "title") {
     const [row] = await db
-      .select({ serverId: libraries.serverId, libraryId: libraries.id, ratingAges: titles.ratingAges, titleKind: titles.kind })
+      .select({ serverId: libraries.serverId, libraryId: libraries.id, libraryKind: libraries.kind, ratingAges: titles.ratingAges, titleKind: titles.kind })
       .from(titles)
       .innerJoin(libraries, eq(titles.libraryId, libraries.id))
       .where(eq(titles.id, ownerId))
@@ -60,7 +60,7 @@ export async function resolveOwner(
   }
 
   const [row] = await db
-    .select({ serverId: libraries.serverId, libraryId: libraries.id, ratingAges: titles.ratingAges })
+    .select({ serverId: libraries.serverId, libraryId: libraries.id, libraryKind: libraries.kind, ratingAges: titles.ratingAges })
     .from(episodes)
     .innerJoin(seasons, eq(episodes.seasonId, seasons.id))
     .innerJoin(titles, eq(seasons.titleId, titles.id))
@@ -71,7 +71,7 @@ export async function resolveOwner(
 }
 
 export type OwnerAuthorization =
-  | { ok: true; member: ServerMembership; serverId: string }
+  | { ok: true; member: ServerMembership; serverId: string; libraryKind: LibraryKind }
   | { ok: false; status: 404 | 403 };
 
 /**
@@ -100,7 +100,7 @@ export async function authorizeOwner(
 
   if (!isAllowed(member.viewer, owner.ratingAges)) return { ok: false, status: 404 };
   if (!(await canSeeLibrary(db, libraryActor(member, owner.serverId), owner.libraryId))) return { ok: false, status: 404 };
-  return { ok: true, member, serverId: owner.serverId };
+  return { ok: true, member, serverId: owner.serverId, libraryKind: owner.libraryKind };
 }
 
 /** Same idea, for a title id specifically (used by the admin match-fix route). */
