@@ -87,7 +87,7 @@ describe("syncing a photo directory", () => {
 });
 
 describe("probing and tag reading never touch a picture", () => {
-  it("hands the prober only videos, and never reads a picture's bytes or asks for its thumbnail", async () => {
+  it("hands the prober only videos, and never asks Box for a stored thumbnail (pictures are read only by the metadata pass)", async () => {
     const { lib, p } = await photoLibrary();
     await syncVideoDirectory(lib.id, "d", "", [file("a.jpg", `${p}a`), file("b.heic", `${p}b`), file("v.mp4", `${p}v`)], null, PHOTOS_PROFILE);
     // Even a picture whose media row were left 'pending' (a bug elsewhere) must not reach the prober.
@@ -95,7 +95,8 @@ describe("probing and tag reading never touch a picture", () => {
     await probeVideoLibrary(spyProvider, lib.id, Date.now() + 60_000, [], PHOTOS_PROFILE);
     const handed = vi.mocked(probeFiles).mock.calls.flatMap((c) => (c[1] as { boxFileId: string }[]).map((f) => f.boxFileId));
     expect(handed).toEqual([`${p}v`]);
-    expect(h.fetches).toEqual([]);
+    expect(h.fetches.filter((f) => f.startsWith("thumb:"))).toEqual([]);
+    expect(h.fetches).not.toContain(`${p}v`); // the video is probed by the prober, not read for metadata
   });
 
   it("the tag and thumbnail pass skips photo-kind titles even when asked directly", async () => {
@@ -116,7 +117,7 @@ describe("a file that changes kind", () => {
     await db.update(titles).set({ takenAtSource: "exif", width: 400, height: 300, metaAttempts: 2, metaAttemptedAt: new Date() }).where(eq(titles.id, before.id));
     await syncVideoDirectory(lib.id, "d", "", [file("x.mp4", `${p}x`)], null, PHOTOS_PROFILE);
     const after = await byKey(`file:${p}x`);
-    expect(after).toMatchObject({ id: before.id, kind: "movie", takenAtSource: null, width: null, height: null, metaAttempts: 0, metaAttemptedAt: null });
+    expect(after).toMatchObject({ id: before.id, kind: "movie", takenAtSource: "scan", width: null, height: null, metaAttempts: 0, metaAttemptedAt: null });
     expect((await mediaOf(after.id)).probeStatus).toBe("pending");
   });
 

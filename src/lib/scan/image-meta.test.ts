@@ -165,8 +165,15 @@ describe("unrecognised and unreadable files", () => {
     for (const bytes of [new Uint8Array(100), Uint8Array.from(Array.from("this is a text file, not a picture").map((c) => c.charCodeAt(0))), new Uint8Array(3), new Uint8Array(0)]) {
       expect(await meta(bytes)).toEqual(none);
     }
-    expect(await readImageMeta(async () => { throw new Error("network"); }, 5000)).toEqual(none);
+    expect(await readImageMeta(rangeOfBytes(buildPng(1, 1)), 5)).toEqual(none); // too small to be a picture
     expect(await readImageMeta(rangeOfBytes(buildPng(1, 1)), Number.NaN)).toEqual(none);
+  });
+  it("report a failed READ as an error (so it can be retried), never as 'no metadata'", async () => {
+    await expect(readImageMeta(async () => { throw new Error("network"); }, 5000)).rejects.toThrow("network");
+    // a HEIC whose EXIF block can't be fetched fails the same way
+    const heic = buildHeic({ tiff: buildTiff({ dateTimeOriginal: "2019:05:06 07:08:09" }), gap: META_WINDOW + 1000 });
+    let calls = 0;
+    await expect(readImageMeta(async (s, e) => (++calls === 1 ? rangeOfBytes(heic)(s, e) : Promise.reject(new Error("blip"))), heic.length)).rejects.toThrow("blip");
   });
   it("go by the real format, not the name: a PNG is read as a PNG wherever it is", async () => {
     expect(await meta(buildPng(10, 20))).toMatchObject({ width: 10, height: 20 });

@@ -18,6 +18,8 @@ export interface TreeProfile {
   titleKinds: readonly TitleKind[];
   /** Whether a file has a duration/codec to probe. A picture doesn't: its media row is born 'ok' so no prober ever opens it. */
   needsProbe(fileName: string): boolean;
+  /** Photo libraries: date every item (Box's file date at scan, upgraded from the picture's own EXIF), point it at its live thumbnail, and read each picture's metadata. */
+  photoMeta: boolean;
   /** Read descriptive tags (and a cover) from the files. Photo libraries read an image's own metadata in a pass of their own. */
   readTags: boolean;
   /** Admin-facing nouns for scan notes. */
@@ -53,6 +55,7 @@ export const VIDEO_PROFILE: TreeProfile = {
   titleKindFor: () => "movie",
   titleKinds: ["movie"],
   needsProbe: () => true,
+  photoMeta: false,
   readTags: true,
   noun: { one: "video", many: "videos" },
   supportedHint: "Roam plays .mp4, .m4v and .mov",
@@ -70,6 +73,7 @@ export const AUDIO_PROFILE: TreeProfile = {
   titleKindFor: () => "audiobook",
   titleKinds: ["audiobook"],
   needsProbe: () => true,
+  photoMeta: false,
   readTags: true,
   noun: { one: "audio file", many: "audio files" },
   supportedHint: "Roam plays .mp3, .m4a and .m4b",
@@ -90,6 +94,7 @@ export const PHOTOS_PROFILE: TreeProfile = {
   titleKindFor: (name) => (isImageFile(name) ? "photo" : "movie"),
   titleKinds: ["photo", "movie"],
   needsProbe: (name) => !isImageFile(name),
+  photoMeta: true,
   readTags: false,
   noun: { one: "photo or video", many: "photos and videos" },
   supportedHint: "Roam shows .jpg, .png, .webp, .gif and .heic photos and plays .mp4, .m4v and .mov videos",

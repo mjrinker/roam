@@ -2,7 +2,8 @@
  * What a photo file says about itself: when it was taken and how big it is. Read from the first
  * bytes of the file (one ranged read of at most 256 KiB, plus one more small read for the EXIF block
  * of a HEIC), by the file's real format (its first bytes, not its extension). Pure parsing over bytes
- * a provider hands back: nothing here touches the network or the database, and nothing ever throws.
+ * a provider hands back: nothing here touches the network or the database, and no file, however
+ * malformed, can make the parsing throw.
  *
  * Reads no location data. Dimensions are what the picture should look like when shown, so a photo
  * stored sideways and marked "rotate" comes back with width and height swapped.
@@ -121,18 +122,22 @@ async function heicMeta(b: Uint8Array, fetchRange: FetchRange, size: number): Pr
   return { takenAt, ...oriented(info.width, info.height, null) };
 }
 
-/** Reads what the file says about itself. Returns nothing-known (never throws) for an unreadable or unrecognised file. */
+/**
+ * Reads what the file says about itself. A file that is garbled or in an unknown format gives
+ * nothing-known, never an error. A failed READ (the provider throwing) is not the same thing and
+ * propagates, so the caller can try again instead of recording "no metadata" over a network blip.
+ */
 export async function readImageMeta(fetchRange: FetchRange, size: number): Promise<ImageMeta> {
+  if (!Number.isFinite(size) || size < 12) return NO_META;
+  const b = new Uint8Array(await fetchRange(0, Math.min(size, META_WINDOW) - 1));
+  if (b.length >= 12 && ascii(b, 4, 4) === "ftyp") return heicMeta(b, fetchRange, size);
   try {
-    if (!Number.isFinite(size) || size < 12) return NO_META;
-    const b = new Uint8Array(await fetchRange(0, Math.min(size, META_WINDOW) - 1));
     if (b.length >= 3 && b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff) return jpegMeta(b);
     if (b.length >= 8 && b[0] === 0x89 && ascii(b, 1, 3) === "PNG") return pngMeta(b);
     if (b.length >= 6 && ascii(b, 0, 4) === "GIF8") return gifMeta(b);
     if (b.length >= 12 && ascii(b, 0, 4) === "RIFF" && ascii(b, 8, 4) === "WEBP") return webpMeta(b);
-    if (b.length >= 12 && ascii(b, 4, 4) === "ftyp") return await heicMeta(b, fetchRange, size);
-    return NO_META;
   } catch {
     return NO_META;
   }
+  return NO_META;
 }

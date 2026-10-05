@@ -328,7 +328,7 @@ export const titles = pgTable(
     // set for every item at scan time (Box's file date, else the scan time, whole seconds) and upgraded
     // to the EXIF date when one is read (takenAtSource 'exif'; a rescan never replaces an EXIF date).
     takenAt: timestamp("taken_at", { withTimezone: true }),
-    takenAtSource: text("taken_at_source").$type<"box" | "exif">(),
+    takenAtSource: text("taken_at_source").$type<"box" | "exif" | "scan">(),
     width: integer("width"),
     height: integer("height"),
     // Reading the image's own metadata (EXIF, dimensions); separate from the MP4/ID3 tag counters above

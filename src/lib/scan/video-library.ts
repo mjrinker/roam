@@ -19,6 +19,7 @@ import { libraries, mediaFiles, titles, watchState, type TitleKind } from "@/lib
 import { BoxReauthRequiredError } from "@/lib/storage/box-token-storage";
 import type { StorageEntry, StorageProvider } from "@/lib/storage/provider";
 import { PLAYABLE_TITLE_KINDS } from "@/lib/libraries/profile";
+import { boxTakenAt, photoThumbUrl, thumbVersion } from "@/lib/photos/urls";
 import { naturalSortKey } from "@/lib/libraries/sort-key";
 import { releaseArtwork } from "@/lib/scan/artwork-store";
 import { isBrowserFriendlyVariant, stripVariantSuffix } from "@/lib/scan/conventions";
@@ -31,6 +32,7 @@ import {
   probeFiles,
   rollupTitleRuntime,
 } from "@/lib/scan/media-files";
+import { readPhotoMetadata } from "@/lib/scan/photo-meta";
 import { readTagsAndArtwork } from "@/lib/scan/video-artwork";
 import { decodeSub, encodeSub, walkVideoTree } from "@/lib/scan/video-walk";
 import { CONTENTION_CODES, retryOnContention } from "@/lib/playlists/retry";
@@ -130,6 +132,9 @@ export async function syncVideoDirectory(
       return { added: 0, seen: 0, conflicts: 0, stale: true as const };
     }
     const rating = library.ratingAges ?? null;
+    const scannedAt = new Date();
+    // Photo libraries date every item at once (Box's date, else now), so the timeline works before any metadata is read.
+    const dated = (f: StorageEntry) => (profile.photoMeta ? { takenAt: boxTakenAt(f, scannedAt).at, takenAtSource: boxTakenAt(f, scannedAt).source } : {});
 
     const keyOf = (f: StorageEntry) => `file:${f.id}`;
     // What each file was last time (only titles of THIS library: another library's rows are left alone).
@@ -166,6 +171,7 @@ export async function syncVideoDirectory(
               sortKey: naturalSortKey(profile.linkVariants ? stripVariantSuffix(f.name) : f.name),
               nameSource: "filename" as const,
               ratingAges: rating,
+              ...dated(f),
               ...(cycleId !== null ? { lastSeenCycle: cycleId } : {}),
             };
           })
@@ -187,6 +193,13 @@ export async function syncVideoDirectory(
             kind: sql`excluded.kind`,
             // Always the library's current rating (read under the lock above), never a stale one.
             ratingAges: rating,
+            ...(profile.photoMeta
+              ? {
+                  // A date read from the picture itself is never replaced by Box's; a scan-time guess never replaces a date we already have.
+                  takenAt: sql`CASE WHEN ${titles.takenAtSource} = 'exif' THEN ${titles.takenAt} WHEN excluded.taken_at_source = 'scan' THEN COALESCE(${titles.takenAt}, excluded.taken_at) ELSE excluded.taken_at END`,
+                  takenAtSource: sql`CASE WHEN ${titles.takenAtSource} = 'exif' THEN 'exif' WHEN excluded.taken_at_source = 'scan' THEN COALESCE(${titles.takenAtSource}, 'scan') ELSE excluded.taken_at_source END`,
+                }
+              : {}),
             ...(cycleId !== null ? { lastSeenCycle: cycleId } : {}),
             // Seen in Box again: whatever made it look missing is over.
             missingSince: null,
@@ -254,7 +267,7 @@ export async function syncVideoDirectory(
       const { name, year } = titleFromFileName(profile.linkVariants ? stripVariantSuffix(f.name) : f.name);
       await tx
         .update(titles)
-        .set({ name, year, nameSource: "filename", posterUrl: null })
+        .set({ name, year, nameSource: "filename", posterUrl: null, ...(profile.photoMeta ? { takenAt: boxTakenAt(f, scannedAt).at, takenAtSource: boxTakenAt(f, scannedAt).source } : {}) })
         .where(eq(titles.id, titleIdByKey.get(keyOf(f))!));
     }
     for (let i = 0; i < resetIds.length; i += CHUNK) {
@@ -263,7 +276,7 @@ export async function syncVideoDirectory(
         .update(titles)
         .set({
           tagsAttemptedAt: null, tagAttempts: 0, thumbAttempts: 0, thumbAttemptedAt: null, chapters: null, chaptersSource: null, authors: null, seriesName: null,
-          takenAtSource: null, width: null, height: null, metaAttemptedAt: null, metaAttempts: 0,
+          width: null, height: null, metaAttemptedAt: null, metaAttempts: 0,
         })
         .where(inArray(titles.id, ids));
     }
@@ -281,6 +294,15 @@ export async function syncVideoDirectory(
     const noLongerPlayable = switchedFiles.filter((f) => !PLAYABLE_TITLE_KINDS.includes(profile.titleKindFor(f.name))).map((f) => titleIdByKey.get(keyOf(f))!);
     for (let i = 0; i < noLongerPlayable.length; i += CHUNK) {
       await tx.delete(watchState).where(and(eq(watchState.ownerKind, "title"), inArray(watchState.ownerId, noLongerPlayable.slice(i, i + CHUNK))));
+    }
+
+    // Each item points at its live thumbnail (set last: a reset above cleared the old one). The version
+    // changes only when the file's content does, so browsers can keep a thumbnail for a year.
+    if (profile.photoMeta) {
+      for (let i = 0; i < owned.length; i += CHUNK) {
+        const rows = owned.slice(i, i + CHUNK).map((f) => sql`(${titleIdByKey.get(keyOf(f))!}::uuid, ${photoThumbUrl(titleIdByKey.get(keyOf(f))!, thumbVersion(f))})`);
+        await tx.execute(sql`UPDATE titles t SET poster_url = v.url FROM (VALUES ${sql.join(rows, sql`, `)}) AS v(id, url) WHERE t.id = v.id AND t.poster_url IS DISTINCT FROM v.url`);
+      }
     }
 
     await linkVariantFiles("title", [...titleIdByKey.values()], owned, variants, tx);
@@ -472,6 +494,9 @@ export async function probeVideoLibrary(
 
   // Names, years, descriptions and pictures read from the files themselves.
   if (profile.readTags) incomplete = (await readTagsAndArtwork(provider, libraryId, deadline, errors, profile)) || incomplete;
+
+  // Photo libraries: when each picture was taken and how big it is, from the picture itself.
+  if (profile.photoMeta) incomplete = (await readPhotoMetadata(provider, libraryId, deadline, errors)) || incomplete;
 
   // Runtimes only for titles whose files were just probed (not a query per title in the library).
   const probedTitleIds = [...new Set(pendingTitleFiles.map((r) => r.file.ownerId).filter((id): id is string => id !== null))];
