@@ -5,6 +5,7 @@ import { db } from "@/lib/db/client";
 import { episodes, libraries, seasons, titles, watchState } from "@/lib/db/schema";
 import { requireServerMember } from "@/lib/auth/guards";
 import { libraryActor, libraryVisible } from "@/lib/content/library-access";
+import { GLOBALLY_LISTED_LIBRARY_KINDS } from "@/lib/libraries/profile";
 import { formatRemaining } from "@/lib/format";
 import { Button } from "@/components/ui/button";
 import { HeroBanner, type HeroBannerData } from "@/components/library/hero-banner";
@@ -177,7 +178,8 @@ export default async function LibraryHomePage({
   }
 
   const recentByLibrary = await Promise.all(
-    serverLibraries.map(async (library) => ({
+    // Photo libraries have their own timeline; thousands of pictures would drown the "recently added" rows.
+    serverLibraries.filter((library) => GLOBALLY_LISTED_LIBRARY_KINDS.includes(library.kind)).map(async (library) => ({
       library,
       items: await db
         .select()

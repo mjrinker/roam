@@ -4,7 +4,8 @@
  * IN SQL, so items a profile may not watch are simply absent: pages, cursors
  * and counts never reveal them. Episode items are rated by their show.
  */
-import { and, asc, count, eq, exists, gt, inArray, or, sql, type SQL, type SQLWrapper } from "drizzle-orm";
+import { and, asc, count, eq, exists, gt, inArray, isNull, or, sql, type SQL, type SQLWrapper } from "drizzle-orm";
+import { PLAYABLE_TITLE_KINDS } from "@/lib/libraries/profile";
 import { alias } from "drizzle-orm/pg-core";
 import { contentFilter, type AccessProfile } from "@/lib/content/access";
 import { libraryVisible, type LibraryActor } from "@/lib/content/library-access";
@@ -44,6 +45,8 @@ export function hasCandidateEpisodes(ex: Executor, showIdColumn: SQLWrapper): SQ
 
 // An item's title is the title itself, or the show an episode belongs to.
 const effectiveLibraryId = sql`coalesce(${titles.libraryId}, ${showTitles.libraryId})`;
+/** A playlist only ever holds playable titles: a photo (or a kind added later) is never offered, listed, queued or copied. Episodes have no title of their own, hence the null. */
+const playableTitle = or(isNull(titles.kind), inArray(titles.kind, [...PLAYABLE_TITLE_KINDS]))!;
 const effectiveRatingAges = sql`coalesce(${titles.ratingAges}, ${showTitles.ratingAges})`;
 
 export interface PlaylistItemView {
@@ -108,6 +111,7 @@ export async function listVisibleItems(
       and(
         eq(playlistItems.playlistId, args.playlistId),
         libraryVisible(ex, args.lib),
+        playableTitle,
         contentFilter(args.viewer, effectiveRatingAges),
         args.after
           ? or(
@@ -159,6 +163,7 @@ export async function countVisibleItems(
       and(
         inArray(playlistItems.playlistId, args.playlistIds),
         libraryVisible(ex, args.lib),
+        playableTitle,
         contentFilter(args.viewer, effectiveRatingAges)
       )
     )
@@ -183,7 +188,7 @@ export async function findAddableTarget(
       .select({ id: titles.id })
       .from(titles)
       .innerJoin(libraries, eq(libraries.id, titles.libraryId))
-      .where(and(eq(titles.id, args.titleId), libraryVisible(ex, args.lib), contentFilter(args.viewer, titles.ratingAges)));
+      .where(and(eq(titles.id, args.titleId), inArray(titles.kind, [...PLAYABLE_TITLE_KINDS]), libraryVisible(ex, args.lib), contentFilter(args.viewer, titles.ratingAges)));
     return row ? { titleId: row.id } : null;
   }
   if (args.episodeId) {
@@ -219,6 +224,7 @@ export async function findVisibleItem(
         eq(playlistItems.id, args.itemId),
         eq(playlistItems.playlistId, args.playlistId),
         libraryVisible(ex, args.lib),
+        playableTitle,
         contentFilter(args.viewer, effectiveRatingAges)
       )
     );
@@ -260,6 +266,7 @@ export async function copyVisibleItems(
           and(
             eq(playlistItems.playlistId, args.sourcePlaylistId),
             libraryVisible(ex, args.lib),
+            playableTitle,
             contentFilter(args.viewer, effectiveRatingAges)
           )
         )

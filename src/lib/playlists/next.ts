@@ -5,7 +5,8 @@
  * Items the viewer can't see, and show entries with nothing playable, are
  * skipped. The "next item" is a single SQL query — never a loop over skipped rows.
  */
-import { and, asc, eq, exists, gt, ne, or, sql } from "drizzle-orm";
+import { and, asc, eq, exists, gt, inArray, isNull, ne, or, sql } from "drizzle-orm";
+import { PLAYABLE_TITLE_KINDS } from "@/lib/libraries/profile";
 import { alias } from "drizzle-orm/pg-core";
 import { contentFilter } from "@/lib/content/access";
 import { libraryVisible } from "@/lib/content/library-access";
@@ -133,6 +134,7 @@ export async function nextAfter(
       and(
         eq(playlistItems.playlistId, playlist.id),
         libraryVisible(ex, ctx.lib),
+        or(isNull(titles.kind), inArray(titles.kind, [...PLAYABLE_TITLE_KINDS])),
         contentFilter(access, sql`coalesce(${titles.ratingAges}, ${showTitles.ratingAges})`),
         after
           ? or(

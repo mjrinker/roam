@@ -38,7 +38,8 @@ export async function resolveRemuxScope(titleId: string): Promise<RemuxScope | n
     .innerJoin(libraries, eq(titles.libraryId, libraries.id))
     .where(eq(titles.id, titleId))
     .limit(1);
-  if (!title || title.kind === "audiobook") return null;
+  // Only movies and shows have audio worth remuxing: audiobooks, photos and anything added later are refused.
+  if (!title || (title.kind !== "movie" && title.kind !== "show")) return null;
   if (title.kind === "movie") return { ownerKind: "title", ownerIds: [titleId], serverId: title.serverId };
 
   const eps = await db

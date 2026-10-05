@@ -40,6 +40,9 @@ export default async function TitleDetailPage({
   if (!title || !isAllowed(viewer, title.ratingAges)) notFound();
   // This page is movie-only; shows have their own season/episode browser.
   if (title.kind === "show") redirect(`/s/${serverId}/show/${id}`);
+  // Photos have their own viewer, and an audiobook its book page; this page is for things that play as a movie.
+  if (title.kind === "photo") notFound();
+  if (title.kind === "audiobook") redirect(`/s/${serverId}/book/${id}`);
 
   const segments = await db
     .select()

@@ -36,6 +36,7 @@ export default async function ShowDetailPage({
   if (!show || !isAllowed(viewer, show.ratingAges)) notFound();
   // Symmetric with the movie page redirecting the other way.
   if (show.kind === "movie") redirect(`/s/${serverId}/title/${id}`);
+  if (show.kind !== "show") notFound();
 
   const allSeasons = await db
     .select()

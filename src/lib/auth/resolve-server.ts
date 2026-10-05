@@ -1,10 +1,11 @@
 import { eq } from "drizzle-orm";
 import { db } from "@/lib/db/client";
-import { episodes, libraries, seasons, titles } from "@/lib/db/schema";
+import { episodes, libraries, seasons, titles, type TitleKind } from "@/lib/db/schema";
 import type { PlayOwnerKind } from "@/lib/player/types";
 import { getCurrentServerMember, type ServerMembership } from "@/lib/auth/guards";
 import { isAllowed } from "@/lib/content/access";
 import { canSeeLibrary, libraryActor } from "@/lib/content/library-access";
+import { PLAYABLE_TITLE_KINDS } from "@/lib/libraries/profile";
 import type { RatingAges } from "@/lib/content/ratings";
 
 /**
@@ -47,10 +48,10 @@ export async function resolveServerIdForOwner(
 export async function resolveOwner(
   ownerKind: PlayOwnerKind,
   ownerId: string
-): Promise<{ serverId: string; libraryId: string; ratingAges: RatingAges | null } | null> {
+): Promise<{ serverId: string; libraryId: string; ratingAges: RatingAges | null; titleKind: TitleKind | "episode" } | null> {
   if (ownerKind === "title") {
     const [row] = await db
-      .select({ serverId: libraries.serverId, libraryId: libraries.id, ratingAges: titles.ratingAges })
+      .select({ serverId: libraries.serverId, libraryId: libraries.id, ratingAges: titles.ratingAges, titleKind: titles.kind })
       .from(titles)
       .innerJoin(libraries, eq(titles.libraryId, libraries.id))
       .where(eq(titles.id, ownerId))
@@ -66,7 +67,7 @@ export async function resolveOwner(
     .innerJoin(libraries, eq(titles.libraryId, libraries.id))
     .where(eq(episodes.id, ownerId))
     .limit(1);
-  return row ?? null;
+  return row ? { ...row, titleKind: "episode" as const } : null;
 }
 
 export type OwnerAuthorization =
@@ -82,9 +83,17 @@ export type OwnerAuthorization =
  * and enforcement.test.ts). Used by /api/play, the audiobook manifest and
  * segment routes, /api/watch-state, and the watch page.
  */
-export async function authorizeOwner(ownerKind: PlayOwnerKind, ownerId: string): Promise<OwnerAuthorization> {
+export async function authorizeOwner(
+  ownerKind: PlayOwnerKind,
+  ownerId: string,
+  opts: { titleKinds?: readonly TitleKind[] } = {}
+): Promise<OwnerAuthorization> {
   const owner = await resolveOwner(ownerKind, ownerId);
   if (!owner) return { ok: false, status: 404 };
+  // A title of a kind this caller doesn't serve is "not found", exactly like one that doesn't exist.
+  if (owner.titleKind !== "episode" && !(opts.titleKinds ?? PLAYABLE_TITLE_KINDS).includes(owner.titleKind)) {
+    return { ok: false, status: 404 };
+  }
 
   const member = await getCurrentServerMember(owner.serverId);
   if (!member) return { ok: false, status: 403 };

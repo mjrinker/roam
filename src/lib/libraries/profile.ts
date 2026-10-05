@@ -10,10 +10,23 @@
  *
  * Pure (no database imports) so client components can use it too.
  */
-import type { LibraryKind } from "@/lib/db/schema";
+import type { LibraryKind, TitleKind } from "@/lib/db/schema";
+
+/**
+ * The title kinds that can be played, tracked and put in a playlist. A positive list: a photo is not one
+ * of them (nothing to play), and a kind added later is refused everywhere until someone lists it here.
+ */
+export const PLAYABLE_TITLE_KINDS: readonly TitleKind[] = ["movie", "show", "audiobook"];
 
 export const FILE_TREE_KINDS = ["video", "audio"] as const satisfies readonly LibraryKind[];
 export type FileTreeKind = (typeof FILE_TREE_KINDS)[number];
+
+/**
+ * Libraries whose items appear in global search and the home page's "recently added" rows. A positive
+ * list, so a kind added later stays out of them until someone decides: photo libraries are reached
+ * through their own timeline, and would otherwise flood both with thousands of pictures.
+ */
+export const GLOBALLY_LISTED_LIBRARY_KINDS: readonly LibraryKind[] = ["movies", "shows", "audiobooks", "video", "audio"];
 
 export const EXTERNAL_METADATA_KINDS = ["movies", "shows", "audiobooks"] as const satisfies readonly LibraryKind[];
 

@@ -36,6 +36,7 @@ export default async function BookDetailPage({ params, searchParams }: PageProps
   if (!book || !isAllowed(viewer, book.ratingAges)) notFound();
   if (book.kind === "show") redirect(`/s/${serverId}/show/${id}`);
   if (book.kind === "movie") redirect(`/s/${serverId}/title/${id}`);
+  if (book.kind !== "audiobook") notFound();
 
   const files = await db
     .select()

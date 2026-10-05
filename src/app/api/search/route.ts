@@ -1,11 +1,12 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { asc, desc, eq, ilike, and, or, sql } from "drizzle-orm";
+import { asc, desc, eq, ilike, inArray, and, or, sql } from "drizzle-orm";
 import { db } from "@/lib/db/client";
 import { libraries, titles, type TitleKind } from "@/lib/db/schema";
 import { getCurrentServerMember } from "@/lib/auth/guards";
 import { libraryActor, libraryVisible } from "@/lib/content/library-access";
 import { contentFilter } from "@/lib/content/access";
+import { GLOBALLY_LISTED_LIBRARY_KINDS } from "@/lib/libraries/profile";
 
 export interface SearchResultDto {
   id: string;
@@ -58,6 +59,8 @@ export async function GET(request: Request) {
     .where(
       and(
         libraryVisible(db, libraryActor(member, parsed.data.serverId)),
+        // Photo libraries are browsed on their own timeline, not mixed into search.
+        inArray(libraries.kind, [...GLOBALLY_LISTED_LIBRARY_KINDS]),
         // Audiobooks are also findable by author.
         or(
           ilike(titles.name, `%${escaped}%`),
