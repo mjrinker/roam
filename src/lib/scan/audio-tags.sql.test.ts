@@ -13,8 +13,8 @@ vi.mock("@/lib/scan/media-files", async (importOriginal) => {
   return { ...original, probeFiles: vi.fn(async () => false), probeCodecsForPending: vi.fn(async () => undefined) };
 });
 
-import { mediaFiles, titleArtwork, titles } from "@/lib/db/schema";
-import { makeAccount, makeLibrary, makeServer, type TestDb } from "@/lib/playlists/test-db";
+import { mediaFiles, titles } from "@/lib/db/schema";
+import { artworkOf, makeAccount, makeLibrary, makeServer, type TestDb } from "@/lib/playlists/test-db";
 import type { StorageProvider } from "@/lib/storage/provider";
 import { AUDIO_PROFILE } from "./tree-profile";
 import { readTagsAndArtwork } from "./video-artwork";
@@ -60,7 +60,7 @@ describe("audio tags onto titles", () => {
     await run(t);
     const title = (await t.rows())[t.key(0)];
     expect(title).toMatchObject({ name: "Intro", nameSource: "embedded", authors: ["The Speaker"], seriesName: "Season One", year: 2020, kind: "audiobook" });
-    const [art] = await db.select().from(titleArtwork).where(eq(titleArtwork.titleId, title.id));
+    const art = (await artworkOf(db, title.id))!;
     expect([art.source, Array.from(art.bytes)]).toEqual(["embedded", TEST_JPEG]);
     expect(title.posterUrl).toContain(`/api/titles/${title.id}/artwork`);
   });
@@ -95,6 +95,25 @@ describe("audio tags onto titles", () => {
     await run(t);
     expect(t.provider.fetchThumbnail).not.toHaveBeenCalled();
     expect((await t.rows())[t.key(0)].posterUrl).toBeNull();
+  });
+
+  it("stores a tag whose cut falls inside an emoji, and one with a lone surrogate, without losing the title or cover", async () => {
+    const t = await setup([
+      { name: "emoji.mp3", bytes: mp3WithTags({ title: "Emoji Test", artist: "a".repeat(299) + "😀😀", cover: TEST_JPEG }) },
+      { name: "m4a.m4a", bytes: mp4WithTags({ title: "Surrogate \ud800 Test", artist: "a".repeat(299) + "😀😀", cover: TEST_JPEG }) },
+    ]);
+    const errors: string[] = [];
+    await readTagsAndArtwork(t.provider, t.lib.id, Date.now() + 60_000, errors, AUDIO_PROFILE);
+    expect(errors).toEqual([]);
+    const rows = await t.rows();
+    for (const key of [t.key(0), t.key(1)]) {
+      expect(rows[key].tagsAttemptedAt, key).not.toBeNull();
+      expect(rows[key].tagAttempts, key).toBe(0);
+      expect(rows[key].posterUrl, key).toContain("/artwork");
+      expect(Array.from(rows[key].authors![0])).toHaveLength(300); // whole characters, ending on an emoji
+      expect(rows[key].authors![0]).toBe(rows[key].authors![0].toWellFormed());
+    }
+    expect(rows[t.key(0)].name).toBe("Emoji Test");
   });
 
   it("reads each file with the right reader (ID3 for .mp3, MP4 atoms for .m4a) in the same library", async () => {
@@ -145,6 +164,17 @@ describe("chapters for the audio player", () => {
     await db.update(mediaFiles).set({ chapters });
     await probeVideoLibrary(audio.provider, audio.lib.id, Date.now() + 60_000, [], AUDIO_PROFILE);
     expect((await audio.rows())[audio.key(0)].chapters).toEqual(chapters);
+  });
+
+  it("does not run for a video library: chapters stay on the file", async () => {
+    const admin = await makeAccount(db, "v");
+    const server = await makeServer(db, admin.accountId);
+    const lib = await makeLibrary(db, server.id, "video", "everyone");
+    await syncVideoDirectory(lib.id, "p", "", [{ id: `vid${++n}`, name: "movie.mp4", kind: "file", sizeBytes: 100 }]);
+    await db.update(mediaFiles).set({ probeStatus: "ok", chapters });
+    await probeVideoLibrary({ fetchByteRange: async () => new ArrayBuffer(0), listFolder: async () => [], getFolder: async () => null, getStreamingUrl: async () => ({ url: "", expiresAt: new Date() }) }, lib.id, Date.now() + 60_000, []);
+    const [row] = await db.select().from(titles).where(eq(titles.libraryId, lib.id));
+    expect(row.chapters).toBeNull();
   });
 
   it("a file replaced in place gets its chapters (and tags) read again", async () => {

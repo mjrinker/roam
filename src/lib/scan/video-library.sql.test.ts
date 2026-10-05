@@ -56,7 +56,7 @@ vi.mock("@/lib/tmdb/client", () => forbidden("TMDB"));
 vi.mock("@/lib/omdb/client", () => forbidden("OMDb"));
 
 import { libraries, mediaFiles, scanRuns, titles } from "@/lib/db/schema";
-import { makeAccount, makeLibrary, makeServer, type TestDb } from "@/lib/playlists/test-db";
+import { artworkOf, makeAccount, makeLibrary, makeServer, putArtwork, type TestDb } from "@/lib/playlists/test-db";
 import type { StorageEntry } from "@/lib/storage/provider";
 import { scanLibrary } from "./scanner";
 import { normalizeFolderPath } from "@/lib/libraries/folder-browse";
@@ -196,7 +196,9 @@ describe("syncVideoDirectory", () => {
     const rows = await titlesOf(lib.id);
     for (const t of rows) {
       await db.update(mediaFiles).set({ probeStatus: "ok", durationSeconds: 90, codecProbed: true }).where(eq(mediaFiles.ownerId, t.id));
-      await db.update(titles).set({ tagsAttemptedAt: new Date(), thumbAttempts: 2 }).where(eq(titles.id, t.id));
+      await db.update(titles).set({ tagsAttemptedAt: new Date(), thumbAttempts: 2, authors: ["Old Artist"], seriesName: "Old Album", name: `Tagged ${t.id.slice(0, 4)}`, nameSource: "embedded" }).where(eq(titles.id, t.id));
+      await putArtwork(db, t.id, [0xff, 0xd8, 0xff, t.name.length], "image/jpeg");
+      await db.update(titles).set({ posterUrl: `/api/titles/${t.id}/artwork?v=1` }).where(eq(titles.id, t.id));
     }
     // a.mp4 is replaced (size changes); b.mp4 is merely seen again.
     await syncVideoDirectory(lib.id, "p", "", [{ ...file("a.mp4", "rp1"), sizeBytes: 5555 }, file("b.mp4", "rp2")]);
@@ -206,9 +208,27 @@ describe("syncVideoDirectory", () => {
       return { probe: m.probeStatus, dur: m.durationSeconds, codec: m.codecProbed, tags: t.tagsAttemptedAt, thumbs: t.thumbAttempts, size: m.sizeBytes };
     };
     expect(await state("rp1")).toEqual({ probe: "pending", dur: null, codec: false, tags: null, thumbs: 0, size: 5555 });
+    const [replacedTitle] = await db.select().from(titles).where(eq(titles.boxFolderId, "file:rp1"));
+    expect([replacedTitle.authors, replacedTitle.seriesName]).toEqual([null, null]); // stale artist/album go until it is read again
+    // ...and so do its picture and tag-derived name, so a new file with no tags falls back to its filename.
+    expect([replacedTitle.posterUrl, replacedTitle.nameSource, replacedTitle.name]).toEqual([null, "filename", "a"]);
+    expect(await artworkOf(db, replacedTitle.id)).toBeUndefined();
+    const [untouchedTitle] = await db.select().from(titles).where(eq(titles.boxFolderId, "file:rp2"));
+    expect(untouchedTitle.posterUrl).not.toBeNull();
+    expect((await artworkOf(db, untouchedTitle.id))?.source).toBe("embedded");
+    expect([untouchedTitle.authors, untouchedTitle.seriesName]).toEqual([["Old Artist"], "Old Album"]);
     const b = await state("rp2");
     expect([b.probe, b.dur, b.codec, b.thumbs]).toEqual(["ok", 90, true, 2]);
     expect(b.tags).not.toBeNull();
+  });
+
+  it("writes a natural sort key from the file name, and keeps it current when the file is renamed", async () => {
+    const lib = await newLibrary();
+    await syncVideoDirectory(lib.id, "p", "", [file("Track 10.mp4", "sk1"), file("Track 2.mp4", "sk2")]);
+    const keys = async () => Object.fromEntries((await titlesOf(lib.id)).map((t) => [t.boxFolderId, t.sortKey]));
+    expect(await keys()).toEqual({ "file:sk1": "track 000000000010.mp4", "file:sk2": "track 000000000002.mp4" });
+    await syncVideoDirectory(lib.id, "p", "", [file("Track 3.mp4", "sk1")]);
+    expect((await keys())["file:sk1"]).toBe("track 000000000003.mp4");
   });
 
   it("handles a directory of thousands of files in a few batches", async () => {

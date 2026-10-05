@@ -132,6 +132,23 @@ describe("probeMp3Tags: other versions and layouts", () => {
     expect(Array.from(t.cover!.bytes)).toEqual(cover);
   });
 
+  it("undoes ID3v2.4 tag-level unsynchronisation per frame (2.4 frame sizes count the stored bytes)", async () => {
+    // Each frame BODY is unsynchronised and the size field counts the stored (longer) body.
+    const unsync = (b: number[]) => b.flatMap((x) => (x === 0xff ? [0xff, 0x00] : [x]));
+    const title = frame(4, "TIT2", unsync(text(0, latin1("Caf\u00ff\u00ffe"))));
+    const cover = [0xff, 0xd8, 0xff, 0xe0, 0xff, 0xff, 1, 2];
+    const apic = frame(4, "APIC", unsync(pic(4, { data: cover })));
+    const f = [...tag(4, [title, apic], { flags: 0x80 }), ...AUDIO];
+    const t = await probe(f);
+    expect(t.title).toBe("Caf\u00ff\u00ffe");
+    expect(Array.from(t.cover!.bytes)).toEqual(cover);
+  });
+
+  it("skips an ID3v2.2 tag whose compression flag is set (that format is undefined)", async () => {
+    const f = [...tag(2, [frame(2, "TT2", text(0, latin1("Compressed Tag")))], { flags: 0x40 }), ...AUDIO];
+    expect((await probe(f)).title).toBeNull();
+  });
+
   it("skips a v2.3 and a v2.4 extended header", async () => {
     const f3 = [...tag(3, [frame(3, "TIT2", text(0, latin1("Ext3")))], { flags: 0x40, ext: [...be32(6), 0, 0, 0, 0, 0, 0] }), ...AUDIO];
     expect((await probe(f3)).title).toBe("Ext3");
@@ -268,6 +285,23 @@ describe("probeMp3Tags: hostile files", () => {
     ]) {
       await expect(probe(file)).resolves.toBeDefined();
     }
+  });
+
+  it("keeps what the v2 tag gave if the ID3v1 read at the end fails, but still lets a lost connection through", async () => {
+    // Bigger than the first 64 KB window, so the ID3v1 read at the tail really goes to the network.
+    const file = [...tag(3, [frame(3, "TIT2", text(0, latin1("From V2")))]), ...new Array(200_000).fill(0xaa)];
+    let calls = 0;
+    const flaky = async (start: number, end: number) => {
+      if (++calls > 1) throw new Error("Box: byte-range fetch failed (416)"); // the v1 read at the tail
+      return fetcherFor(file)(start, end);
+    };
+    expect((await probeMp3Tags(flaky, file.length)).title).toBe("From V2");
+
+    const reauth = async (start: number, end: number) => {
+      if (start > 100) throw Object.assign(new Error("reconnect"), { name: "BoxReauthRequiredError" });
+      return fetcherFor(file)(start, end);
+    };
+    await expect(probeMp3Tags(reauth, file.length)).rejects.toThrow("reconnect");
   });
 
   it("lets a failed Box read through (that is the caller's to handle)", async () => {

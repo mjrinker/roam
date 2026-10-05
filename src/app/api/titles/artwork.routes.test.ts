@@ -15,8 +15,8 @@ vi.mock("@/lib/db/client", async () => {
 vi.mock("@/lib/auth/viewer", () => ({ getCurrentViewer: async () => h.resolution }));
 vi.mock("@/lib/rate-limit", () => ({ checkRateLimit: async () => h.withinLimit }));
 
-import { libraryMembers, profiles, titleArtwork, titles, viewers } from "@/lib/db/schema";
-import { joinServer, makeAccount, makeLibrary, makeServer, makeTitle, makeViewer, type TestDb } from "@/lib/playlists/test-db";
+import { artworkImages, libraryMembers, profiles, titles, viewers } from "@/lib/db/schema";
+import { artworkOf, joinServer, makeAccount, makeLibrary, makeServer, makeTitle, makeViewer, putArtwork, type TestDb } from "@/lib/playlists/test-db";
 import { TEST_JPEG } from "@/lib/scan/test-mp4";
 import { GET } from "./[id]/artwork/route";
 
@@ -38,14 +38,15 @@ async function signInAs(accountId: string, viewerId: string) {
   h.resolution = { account, viewer: all.find((v) => v.id === viewerId), viewers: all };
 }
 
-async function world(access: "everyone" | "restricted" = "everyone") {
+async function world(access: "everyone" | "restricted" = "everyone", kind: "video" | "audio" = "video") {
   const admin = await makeAccount(db, "admin");
   const server = await makeServer(db, admin.accountId);
   const member = await makeAccount(db, "member");
   await joinServer(db, server.id, member.accountId);
-  const library = await makeLibrary(db, server.id, "video", access);
-  const title = await makeTitle(db, library.id, { boxFolderId: `file:${Math.random()}`, ratingAges: { ANY: 0 } });
-  await db.insert(titleArtwork).values({ titleId: title.id, contentType: "image/jpeg", bytes: Buffer.from(TEST_JPEG), source: "embedded" });
+  const library = await makeLibrary(db, server.id, kind, access);
+  // An audio file is stored as an audiobook title; a video file as a movie.
+  const title = await makeTitle(db, library.id, { kind: kind === "audio" ? "audiobook" : "movie", boxFolderId: `file:${Math.random()}`, ratingAges: { ANY: 0 } });
+  await putArtwork(db, title.id, TEST_JPEG);
   return { admin, server, member, library, title };
 }
 
@@ -116,9 +117,29 @@ describe("artwork route", () => {
 
   it("refuses to serve anything that isn't a JPEG or PNG, even if it got into the table", async () => {
     const w = await world();
-    await db.update(titleArtwork).set({ contentType: "text/html" }).where(eq(titleArtwork.titleId, w.title.id));
+    // Pictures are shared by their bytes, and every world here uses the same ones: change this image, then put it back.
+    const hash = (await artworkOf(db, w.title.id))!.hash;
+    await db.update(artworkImages).set({ contentType: "text/html" }).where(eq(artworkImages.hash, hash));
+    try {
+      await signInAs(w.member.accountId, w.member.viewer.id);
+      expect((await get(w.title.id)).status).toBe(404);
+    } finally {
+      await db.update(artworkImages).set({ contentType: "image/jpeg" }).where(eq(artworkImages.hash, hash));
+    }
+  });
+
+  it("serves an audio file's cover under the same rules: members and the admin yes, an ungranted account no, a revoked grant no", async () => {
+    const w = await world("restricted", "audio");
     await signInAs(w.member.accountId, w.member.viewer.id);
     expect((await get(w.title.id)).status).toBe(404);
+    await db.insert(libraryMembers).values({ libraryId: w.library.id, serverId: w.server.id, accountId: w.member.accountId });
+    const ok = await get(w.title.id);
+    expect(ok.status, "granted member").toBe(200);
+    expect(ok.headers.get("cache-control")).toContain("private");
+    await db.delete(libraryMembers).where(eq(libraryMembers.libraryId, w.library.id));
+    expect((await get(w.title.id)).status).toBe(404);
+    await signInAs(w.admin.accountId, w.admin.viewer.id);
+    expect((await get(w.title.id)).status, "admin").toBe(200);
   });
 
   it("is rate limited", async () => {

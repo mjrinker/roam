@@ -24,6 +24,7 @@
  */
 
 import { RangeReader, type ByteRangeFetcher } from "./range-reader";
+import { cleanTagString } from "./tag-text";
 
 export type { ByteRangeFetcher };
 
@@ -332,8 +333,7 @@ const MAX_TAG_TEXT = 2000;
 const ATOM = (name: string) => "\u00a9" + name; // QuickTime/iTunes text atoms start with the © byte (0xA9)
 
 function cleanTagText(bytes: Uint8Array, max = MAX_TAG_TEXT): string | null {
-  const text = new TextDecoder("utf-8").decode(bytes).replace(/[\u0000-\u001f\u007f]+/g, " ").replace(/\s+/g, " ").trim();
-  return text ? text.slice(0, max) : null;
+  return cleanTagString(new TextDecoder("utf-8").decode(bytes), max);
 }
 
 function imageType(bytes: Uint8Array): "image/jpeg" | "image/png" | null {
@@ -348,10 +348,13 @@ const albumArtists = new WeakMap<Mp4Tags, string>();
 
 function applyText(tags: Mp4Tags, atom: string, text: string | null) {
   if (!text) return;
-  if (atom === ATOM("nam") && tags.title === null) tags.title = text.slice(0, 300);
-  else if (atom === ATOM("ART") && tags.artist === null) tags.artist = text.slice(0, 300);
-  else if (atom === "aART" && !albumArtists.has(tags)) albumArtists.set(tags, text.slice(0, 300));
-  else if (atom === ATOM("alb") && tags.album === null) tags.album = text.slice(0, 300);
+  if (atom === ATOM("nam") && tags.title === null) tags.title = cleanTagString(text, 300);
+  else if (atom === ATOM("ART") && tags.artist === null) tags.artist = cleanTagString(text, 300);
+  else if (atom === "aART" && !albumArtists.has(tags)) {
+    const cleaned = cleanTagString(text, 300);
+    if (cleaned) albumArtists.set(tags, cleaned);
+  }
+  else if (atom === ATOM("alb") && tags.album === null) tags.album = cleanTagString(text, 300);
   else if (atom === ATOM("day") && tags.year === null) {
     const y = Number(/^(\d{4})/.exec(text)?.[1]);
     if (y >= 1888 && y <= 2100) tags.year = y;

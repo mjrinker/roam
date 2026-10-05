@@ -163,7 +163,7 @@ function PruneToggle({ libraryId, initial }: { libraryId: string; initial: boole
       toast.error("Couldn't change the setting.");
       return;
     }
-    toast.success(next ? "Deleted videos will be removed after a scan." : "Deleted videos will stay listed.");
+    toast.success(next ? "Items deleted from Box will be removed after a scan." : "Items deleted from Box will stay listed.");
   }
 
   return (

@@ -65,7 +65,7 @@ export interface FolderPage {
   /** Immediate subfolders (names), only on the first page. */
   folders: string[];
   items: FolderItem[];
-  nextCursor: { name: string; id: string } | null;
+  nextCursor: { key: string; id: string } | null;
 }
 
 /**
@@ -81,7 +81,7 @@ export async function listFolder(
     libraryId: string;
     path: string;
     limit?: number;
-    after?: { name: string; id: string } | null;
+    after?: { key: string; id: string } | null;
   }
 ): Promise<FolderPage | null> {
   const limit = Math.min(Math.max(args.limit ?? 60, 1), 200);
@@ -109,6 +109,8 @@ export async function listFolder(
     : [];
 
   const here = args.path;
+  // The natural-order key (file name with padded numbers); titles scanned before it existed fall back to their name.
+  const listKey = sql<string>`coalesce(${titles.sortKey}, lower(${titles.name}))`;
   const itemRows = await ex
     .select({
       id: titles.id,
@@ -117,6 +119,7 @@ export async function listFolder(
       posterUrl: titles.posterUrl,
       runtimeSeconds: titles.runtimeSeconds,
       authors: titles.authors,
+      listKey,
     })
     .from(titles)
     .innerJoin(libraries, eq(libraries.id, titles.libraryId))
@@ -124,10 +127,10 @@ export async function listFolder(
       and(
         visible,
         sql`coalesce(${titles.folderPath}, '') = ${here}`,
-        args.after ? or(gt(titles.name, args.after.name), and(eq(titles.name, args.after.name), gt(titles.id, args.after.id))) : undefined
+        args.after ? or(sql`${listKey} > ${args.after.key}`, and(sql`${listKey} = ${args.after.key}`, gt(titles.id, args.after.id))) : undefined
       )
     )
-    .orderBy(asc(titles.name), asc(titles.id))
+    .orderBy(asc(listKey), asc(titles.id))
     .limit(limit + 1);
 
   const folders = folderRows.map((r) => r.name).filter((n) => n !== "").sort((a, b) => collator.compare(a, b));
@@ -149,7 +152,7 @@ export async function listFolder(
 
   return {
     folders,
-    items: page,
-    nextCursor: itemRows.length > limit && last ? { name: last.name, id: last.id } : null,
+    items: page.map((r) => ({ id: r.id, name: r.name, year: r.year, posterUrl: r.posterUrl, runtimeSeconds: r.runtimeSeconds, authors: r.authors })),
+    nextCursor: itemRows.length > limit && last ? { key: last.listKey, id: last.id } : null,
   };
 }

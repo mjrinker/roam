@@ -10,7 +10,7 @@ vi.mock("@/lib/db/client", async () => {
 });
 
 import { mediaFiles, titleArtwork, titles } from "@/lib/db/schema";
-import { makeAccount, makeLibrary, makeServer, type TestDb } from "@/lib/playlists/test-db";
+import { artworkOf, makeAccount, makeLibrary, makeServer, type TestDb } from "@/lib/playlists/test-db";
 import type { StorageProvider } from "@/lib/storage/provider";
 import { MAX_TAG_ATTEMPTS, MAX_THUMB_ATTEMPTS, readTagsAndArtwork } from "./video-artwork";
 import { syncVideoDirectory } from "./video-library";
@@ -62,7 +62,7 @@ describe("readTagsAndArtwork", () => {
     expect(title).toMatchObject({ name: "Beach Day", year: 2019, overview: "Waves and sand.", nameSource: "embedded", tagAttempts: 0 });
     expect(title.tagsAttemptedAt).not.toBeNull();
     expect(title.posterUrl).toMatch(new RegExp(`^/api/titles/${title.id}/artwork\\?v=\\d+$`));
-    const [art] = await db.select().from(titleArtwork).where(eq(titleArtwork.titleId, title.id));
+    const art = (await artworkOf(db, title.id))!;
     expect(art).toMatchObject({ contentType: "image/jpeg", source: "embedded" });
     expect(Array.from(art.bytes)).toEqual(TEST_JPEG);
     expect(t.provider.fetchThumbnail).not.toHaveBeenCalled(); // it already has a picture
@@ -74,8 +74,7 @@ describe("readTagsAndArtwork", () => {
     await readTagsAndArtwork(t.provider, t.lib.id, farFuture(), []);
     const [title] = Object.values(await t.byName());
     expect([title.name, title.nameSource, title.year]).toEqual(["plain clip", "filename", null]);
-    const [art] = await db.select().from(titleArtwork).where(eq(titleArtwork.titleId, title.id));
-    expect(art.source).toBe("box");
+    expect((await artworkOf(db, title.id))?.source).toBe("box");
     expect(title.posterUrl).toContain(`/api/titles/${title.id}/artwork`);
   });
 
@@ -108,8 +107,7 @@ describe("readTagsAndArtwork", () => {
     const [title] = Object.values(await t.byName());
     expect(title.tagsAttemptedAt).toBeNull(); // tags unreadable
     expect(title.tagAttempts).toBe(1);
-    const [art] = await db.select().from(titleArtwork).where(eq(titleArtwork.titleId, title.id));
-    expect(art.source).toBe("box");
+    expect((await artworkOf(db, title.id))?.source).toBe("box");
   });
 
   it("retries a tag read that failed, up to the cap, without marking the title as read", async () => {
@@ -157,12 +155,13 @@ describe("readTagsAndArtwork", () => {
   });
 
   it("isn't re-read once done, and a rescan never undoes the embedded name", async () => {
-    const t = await setup([{ name: "again.mp4", bytes: mp4WithTags({ title: "Stays Put" }) }]);
+    const bytes = mp4WithTags({ title: "Stays Put" });
+    const t = await setup([{ name: "again.mp4", bytes }]);
     await readTagsAndArtwork(t.provider, t.lib.id, farFuture(), []);
     const reads = t.provider.fetchByteRange.mock.calls.length;
     await readTagsAndArtwork(t.provider, t.lib.id, farFuture(), []);
     expect(t.provider.fetchByteRange.mock.calls.length).toBe(reads);
-    await syncVideoDirectory(t.lib.id, "p", "", [{ id: t.ids(0), name: "again.mp4", kind: "file", sizeBytes: 5 }]);
+    await syncVideoDirectory(t.lib.id, "p", "", [{ id: t.ids(0), name: "again.mp4", kind: "file", sizeBytes: bytes.length }]);
     expect(Object.keys(await t.byName())).toEqual(["Stays Put"]);
   });
 });

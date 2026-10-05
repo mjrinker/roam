@@ -13,10 +13,13 @@ import { describe, expect, it } from "vitest";
 const SRC = path.join(__dirname, "../..");
 const files = globSync("**/*.{ts,tsx}", { cwd: SRC })
   .map((f) => f.replaceAll("\\", "/"))
-  .filter((f) => !/\.test\.tsx?$/.test(f) && !f.startsWith("lib/playlists/test-db"));
+  .filter((f) => !/\.test\.tsx?$/.test(f) && !f.startsWith("lib/playlists/test-db") && !f.startsWith("lib/scan/test-"));
 
 /** Files that legitimately name the kinds, and why. */
 const ALLOWED: Record<string, string> = {
+  "lib/db/schema.ts": "defines the library_kind enum",
+  "app/api/libraries/route.ts": "the creation request's list of accepted kinds",
+  "components/player/seamless-player.tsx": "creates a DOM <video> element to test codec support, not a library kind",
   "lib/libraries/profile.ts": "the one place that says which kinds are which",
   "lib/scan/tree-profile.ts": "defines the per-kind scanning profiles",
   "components/admin/library-manager.tsx": "the creation form's choices (option values)",
@@ -25,8 +28,9 @@ const ALLOWED: Record<string, string> = {
   "lib/scan/scanner.ts": "the switch over library kinds (exhaustive)",
 };
 
-// A quoted "video"/"audio" used as a value: compared, a case label, in a list, or an object key.
-const LITERAL = /(===|!==)\s*["'](video|audio)["']|case\s+["'](video|audio)["']\s*:|["'](video|audio)["']\s*(===|!==)|\[\s*["'](video|audio)["']|\b(video|audio)\s*:\s*[A-Z"']|<option value=["'](video|audio)["']/;
+// ANY quoted "video" or "audio" (single, double or backtick quotes) in code, however it is used: compared,
+// passed to a query, listed, a case label, an object value. Object KEYS are caught separately.
+const LITERAL = /["'`](video|audio)["'`]|\b(video|audio)\s*:\s*[A-Z"'`]/;
 
 describe("no stray special-casing of file-tree library kinds", () => {
   it("found the source files it expects to scan", () => {

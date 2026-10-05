@@ -1,6 +1,7 @@
 /** Folder browsing for video libraries: path rules, nesting, hiding, and paging on a real in-memory Postgres. */
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { folderTrail, listFolder, normalizeFolderPath, parentFolder } from "./folder-browse";
+import { naturalSortKey } from "./sort-key";
 import type { LibraryActor } from "@/lib/content/library-access";
 import { createTestDb, joinServer, makeAccount, makeLibrary, makeServer, makeTitle, type TestDb } from "@/lib/playlists/test-db";
 
@@ -135,12 +136,39 @@ describe("listFolder", () => {
     expect(await listFolder(db, { actor: w.actor(w.member), viewer: adult, libraryId: w.library.id, path: "" })).toEqual({ folders: [], items: [], nextCursor: null });
   });
 
+  it("lists files in natural order by file name: numbers by value, track numbers kept, whatever the title says", async () => {
+    const w = await world();
+    // The shown title came from tags (so it has lost its numbering); the file names carry the order.
+    const put = (title: string, file: string) => w.add(title, "Album", { sortKey: naturalSortKey(file) });
+    await put("Outro", "10 - Outro.mp3");
+    await put("Intro", "01 - Intro.mp3");
+    await put("Middle", "02 - Middle.mp3");
+    await put("Episode ten", "Episode 10.mp3");
+    await put("Episode two", "Episode 2.mp3");
+    await put("Episode one", "Episode 1.mp3");
+    const all = await listFolder(db, { actor: w.actor(w.member), viewer: adult, libraryId: w.library.id, path: "Album" });
+    expect(all?.items.map((i) => i.name)).toEqual(["Intro", "Middle", "Outro", "Episode one", "Episode two", "Episode ten"]);
+    // Paging follows the same order, and the page items carry no internal key.
+    const first = await listFolder(db, { actor: w.actor(w.member), viewer: adult, libraryId: w.library.id, path: "Album", limit: 4 });
+    const second = await listFolder(db, { actor: w.actor(w.member), viewer: adult, libraryId: w.library.id, path: "Album", limit: 4, after: first!.nextCursor });
+    expect([...first!.items, ...second!.items].map((i) => i.name)).toEqual(["Intro", "Middle", "Outro", "Episode one", "Episode two", "Episode ten"]);
+    expect(Object.keys(first!.items[0])).not.toContain("listKey");
+  });
+
+  it("falls back to the lowercased name for titles scanned before sort keys existed", async () => {
+    const w = await world();
+    await w.add("beta", "Old");
+    await w.add("Alpha", "Old");
+    const page = await listFolder(db, { actor: w.actor(w.member), viewer: adult, libraryId: w.library.id, path: "Old" });
+    expect(page?.items.map((i) => i.name)).toEqual(["Alpha", "beta"]);
+  });
+
   it("pages videos by name with a cursor, listing folders only on the first page", async () => {
     const w = await world();
     for (const name of ["v1", "v2", "v3", "v4", "v5"]) await w.add(name, "");
     await w.add("x", "Sub");
     const seen: string[] = [];
-    let after: { name: string; id: string } | null = null;
+    let after: { key: string; id: string } | null = null;
     let first = true;
     for (let i = 0; i < 10; i++) {
       const page = await listFolder(db, { actor: w.actor(w.member), viewer: adult, libraryId: w.library.id, path: "", limit: 2, after });

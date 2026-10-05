@@ -38,8 +38,8 @@ vi.mock("@/lib/storage/box", () => ({
   }),
 }));
 
-import { libraries, mediaFiles, playlistItems, titleArtwork, titles, watchState } from "@/lib/db/schema";
-import { addItem, makeAccount, makeLibrary, makePlaylist, makeServer, type TestDb } from "@/lib/playlists/test-db";
+import { artworkImages, libraries, mediaFiles, playlistItems, titleArtwork, titles, watchState } from "@/lib/db/schema";
+import { addItem, makeAccount, makeLibrary, makePlaylist, makeServer, putArtwork, type TestDb } from "@/lib/playlists/test-db";
 import type { StorageEntry } from "@/lib/storage/provider";
 import { scanLibrary } from "./scanner";
 import { syncVideoDirectory } from "./video-library";
@@ -113,7 +113,7 @@ describe("pruneMissingVideos", () => {
     const seen = await w.add("seen", true);
     const moved = await w.add("moved", false); // not seen this cycle, but Box still has it (moved into an already-visited folder)
     const deleted = await w.add("deleted", false);
-    await w.add("trashed", false);
+    const trashed = await w.add("trashed", false);
     h.gone.add(w.id("deleted"));
     h.gone.add(w.id("trashed"));
 
@@ -121,13 +121,15 @@ describe("pruneMissingVideos", () => {
     const [deletedTitle] = await db.select().from(titles).where(eq(titles.boxFolderId, deleted.key));
     const [primary] = await db.select().from(mediaFiles).where(eq(mediaFiles.ownerId, deletedTitle.id));
     await db.insert(mediaFiles).values({ ownerKind: null, ownerId: null, boxFileId: "variant-of-deleted", filename: "deleted.aac.mp4", variantOfMediaFileId: primary.id });
-    await db.insert(titleArtwork).values({ titleId: deletedTitle.id, contentType: "image/jpeg", bytes: Buffer.from([0xff, 0xd8, 0xff]), source: "embedded" });
+    const sharedHash = await putArtwork(db, deletedTitle.id, [0xff, 0xd8, 0xff, 1]);
+    const ownHash = await putArtwork(db, (await db.select().from(titles).where(eq(titles.boxFolderId, trashed.key)))[0].id, [0xff, 0xd8, 0xff, 2]);
     const viewer = w.admin.viewer;
     await db.insert(watchState).values({ viewerId: viewer.id, ownerKind: "title", ownerId: deletedTitle.id, positionSeconds: 10, durationSeconds: 100 });
     const playlist = await makePlaylist(db, { serverId: w.server.id, ownerViewerId: viewer.id });
     await addItem(db, playlist.id, { titleId: deletedTitle.id });
     // And things that must survive: the seen video's own history and playlist spot.
     const [seenTitle] = await db.select().from(titles).where(eq(titles.boxFolderId, seen.key));
+    await putArtwork(db, seenTitle.id, [0xff, 0xd8, 0xff, 1]); // the same picture as the removed video: it must stay
     await db.insert(watchState).values({ viewerId: viewer.id, ownerKind: "title", ownerId: seenTitle.id, positionSeconds: 5, durationSeconds: 50 });
     await addItem(db, playlist.id, { titleId: seenTitle.id }, 2048);
 
@@ -139,6 +141,10 @@ describe("pruneMissingVideos", () => {
     expect(await db.select().from(mediaFiles).where(eq(mediaFiles.boxFileId, "variant-of-deleted"))).toHaveLength(0);
     expect(await db.select().from(mediaFiles).where(eq(mediaFiles.ownerId, deletedTitle.id))).toHaveLength(0);
     expect(await db.select().from(titleArtwork).where(eq(titleArtwork.titleId, deletedTitle.id))).toHaveLength(0);
+    // A picture only the removed videos used goes with them; one a surviving title shares stays.
+    const images = (await db.select().from(artworkImages)).map((i) => i.hash);
+    expect(images).toContain(sharedHash);
+    expect(images).not.toContain(ownHash);
     expect(await db.select().from(watchState).where(and(eq(watchState.ownerId, deletedTitle.id)))).toHaveLength(0);
     expect(await db.select().from(playlistItems).where(eq(playlistItems.titleId, deletedTitle.id))).toHaveLength(0);
     // Survivors keep their data.

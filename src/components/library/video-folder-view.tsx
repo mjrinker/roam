@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { Clapperboard, Folder, FolderOpen } from "lucide-react";
+import { Folder, FolderOpen } from "lucide-react";
 import { PosterCard } from "@/components/library/poster-card";
 import { folderTrail, parentFolder, type FolderItem } from "@/lib/libraries/folder-browse";
 
@@ -89,8 +89,6 @@ export function VideoFolderView({
                   subtitle: item.authors && item.authors.length > 0 ? item.authors.join(", ") : null,
                 }}
               />
-              <p className="mt-2 line-clamp-2 text-sm font-medium">{item.name}</p>
-              {item.authors && item.authors.length > 0 && <p className="line-clamp-1 text-xs text-muted-foreground">{item.authors.join(", ")}</p>}
             </li>
           ))}
         </ul>
@@ -98,7 +96,7 @@ export function VideoFolderView({
 
       {empty && (
         <div className="mx-auto flex max-w-sm flex-col items-center gap-3 py-24 text-center">
-          <Clapperboard className="size-8 text-muted-foreground/60" />
+          <Folder className="size-8 text-muted-foreground/60" />
           <p className="text-lg font-medium">Nothing here</p>
           <p className="text-sm text-muted-foreground">There is nothing in this folder yet.</p>
         </div>

@@ -26,8 +26,6 @@ describe("no title artwork bypasses it", () => {
   // The only components allowed to use next/image directly, and why.
   const ALLOWED: Record<string, string> = {
     "components/ui/artwork.tsx": "the wrapper itself",
-    "components/audio/mini-player.tsx": "audiobook covers always come from Audible, never Roam's own routes",
-    "components/audio/now-playing-sheet.tsx": "audiobook covers always come from Audible, never Roam's own routes",
     "components/admin/audible-match-dialog.tsx": "Audible search results, not stored artwork",
     "components/library/season-episodes.tsx": "episode stills come from TMDB",
   };

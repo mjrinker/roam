@@ -8,12 +8,12 @@
  */
 import { and, asc, eq, isNotNull, isNull, lt, or, sql } from "drizzle-orm";
 import { db } from "@/lib/db/client";
-import { mediaFiles, titleArtwork, titles } from "@/lib/db/schema";
+import { mediaFiles, titles } from "@/lib/db/schema";
 import { BoxReauthRequiredError } from "@/lib/storage/box-token-storage";
 import type { StorageProvider } from "@/lib/storage/provider";
 import { probeMp3Tags } from "@/lib/scan/id3-tags";
 import { probeMp4Tags } from "@/lib/scan/mp4-duration";
-import type { Db } from "@/lib/scan/media-files";
+import { storeArtwork } from "@/lib/scan/artwork-store";
 import { VIDEO_PROFILE, type TreeProfile } from "@/lib/scan/tree-profile";
 
 export const MAX_TAG_ATTEMPTS = 3;
@@ -22,27 +22,6 @@ export const MAX_THUMB_ATTEMPTS = 3;
 const THUMB_RETRY_AFTER_MS = 10 * 60 * 1000;
 const BATCH = 100;
 const CONCURRENCY = 3;
-
-/** The URL a title's artwork is served from; `v` changes whenever the image does, so caches never go stale. */
-export function artworkUrl(titleId: string, version: Date): string {
-  return `/api/titles/${titleId}/artwork?v=${version.getTime()}`;
-}
-
-/** Saves an image for a title and points its poster at it. */
-export async function storeArtwork(
-  ex: Db,
-  titleId: string,
-  image: { contentType: "image/jpeg" | "image/png"; bytes: Uint8Array },
-  source: "embedded" | "box"
-): Promise<void> {
-  const now = new Date();
-  const bytes = Buffer.from(image.bytes);
-  await ex
-    .insert(titleArtwork)
-    .values({ titleId, contentType: image.contentType, bytes, source, updatedAt: now })
-    .onConflictDoUpdate({ target: titleArtwork.titleId, set: { contentType: image.contentType, bytes, source, updatedAt: now } });
-  await ex.update(titles).set({ posterUrl: artworkUrl(titleId, now) }).where(eq(titles.id, titleId));
-}
 
 async function inBatches<T>(items: T[], deadline: number, fn: (item: T) => Promise<void>): Promise<boolean> {
   for (let i = 0; i < items.length; i += CONCURRENCY) {
@@ -93,7 +72,7 @@ function titleColumns(tags: FileTags, profile: TreeProfile, currentName: string)
   if (!profile.artistAsAuthor) return base;
   const effectiveTitle = (tags.title ?? currentName).trim().toLowerCase();
   const album = tags.album && tags.album.trim().toLowerCase() !== effectiveTitle ? tags.album : null;
-  return { ...base, authors: tags.artist ? [tags.artist] : null, seriesName: album };
+  return { ...base, authors: tags.artist ? [tags.artist.toWellFormed()] : null, seriesName: album?.toWellFormed() ?? null };
 }
 
 /** Returns true when work remains (batch cap or deadline hit), so the scan stays incomplete and another pass follows. */

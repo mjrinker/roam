@@ -18,6 +18,8 @@ import { db } from "@/lib/db/client";
 import { libraries, mediaFiles, titles } from "@/lib/db/schema";
 import { BoxReauthRequiredError } from "@/lib/storage/box-token-storage";
 import type { StorageEntry, StorageProvider } from "@/lib/storage/provider";
+import { naturalSortKey } from "@/lib/libraries/sort-key";
+import { releaseArtwork } from "@/lib/scan/artwork-store";
 import { isBrowserFriendlyVariant, stripVariantSuffix } from "@/lib/scan/conventions";
 import { VIDEO_PROFILE, type TreeProfile } from "@/lib/scan/tree-profile";
 import {
@@ -155,6 +157,7 @@ export async function syncVideoDirectory(
               boxFolderId: keyOf(f),
               folderPath,
               parentFolderId,
+              sortKey: naturalSortKey(profile.linkVariants ? stripVariantSuffix(f.name) : f.name),
               nameSource: "filename" as const,
               ratingAges: rating,
               ...(cycleId !== null ? { lastSeenCycle: cycleId } : {}),
@@ -173,6 +176,7 @@ export async function syncVideoDirectory(
             year: sql`CASE WHEN ${titles.nameSource} = 'embedded' THEN ${titles.year} ELSE COALESCE(excluded.year, ${titles.year}) END`,
             folderPath,
             parentFolderId,
+            sortKey: sql`excluded.sort_key`,
             // Always the library's current rating (read under the lock above), never a stale one.
             ratingAges: rating,
             ...(cycleId !== null ? { lastSeenCycle: cycleId } : {}),
@@ -198,12 +202,11 @@ export async function syncVideoDirectory(
         .where(and(eq(mediaFiles.ownerKind, "title"), inArray(mediaFiles.ownerId, ids), eq(mediaFiles.partIndex, 0)));
       for (const r of rows) if (r.ownerId) previousSize.set(r.ownerId, r.size);
     }
-    const replaced = owned
-      .filter((f) => {
-        const before = previousSize.get(titleIdByKey.get(keyOf(f))!);
-        return before !== undefined && before !== null && f.sizeBytes !== undefined && before !== f.sizeBytes;
-      })
-      .map((f) => titleIdByKey.get(keyOf(f))!);
+    const replacedFiles = owned.filter((f) => {
+      const before = previousSize.get(titleIdByKey.get(keyOf(f))!);
+      return before !== undefined && before !== null && f.sizeBytes !== undefined && before !== f.sizeBytes;
+    });
+    const replaced = replacedFiles.map((f) => titleIdByKey.get(keyOf(f))!);
 
     for (let i = 0; i < owned.length; i += CHUNK) {
       await tx
@@ -225,6 +228,16 @@ export async function syncVideoDirectory(
         });
     }
 
+    // The old picture and tag-derived name belong to the old contents: drop them, so if the new file has no
+    // tags the title falls back to its filename instead of keeping a stale cover and name.
+    await releaseArtwork(tx, replaced);
+    for (const f of replacedFiles) {
+      const { name, year } = titleFromFileName(profile.linkVariants ? stripVariantSuffix(f.name) : f.name);
+      await tx
+        .update(titles)
+        .set({ name, year, nameSource: "filename", posterUrl: null })
+        .where(eq(titles.id, titleIdByKey.get(keyOf(f))!));
+    }
     for (let i = 0; i < replaced.length; i += CHUNK) {
       const ids = replaced.slice(i, i + CHUNK);
       await tx
@@ -233,7 +246,7 @@ export async function syncVideoDirectory(
         .where(and(eq(mediaFiles.ownerKind, "title"), inArray(mediaFiles.ownerId, ids)));
       await tx
         .update(titles)
-        .set({ tagsAttemptedAt: null, tagAttempts: 0, thumbAttempts: 0, thumbAttemptedAt: null, chapters: null, chaptersSource: null })
+        .set({ tagsAttemptedAt: null, tagAttempts: 0, thumbAttempts: 0, thumbAttemptedAt: null, chapters: null, chaptersSource: null, authors: null, seriesName: null })
         .where(inArray(titles.id, ids));
     }
 

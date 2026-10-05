@@ -2,7 +2,7 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { eq } from "drizzle-orm";
 import { libraries, titleArtwork, titles } from "@/lib/db/schema";
-import { createTestDb, makeAccount, makeLibrary, makeServer, makeTitle, type TestDb } from "@/lib/playlists/test-db";
+import { artworkOf, createTestDb, makeAccount, makeLibrary, makeServer, makeTitle, putArtwork, type TestDb } from "@/lib/playlists/test-db";
 
 let db: TestDb;
 let close: () => Promise<void>;
@@ -47,8 +47,8 @@ describe("video library schema", () => {
   it("round-trips image bytes exactly, and removes them with the title", async () => {
     const { title } = await world();
     const bytes = Buffer.from([0xff, 0xd8, 0xff, 0x00, 0x01, 0x80, 0xfe, 0xff, 0xd9]); // includes 0x00 and high bytes
-    await db.insert(titleArtwork).values({ titleId: title.id, contentType: "image/jpeg", bytes, source: "embedded" });
-    const [row] = await db.select().from(titleArtwork).where(eq(titleArtwork.titleId, title.id));
+    await putArtwork(db, title.id, bytes);
+    const row = (await artworkOf(db, title.id))!;
     // The in-memory test database hands back a Uint8Array where postgres-js hands back a Buffer;
     // code that reads artwork wraps with Buffer.from either way.
     expect(Buffer.from(row.bytes).equals(bytes)).toBe(true);

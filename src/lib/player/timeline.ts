@@ -73,10 +73,13 @@ export function formatClock(totalSeconds: number): string {
  */
 export const AUDIOBOOK_FINISHED_REMAINING_SECONDS = 60;
 
+/** For short items the 60 seconds is scaled down to this share of the length, so a 45-second clip isn't "finished" at the start. */
+export const SHORT_ITEM_FINISHED_SHARE = 0.02;
+
 export function isEffectivelyFinished(
   positionSeconds: number,
   durationSeconds: number,
-  remainingThreshold = AUDIOBOOK_FINISHED_REMAINING_SECONDS
+  remainingThreshold = Math.min(AUDIOBOOK_FINISHED_REMAINING_SECONDS, durationSeconds * SHORT_ITEM_FINISHED_SHARE)
 ): boolean {
   return durationSeconds > 0 && durationSeconds - positionSeconds <= remainingThreshold;
 }

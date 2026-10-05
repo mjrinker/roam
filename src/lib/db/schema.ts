@@ -316,6 +316,10 @@ export const titles = pgTable(
     //   overwrites it with the filename.
     // - tagsAttemptedAt: when the file's embedded tags/artwork were last read.
     folderPath: text("folder_path"),
+    // Natural-order key for listing a folder: the file name lowercased with every number zero-padded,
+    // so "Track 2" sorts before "Track 10" and "01 - Intro" stays where its number says. Null falls back
+    // to the lowercased name.
+    sortKey: text("sort_key"),
     parentFolderId: text("parent_folder_id"),
     nameSource: text("name_source").$type<"filename" | "embedded">(),
     tagsAttemptedAt: timestamp("tags_attempted_at", { withTimezone: true }),
@@ -400,14 +404,30 @@ export const titles = pgTable(
 // Image bytes for a title whose artwork lives in Roam itself (video libraries): a cover embedded
 // in the file, or a thumbnail fetched from Box. Kept apart from titles so list queries never
 // read image bytes. Served by /api/titles/[id]/artwork behind the usual access checks.
-export const titleArtwork = pgTable("title_artwork", {
-  titleId: uuid("title_id")
-    .primaryKey()
-    .references(() => titles.id, { onDelete: "cascade" }),
+export const titleArtwork = pgTable(
+  "title_artwork",
+  {
+    titleId: uuid("title_id")
+      .primaryKey()
+      .references(() => titles.id, { onDelete: "cascade" }),
+    // The picture itself lives once in artwork_images: every track of an album carries the same cover.
+    imageHash: text("image_hash")
+      .notNull()
+      .references(() => artworkImages.hash),
+    source: text("source").notNull().$type<"embedded" | "box">(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("title_artwork_image_idx").on(t.imageHash)]
+).enableRLS();
+
+// ── artwork_images ───────────────────────────────────────────────────────
+// Image bytes keyed by the SHA-256 of the bytes, so identical pictures are stored once however many
+// titles use them. A row with no title_artwork pointing at it is removed when the last one goes.
+export const artworkImages = pgTable("artwork_images", {
+  hash: text("hash").primaryKey(),
   contentType: text("content_type").notNull(),
   bytes: bytea("bytes").notNull(),
-  source: text("source").notNull().$type<"embedded" | "box">(),
-  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 }).enableRLS();
 
 // ── seasons ──────────────────────────────────────────────────────────────

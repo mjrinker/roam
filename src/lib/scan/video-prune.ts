@@ -16,6 +16,7 @@
 import { and, eq, inArray, sql } from "drizzle-orm";
 import { db } from "@/lib/db/client";
 import { libraries, mediaFiles, titles, watchState } from "@/lib/db/schema";
+import { releaseArtwork } from "@/lib/scan/artwork-store";
 import { BoxReauthRequiredError } from "@/lib/storage/box-token-storage";
 import type { StorageProvider } from "@/lib/storage/provider";
 import { VIDEO_PROFILE, type TreeProfile } from "@/lib/scan/tree-profile";
@@ -87,6 +88,8 @@ async function removeTitles(libraryId: string, ids: string[]): Promise<void> {
       await tx.delete(mediaFiles).where(and(eq(mediaFiles.ownerKind, "title"), inArray(mediaFiles.ownerId, chunk)));
       // Watch history is keyed to the title without a foreign key; playlist entries and artwork cascade with the title.
       await tx.delete(watchState).where(and(eq(watchState.ownerKind, "title"), inArray(watchState.ownerId, chunk)));
+      // Pictures go with the title (the row cascades); release them first so an image nothing else uses is removed too.
+      await releaseArtwork(tx, chunk);
       await tx.delete(titles).where(and(inArray(titles.id, chunk), eq(titles.libraryId, libraryId)));
     });
   }

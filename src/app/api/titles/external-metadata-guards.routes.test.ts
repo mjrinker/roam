@@ -48,6 +48,7 @@ import { POST as matchAudible } from "./[id]/match-audible/route";
 import { POST as syncRoute } from "./[id]/sync/route";
 import { POST as fixAudio } from "./[id]/fix-audio/route";
 import { GET as audibleSearch } from "../audiobooks/search/route";
+import { NOT_FOR_THIS_LIBRARY } from "@/lib/libraries/kind";
 import { syncSingleTitle } from "@/lib/scan/scanner";
 
 let db: TestDb;
@@ -78,7 +79,11 @@ describe("file-tree library titles never reach an outside service or a Box folde
         fixAudio: await fixAudio(new Request("http://x", { method: "POST" }), ctx(t.id)),
         audibleSearch: await audibleSearch(new Request(`http://x/api/audiobooks/search?titleId=${t.id}&q=anything`)),
       };
-      for (const [name, res] of Object.entries(responses)) expect(res.status, name).toBe(400);
+      for (const [name, res] of Object.entries(responses)) {
+        expect(res.status, name).toBe(400);
+        // The refusal is the library-kind guard's own, not some later check that happens to reject the title.
+        expect((await res.json()).error, name).toBe(NOT_FOR_THIS_LIBRARY);
+      }
       expect(h.calls).toEqual([]);
     });
 

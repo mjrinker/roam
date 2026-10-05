@@ -1,6 +1,8 @@
+import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { PGlite } from "@electric-sql/pglite";
+import { eq } from "drizzle-orm";
 import { drizzle, type PgliteDatabase } from "drizzle-orm/pglite";
 import * as schema from "@/lib/db/schema";
 
@@ -149,4 +151,29 @@ export async function setProgress(
 /** A server admin's view of the libraries on `serverId` (admins see every library). */
 export function adminLib(serverId: string) {
   return { serverId, accountId: "00000000-0000-4000-8000-000000000000", isAdmin: true };
+}
+
+/** Gives a title a picture the way the app stores one: the bytes once in artwork_images, a pointer in title_artwork. */
+export async function putArtwork(
+  db: TestDb,
+  titleId: string,
+  bytes: number[] | Uint8Array,
+  contentType = "image/jpeg",
+  source: "embedded" | "box" = "embedded"
+) {
+  const buf = Buffer.from(bytes);
+  const hash = createHash("sha256").update(buf).digest("hex");
+  await db.insert(schema.artworkImages).values({ hash, contentType, bytes: buf }).onConflictDoNothing();
+  await db.insert(schema.titleArtwork).values({ titleId, imageHash: hash, source });
+  return hash;
+}
+
+/** A title's stored picture (content type, bytes, source), or undefined. */
+export async function artworkOf(db: TestDb, titleId: string) {
+  const [row] = await db
+    .select({ contentType: schema.artworkImages.contentType, bytes: schema.artworkImages.bytes, source: schema.titleArtwork.source, hash: schema.titleArtwork.imageHash })
+    .from(schema.titleArtwork)
+    .innerJoin(schema.artworkImages, eq(schema.artworkImages.hash, schema.titleArtwork.imageHash))
+    .where(eq(schema.titleArtwork.titleId, titleId));
+  return row;
 }

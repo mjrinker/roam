@@ -87,6 +87,18 @@ describe("isEffectivelyFinished", () => {
   it("is false with no duration", () => {
     expect(isEffectivelyFinished(0, 0)).toBe(false);
   });
+  it("scales down for short items: a 45-second clip or a 3-minute track isn't finished until nearly the end", () => {
+    expect(isEffectivelyFinished(0, 45)).toBe(false); // used to be "finished" from the first save
+    expect(isEffectivelyFinished(20, 45)).toBe(false);
+    expect(isEffectivelyFinished(44.5, 45)).toBe(true);
+    expect(isEffectivelyFinished(130, 180)).toBe(false); // paused at 2:10 of a 3-minute track keeps its place
+    expect(isEffectivelyFinished(177, 180)).toBe(true);
+    // The cap for long items is unchanged, and the share takes over only below 50 minutes.
+    expect(isEffectivelyFinished(3000 - 61, 3000)).toBe(false);
+    expect(isEffectivelyFinished(3000 - 59, 3000)).toBe(true);
+    expect(isEffectivelyFinished(1800 - 40, 1800)).toBe(false); // 30 minutes: 36 seconds
+    expect(isEffectivelyFinished(1800 - 30, 1800)).toBe(true);
+  });
 });
 
 describe("clampRate", () => {

@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import Image from "next/image";
+import { Artwork as Image } from "@/components/ui/artwork";
 import Link from "next/link";
 import { ChevronUp, Headphones, List, Loader2, Moon, Pause, Play, RotateCcw, RotateCw, X } from "lucide-react";
 import { cn } from "@/lib/utils";

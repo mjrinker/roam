@@ -11,6 +11,7 @@
  */
 import type { ByteRangeFetcher } from "@/lib/scan/range-reader";
 import { RangeReader } from "@/lib/scan/range-reader";
+import { cleanTagString } from "@/lib/scan/tag-text";
 
 /** The most tag bytes ever looked at, however large the tag claims to be. */
 export const MAX_TAG_BYTES = 1024 * 1024;
@@ -48,10 +49,7 @@ function deUnsync(b: Uint8Array): Uint8Array {
   return out.subarray(0, n);
 }
 
-function clean(text: string, max = MAX_TEXT): string | null {
-  const t = text.replace(/[\u0000-\u001f\u007f]+/g, " ").replace(/\s+/g, " ").trim();
-  return t ? t.slice(0, max) : null;
-}
+const clean = (text: string, max = MAX_TEXT): string | null => cleanTagString(text, max);
 
 /** Decodes an ID3 text field to its values (a field may hold several, separated by NUL). */
 function decodeText(b: Uint8Array, encoding: number): string[] {
@@ -138,7 +136,14 @@ const TEXT_IDS: Record<string, "title" | "artist" | "artist2" | "album" | "year"
   TDRC: "year", TYER: "year", TYE: "year",
 };
 
-function parseV2(tag: Uint8Array, version: number, out: AudioTags, scratch: { artist2: string | null; pic: Pic | null }) {
+function parseV2(
+  tag: Uint8Array,
+  version: number,
+  out: AudioTags,
+  scratch: { artist2: string | null; pic: Pic | null },
+  /** 2.4 only: the tag header says every frame body was unsynchronised (2.2 and 2.3 de-unsynchronise the whole tag first). */
+  allFramesUnsynced = false
+) {
   const v22 = version === 2;
   const headerLen = v22 ? 6 : 10;
   let at = 0;
@@ -181,7 +186,7 @@ function parseV2(tag: Uint8Array, version: number, out: AudioTags, scratch: { ar
       if (flags & 0x000c) continue; // compression 0x0008, encryption 0x0004
       if (flags & 0x0040) body = body.subarray(1); // grouping identity byte
       if (flags & 0x0001) body = body.subarray(4); // data length indicator
-      if (flags & 0x0002) body = deUnsync(body);
+      if (flags & 0x0002 || allFramesUnsynced) body = deUnsync(body);
     }
 
     const kind = TEXT_IDS[id];
@@ -236,13 +241,16 @@ export async function probeMp3Tags(fetchRange: ByteRangeFetcher, fileSizeBytes: 
       const view = await r.read(10, length, length);
       try {
         let tag = new Uint8Array(view.buffer, view.byteOffset, view.byteLength).slice();
-        if (flags & 0x80) tag = deUnsync(tag).slice(); // whole-tag unsynchronisation
+        // 2.2 and 2.3: the whole tag, frame headers included, is unsynchronised. 2.4: only the frame bodies
+        // (frame sizes then count the stored bytes), handled per frame below.
+        if (flags & 0x80 && version !== 4) tag = deUnsync(tag).slice();
+        if (version === 2 && flags & 0x40) tag = new Uint8Array(0); // 2.2's compression flag: the format is undefined, skip the tag
         if (version !== 2 && flags & 0x40) {
           // Extended header: 2.3 stores its size plain (excluding itself), 2.4 sync-safe (including itself).
           const ext = version === 4 ? syncsafe(tag, 0) : be32(tag, 0) + 4;
           if (ext >= 4 && ext <= tag.length) tag = tag.subarray(ext);
         }
-        parseV2(tag, version, out, scratch);
+        parseV2(tag, version, out, scratch, version === 4 && (flags & 0x80) !== 0);
       } catch {
         // Malformed tag: keep whatever was read before the problem.
       }
@@ -253,8 +261,14 @@ export async function probeMp3Tags(fetchRange: ByteRangeFetcher, fileSizeBytes: 
 
   // ID3v1 fills in whatever the v2 tag didn't say.
   if (fileSizeBytes >= 128 && (out.title === null || out.artist === null || out.album === null || out.year === null)) {
-    const tail = await r.read(fileSizeBytes - 128, 128, 128);
-    parseV1(new Uint8Array(tail.buffer, tail.byteOffset, tail.byteLength), out);
+    try {
+      const tail = await r.read(fileSizeBytes - 128, 128, 128);
+      parseV1(new Uint8Array(tail.buffer, tail.byteOffset, tail.byteLength), out);
+    } catch (err) {
+      // The v1 tag is only a fallback: failing to read it must not throw away what the v2 tag gave (a lost
+      // Box connection still stops the scan, recognized by name so this module stays free of the database).
+      if ((err as { name?: string } | null)?.name === "BoxReauthRequiredError") throw err;
+    }
   }
   return out;
 }
