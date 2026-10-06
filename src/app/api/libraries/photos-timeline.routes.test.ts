@@ -18,6 +18,7 @@ vi.mock("@/lib/rate-limit", () => ({ checkRateLimit: async () => !h.limited }));
 import { profiles, titles, viewers } from "@/lib/db/schema";
 import { joinServer, makeAccount, makeLibrary, makeServer, makeTitle, type TestDb } from "@/lib/playlists/test-db";
 import { GET } from "./[id]/photos/route";
+import { GET as getMonths } from "./[id]/photos/months/route";
 
 let db: TestDb;
 beforeAll(() => {
@@ -108,5 +109,49 @@ describe("GET /api/libraries/[id]/photos", () => {
     const { libraryMembers } = await import("@/lib/db/schema");
     await db.insert(libraryMembers).values({ libraryId: restricted.id, accountId: w.member.accountId, serverId: w.server.id });
     expect((await get(restricted.id)).status).toBe(200);
+  });
+});
+
+describe("search, month jumps and the scrubber's months through the API", () => {
+  const monthsOf = (id: string, query = "") => getMonths(new Request(`http://x/api/libraries/${id}/photos/months${query}`), ctx(id));
+
+  it("narrows by a query and jumps to a month, with the viewer's age limit still applied", async () => {
+    const w = await world(0);
+    const mk = (name: string, at: string, ages: unknown = { ANY: 8 }) => makeTitle(db, w.lib.id, { kind: "photo", name, boxFolderId: `file:q${++n}`, takenAt: new Date(at), takenAtSource: "box", ratingAges: ages as never });
+    await mk("beach mar", "2024-03-10T00:00:00Z");
+    await mk("beach feb", "2024-02-10T00:00:00Z");
+    await mk("beach adult", "2024-03-11T00:00:00Z", { ANY: 18 });
+    await mk("city", "2024-03-12T00:00:00Z");
+    await signInAs(w.member.accountId, { maxAge: 12, allowUnrated: false } as never);
+    const names = async (query: string) => ((await (await get(w.lib.id, query)).json()).items as { name: string }[]).map((i) => i.name);
+    expect(await names("?q=beach")).toEqual(["beach mar", "beach feb"]);
+    expect(await names("?q=2024-02")).toEqual(["beach feb"]);
+    expect(await names("?month=2024-02")).toEqual(["beach feb"]);
+    expect(await names("?month=2024-03&q=beach")).toEqual(["beach mar", "beach feb"]);
+    expect(await names("?month=garbage")).toEqual(["city", "beach mar", "beach feb"]);
+  });
+
+  it("months: counts for the same narrowing, uniform 404s, a rate limit and a private response", async () => {
+    const w = await world(0);
+    await makeTitle(db, w.lib.id, { kind: "photo", name: "a", boxFolderId: `file:m${++n}`, takenAt: new Date("2024-03-10T00:00:00Z"), ratingAges: { ANY: 8 } as never });
+    await makeTitle(db, w.lib.id, { kind: "photo", name: "b", boxFolderId: `file:m${++n}`, takenAt: new Date("2024-02-10T00:00:00Z"), ratingAges: { ANY: 8 } as never });
+    const ok = await monthsOf(w.lib.id);
+    expect([ok.status, ok.headers.get("cache-control")]).toEqual([200, "private, no-store"]);
+    expect((await ok.json()).months).toEqual([{ key: "2024-03", count: 1 }, { key: "2024-02", count: 1 }]);
+    expect((await (await monthsOf(w.lib.id, "?q=a")).json()).months).toEqual([{ key: "2024-03", count: 1 }]);
+    const video = await makeLibrary(db, w.server.id, "video", "everyone");
+    const outcomes = new Set<string>();
+    for (const id of ["nope", "00000000-0000-4000-8000-0000000000fa", video.id]) {
+      const r = await monthsOf(id);
+      outcomes.add(`${r.status} ${JSON.stringify(await r.json())}`);
+    }
+    h.resolution = null;
+    const out = await monthsOf(w.lib.id);
+    outcomes.add(`${out.status} ${JSON.stringify(await out.json())}`);
+    expect([...outcomes]).toEqual([`404 ${JSON.stringify({ error: "Not found" })}`]);
+    await signInAs(w.member.accountId);
+    h.limited = true;
+    expect((await monthsOf(w.lib.id)).status).toBe(429);
+    h.limited = false;
   });
 });

@@ -91,6 +91,26 @@ describe("favorites in the interface", () => {
   });
 });
 
+describe("timeline zoom and search copy", () => {
+  const props = { serverId: "srv", libraryId: "lib", initialNext: null };
+  const items = [item({ id: "a", takenAt: "2024-03-30T10:00:00Z" }), item({ id: "b", takenAt: "2024-03-02T10:00:00Z" })];
+
+  it("offers days, months and years, starting at months, with the other levels one tap away", () => {
+    const html = renderToStaticMarkup(<PhotoTimeline {...props} initialItems={items} />);
+    expect(html).toContain('aria-label="Zoom"');
+    for (const label of ["Days", "Months", "Years"]) expect(html).toContain(label);
+    expect(html).toContain('aria-pressed="true"');
+    expect(html).toContain("March 2024"); // month headings by default
+  });
+
+  it("an empty search says so and suggests what to try, instead of 'no photos yet'", () => {
+    const html = renderToStaticMarkup(<PhotoTimeline {...props} initialItems={[]} q="zzz" />);
+    expect(html).toContain("Nothing matches");
+    expect(html).toContain("zzz");
+    expect(html).not.toContain("No photos yet");
+  });
+});
+
 describe("PhotoViewer", () => {
   const base = {
     kind: "photo" as const,

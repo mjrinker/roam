@@ -15,6 +15,7 @@ import { contentFilter, type AccessProfile } from "@/lib/content/access";
 import { libraryVisible, type LibraryActor } from "@/lib/content/library-access";
 import { libraries, photoFavorites, titles } from "@/lib/db/schema";
 import { PHOTO_LIBRARY_KINDS } from "@/lib/libraries/profile";
+import { escapeLike, type SearchSpec } from "@/lib/photos/search";
 
 type Db = PgDatabase<PgQueryResultHKT, Record<string, unknown>>;
 
@@ -65,6 +66,65 @@ function afterCursor(cursor: TimelineCursor): SQL {
   return or(lt(titles.takenAt, at(cursor.t)), and(sql`${titles.takenAt} = ${at(cursor.t)}`, lt(titles.id, cursor.id)), isNull(titles.takenAt))!;
 }
 
+/** Starting a page at a month (and older) or at the undated items. A bad value is ignored, not an error. */
+function monthStart(month: string | null | undefined): SQL | undefined {
+  if (!month) return undefined;
+  if (month === "undated") return isNull(titles.takenAt);
+  const m = /^(\d{4})-(\d{2})$/.exec(month);
+  if (!m || +m[2] < 1 || +m[2] > 12 || +m[1] < 1826 || +m[1] > 9998) return undefined;
+  const nextMonth = new Date(Date.UTC(+m[1], +m[2], 1));
+  return or(lt(titles.takenAt, sql`${nextMonth.toISOString()}::timestamptz`), isNull(titles.takenAt));
+}
+
+/**
+ * Everything a listing is narrowed by, in one place so the timeline, the favorites view, search and the
+ * scrubber's month counts can never disagree about what a viewer may see: visibility and age first, then
+ * the optional favorites and search narrowing.
+ */
+function narrowed(
+  ex: Db,
+  args: { actor: LibraryActor; viewer: AccessProfile; viewerId?: string; libraryId: string; favoritesOnly?: boolean; search?: SearchSpec | null }
+): SQL | undefined {
+  const heart = args.viewerId ? sql`EXISTS (SELECT 1 FROM ${photoFavorites} f WHERE f.title_id = ${titles.id} AND f.viewer_id = ${args.viewerId})` : sql`false`;
+  const search = args.search
+    ? args.search.range
+      ? or(sql`${titles.name} ILIKE ${"%" + escapeLike(args.search.text) + "%"} ESCAPE '\\'`, and(sql`${titles.takenAt} >= ${args.search.range.from.toISOString()}::timestamptz`, sql`${titles.takenAt} < ${args.search.range.to.toISOString()}::timestamptz`))
+      : sql`${titles.name} ILIKE ${"%" + escapeLike(args.search.text) + "%"} ESCAPE '\\'`
+    : undefined;
+  return and(visibleItems(ex, args), args.favoritesOnly ? heart : undefined, search);
+}
+
+export interface MonthBucket {
+  /** "2024-03", or "undated". */
+  key: string;
+  count: number;
+}
+
+/** How many visible items fall in each month (newest first, undated last), under the same narrowing as the listing. Null if the viewer can't see such a library. */
+export async function listMonths(
+  ex: Db,
+  args: { actor: LibraryActor; viewer: AccessProfile; viewerId?: string; libraryId: string; favoritesOnly?: boolean; search?: SearchSpec | null }
+): Promise<MonthBucket[] | null> {
+  const key = sql<string>`coalesce(to_char(${titles.takenAt} AT TIME ZONE 'UTC', 'YYYY-MM'), 'undated')`;
+  const rows = await ex
+    .select({ key, count: sql<number>`count(*)::int` })
+    .from(titles)
+    .innerJoin(libraries, eq(libraries.id, titles.libraryId))
+    .where(narrowed(ex, args))
+    .groupBy(key)
+    .orderBy(sql`${key} DESC`);
+  if (rows.length === 0) {
+    const [library] = await ex
+      .select({ id: libraries.id })
+      .from(libraries)
+      .where(and(eq(libraries.id, args.libraryId), inArray(libraries.kind, [...PHOTO_LIBRARY_KINDS]), libraryVisible(ex, args.actor)))
+      .limit(1);
+    if (!library) return null;
+  }
+  // "undated" sorts after the digits in descending order already, but make the rule explicit.
+  return rows.sort((a, b) => (a.key === "undated" ? 1 : b.key === "undated" ? -1 : b.key.localeCompare(a.key)));
+}
+
 /** One page of a photo library's timeline, or null when the viewer can't see such a library. */
 export async function listTimeline(
   ex: Db,
@@ -78,6 +138,10 @@ export async function listTimeline(
     limit?: number;
     /** Only the viewer's favorites. */
     favoritesOnly?: boolean;
+    /** Only items matching a search (by name, or by date if the query reads as one). */
+    search?: SearchSpec | null;
+    /** Start at this month ("2024-03", then older) or at the undated items ("undated"), for jumping with the scrubber. */
+    month?: string | null;
   }
 ): Promise<TimelinePage | null> {
   const limit = Math.min(Math.max(args.limit ?? 60, 1), MAX_PAGE);
@@ -95,14 +159,7 @@ export async function listTimeline(
     })
     .from(titles)
     .innerJoin(libraries, eq(libraries.id, titles.libraryId))
-    .where(
-      and(
-        visibleItems(ex, args),
-        // The favorites view is the same query as the timeline, narrowed: access and age rules apply unchanged.
-        args.favoritesOnly ? (args.viewerId ? sql`EXISTS (SELECT 1 FROM ${photoFavorites} f WHERE f.title_id = ${titles.id} AND f.viewer_id = ${args.viewerId})` : sql`false`) : undefined,
-        args.after ? afterCursor(args.after) : undefined
-      )
-    )
+    .where(and(narrowed(ex, args), args.after ? afterCursor(args.after) : undefined, monthStart(args.month)))
     .orderBy(sql`${titles.takenAt} DESC NULLS LAST`, sql`${titles.id} DESC NULLS LAST`)
     .limit(limit + 1);
 

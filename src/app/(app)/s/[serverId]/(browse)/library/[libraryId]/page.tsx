@@ -15,6 +15,7 @@ import { Breadcrumbs } from "@/components/shell/breadcrumbs";
 import { VideoFolderView } from "@/components/library/video-folder-view";
 import { listFolder as listVideoFolder, normalizeFolderPath } from "@/lib/libraries/folder-browse";
 import { isFileTreeLibraryKind, isPhotoLibraryKind } from "@/lib/libraries/profile";
+import { parseSearch } from "@/lib/photos/search";
 import { listTimeline } from "@/lib/photos/timeline";
 import { favoriteWords } from "@/lib/photos/favorite-word";
 import { PhotoTimeline } from "@/components/photos/photo-timeline";
@@ -72,7 +73,8 @@ export default async function LibraryDetailPage({
   const photoView = isPhotoLibraryKind(library.kind) ? (query.view === "albums" ? "albums" : query.view === "favorites" ? "favorites" : "timeline") : null;
   const words = favoriteWords(viewer.locale);
   if (photoView === "timeline" || photoView === "favorites") {
-    const page = await listTimeline(db, { actor: lib, viewer, viewerId: viewer.id, libraryId, limit: 60, favoritesOnly: photoView === "favorites" });
+    const search = parseSearch(typeof query.q === "string" ? query.q : null);
+    const page = await listTimeline(db, { actor: lib, viewer, viewerId: viewer.id, libraryId, limit: 60, favoritesOnly: photoView === "favorites", search });
     if (!page) notFound();
     const PhotoIcon = KIND_ICON[library.kind];
     return (
@@ -84,9 +86,24 @@ export default async function LibraryDetailPage({
           </span>
           <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">{library.name}</h1>
         </div>
-        <PhotoViewTabs serverId={serverId} libraryId={libraryId} active={photoView} favoritesLabel={words.plural} />
+        <div className="flex flex-wrap items-center gap-3">
+          <PhotoViewTabs serverId={serverId} libraryId={libraryId} active={photoView} favoritesLabel={words.plural} />
+          <form action={`/s/${serverId}/library/${libraryId}`} method="get" role="search" className="flex min-w-0 flex-1 items-center gap-2 sm:max-w-xs">
+            {photoView === "favorites" && <input type="hidden" name="view" value="favorites" />}
+            <input
+              type="search"
+              name="q"
+              defaultValue={search?.text ?? ""}
+              maxLength={64}
+              placeholder="Search names or dates"
+              aria-label="Search this library"
+              className="h-9 min-w-0 flex-1 rounded-xl bg-white/[0.06] px-3 text-sm ring-1 ring-white/[0.08] placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary"
+            />
+          </form>
+        </div>
         <PhotoTimeline
-          key={photoView}
+          key={`${photoView}:${search?.text ?? ""}`}
+          q={search?.text ?? ""}
           serverId={serverId}
           libraryId={libraryId}
           view={photoView}
