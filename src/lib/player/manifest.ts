@@ -30,7 +30,13 @@ export async function buildPlayManifest(
   ownerId: string,
   viewerId: string,
   serverId: string,
-  unsupportedCodecs: readonly string[] = []
+  unsupportedCodecs: readonly string[] = [],
+  /**
+   * Play the storage service's own browser-friendly version of each file instead of the original (falling
+   * back to the original when it isn't ready). For libraries of phone videos: HEVC with the index at the
+   * end of the file, which iOS Safari won't start and Chrome shows as a black picture.
+   */
+  preferBrowserVersion = false
 ): Promise<BuildManifestResult> {
   const allRows = await db
     .select()
@@ -79,6 +85,13 @@ export async function buildPlayManifest(
       if (variant && shouldUseVariant(row, variant, unsupportedCodecs)) {
         // Any trouble minting the copy's URL just means playing the original.
         streaming = await provider.getStreamingUrl(variant.boxFileId).catch(() => null);
+      }
+      if (!streaming && preferBrowserVersion && provider.getBrowserVideoUrl) {
+        // Any trouble just means playing the original.
+        streaming = await provider.getBrowserVideoUrl(row.boxFileId).catch((err) => {
+          if (err instanceof BoxReauthRequiredError) throw err;
+          return null;
+        });
       }
       const { url, expiresAt } = streaming ?? (await provider.getStreamingUrl(row.boxFileId));
       if (!earliestExpiry || expiresAt < earliestExpiry) earliestExpiry = expiresAt;

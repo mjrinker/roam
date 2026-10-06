@@ -68,6 +68,13 @@ export interface StorageProvider {
   fetchPreview?(fileId: string, opts?: { budgetMs?: number }): Promise<PreviewImage | null>;
 
   /**
+   * A URL a browser can play directly: the storage service's own browser-friendly (H.264) version of a
+   * video, which it makes itself, or null when that isn't available in time (the caller plays the
+   * original). The URL carries a token that can read this one file and nothing else.
+   */
+  getBrowserVideoUrl?(fileId: string, opts?: { budgetMs?: number }): Promise<StreamingUrl | null>;
+
+  /**
    * Whether a file still exists and isn't in the trash. False only for a definite "gone"; anything
    * else the provider can't tell throws. Optional: without it nothing is ever removed for being missing.
    */

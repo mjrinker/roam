@@ -237,6 +237,41 @@ async function fetchThumbnail(serverId: string, fileId: string): Promise<{ conte
   });
 }
 
+/**
+ * Box's own H.264 MP4 of a video (it makes one on first request, usually within seconds), as a URL a
+ * browser can stream directly. The URL carries a token downscoped to THIS file with read-only preview
+ * access (never the account's own token), good for about an hour. Null if Box has none in time.
+ */
+async function getBrowserVideoUrl(serverId: string, fileId: string, opts?: { budgetMs?: number }): Promise<StreamingUrl | null> {
+  const deadline = Date.now() + (opts?.budgetMs ?? 6_000);
+  return withBoxClient(serverId, async (client) => {
+    let triggered = false;
+    for (;;) {
+      let plan;
+      try {
+        const file = await client.files.getFileById(fileId, { queryParams: { fields: ["representations"] }, headers: { xRepHints: "[mp4]" } });
+        plan = planRepresentation(file.representations?.entries?.find((e) => e.representation === "mp4"));
+      } catch (err) {
+        if (err instanceof BoxApiError && [400, 404, 415].includes(err.responseInfo?.statusCode ?? 0)) return null;
+        throw err;
+      }
+      if (plan.action === "fetch") {
+        await ensureFreshAccessToken(client, serverId);
+        const scoped = await client.auth.downscopeToken(["item_preview"], `https://api.box.com/2.0/files/${fileId}`);
+        if (!scoped.accessToken) return null;
+        return { url: `${plan.url}?access_token=${encodeURIComponent(scoped.accessToken)}`, expiresAt: new Date(Date.now() + (scoped.expiresIn ?? 60) * 1000) };
+      }
+      if (plan.action === "none") return null;
+      if (plan.action === "trigger" && !triggered) {
+        triggered = true;
+        await client.makeRequest({ url: plan.url, method: "GET", responseFormat: "no_content" }).catch(() => undefined);
+      }
+      if (Date.now() + PREVIEW_POLL_MS > deadline) return null;
+      await new Promise((resolve) => setTimeout(resolve, PREVIEW_POLL_MS));
+    }
+  });
+}
+
 const PREVIEW_DIMENSIONS = [2048, 1024] as const;
 /** A 2048px JPEG is a few hundred KiB; anything this big is not a preview. */
 const MAX_PREVIEW_BYTES = 6 * 1024 * 1024;
@@ -302,6 +337,7 @@ export function createBoxProviderForServer(serverId: string): StorageProvider {
       fetchByteRange(serverId, fileId, startByte, endByte),
     fetchThumbnail: (fileId) => fetchThumbnail(serverId, fileId),
     fetchPreview: (fileId, opts) => fetchPreview(serverId, fileId, opts),
+    getBrowserVideoUrl: (fileId, opts) => getBrowserVideoUrl(serverId, fileId, opts),
     fileExists: (fileId) => fileExists(serverId, fileId),
   };
 }

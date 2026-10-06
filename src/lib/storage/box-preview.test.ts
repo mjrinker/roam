@@ -2,7 +2,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { BoxApiError } from "box-node-sdk";
 
-type Rep = { status?: { state?: string }; content?: { urlTemplate?: string }; info?: { url?: string } };
+type Rep = { representation?: string; status?: { state?: string }; content?: { urlTemplate?: string }; info?: { url?: string } };
 const h = vi.hoisted(() => ({
   /** representation entry returned per requested size ("2048"|"1024"), consumed in order per call */
   reps: {} as Record<string, (Rep | "404" | "500")[]>,
@@ -11,6 +11,7 @@ const h = vi.hoisted(() => ({
   /** what makeRequest answers for a content URL */
   content: ((): { status: number; bytes?: Uint8Array; chunks?: number } => ({ status: 404 })) as (url: string) => { status: number; bytes?: Uint8Array; chunks?: number },
   listing: [] as unknown[],
+  scoped: [] as { scopes: string[]; resource: string }[],
 }));
 vi.mock("./box-token-storage", () => ({
   ensureFreshAccessToken: async () => undefined,
@@ -18,7 +19,7 @@ vi.mock("./box-token-storage", () => ({
     fn({
       files: {
         getFileById: async (_id: string, opts: { headers: { xRepHints: string } }) => {
-          const size = /dimensions=(\d+)x/.exec(opts.headers.xRepHints)![1];
+          const size = /dimensions=(\d+)x/.exec(opts.headers.xRepHints)?.[1] ?? "2048";
           h.requested.push(size);
           const queue = h.reps[size] ?? [];
           const next = queue.length > 1 ? queue.shift()! : queue[0];
@@ -28,6 +29,12 @@ vi.mock("./box-token-storage", () => ({
         },
       },
       folders: { getFolderItems: async () => ({ totalCount: h.listing.length, entries: h.listing }) },
+      auth: {
+        downscopeToken: async (scopes: string[], resource: string) => {
+          h.scoped.push({ scopes, resource });
+          return { accessToken: "scoped-tok", expiresIn: 4000 };
+        },
+      },
       makeRequest: async (o: { url: string; responseFormat?: string }) => {
         h.requests.push({ url: o.url, format: o.responseFormat });
         const r = h.content(o.url);
@@ -53,6 +60,7 @@ beforeEach(() => {
   h.reps = {};
   h.requested = [];
   h.requests = [];
+  h.scoped = [];
   h.content = () => ({ status: 404 });
   vi.useFakeTimers();
 });
@@ -123,6 +131,56 @@ describe("fetchPreview", () => {
   it("surfaces a server error instead of calling it 'no preview'", async () => {
     h.reps = { "2048": ["500"] };
     const outcome = expect(provider().fetchPreview!("f")).rejects.toBeInstanceOf(BoxApiError);
+    await vi.advanceTimersByTimeAsync(60_000);
+    await outcome;
+  });
+});
+
+describe("getBrowserVideoUrl", () => {
+  const mp4 = (state: string, host = "public.boxcloud.com"): Rep & { representation: string } => ({
+    representation: "mp4",
+    status: { state },
+    content: { urlTemplate: `https://${host}/api/2.0/internal_files/1/versions/2/representations/mp4/content/{+asset_path}` },
+    info: { url: "https://api.box.com/2.0/internal_files/1/versions/2/representations/mp4" },
+  });
+  const url = async (budget?: number) => {
+    const p = provider().getBrowserVideoUrl!("file1", { budgetMs: budget });
+    await vi.advanceTimersByTimeAsync(60_000);
+    return p;
+  };
+  // the fake keys representations by requested size; the mp4 hint carries none, so it reads "2048"
+  const reps = (...r: (Rep | "404" | "500")[]) => { h.reps = { "2048": r }; };
+
+  it("hands back Box's MP4 as a URL carrying a token for this one file only, never the account's token", async () => {
+    h.requested = [];
+    reps(mp4("success"));
+    const got = await url();
+    expect(got!.url).toBe("https://public.boxcloud.com/api/2.0/internal_files/1/versions/2/representations/mp4/content/?access_token=scoped-tok");
+    expect(got!.expiresAt.getTime()).toBeGreaterThan(Date.now() + 3_000_000);
+    expect(h.scoped).toEqual([{ scopes: ["item_preview"], resource: "https://api.box.com/2.0/files/file1" }]);
+  });
+
+  it("asks Box to make it when it doesn't exist yet, and waits while it is being made", async () => {
+    reps(mp4("none"), mp4("pending"), mp4("success"));
+    expect(await url()).not.toBeNull();
+    expect(h.requests.filter((r) => r.format === "no_content")).toHaveLength(1);
+  });
+
+  it("gives up (null, so the original plays) when it isn't ready in time, isn't offered, or is on a host that isn't Box's", async () => {
+    reps(mp4("pending"));
+    expect(await url(1500)).toBeNull();
+    reps("404");
+    expect(await url()).toBeNull();
+    reps(mp4("error"));
+    expect(await url()).toBeNull();
+    reps(mp4("success", "evil.example"));
+    expect(await url()).toBeNull();
+    expect(h.scoped).toEqual([]); // no token was minted for any of those
+  });
+
+  it("surfaces a Box server error rather than treating it as 'no browser version'", async () => {
+    reps("500");
+    const outcome = expect(provider().getBrowserVideoUrl!("f")).rejects.toBeInstanceOf(BoxApiError);
     await vi.advanceTimersByTimeAsync(60_000);
     await outcome;
   });

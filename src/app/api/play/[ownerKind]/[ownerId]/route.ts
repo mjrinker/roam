@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { authorizeOwner } from "@/lib/auth/resolve-server";
 import { buildPlayManifest } from "@/lib/player/manifest";
+import { isPhotoLibraryKind } from "@/lib/libraries/profile";
 import { parseUnsupportedCodecs } from "@/lib/player/variant-selection";
 
 // authorizeOwner covers server membership AND the profile's rating limit —
@@ -21,7 +22,7 @@ export async function GET(
   }
 
   const unsupportedCodecs = parseUnsupportedCodecs(new URL(request.url).searchParams.get("unsupportedCodecs"));
-  const result = await buildPlayManifest(ownerKind, ownerId, auth.member.viewer.id, auth.serverId, unsupportedCodecs);
+  const result = await buildPlayManifest(ownerKind, ownerId, auth.member.viewer.id, auth.serverId, unsupportedCodecs, isPhotoLibraryKind(auth.libraryKind));
   if (!result.ok) {
     return NextResponse.json({ error: result.error }, { status: result.status });
   }
