@@ -2,9 +2,10 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ArrowLeft, ChevronLeft, ChevronRight, Download } from "lucide-react";
 import { Artwork } from "@/components/ui/artwork";
+import { decideSwipe } from "@/lib/photos/swipe";
 
 /** A key press that is about typing, or a shortcut for the browser, is never ours. */
 function isForUs(event: KeyboardEvent): boolean {
@@ -44,6 +45,31 @@ export function PhotoViewer({
   const router = useRouter();
   const [failed, setFailed] = useState(false);
   const [attempt, setAttempt] = useState(0);
+  // Finger swipes: the picture follows the finger sideways, then the next or previous photo opens.
+  const touch = useRef<{ x: number; y: number; t: number; fingers: number } | null>(null);
+  const [drag, setDrag] = useState(0);
+  const onTouchStart = (e: React.TouchEvent) => {
+    touch.current = { x: e.touches[0].clientX, y: e.touches[0].clientY, t: Date.now(), fingers: e.touches.length };
+  };
+  const onTouchMove = (e: React.TouchEvent) => {
+    const start = touch.current;
+    if (!start) return;
+    if (e.touches.length > 1) start.fingers = e.touches.length; // a pinch cancels the swipe
+    const dx = e.touches[0].clientX - start.x;
+    const dy = e.touches[0].clientY - start.y;
+    const wanted = dx < 0 ? nextHref : prevHref;
+    setDrag(start.fingers === 1 && wanted && Math.abs(dx) > Math.abs(dy) * 1.5 ? dx : 0);
+  };
+  const onTouchEnd = (e: React.TouchEvent) => {
+    const start = touch.current;
+    touch.current = null;
+    setDrag(0);
+    if (!start) return;
+    const end = e.changedTouches[0];
+    const decision = decideSwipe({ dx: end.clientX - start.x, dy: end.clientY - start.y, ms: Date.now() - start.t, fingers: start.fingers });
+    if (decision === "next" && nextHref) router.push(nextHref);
+    else if (decision === "prev" && prevHref) router.push(prevHref);
+  };
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
@@ -82,7 +108,7 @@ export function PhotoViewer({
         </a>
       </header>
 
-      <div className="relative flex-1">
+      <div className="relative flex-1 touch-pan-y touch-pinch-zoom overflow-hidden" onTouchStart={onTouchStart} onTouchMove={onTouchMove} onTouchEnd={onTouchEnd} onTouchCancel={onTouchEnd}>
         {failed ? (
           <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 text-center">
             <p className="text-lg font-medium">This photo can&apos;t be shown right now</p>
@@ -99,7 +125,9 @@ export function PhotoViewer({
             </button>
           </div>
         ) : (
-          <Artwork key={src} src={src} alt={name} fill priority sizes="100vw" onError={() => setFailed(true)} className="object-contain" />
+          <div className="absolute inset-0" style={{ transform: drag ? `translateX(${drag}px)` : undefined, transition: drag ? "none" : "transform 150ms ease-out" }}>
+            <Artwork key={src} src={src} alt={name} fill priority sizes="100vw" onError={() => setFailed(true)} className="object-contain" />
+          </div>
         )}
 
         {prevHref && (
