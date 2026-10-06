@@ -23,6 +23,8 @@ export async function GET(request: Request, ctx: RouteContext<"/api/libraries/[i
     return NextResponse.json({ error: "Too many requests" }, { status: 429, headers });
   }
   const params = new URL(request.url).searchParams;
+  const level = z.enum(["day", "month", "year"]).safeParse(params.get("level") ?? "month");
+  if (!level.success) return NextResponse.json({ error: "Invalid request" }, { status: 400, headers });
   const months = await listMonths(db, {
     actor: libraryActor(member, serverId),
     viewer: member.viewer,
@@ -30,6 +32,7 @@ export async function GET(request: Request, ctx: RouteContext<"/api/libraries/[i
     libraryId: id,
     favoritesOnly: params.get("view") === "favorites",
     search: parseSearch(params.get("q")),
+    level: level.data,
   });
   if (!months) return notFound();
   return NextResponse.json({ months }, { headers });

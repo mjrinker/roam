@@ -112,27 +112,36 @@ describe("GET /api/libraries/[id]/photos", () => {
   });
 });
 
-describe("scrolling up after a jump, through the API", () => {
-  it("returns the newer page with a cursor for the next one up, and rejects a malformed cursor", async () => {
+describe("loading one block, through the API", () => {
+  it("returns only that block's photos in pages of 500, accepts a level, and rejects a bad level or a long key", async () => {
     const w = await world(0);
-    const mk = async (i: number) => makeTitle(db, w.lib.id, { kind: "photo", name: `p${i}`, boxFolderId: `file:u${++n}`, takenAt: new Date(Date.UTC(2024, i, 15)), takenAtSource: "box" });
-    for (let i = 0; i < 6; i++) await mk(i);
-    const jumped = await (await get(w.lib.id, "?month=2024-03")).json(); // March (p2) and older
-    expect(jumped.items.map((x: { name: string }) => x.name)).toEqual(["p2", "p1", "p0"]);
-    expect(typeof jumped.prev).toBe("string");
-    const up = await (await get(w.lib.id, `?before=${encodeURIComponent(jumped.prev)}`)).json();
-    expect(up.items.map((x: { name: string }) => x.name)).toEqual(["p5", "p4", "p3"]);
-    expect(up.prev).toBeNull();
-    for (const bad of ["?before=%%%", `?before=${Buffer.from(JSON.stringify({ t: "x", id: "y" })).toString("base64url")}`]) {
-      expect((await get(w.lib.id, bad)).status, bad).toBe(400);
-    }
+    for (let i = 0; i < 3; i++) await makeTitle(db, w.lib.id, { kind: "photo", name: `mar ${i}`, boxFolderId: `file:b${++n}`, takenAt: new Date(Date.UTC(2024, 2, 10 + i)), takenAtSource: "box" });
+    await makeTitle(db, w.lib.id, { kind: "photo", name: "apr", boxFolderId: `file:b${++n}`, takenAt: new Date(Date.UTC(2024, 3, 1)), takenAtSource: "box" });
+    const names = async (query: string) => ((await (await get(w.lib.id, query)).json()).items as { name: string }[]).map((i) => i.name);
+    expect(await names("?bucket=2024-03")).toEqual(["mar 2", "mar 1", "mar 0"]);
+    expect(await names("?bucket=2024-03-11&level=day")).toEqual(["mar 1"]);
+    expect(await names("?bucket=2024&level=year")).toEqual(["apr", "mar 2", "mar 1", "mar 0"]);
+    expect(await names("?bucket=2024-13")).toEqual([]);
+    for (const bad of ["?bucket=2024-03&level=week", `?bucket=${"x".repeat(13)}`]) expect((await get(w.lib.id, bad)).status, bad).toBe(400);
   });
+
+  it("a big block is read in pages with a cursor until complete", async () => {
+    const w = await world(0);
+    for (let i = 0; i < 520; i++) await makeTitle(db, w.lib.id, { kind: "photo", name: `p${i}`, boxFolderId: `file:big${++n}`, takenAt: new Date(Date.UTC(2024, 4, 1, 0, 0, i)), takenAtSource: "box" });
+    const first = await (await get(w.lib.id, "?bucket=2024-05")).json();
+    expect(first.items).toHaveLength(500);
+    expect(typeof first.next).toBe("string");
+    const second = await (await get(w.lib.id, `?bucket=2024-05&after=${encodeURIComponent(first.next)}`)).json();
+    expect(second.items).toHaveLength(20);
+    expect(second.next).toBeNull();
+    expect(new Set([...first.items, ...second.items].map((i: { id: string }) => i.id)).size).toBe(520);
+  }, 60_000);
 });
 
-describe("search, month jumps and the scrubber's months through the API", () => {
+describe("search and the blocks' counts through the API", () => {
   const monthsOf = (id: string, query = "") => getMonths(new Request(`http://x/api/libraries/${id}/photos/months${query}`), ctx(id));
 
-  it("narrows by a query and jumps to a month, with the viewer's age limit still applied", async () => {
+  it("narrows by a query and by block, with the viewer's age limit still applied", async () => {
     const w = await world(0);
     const mk = (name: string, at: string, ages: unknown = { ANY: 8 }) => makeTitle(db, w.lib.id, { kind: "photo", name, boxFolderId: `file:q${++n}`, takenAt: new Date(at), takenAtSource: "box", ratingAges: ages as never });
     await mk("beach mar", "2024-03-10T00:00:00Z");
@@ -143,9 +152,8 @@ describe("search, month jumps and the scrubber's months through the API", () => 
     const names = async (query: string) => ((await (await get(w.lib.id, query)).json()).items as { name: string }[]).map((i) => i.name);
     expect(await names("?q=beach")).toEqual(["beach mar", "beach feb"]);
     expect(await names("?q=2024-02")).toEqual(["beach feb"]);
-    expect(await names("?month=2024-02")).toEqual(["beach feb"]);
-    expect(await names("?month=2024-03&q=beach")).toEqual(["beach mar", "beach feb"]);
-    expect(await names("?month=garbage")).toEqual(["city", "beach mar", "beach feb"]);
+    expect(await names("?bucket=2024-03&q=beach")).toEqual(["beach mar"]);
+    expect(await names("?bucket=2024-03")).toEqual(["city", "beach mar"]); // the adult one never appears
   });
 
   it("months: counts for the same narrowing, uniform 404s, a rate limit and a private response", async () => {

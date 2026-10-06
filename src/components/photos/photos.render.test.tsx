@@ -53,23 +53,37 @@ describe("PhotoTile", () => {
   });
 });
 
-describe("PhotoTimeline", () => {
-  const props = { serverId: "srv", libraryId: "lib", words: { add: "Add to favorites", remove: "Remove from favorites" } };
+const W = { add: "Add to favorites", remove: "Remove from favorites" };
+const timeline = (props: Partial<React.ComponentProps<typeof PhotoTimeline>> & { items?: TimelineItem[] }) => {
+  const items = props.items ?? [];
+  const counts = new Map<string, number>();
+  for (const i of items) counts.set((i.takenAt ?? "undated").slice(0, 7), (counts.get((i.takenAt ?? "undated").slice(0, 7)) ?? 0) + 1);
+  const buckets = [...counts].map(([key, count]) => ({ key, count }));
+  return renderToStaticMarkup(<PhotoTimeline serverId="srv" libraryId="lib" words={W} initialItems={items} initialBuckets={buckets} {...props} />);
+};
 
-  it("groups tiles under month headings, newest first, and says when that is everything", () => {
-    const html = renderToStaticMarkup(
-      <PhotoTimeline {...props} initialNext={null} initialItems={[item({ id: "a", takenAt: "2024-03-30T00:00:00Z" }), item({ id: "b", takenAt: "2024-03-02T00:00:00Z" }), item({ id: "c", takenAt: "2023-12-31T23:59:00Z" })]} />
-    );
+describe("PhotoTimeline", () => {
+  it("draws the photos it was given under month headings, newest first", () => {
+    const html = timeline({ items: [item({ id: "a", takenAt: "2024-03-30T00:00:00Z" }), item({ id: "b", takenAt: "2024-03-02T00:00:00Z" }), item({ id: "c", takenAt: "2023-12-31T23:59:00Z" })] });
     expect(html.indexOf("March 2024")).toBeLessThan(html.indexOf("December 2023"));
-    expect(html.match(/March 2024/g)).toHaveLength(2); // the heading and its section's aria-label
-    expect(html).toContain("That&#x27;s everything.");
+    expect(html.match(/<h2/g)).toHaveLength(2);
+    expect(html.match(/<li[ >]/g)).toHaveLength(3); // (not the preload <link> tags)
+    expect(html).toContain('data-bucket="2024-03"');
   });
 
-  it("keeps loading while there is a next page, and shows a friendly empty state for an empty library", () => {
-    const more = renderToStaticMarkup(<PhotoTimeline {...props} initialNext="cursor" initialItems={[item()]} />);
-    expect(more).not.toContain("everything");
-    const empty = renderToStaticMarkup(<PhotoTimeline {...props} initialNext={null} initialItems={[]} />);
-    expect(empty).toContain("No photos yet");
+  it("only draws a block that already has photos before it has been measured (the server's render); the rest wait for the browser", () => {
+    const html = renderToStaticMarkup(
+      <PhotoTimeline serverId="srv" libraryId="lib" words={W} initialItems={[item()]} initialBuckets={[{ key: "2024-03", count: 1 }, { key: "2023-01", count: 400 }, { key: "2020-07", count: 12 }]} />
+    );
+    expect(html).toContain('data-bucket="2024-03"');
+    expect(html).not.toContain('data-bucket="2023-01"');
+    expect(html).not.toContain('data-bucket="2020-07"');
+  });
+
+  it("shows a friendly empty state for an empty library", () => {
+    const html = timeline({ items: [] });
+    expect(html).toContain("No photos yet");
+    expect(html).not.toContain('role="group"'); // no zoom control with nothing to zoom
   });
 });
 
@@ -80,10 +94,8 @@ describe("favorites in the interface", () => {
   });
 
   it("a favorites timeline links tiles with where they came from and speaks in the profile's spelling", () => {
-    const html = renderToStaticMarkup(<PhotoTimeline serverId="srv" libraryId="lib" view="favorites" initialNext={null} initialItems={[item()]} words={{ add: "a", remove: "r" }} />);
-    expect(html).toContain("?from=favorites");
-    const empty = renderToStaticMarkup(<PhotoTimeline serverId="srv" libraryId="lib" view="favorites" initialNext={null} initialItems={[]} emptyTitle="No favourites yet" emptyHint="Tap the heart…" words={{ add: "a", remove: "r" }} />);
-    expect(empty).toContain("No favourites yet");
+    expect(timeline({ view: "favorites", items: [item()] })).toContain("?from=favorites");
+    expect(timeline({ view: "favorites", items: [], emptyTitle: "No favourites yet", emptyHint: "Tap the heart…" })).toContain("No favourites yet");
   });
 
   it("the heart button reads as pressed when set and offers the right action", () => {
@@ -97,19 +109,16 @@ describe("favorites in the interface", () => {
 });
 
 describe("timeline zoom and search copy", () => {
-  const props = { serverId: "srv", libraryId: "lib", initialNext: null, words: { add: "Add to favorites", remove: "Remove from favorites" } };
-  const items = [item({ id: "a", takenAt: "2024-03-30T10:00:00Z" }), item({ id: "b", takenAt: "2024-03-02T10:00:00Z" })];
-
   it("offers days, months and years, starting at months, with the other levels one tap away", () => {
-    const html = renderToStaticMarkup(<PhotoTimeline {...props} initialItems={items} />);
+    const html = timeline({ items: [item({ id: "a", takenAt: "2024-03-30T10:00:00Z" })] });
     expect(html).toContain('aria-label="Zoom"');
     for (const label of ["Days", "Months", "Years"]) expect(html).toContain(label);
     expect(html).toContain('aria-pressed="true"');
-    expect(html).toContain("March 2024"); // month headings by default
+    expect(html).toContain("March 2024");
   });
 
   it("an empty search says so and suggests what to try, instead of 'no photos yet'", () => {
-    const html = renderToStaticMarkup(<PhotoTimeline {...props} initialItems={[]} q="zzz" />);
+    const html = timeline({ items: [], q: "zzz" });
     expect(html).toContain("Nothing matches");
     expect(html).toContain("zzz");
     expect(html).not.toContain("No photos yet");

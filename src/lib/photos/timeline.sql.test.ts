@@ -115,7 +115,7 @@ describe("what a viewer may not see", () => {
 
   it("an empty visible photo library is an empty page, not a missing one", async () => {
     const w = await world();
-    expect(await tl(w)).toEqual({ items: [], next: null, prev: null });
+    expect(await tl(w)).toEqual({ items: [], next: null });
   });
 
   it("never shows an item above the viewer's age limit, and never lets it count toward paging", async () => {

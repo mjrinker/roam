@@ -16,7 +16,7 @@ import { VideoFolderView } from "@/components/library/video-folder-view";
 import { listFolder as listVideoFolder, normalizeFolderPath } from "@/lib/libraries/folder-browse";
 import { isFileTreeLibraryKind, isPhotoLibraryKind } from "@/lib/libraries/profile";
 import { parseSearch } from "@/lib/photos/search";
-import { listTimeline } from "@/lib/photos/timeline";
+import { listMonths, listTimeline } from "@/lib/photos/timeline";
 import { favoriteWords } from "@/lib/photos/favorite-word";
 import { PhotoTimeline } from "@/components/photos/photo-timeline";
 import { decodeCursor, encodeCursor } from "@/lib/playlists/http";
@@ -74,8 +74,10 @@ export default async function LibraryDetailPage({
   const words = favoriteWords(viewer.locale);
   if (photoView === "timeline" || photoView === "favorites") {
     const search = parseSearch(typeof query.q === "string" ? query.q : null);
-    const page = await listTimeline(db, { actor: lib, viewer, viewerId: viewer.id, libraryId, limit: 60, favoritesOnly: photoView === "favorites", search });
-    if (!page) notFound();
+    const narrowing = { actor: lib, viewer, viewerId: viewer.id, libraryId, favoritesOnly: photoView === "favorites", search };
+    // The newest photos (so the page paints at once) and every month's count (so the whole timeline can be laid out).
+    const [page, buckets] = await Promise.all([listTimeline(db, { ...narrowing, limit: 60 }), listMonths(db, { ...narrowing, level: "month" })]);
+    if (!page || !buckets) notFound();
     const PhotoIcon = KIND_ICON[library.kind];
     return (
       <div className="flex flex-col gap-6 px-4 py-8 sm:px-8">
@@ -109,7 +111,7 @@ export default async function LibraryDetailPage({
           libraryId={libraryId}
           view={photoView}
           initialItems={page.items}
-          initialNext={page.next ? encodeCursor(page.next) : null}
+          initialBuckets={buckets}
           {...(photoView === "favorites" ? { emptyTitle: words.empty, emptyHint: words.emptyHint } : {})}
         />
       </div>

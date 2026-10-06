@@ -4,28 +4,41 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import { PhotoScrubber } from "@/components/photos/photo-scrubber";
 import { PhotoTile } from "@/components/photos/photo-tile";
 import { PhotoViewer } from "@/components/photos/photo-viewer";
-import { canScrollInPlace, groupItems, groupKey, ZOOM_LEVELS, type ZoomLevel } from "@/lib/photos/months";
-import type { TimelineItem } from "@/lib/photos/timeline";
-import { viewerItem, type ViewerItem } from "@/lib/photos/viewer-item";
+import {
+  BLOCK_GAP,
+  blockHeight,
+  groupKey,
+  groupLabel,
+  gridColumns,
+  HEADING_GAP,
+  HEADING_HEIGHT,
+  ZOOM_LEVELS,
+  type ZoomLevel,
+} from "@/lib/photos/months";
+import type { MonthBucket, TimelineItem } from "@/lib/photos/timeline";
+import { viewerItem } from "@/lib/photos/viewer-item";
 
-interface Page {
+interface Loaded {
   items: TimelineItem[];
-  next: string | null;
-  prev?: string | null;
+  complete: boolean;
 }
 
+const MAX_CONCURRENT = 3;
+/** A block is read in pages of 500 until complete; this many pages is far more than any real day, month or year holds. */
+const MAX_PAGES = 20;
+
 /**
- * A photo library's timeline: newest first, grouped by day, month or year, loading older photos as you
- * near the bottom and (after jumping into the middle) newer ones as you near the top. Opening a photo
- * puts the viewer OVER the timeline, which stays exactly where it was, so closing is instant and nothing
- * reloads; stepping between photos uses what is already loaded. The first page arrives with the page; the
- * rest comes from the timeline API, which applies the same visibility rules.
+ * A photo library's timeline. The whole library is laid out up front: every day, month or year (by the zoom
+ * level) is a block of exactly the height its photo count needs, and a block fills with its photos as it nears
+ * the screen. So scrolling or scrubbing anywhere is just scrolling: nothing is ever inserted above you and
+ * nothing is swapped under you as photos arrive. Opening a photo puts the viewer OVER the timeline, which
+ * stays exactly where it was, so closing is instant; stepping between photos uses what is already loaded.
  */
 export function PhotoTimeline({
   serverId,
   libraryId,
   initialItems,
-  initialNext,
+  initialBuckets,
   q = "",
   view = "timeline",
   words,
@@ -34,9 +47,11 @@ export function PhotoTimeline({
 }: {
   serverId: string;
   libraryId: string;
+  /** The newest photos, so the page paints at once. */
   initialItems: TimelineItem[];
-  initialNext: string | null;
-  /** The search in effect (the page already narrowed the first page; more pages and the scrubber keep it). */
+  /** The library's months and how many photos each holds (the blocks of the month level). */
+  initialBuckets: MonthBucket[];
+  /** The search in effect (the page already narrowed the first photos; blocks and the scrubber keep it). */
   q?: string;
   /** "favorites" lists only the profile's hearted items (same API, same visibility rules). */
   view?: "timeline" | "favorites";
@@ -45,28 +60,53 @@ export function PhotoTimeline({
   emptyTitle?: string;
   emptyHint?: string;
 }) {
-  const [items, setItems] = useState(initialItems);
-  const [next, setNext] = useState(initialNext); // cursor for the next OLDER page
-  const [prev, setPrev] = useState<string | null>(null); // cursor for the next NEWER page (set after a jump)
-  const [loading, setLoading] = useState(false);
-  const [failed, setFailed] = useState(false);
-  const [zoom, setZoom] = useState<ZoomLevel>("month");
-  const [months, setMonths] = useState<string[]>([]);
-  const [currentMonth, setCurrentMonth] = useState<string | null>(null);
-  const [openId, setOpenId] = useState<string | null>(null);
-  const [jumping, setJumping] = useState(false);
-  const olderInFlight = useRef(false);
-  const newerInFlight = useRef(false);
-  const generation = useRef(0); // bumped by a jump: answers for the place the user left are dropped
-  const anchor = useRef<{ height: number; y: number } | null>(null); // set while prepending, to keep the view still
-  const scrollToMonth = useRef<string | null>(null);
-  const bottom = useRef<HTMLDivElement | null>(null);
-  const top = useRef<HTMLDivElement | null>(null);
-  const storeKey = `roam:photos:${libraryId}:${view}:${q}`;
   const extraQuery = `${view === "favorites" ? "&view=favorites" : ""}${q ? `&q=${encodeURIComponent(q)}` : ""}`;
+  const storeKey = `roam:photos:scroll:${libraryId}:${view}:${q}`;
 
-  // ── Coming back from another page: restore what was loaded and where the view was ──
-  // Done after hydration so the first render always matches the server's.
+  const [zoom, setZoom] = useState<ZoomLevel>("month");
+  const [buckets, setBuckets] = useState<MonthBucket[]>(initialBuckets);
+  const [bucketsLevel, setBucketsLevel] = useState<ZoomLevel>("month");
+  const [months] = useState(() => initialBuckets.map((b) => b.key));
+  // The first photos arrive with the page; a block they only partly fill is completed when it comes into view.
+  const [loaded, setLoaded] = useState<Record<string, Loaded>>(() => {
+    const seeded: Record<string, Loaded> = {};
+    for (const item of initialItems) {
+      const key = groupKey(item.takenAt, "month");
+      (seeded[key] ??= { items: [], complete: false }).items.push(item);
+    }
+    for (const [key, entry] of Object.entries(seeded)) entry.complete = entry.items.length >= (initialBuckets.find((b) => b.key === key)?.count ?? Infinity);
+    return seeded;
+  });
+  const [layout, setLayout] = useState<{ width: number; viewport: number } | null>(null);
+  const [currentMonth, setCurrentMonth] = useState<string | null>(null);
+  const [openId, setOpenId] = useState<{ id: string; key: string } | null>(null);
+
+  const listRef = useRef<HTMLDivElement | null>(null);
+  const visible = useRef(new Set<string>());
+  const inFlight = useRef(new Set<string>());
+  const generation = useRef(0); // bumped when the blocks change (zoom): answers for the old blocks are dropped
+  const pumpRef = useRef<() => void>(() => undefined);
+  const loadedRef = useRef(loaded);
+  useEffect(() => {
+    loadedRef.current = loaded;
+  }, [loaded]);
+
+  // ── Measuring: exact block heights need the list's width and how many tiles fit across ──
+  useLayoutEffect(() => {
+    const el = listRef.current;
+    if (!el) return;
+    const measure = () => setLayout({ width: el.clientWidth, viewport: window.innerWidth });
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(el);
+    window.addEventListener("resize", measure);
+    return () => {
+      observer.disconnect();
+      window.removeEventListener("resize", measure);
+    };
+  }, []);
+
+  // ── The zoom level (remembered per browser), read after hydration so the first render matches the server's ──
   /* eslint-disable react-hooks/set-state-in-effect -- reading browser storage can only happen after hydration; that is the point */
   useEffect(() => {
     try {
@@ -75,37 +115,116 @@ export function PhotoTimeline({
     } catch {
       /* storage unavailable */
     }
-    try {
-      const saved = JSON.parse(sessionStorage.getItem(storeKey) ?? "null") as { items: TimelineItem[]; next: string | null; prev: string | null; y: number; at: number } | null;
-      // A list that starts at the top must still start with today's first photo (the library may have changed);
-      // one that started part-way (after a jump) is kept for half an hour.
-      const fresh = saved && Date.now() - saved.at < 30 * 60_000 && saved.items.length > 0 && (saved.prev !== null || (saved.items[0]?.id === initialItems[0]?.id && saved.items.length > initialItems.length));
-      if (!saved || !fresh) return;
-      // Hearts changed in the viewer since this list was saved (the viewer records them) win over the saved flags.
-      const changed = JSON.parse(sessionStorage.getItem(`roam:photos:fav:${libraryId}`) ?? "{}") as Record<string, boolean>;
-      setItems(
-        saved.items
-          .map((i) => (i.id in changed ? { ...i, favorite: changed[i.id] } : i))
-          .filter((i) => !(view === "favorites" && changed[i.id] === false))
-      );
-      setNext(saved.next);
-      setPrev(saved.prev);
-      requestAnimationFrame(() => window.scrollTo(0, saved.y));
-    } catch {
-      /* corrupt or unavailable: just start from the top */
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- once, on arrival
   }, []);
   /* eslint-enable react-hooks/set-state-in-effect */
 
+  // Another level means other blocks: fetch their counts, and start with none of them loaded.
+  useEffect(() => {
+    if (zoom === bucketsLevel) return;
+    const gen = ++generation.current;
+    inFlight.current.clear();
+    let cancelled = false;
+    fetch(`/api/libraries/${libraryId}/photos/months?level=${zoom}${extraQuery}`, { credentials: "same-origin" })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((body: { months: MonthBucket[] } | null) => {
+        if (cancelled || !body || gen !== generation.current) return;
+        setLoaded({});
+        setBuckets(body.months);
+        setBucketsLevel(zoom);
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [zoom, bucketsLevel, libraryId, extraQuery]);
+
+  // ── Filling blocks ──
+  const fillBlock = useCallback(
+    async (key: string) => {
+      const gen = generation.current;
+      inFlight.current.add(key);
+      try {
+        let items: TimelineItem[] = [];
+        let after: string | null = null;
+        for (let page = 0; page < MAX_PAGES; page++) {
+          const res: Response = await fetch(
+            `/api/libraries/${libraryId}/photos?level=${bucketsLevel}&bucket=${encodeURIComponent(key)}${after ? `&after=${encodeURIComponent(after)}` : ""}${extraQuery}`,
+            { credentials: "same-origin" }
+          );
+          if (!res.ok) throw new Error(String(res.status));
+          const body = (await res.json()) as { items: TimelineItem[]; next: string | null };
+          if (gen !== generation.current) return;
+          const have = new Set(items.map((i) => i.id));
+          items = [...items, ...body.items.filter((i) => !have.has(i.id))];
+          after = body.next;
+          setLoaded((current) => ({ ...current, [key]: { items, complete: !after } }));
+          if (!after) break;
+        }
+      } catch {
+        /* left empty; it is tried again the next time it comes into view */
+      } finally {
+        inFlight.current.delete(key);
+        pumpRef.current(); // a slot is free: start the next visible block
+      }
+    },
+    [libraryId, bucketsLevel, extraQuery]
+  );
+
+  const pump = useCallback(() => {
+    if (inFlight.current.size >= MAX_CONCURRENT) return;
+    for (const key of visible.current) {
+      if (inFlight.current.size >= MAX_CONCURRENT) break;
+      if (inFlight.current.has(key) || loadedRef.current[key]?.complete) continue;
+      void fillBlock(key);
+    }
+  }, [fillBlock]);
+  useEffect(() => {
+    pumpRef.current = pump;
+  }, [pump]);
+
+  // Watch the blocks: those near the screen (a page and a half either way) are the ones to fill.
+  useEffect(() => {
+    const root = listRef.current;
+    if (!root || !layout) return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        for (const e of entries) {
+          const key = (e.target as HTMLElement).dataset.bucket;
+          if (!key) continue;
+          if (e.isIntersecting) visible.current.add(key);
+          else visible.current.delete(key);
+        }
+        pump();
+      },
+      { rootMargin: "1500px 0px" }
+    );
+    root.querySelectorAll("[data-bucket]").forEach((el) => observer.observe(el));
+    const seen = visible.current;
+    return () => {
+      observer.disconnect();
+      seen.clear();
+    };
+  }, [layout, buckets, pump]);
+
+  // ── Staying put: remember the scroll position for a return to this page, and restore it once the blocks have their heights ──
+  const restored = useRef(false);
+  useEffect(() => {
+    if (!layout || restored.current) return;
+    restored.current = true;
+    try {
+      const y = Number(sessionStorage.getItem(storeKey));
+      if (y > 0) requestAnimationFrame(() => window.scrollTo(0, y));
+    } catch {
+      /* fine */
+    }
+  }, [layout, storeKey]);
   useEffect(() => {
     let timer: number | undefined;
     const save = () => {
       try {
-        // Bounded: a huge library keeps only what fits comfortably.
-        if (items.length <= 5000) sessionStorage.setItem(storeKey, JSON.stringify({ items, next, prev, y: window.scrollY, at: Date.now() }));
+        sessionStorage.setItem(storeKey, String(Math.round(window.scrollY)));
       } catch {
-        /* quota or private mode: losing the place is fine */
+        /* fine */
       }
     };
     const onScroll = () => {
@@ -120,119 +239,38 @@ export function PhotoTimeline({
       window.removeEventListener("pagehide", save);
       save();
     };
-  }, [items, next, prev, storeKey]);
+  }, [storeKey]);
 
-  // ── Loading pages ──
-  const loadOlder = useCallback(async () => {
-    if (!next || olderInFlight.current) return;
-    olderInFlight.current = true;
-    const gen = generation.current;
-    setLoading(true);
-    setFailed(false);
-    try {
-      const res = await fetch(`/api/libraries/${libraryId}/photos?after=${encodeURIComponent(next)}${extraQuery}`, { credentials: "same-origin" });
-      if (!res.ok) throw new Error(String(res.status));
-      const body = (await res.json()) as Page;
-      if (gen !== generation.current) return;
-      setItems((current) => {
-        const have = new Set(current.map((i) => i.id));
-        return [...current, ...body.items.filter((i) => !have.has(i.id))];
-      });
-      setNext(body.next);
-    } catch {
-      setFailed(true);
-    } finally {
-      olderInFlight.current = false;
-      setLoading(false);
-    }
-  }, [libraryId, next, extraQuery]);
-
-  const loadNewer = useCallback(async () => {
-    if (!prev || newerInFlight.current) return;
-    newerInFlight.current = true;
-    const gen = generation.current;
-    try {
-      const res = await fetch(`/api/libraries/${libraryId}/photos?before=${encodeURIComponent(prev)}${extraQuery}`, { credentials: "same-origin" });
-      if (!res.ok) throw new Error(String(res.status));
-      const body = (await res.json()) as Page;
-      if (gen !== generation.current) return;
-      // Items are added ABOVE what is on screen: remember where the view is, and put it back once they are drawn.
-      anchor.current = { height: document.documentElement.scrollHeight, y: window.scrollY };
-      setItems((current) => {
-        const have = new Set(current.map((i) => i.id));
-        return [...body.items.filter((i) => !have.has(i.id)), ...current];
-      });
-      setPrev(body.prev ?? null);
-    } catch {
-      /* try again the next time the top comes into view */
-    } finally {
-      newerInFlight.current = false;
-    }
-  }, [libraryId, prev, extraQuery]);
-
-  // After items were added above (or a jump replaced them), settle the scroll position before the browser paints.
-  useLayoutEffect(() => {
-    if (anchor.current) {
-      const { height, y } = anchor.current;
-      anchor.current = null;
-      window.scrollTo(0, y + (document.documentElement.scrollHeight - height));
-    }
-    if (scrollToMonth.current) {
-      const key = scrollToMonth.current;
-      scrollToMonth.current = null;
-      document.querySelector(`[data-month="${key}"]`)?.scrollIntoView({ block: "start" });
-    }
-  }, [items]);
-
-  // The scrubber's months: fetched once per library, view and search.
+  // Which month is at the top of the screen, for the scrubber (one lookup per frame while scrolling).
   useEffect(() => {
-    let cancelled = false;
-    fetch(`/api/libraries/${libraryId}/photos/months?${extraQuery.replace(/^&/, "")}`, { credentials: "same-origin" })
-      .then((r) => (r.ok ? r.json() : null))
-      .then((body: { months: { key: string }[] } | null) => {
-        if (!cancelled && body) setMonths(body.months.map((m) => m.key));
-      })
-      .catch(() => undefined);
-    return () => {
-      cancelled = true;
+    let frame = 0;
+    const update = () => {
+      frame = 0;
+      const el = document.elementFromPoint(Math.min(window.innerWidth - 60, 80), 150)?.closest("[data-bucket]");
+      const key = el?.getAttribute("data-bucket");
+      if (key) setCurrentMonth(months.find((m) => m === key || m.startsWith(key)) ?? null);
     };
-  }, [libraryId, extraQuery]);
+    const onScroll = () => {
+      if (!frame) frame = requestAnimationFrame(update);
+    };
+    window.addEventListener("scroll", onScroll, { passive: true });
+    return () => {
+      window.removeEventListener("scroll", onScroll);
+      if (frame) cancelAnimationFrame(frame);
+    };
+  }, [months]);
 
-  // Go to a month: if it is already on the page, scroll to it; otherwise load from there. Everything stays in
-  // one list: older photos below, newer ones above as you scroll up (never a filtered view).
-  const jump = useCallback(
-    async (key: string) => {
-      // Scroll in place only if the month is loaded from its newest photo: that holds when something newer sits
-      // above its first loaded photo, or the top of the library is already loaded. A month that begins the loaded
-      // list while newer photos are still to load would show partly, so it is loaded afresh instead.
-      if (canScrollInPlace(items, prev !== null, key)) {
-        document.querySelector(`[data-month="${key}"]`)?.scrollIntoView({ block: "start", behavior: "smooth" });
-        return;
-      }
-      const gen = ++generation.current; // a later jump wins; an earlier answer arriving late is dropped
-      olderInFlight.current = false;
-      newerInFlight.current = false;
-      setJumping(true);
-      try {
-        const res = await fetch(`/api/libraries/${libraryId}/photos?month=${encodeURIComponent(key)}${extraQuery}`, { credentials: "same-origin" });
-        if (!res.ok || gen !== generation.current) return;
-        const body = (await res.json()) as Page;
-        if (gen !== generation.current) return;
-        // The new list replaces the old at once, scrolled to its place, so no half-way position is ever drawn.
-        scrollToMonth.current = body.items.some((i) => groupKey(i.takenAt, "month") === key) ? key : body.items[0] ? groupKey(body.items[0].takenAt, "month") : null;
-        setItems(body.items);
-        setNext(body.next);
-        setPrev(body.prev ?? null);
-        setLoading(false);
-        setFailed(false);
-      } catch {
-        /* the scrubber just doesn't move; the timeline is unchanged */
-      } finally {
-        if (gen === generation.current) setJumping(false);
-      }
-    },
-    [items, prev, libraryId, extraQuery]
-  );
+  // Going to a month is just scrolling to its block (blocks above and below already have their heights), instantly:
+  // a long animated scroll would load every block it passed.
+  const jump = useCallback((monthKey: string) => {
+    const root = listRef.current;
+    if (!root) return;
+    const target =
+      root.querySelector(`[data-bucket="${monthKey}"]`) ??
+      (monthKey === "undated" ? null : root.querySelector(`[data-bucket^="${monthKey}"]`)) ??
+      root.querySelector(`[data-bucket="${monthKey.slice(0, 4)}"]`);
+    target?.scrollIntoView({ block: "start" });
+  }, []);
 
   const chooseZoom = (level: ZoomLevel) => {
     setZoom(level);
@@ -243,55 +281,45 @@ export function PhotoTimeline({
     }
   };
 
-  // Near the bottom: older photos. Near the top (after a jump): newer ones.
-  useEffect(() => {
-    const el = bottom.current;
-    if (!el || !next || failed) return;
-    const observer = new IntersectionObserver((entries) => entries.some((e) => e.isIntersecting) && void loadOlder(), { rootMargin: "600px 0px" });
-    observer.observe(el);
-    return () => observer.disconnect();
-  }, [loadOlder, next, failed]);
-
-  useEffect(() => {
-    const el = top.current;
-    if (!el || !prev) return;
-    const observer = new IntersectionObserver((entries) => entries.some((e) => e.isIntersecting) && void loadNewer(), { rootMargin: "600px 0px" });
-    observer.observe(el);
-    return () => observer.disconnect();
-  }, [loadNewer, prev]);
-
-  // Which month is at the top of the screen, for the scrubber (one lookup per frame while scrolling).
-  useEffect(() => {
-    let frame = 0;
-    const update = () => {
-      frame = 0;
-      const el = document.elementFromPoint(Math.min(window.innerWidth - 60, 80), 150)?.closest("[data-month]");
-      const month = el?.getAttribute("data-month");
-      if (month) setCurrentMonth(month);
-    };
-    const onScroll = () => {
-      if (!frame) frame = requestAnimationFrame(update);
-    };
-    window.addEventListener("scroll", onScroll, { passive: true });
-    return () => {
-      window.removeEventListener("scroll", onScroll);
-      if (frame) cancelAnimationFrame(frame);
-    };
-  }, []);
-
   // ── The viewer overlay ──
-  const openIndex = openId ? items.findIndex((i) => i.id === openId) : -1;
-  const viewerItems = useMemo(() => (openIndex >= 0 ? [items[openIndex - 1], items[openIndex], items[openIndex + 1]].map((i) => (i ? viewerItem(i) : null)) : null), [items, openIndex]);
+  // The photos the viewer can step through: the opened block and the loaded blocks joined to it. A block that
+  // isn't loaded ends the run (and is requested), so "next" never skips over photos that haven't arrived.
+  const run = useMemo(() => {
+    if (!openId) return null;
+    const at = buckets.findIndex((b) => b.key === openId.key);
+    if (at < 0) return null;
+    let from = at;
+    let to = at;
+    while (from > 0 && loaded[buckets[from - 1].key]?.complete) from--;
+    while (to < buckets.length - 1 && loaded[buckets[to + 1].key]?.complete) to++;
+    const items = buckets.slice(from, to + 1).flatMap((b) => loaded[b.key]?.items ?? []);
+    return { items, before: from > 0 ? buckets[from - 1].key : null, after: to < buckets.length - 1 ? buckets[to + 1].key : null };
+  }, [openId, buckets, loaded]);
+  const openIndex = run && openId ? run.items.findIndex((i) => i.id === openId.id) : -1;
 
-  const open = useCallback((id: string) => {
-    // One history entry for the viewer, so the browser's Back (or a swipe from the edge) closes it.
-    window.history.pushState({ roamViewer: true }, "", window.location.href);
-    setOpenId(id);
-  }, []);
+  // Near either end of the run, fetch the block beyond it.
+  useEffect(() => {
+    if (!run || openIndex < 0) return;
+    if (openIndex >= run.items.length - 4 && run.after && !loadedRef.current[run.after]?.complete && !inFlight.current.has(run.after)) void fillBlock(run.after);
+    if (openIndex <= 3 && run.before && !loadedRef.current[run.before]?.complete && !inFlight.current.has(run.before)) void fillBlock(run.before);
+  }, [run, openIndex, fillBlock]);
+
+  const open = useCallback(
+    (id: string) => {
+      const key = Object.entries(loadedRef.current).find(([, b]) => b.items.some((i) => i.id === id))?.[0];
+      if (!key) return;
+      // One history entry for the viewer, so the browser's Back (or a swipe from the edge) closes it.
+      window.history.pushState({ roamViewer: true }, "", window.location.href);
+      setOpenId({ id, key });
+    },
+    []
+  );
   // Closing. Un-hearting while in the Favorites view removes the item now, not under your finger while viewing.
   const closed = useCallback(() => {
     setOpenId(null);
-    if (view === "favorites") setItems((current) => (current.some((i) => !i.favorite) ? current.filter((i) => i.favorite) : current));
+    if (view !== "favorites") return;
+    setLoaded((current) => Object.fromEntries(Object.entries(current).map(([k, b]) => [k, { ...b, items: b.items.some((i) => !i.favorite) ? b.items.filter((i) => i.favorite) : b.items }])));
+    setBuckets((current) => current.map((b) => ({ ...b, count: loadedRef.current[b.key]?.complete ? loadedRef.current[b.key].items.filter((i) => i.favorite).length : b.count })).filter((b) => b.count > 0));
   }, [view]);
   const close = useCallback(() => {
     if (window.history.state?.roamViewer) window.history.back(); // the popstate below closes it
@@ -304,18 +332,17 @@ export function PhotoTimeline({
     return () => window.removeEventListener("popstate", onPop);
   }, [openId, closed]);
 
-  // Stepping toward the end of what is loaded fetches more, so the viewer never runs out early.
-  /* eslint-disable react-hooks/set-state-in-effect -- starting a fetch for data the viewer is about to need */
-  useEffect(() => {
-    if (openIndex < 0) return;
-    if (openIndex >= items.length - 6) void loadOlder();
-    if (openIndex <= 5) void loadNewer();
-  }, [openIndex, items.length, loadOlder, loadNewer]);
-  /* eslint-enable react-hooks/set-state-in-effect */
+  const step = (offset: number) => {
+    const next = run?.items[openIndex + offset];
+    if (next && openId) setOpenId({ id: next.id, key: groupKey(next.takenAt, bucketsLevel) });
+  };
+  const setFavorite = useCallback(
+    (id: string, favorite: boolean) => setLoaded((current) => Object.fromEntries(Object.entries(current).map(([k, b]) => [k, { ...b, items: b.items.map((i) => (i.id === id ? { ...i, favorite } : i)) }]))),
+    []
+  );
 
-  const setFavorite = useCallback((id: string, favorite: boolean) => setItems((current) => current.map((i) => (i.id === id ? { ...i, favorite } : i))), []);
-
-  if (items.length === 0) {
+  const total = buckets.reduce((n, b) => n + b.count, 0);
+  if (total === 0 && Object.keys(loaded).length === 0) {
     if (q) {
       return (
         <div className="mx-auto flex max-w-sm flex-col items-center gap-2 py-24 text-center">
@@ -332,12 +359,14 @@ export function PhotoTimeline({
     );
   }
 
-  const groups = groupItems(items, zoom);
-  const dense = { day: "grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6", month: "grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-8", year: "grid-cols-5 sm:grid-cols-7 md:grid-cols-9 lg:grid-cols-11 xl:grid-cols-14" }[zoom];
+  const columnsClass = { day: "grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6", month: "grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-8", year: "grid-cols-5 sm:grid-cols-7 md:grid-cols-9 lg:grid-cols-11 xl:grid-cols-14" }[bucketsLevel];
   const from = view === "favorites" ? "from=favorites" : "from=timeline";
+  const viewerItems = run && openIndex >= 0 ? [run.items[openIndex - 1], run.items[openIndex], run.items[openIndex + 1]].map((i) => (i ? viewerItem(i) : null)) : null;
+  // Before the width is known (the server's render) only blocks that already have photos are drawn.
+  const shown = layout ? buckets : buckets.filter((b) => loaded[b.key]);
 
   return (
-    <div className={`flex flex-col gap-6 pr-8 transition-opacity duration-200 ${jumping ? "opacity-50" : "opacity-100"}`} style={{ overflowAnchor: "none" }}>
+    <div className="flex flex-col gap-6 pr-8">
       <div role="group" aria-label="Zoom" className="flex w-fit gap-1 rounded-xl bg-white/[0.05] p-1 ring-1 ring-white/[0.08]">
         {ZOOM_LEVELS.map((level) => (
           <button
@@ -351,37 +380,40 @@ export function PhotoTimeline({
           </button>
         ))}
       </div>
-      <div ref={top} aria-hidden className="h-px" />
-      {groups.map((group, g) => (
-        <section key={group.key} aria-label={group.label}>
-          <h2 className="sticky top-16 z-10 -mx-1 mb-3 bg-background/85 px-1 py-2 text-sm font-semibold tracking-tight text-muted-foreground backdrop-blur">{group.label}</h2>
-          <ul className={`grid gap-1 ${dense}`}>
-            {group.items.map((item, i) => (
-              <li key={item.id} className="min-w-0 scroll-mt-32" data-month={groupKey(item.takenAt, "month")}>
-                <PhotoTile serverId={serverId} item={item} from={from} priority={g === 0 && i < 12} onOpen={open} />
-              </li>
-            ))}
-          </ul>
-        </section>
-      ))}
-      <PhotoScrubber keys={months} onJump={(key) => void jump(key)} current={currentMonth} />
-      <div ref={bottom} aria-hidden className="h-px" />
-      <div role="status" aria-live="polite" className="flex min-h-10 items-center justify-center text-sm text-muted-foreground">
-        {loading && "Loading more…"}
-        {failed && (
-          <button type="button" onClick={() => void loadOlder()} className="rounded-lg bg-white/[0.06] px-4 py-2 ring-1 ring-white/[0.08] hover:bg-white/[0.09]">
-            Couldn&apos;t load more. Try again
-          </button>
-        )}
-        {!next && !loading && !failed && "That's everything."}
+      <div ref={listRef} className="flex flex-col" style={{ gap: BLOCK_GAP }}>
+        {shown.map((bucket, g) => {
+          const block = loaded[bucket.key];
+          const count = Math.max(bucket.count, block?.items.length ?? 0);
+          const label = bucket.key === "undated" ? "Undated" : groupLabel(`${bucket.key.length === 4 ? `${bucket.key}-01-01` : bucket.key.length === 7 ? `${bucket.key}-01` : bucket.key}T12:00:00Z`, bucketsLevel);
+          return (
+            <section key={bucket.key} data-bucket={bucket.key} aria-label={label} style={layout ? { height: blockHeight(count, gridColumns(bucketsLevel, layout.viewport), layout.width) } : undefined}>
+              <h2 className="sticky top-16 z-10 -mx-1 flex items-center bg-background/85 px-1 text-sm font-semibold tracking-tight text-muted-foreground backdrop-blur" style={{ height: HEADING_HEIGHT, marginBottom: HEADING_GAP }}>
+                {label}
+              </h2>
+              {block ? (
+                <ul className={`grid gap-1 ${columnsClass}`}>
+                  {block.items.map((item, i) => (
+                    <li key={item.id} className="min-w-0">
+                      <PhotoTile serverId={serverId} item={item} from={from} priority={g === 0 && i < 12} onOpen={open} />
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                // Reserved, not yet filled: a quiet panel the size of the photos to come.
+                <div aria-hidden className="h-[calc(100%-48px)] rounded-md bg-white/[0.04]" />
+              )}
+            </section>
+          );
+        })}
       </div>
+      <PhotoScrubber keys={months} onJump={jump} current={currentMonth} />
       {viewerItems && viewerItems[1] && (
         <PhotoViewer
           current={viewerItems[1]}
           prev={viewerItems[0]}
           next={viewerItems[2]}
-          onPrev={() => openIndex > 0 && setOpenId(items[openIndex - 1].id)}
-          onNext={() => openIndex < items.length - 1 && setOpenId(items[openIndex + 1].id)}
+          onPrev={() => step(-1)}
+          onNext={() => step(1)}
           onClose={close}
           libraryId={libraryId}
           words={words}
@@ -391,6 +423,3 @@ export function PhotoTimeline({
     </div>
   );
 }
-
-// Re-exported so callers that only need the shape don't import the viewer.
-export type { ViewerItem };

@@ -97,19 +97,63 @@ export function scrubberMarks(keys: readonly string[], minGap = 0.045): Scrubber
   });
 }
 
-/**
- * Whether a month can be scrolled to in place, or must be loaded afresh. The loaded photos are one unbroken
- * run; a month is complete from its newest photo only if something newer sits above its first loaded photo
- * (so nothing of it is missing above), or the very top of the library is loaded (`prev` is null). A month
- * that starts the loaded run while newer photos are still to load would show partly, so it is loaded again.
- */
-export function canScrollInPlace(items: readonly { takenAt: string | null }[], hasNewerToLoad: boolean, key: string): boolean {
-  const first = items.findIndex((i) => groupKey(i.takenAt, "month") === key);
-  return first > 0 || (first === 0 && !hasNewerToLoad);
+/** The UTC period a bucket key stands for, or null if the key isn't one of this level's (or is "undated"). */
+export function bucketRange(level: ZoomLevel, key: string): { from: Date; to: Date } | null {
+  const valid = (y: number) => y >= 1826 && y <= 9998;
+  if (level === "year") {
+    const m = /^(\d{4})$/.exec(key);
+    return m && valid(+m[1]) ? { from: new Date(Date.UTC(+m[1], 0, 1)), to: new Date(Date.UTC(+m[1] + 1, 0, 1)) } : null;
+  }
+  if (level === "month") {
+    const m = /^(\d{4})-(\d{2})$/.exec(key);
+    return m && valid(+m[1]) && +m[2] >= 1 && +m[2] <= 12 ? { from: new Date(Date.UTC(+m[1], +m[2] - 1, 1)), to: new Date(Date.UTC(+m[1], +m[2], 1)) } : null;
+  }
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(key);
+  if (!m || !valid(+m[1]) || +m[2] < 1 || +m[2] > 12 || +m[3] < 1) return null;
+  const from = new Date(Date.UTC(+m[1], +m[2] - 1, +m[3]));
+  return from.getUTCMonth() === +m[2] - 1 ? { from, to: new Date(from.getTime() + 86_400_000) } : null; // Feb 30 rolls over: not a day
 }
 
 /** Which bucket a position along the rail (0..1) lands on. */
 export function bucketAt(fraction: number, count: number): number {
   if (count <= 0) return -1;
   return Math.min(count - 1, Math.max(0, Math.floor(fraction * count)));
+}
+
+// ── Reserving space for blocks that aren't loaded yet ──
+// Every block (a day, month or year) is laid out up front at its exact height, from its photo count alone, so
+// scrolling anywhere is just scrolling: nothing is inserted above you and nothing is swapped under you as
+// photos arrive. Tiles are square and the grid's gaps are fixed, so the height is simple arithmetic.
+
+export const TILE_GAP = 4;
+/** A block's heading (a fixed height, so it never changes a block's size) and the space under it. */
+export const HEADING_HEIGHT = 36;
+export const HEADING_GAP = 12;
+/** The space between blocks. */
+export const BLOCK_GAP = 24;
+
+/**
+ * How many tiles fit across, per zoom level and viewport width. Mirrors the grid's responsive classes
+ * (Tailwind's sm 640, md 768, lg 1024 and xl 1280), which is what makes the arithmetic below exact.
+ */
+export function gridColumns(zoom: ZoomLevel, viewportWidth: number): number {
+  const steps = {
+    day: [3, 4, 5, 6, 6],
+    month: [3, 4, 5, 6, 8],
+    year: [5, 7, 9, 11, 14],
+  }[zoom];
+  const i = viewportWidth >= 1280 ? 4 : viewportWidth >= 1024 ? 3 : viewportWidth >= 768 ? 2 : viewportWidth >= 640 ? 1 : 0;
+  return steps[i];
+}
+
+export function tileSize(containerWidth: number, columns: number): number {
+  return Math.max(0, (containerWidth - TILE_GAP * (columns - 1)) / columns);
+}
+
+/** The height of a block with `count` photos in a grid of `columns`, whether or not they are loaded. */
+export function blockHeight(count: number, columns: number, containerWidth: number): number {
+  const rows = Math.ceil(Math.max(0, count) / columns);
+  const tile = tileSize(containerWidth, columns);
+  const grid = rows === 0 ? 0 : rows * tile + (rows - 1) * TILE_GAP;
+  return Math.round(HEADING_HEIGHT + HEADING_GAP + grid);
 }

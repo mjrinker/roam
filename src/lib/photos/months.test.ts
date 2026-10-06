@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { canScrollInPlace, bucketAt, bucketLabel, groupByMonth, groupItems, groupKey, groupLabel, monthKey, monthLabel, scrubberMarks } from "./months";
+import { blockHeight, bucketRange, gridColumns, HEADING_GAP, HEADING_HEIGHT, tileSize, TILE_GAP, bucketAt, bucketLabel, groupByMonth, groupItems, groupKey, groupLabel, monthKey, monthLabel, scrubberMarks } from "./months";
 
 describe("month grouping", () => {
   it("reads the month in UTC, so a photo taken at 23:50 on the 31st stays in that month", () => {
@@ -93,30 +93,49 @@ describe("scrubber", () => {
   });
 });
 
-describe("canScrollInPlace", () => {
-  const at = (...t: string[]) => t.map((takenAt) => ({ takenAt }));
-  // After jumping to July the run is July, June, May; newer photos are still above (hasNewerToLoad).
-  const july = at("2024-07-20T00:00:00Z", "2024-07-02T00:00:00Z", "2024-06-10T00:00:00Z", "2024-05-01T00:00:00Z");
+describe("bucketRange", () => {
+  const r = (level: "day" | "month" | "year", key: string) => {
+    const x = bucketRange(level, key);
+    return x ? [x.from.toISOString().slice(0, 10), x.to.toISOString().slice(0, 10)] : null;
+  };
+  it("is the UTC period a key stands for", () => {
+    expect(r("year", "2024")).toEqual(["2024-01-01", "2025-01-01"]);
+    expect(r("month", "2024-12")).toEqual(["2024-12-01", "2025-01-01"]);
+    expect(r("day", "2024-02-29")).toEqual(["2024-02-29", "2024-03-01"]);
+  });
+  it("is null for a key of another level, an impossible date, undated, or junk", () => {
+    for (const [level, key] of [["year", "2024-03"], ["month", "2024"], ["month", "2024-13"], ["month", "2024-00"], ["day", "2023-02-29"], ["day", "2024-04-31"], ["day", "2024-03-00"], ["month", "undated"], ["year", "0000"], ["year", "99999"], ["day", "x"], ["month", "'; --"]] as const) {
+      expect(r(level, key), `${level} ${key}`).toBeNull();
+    }
+  });
+});
 
-  it("a month deeper in the run is complete from its newest photo, so it scrolls in place", () => {
-    expect(canScrollInPlace(july, true, "2024-06")).toBe(true);
-    expect(canScrollInPlace(july, true, "2024-05")).toBe(true);
+describe("laying blocks out up front", () => {
+  it("picks the columns the grid classes pick, at each width and level", () => {
+    expect([gridColumns("month", 390), gridColumns("month", 640), gridColumns("month", 768), gridColumns("month", 1024), gridColumns("month", 1280)]).toEqual([3, 4, 5, 6, 8]);
+    expect([gridColumns("day", 390), gridColumns("day", 1280)]).toEqual([3, 6]);
+    expect([gridColumns("year", 390), gridColumns("year", 639), gridColumns("year", 1500)]).toEqual([5, 5, 14]);
   });
-  it("the month that starts the run while newer photos are still to load would show partly, so it loads afresh", () => {
-    expect(canScrollInPlace(july, true, "2024-07")).toBe(false);
+  it("a tile is the width left after the gaps, split evenly", () => {
+    expect(tileSize(400, 4)).toBe((400 - 3 * TILE_GAP) / 4);
+    expect(tileSize(0, 3)).toBe(0);
   });
-  it("...but once the top of the library is loaded, it is complete", () => {
-    expect(canScrollInPlace(july, false, "2024-07")).toBe(true);
+  it("a block's height is its heading plus its rows of square tiles and the gaps between them", () => {
+    const tile = tileSize(400, 4); // 97
+    expect(blockHeight(8, 4, 400)).toBe(Math.round(HEADING_HEIGHT + HEADING_GAP + 2 * tile + TILE_GAP));
+    expect(blockHeight(9, 4, 400)).toBe(Math.round(HEADING_HEIGHT + HEADING_GAP + 3 * tile + 2 * TILE_GAP));
+    expect(blockHeight(1, 4, 400)).toBe(Math.round(HEADING_HEIGHT + HEADING_GAP + tile));
   });
-  it("a month with nothing loaded always loads afresh (August after scrubbing to July)", () => {
-    expect(canScrollInPlace(july, true, "2024-08")).toBe(false);
-    expect(canScrollInPlace(july, false, "2024-08")).toBe(false);
-    expect(canScrollInPlace([], false, "2024-07")).toBe(false);
+  it("an empty block is just its heading, and a negative count is treated as empty", () => {
+    expect(blockHeight(0, 4, 400)).toBe(HEADING_HEIGHT + HEADING_GAP);
+    expect(blockHeight(-5, 4, 400)).toBe(HEADING_HEIGHT + HEADING_GAP);
   });
-  it("after scrolling up and loading newer pages, the months now above are complete", () => {
-    const more = [...at("2024-09-03T00:00:00Z", "2024-08-15T00:00:00Z", "2024-08-01T00:00:00Z"), ...july];
-    expect(canScrollInPlace(more, true, "2024-08")).toBe(true);
-    expect(canScrollInPlace(more, true, "2024-09")).toBe(false); // starts the run, more may be above
-    expect(canScrollInPlace(more, false, "2024-09")).toBe(true);
+  it("more photos never make a block shorter", () => {
+    let last = 0;
+    for (let n = 0; n <= 50; n++) {
+      const h = blockHeight(n, 5, 600);
+      expect(h).toBeGreaterThanOrEqual(last);
+      last = h;
+    }
   });
 });

@@ -10,6 +10,9 @@ import { decodeCursor, encodeCursor } from "@/lib/playlists/http";
 import { checkRateLimit } from "@/lib/rate-limit";
 
 const PAGE = 60;
+/** A block of the timeline is read in pages this big until it is complete. */
+const BUCKET_PAGE = 500;
+const zoomSchema = z.enum(["day", "month", "year"]);
 const headers = { "Cache-Control": "private, no-store", Vary: "Cookie" };
 const notFound = () => NextResponse.json({ error: "Not found" }, { status: 404, headers });
 
@@ -25,28 +28,31 @@ export async function GET(request: Request, ctx: RouteContext<"/api/libraries/[i
   if (!serverId) return notFound();
   const member = await getCurrentServerMember(serverId);
   if (!member) return notFound();
-  if (!(await checkRateLimit(member.profile.id, "photo_timeline", 600, 60))) {
+  if (!(await checkRateLimit(member.profile.id, "photo_timeline", 1200, 60))) {
     return NextResponse.json({ error: "Too many requests" }, { status: 429, headers });
   }
 
   const after = decodeCursor(new URL(request.url).searchParams.get("after"), timelineCursorSchema);
   if (after === "invalid") return NextResponse.json({ error: "Invalid cursor" }, { status: 400, headers });
-  const before = decodeCursor(new URL(request.url).searchParams.get("before"), timelineCursorSchema);
-  if (before === "invalid") return NextResponse.json({ error: "Invalid cursor" }, { status: 400, headers });
 
   const params = new URL(request.url).searchParams;
+  // One block of the timeline (a day, month or year), which the page asks for as that block comes into view.
+  const rawBucket = params.get("bucket");
+  const level = zoomSchema.safeParse(params.get("level") ?? "month");
+  if (!level.success || (rawBucket !== null && rawBucket.length > 12)) return NextResponse.json({ error: "Invalid request" }, { status: 400, headers });
+  const bucket = rawBucket ? { level: level.data, key: rawBucket } : null;
+
   const page = await listTimeline(db, {
     actor: libraryActor(member, serverId),
     viewer: member.viewer,
     viewerId: member.viewer.id,
     libraryId: id,
     after,
-    before,
-    limit: PAGE,
+    limit: bucket ? BUCKET_PAGE : PAGE,
     favoritesOnly: params.get("view") === "favorites",
     search: parseSearch(params.get("q")),
-    month: params.get("month"),
+    bucket,
   });
   if (!page) return notFound();
-  return NextResponse.json({ items: page.items, next: page.next ? encodeCursor(page.next) : null, prev: page.prev ? encodeCursor(page.prev) : null }, { headers });
+  return NextResponse.json({ items: page.items, next: page.next ? encodeCursor(page.next) : null }, { headers });
 }

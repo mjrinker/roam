@@ -15,6 +15,7 @@ import { contentFilter, type AccessProfile } from "@/lib/content/access";
 import { libraryVisible, type LibraryActor } from "@/lib/content/library-access";
 import { libraries, photoFavorites, titles } from "@/lib/db/schema";
 import { PHOTO_LIBRARY_KINDS } from "@/lib/libraries/profile";
+import { bucketRange, type ZoomLevel } from "@/lib/photos/months";
 import { escapeLike, type SearchSpec } from "@/lib/photos/search";
 
 type Db = PgDatabase<PgQueryResultHKT, Record<string, unknown>>;
@@ -48,13 +49,11 @@ export interface TimelineItem {
 
 export interface TimelinePage {
   items: TimelineItem[];
-  /** The cursor for the next OLDER page, or null at the end. */
+  /** The cursor for the next page, or null at the end. */
   next: TimelineCursor | null;
-  /** The cursor for the next NEWER page (only when asked to start part-way, or when paging upward), or null at the top. */
-  prev?: TimelineCursor | null;
 }
 
-const MAX_PAGE = 200;
+const MAX_PAGE = 500;
 
 /** Library access, the age limit, and "this really is a photo library", for items of `libraryId`. */
 function visibleItems(ex: Db, args: { actor: LibraryActor; viewer: AccessProfile; libraryId: string }) {
@@ -68,26 +67,19 @@ function visibleItems(ex: Db, args: { actor: LibraryActor; viewer: AccessProfile
 
 const at = (t: number) => sql`to_timestamp(${t}::double precision)`;
 
-/** Items strictly BEFORE `cursor` in timeline order (newer; a dated cursor never has undated items before it). */
-function beforeCursor(cursor: TimelineCursor): SQL {
-  if (cursor.t === null) return or(isNotNull(titles.takenAt), and(isNull(titles.takenAt), gt(titles.id, cursor.id)))!;
-  return or(gt(titles.takenAt, at(cursor.t)), and(sql`${titles.takenAt} = ${at(cursor.t)}`, gt(titles.id, cursor.id)))!;
-}
-
 /** Items strictly after `cursor` in timeline order (older, then NULL dates last). */
 function afterCursor(cursor: TimelineCursor): SQL {
   if (cursor.t === null) return and(isNull(titles.takenAt), lt(titles.id, cursor.id))!;
   return or(lt(titles.takenAt, at(cursor.t)), and(sql`${titles.takenAt} = ${at(cursor.t)}`, lt(titles.id, cursor.id)), isNull(titles.takenAt))!;
 }
 
-/** Starting a page at a month (and older) or at the undated items. A bad value is ignored, not an error. */
-function monthStart(month: string | null | undefined): SQL | undefined {
-  if (!month) return undefined;
-  if (month === "undated") return isNull(titles.takenAt);
-  const m = /^(\d{4})-(\d{2})$/.exec(month);
-  if (!m || +m[2] < 1 || +m[2] > 12 || +m[1] < 1826 || +m[1] > 9998) return undefined;
-  const nextMonth = new Date(Date.UTC(+m[1], +m[2], 1));
-  return or(lt(titles.takenAt, sql`${nextMonth.toISOString()}::timestamptz`), isNull(titles.takenAt));
+/** Only the items of one bucket (a day, month or year of the timeline, or the undated ones). An unreadable key matches nothing. */
+function inBucket(bucket: { level: ZoomLevel; key: string } | null | undefined): SQL | undefined {
+  if (!bucket) return undefined;
+  if (bucket.key === "undated") return isNull(titles.takenAt);
+  const range = bucketRange(bucket.level, bucket.key);
+  if (!range) return sql`false`;
+  return and(sql`${titles.takenAt} >= ${range.from.toISOString()}::timestamptz`, sql`${titles.takenAt} < ${range.to.toISOString()}::timestamptz`);
 }
 
 /**
@@ -109,17 +101,20 @@ function narrowed(
 }
 
 export interface MonthBucket {
-  /** "2024-03", or "undated". */
+  /** "2024-03" (month level), "2024-03-14" (day), "2024" (year), or "undated". */
   key: string;
   count: number;
 }
 
-/** How many visible items fall in each month (newest first, undated last), under the same narrowing as the listing. Null if the viewer can't see such a library. */
+// Fixed strings from this table only (never user input), written into the query text so that the select and the group by are the same expression.
+const BUCKET_FORMAT: Record<ZoomLevel, string> = { day: "YYYY-MM-DD", month: "YYYY-MM", year: "YYYY" };
+
+/** How many visible items fall in each day, month or year (newest first, undated last), under the same narrowing as the listing. Null if the viewer can't see such a library. */
 export async function listMonths(
   ex: Db,
-  args: { actor: LibraryActor; viewer: AccessProfile; viewerId?: string; libraryId: string; favoritesOnly?: boolean; search?: SearchSpec | null }
+  args: { actor: LibraryActor; viewer: AccessProfile; viewerId?: string; libraryId: string; favoritesOnly?: boolean; search?: SearchSpec | null; level?: ZoomLevel }
 ): Promise<MonthBucket[] | null> {
-  const key = sql<string>`coalesce(to_char(${titles.takenAt} AT TIME ZONE 'UTC', 'YYYY-MM'), 'undated')`;
+  const key = sql<string>`coalesce(to_char(${titles.takenAt} AT TIME ZONE 'UTC', ${sql.raw(`'${BUCKET_FORMAT[args.level ?? "month"]}'`)}), 'undated')`;
   const rows = await ex
     .select({ key, count: sql<number>`count(*)::int` })
     .from(titles)
@@ -154,10 +149,8 @@ export async function listTimeline(
     favoritesOnly?: boolean;
     /** Only items matching a search (by name, or by date if the query reads as one). */
     search?: SearchSpec | null;
-    /** Start at this month ("2024-03", then older) or at the undated items ("undated"), for jumping with the scrubber. */
-    month?: string | null;
-    /** Return the page of items NEWER than this cursor instead (for scrolling up after a jump), in display order. */
-    before?: TimelineCursor | null;
+    /** Only the items of one day, month or year (or "undated"): how the timeline fills each block as it comes into view. */
+    bucket?: { level: ZoomLevel; key: string } | null;
   }
 ): Promise<TimelinePage | null> {
   const limit = Math.min(Math.max(args.limit ?? 60, 1), MAX_PAGE);
@@ -179,9 +172,8 @@ export async function listTimeline(
     })
     .from(titles)
     .innerJoin(libraries, eq(libraries.id, titles.libraryId))
-    .where(and(narrowed(ex, args), args.after ? afterCursor(args.after) : undefined, args.before ? beforeCursor(args.before) : undefined, args.before ? undefined : monthStart(args.month)))
-    // Paging upward asks for the nearest newer items, which is the reverse of display order; they are flipped back below.
-    .orderBy(...(args.before ? [sql`${titles.takenAt} ASC NULLS FIRST`, sql`${titles.id} ASC NULLS FIRST`] : [sql`${titles.takenAt} DESC NULLS LAST`, sql`${titles.id} DESC NULLS LAST`]))
+    .where(and(narrowed(ex, args), args.after ? afterCursor(args.after) : undefined, inBucket(args.bucket)))
+    .orderBy(sql`${titles.takenAt} DESC NULLS LAST`, sql`${titles.id} DESC NULLS LAST`)
     .limit(limit + 1);
 
   // An empty first page still needs the library itself to be visible and a photo library.
@@ -195,7 +187,6 @@ export async function listTimeline(
   }
 
   const page = rows.slice(0, limit);
-  if (args.before) page.reverse(); // back into display order: newest first
   const toItem = (r: (typeof rows)[number]): TimelineItem => ({
     id: r.id,
     kind: r.kind === "movie" ? "movie" : "photo",
@@ -213,14 +204,8 @@ export async function listTimeline(
   });
   const cursorOf = (r: { takenAt: Date | null; id: string }): TimelineCursor => ({ t: r.takenAt ? Math.floor(r.takenAt.getTime() / 1000) : null, id: r.id });
   const items = page.map(toItem);
-  if (args.before) {
-    // Paging up: more newer items exist if we got the extra row; the cursor for the next page up is the topmost item shown.
-    return { items, next: null, prev: rows.length > limit && page[0] ? cursorOf(page[0]) : null };
-  }
   const last = page[page.length - 1];
-  const next = rows.length > limit && last ? cursorOf(last) : null;
-  // Starting part-way (a month jump) means there are newer items above that the page doesn't include.
-  return { items, next, prev: args.month && !args.after && page[0] ? cursorOf(page[0]) : args.after ? undefined : null };
+  return { items, next: rows.length > limit && last ? cursorOf(last) : null };
 }
 
 export interface PhotoDetail {

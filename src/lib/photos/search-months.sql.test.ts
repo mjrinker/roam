@@ -96,78 +96,61 @@ describe("search", () => {
   });
 });
 
-describe("jumping to a month", () => {
-  it("starts at that month (newest of it first) and continues to older ones, then undated", async () => {
+describe("loading one block of the timeline", () => {
+  const ids = (p: { items: { id: string }[] } | null) => p!.items.map((i) => i.id);
+
+  it("returns only that month's photos, newest first, with nothing from the months around it", async () => {
     const w = await world();
     await w.add("apr", "2024-04-15T00:00:00Z");
     await w.add("mar-late", "2024-03-31T23:59:59Z");
     await w.add("mar-early", "2024-03-01T00:00:00Z");
-    await w.add("feb", "2024-02-10T00:00:00Z");
+    await w.add("feb", "2024-02-29T23:59:59Z");
     await w.add("none", null);
-    expect(names(await w.list({ month: "2024-03" }))).toEqual(["mar-late", "mar-early", "feb", "none"]);
-    expect(names(await w.list({ month: "2024-04" }))).toEqual(["apr", "mar-late", "mar-early", "feb", "none"]);
-    expect(names(await w.list({ month: "undated" }))).toEqual(["none"]);
-  });
-  it("ignores a month it can't read (the whole timeline), rather than failing", async () => {
-    const w = await world();
-    await w.add("a", "2024-04-15T00:00:00Z");
-    for (const bad of ["", "2024-13", "2024-00", "abc", "2024-3", "'; --", "0000-01", "99999-01"]) expect(names(await w.list({ month: bad })), bad).toEqual(["a"]);
-  });
-});
-
-describe("jumping into the middle and scrolling back up", () => {
-  const ids = (p: { items: { id: string }[] } | null) => p!.items.map((i) => i.id);
-
-  it("a jump says there is more above, and paging up returns the nearest newer items in display order until the top", async () => {
-    const w = await world();
-    const all = [];
-    for (let i = 0; i < 9; i++) all.push(await w.add(`p${i}`, `2024-0${i + 1}-15T00:00:00Z`)); // p8 is newest
-    const newestFirst = all.map((t) => t.id).reverse(); // display order: p8 ... p0
-    const jumped = await w.list({ month: "2024-04", limit: 3 }); // p3, p2, p1 (April and older)
-    expect(ids(jumped)).toEqual([all[3].id, all[2].id, all[1].id]);
-    expect(jumped!.prev).toEqual({ t: Math.floor(new Date("2024-04-15T00:00:00Z").getTime() / 1000), id: all[3].id });
-    const up1 = await w.list({ before: jumped!.prev as TimelineCursor, limit: 3 });
-    expect(ids(up1)).toEqual([all[6].id, all[5].id, all[4].id]); // the three just above, still newest first
-    expect(up1!.prev).not.toBeNull();
-    const up2 = await w.list({ before: up1!.prev as TimelineCursor, limit: 3 });
-    expect(ids(up2)).toEqual([all[8].id, all[7].id]);
-    expect(up2!.prev).toBeNull(); // the top
-    // stitched together they are exactly the timeline, once each
-    expect([...ids(up2), ...ids(up1), ...ids(jumped)]).toEqual(newestFirst.slice(0, 8));
+    expect(names(await w.list({ bucket: { level: "month", key: "2024-03" } }))).toEqual(["mar-late", "mar-early"]);
+    expect(names(await w.list({ bucket: { level: "month", key: "2024-04" } }))).toEqual(["apr"]);
+    expect(names(await w.list({ bucket: { level: "month", key: "undated" } }))).toEqual(["none"]);
+    expect(names(await w.list({ bucket: { level: "month", key: "2023-01" } }))).toEqual([]);
   });
 
-  it("starting at the very top has nothing above; a plain first page and an ordinary next page carry no upward cursor", async () => {
+  it("works at day and year level, with exact UTC edges", async () => {
     const w = await world();
-    for (let i = 0; i < 4; i++) await w.add(`p${i}`, `2024-0${i + 1}-15T00:00:00Z`);
-    expect((await w.list({ month: "2024-04", limit: 2 }))!.prev).toBeDefined();
-    const first = await w.list({ limit: 2 });
-    expect(first!.prev).toBeNull();
-    const second = await w.list({ after: first!.next, limit: 2 });
-    expect(second!.prev).toBeUndefined();
+    await w.add("last second", "2024-12-31T23:59:59Z");
+    await w.add("first second", "2025-01-01T00:00:00Z");
+    await w.add("noon", "2024-12-31T12:00:00Z");
+    await w.add("old", "2023-06-01T00:00:00Z");
+    expect(names(await w.list({ bucket: { level: "year", key: "2024" } }))).toEqual(["last second", "noon"]);
+    expect(names(await w.list({ bucket: { level: "year", key: "2025" } }))).toEqual(["first second"]);
+    expect(names(await w.list({ bucket: { level: "day", key: "2024-12-31" } }))).toEqual(["last second", "noon"]);
+    expect(names(await w.list({ bucket: { level: "day", key: "2025-01-01" } }))).toEqual(["first second"]);
   });
 
-  it("paging up handles ties within a second and undated items below, without skipping or repeating", async () => {
+  it("a key that isn't one of the level's matches nothing (never the whole timeline)", async () => {
     const w = await world();
-    const same = [await w.add("s1", "2024-05-05T10:00:00Z"), await w.add("s2", "2024-05-05T10:00:00Z"), await w.add("s3", "2024-05-05T10:00:00Z"), await w.add("s4", "2024-05-05T10:00:00Z")];
-    const older = await w.add("older", "2024-01-01T00:00:00Z");
-    const undated = [await w.add("u1", null), await w.add("u2", null)];
-    const full = ids(await w.list({ limit: 50 }));
-    expect(full).toHaveLength(7);
-    // jump to the undated tail, then climb to the top in pages of 2
-    const start = await w.list({ month: "undated", limit: 2 });
-    const stitched = [...ids(start)];
-    let cursor = start!.prev as TimelineCursor | null;
-    for (let guard = 0; guard < 10 && cursor; guard++) {
-      const up = await w.list({ before: cursor, limit: 2 });
-      stitched.unshift(...ids(up));
-      cursor = up!.prev as TimelineCursor | null;
+    await w.add("a", "2024-03-10T00:00:00Z");
+    for (const [level, key] of [["month", "2024"], ["year", "2024-03"], ["day", "2024-03"], ["month", "2024-13"], ["day", "2024-02-30"], ["month", "garbage"], ["year", "'; drop table titles; --"]] as const) {
+      expect(names(await w.list({ bucket: { level, key } })), `${level} ${key}`).toEqual([]);
     }
-    expect(stitched).toEqual(full.slice(full.length - stitched.length));
-    expect(stitched).toEqual(full); // all of it, in order
-    void same; void older; void undated;
   });
 
-  it("applies the same narrowing going up: age limit, search and favorites", async () => {
+  it("pages within a block with the cursor, across ties, never repeating or skipping", async () => {
+    const w = await world();
+    const mine: string[] = [];
+    for (let i = 0; i < 7; i++) mine.push((await w.add(`same ${i}`, "2024-05-05T10:00:00Z")).id); // one second
+    for (let i = 0; i < 4; i++) mine.push((await w.add(`later ${i}`, `2024-05-1${i}T00:00:00Z`)).id);
+    await w.add("other month", "2024-06-01T00:00:00Z");
+    const seen: string[] = [];
+    let cursor = null as TimelineCursor | null;
+    for (let guard = 0; guard < 10; guard++) {
+      const page = await w.list({ bucket: { level: "month", key: "2024-05" }, after: cursor, limit: 3 });
+      seen.push(...ids(page));
+      cursor = page!.next;
+      if (!cursor) break;
+    }
+    expect(seen).toHaveLength(11);
+    expect(new Set(seen)).toEqual(new Set(mine));
+  });
+
+  it("applies the same narrowing: age limit, search and favorites", async () => {
     const w = await world();
     const a = await w.add("beach a", "2024-05-01T00:00:00Z", { ratingAges: { ANY: 8 } as never });
     await w.add("beach adult", "2024-05-02T00:00:00Z", { ratingAges: { ANY: 18 } as never });
@@ -175,10 +158,11 @@ describe("jumping into the middle and scrolling back up", () => {
     await w.add("city", "2024-05-04T00:00:00Z", { ratingAges: { ANY: 8 } as never });
     await db.insert(photoFavorites).values({ viewerId: w.member.accountId, titleId: c.id });
     const kid: AccessProfile = { locale: "en-US", maxAge: 12, allowUnrated: false };
-    const cursor = { t: Math.floor(new Date("2024-05-01T00:00:00Z").getTime() / 1000), id: a.id };
-    expect(names(await w.list({ before: cursor, viewer: kid }))).toEqual(["city", "beach c"]);
-    expect(names(await w.list({ before: cursor, viewer: kid, search: parseSearch("beach") }))).toEqual(["beach c"]);
-    expect(names(await w.list({ before: cursor, viewer: kid, favoritesOnly: true }))).toEqual(["beach c"]);
+    const bucket = { level: "month" as const, key: "2024-05" };
+    expect(names(await w.list({ bucket, viewer: kid }))).toEqual(["city", "beach c", "beach a"]);
+    expect(names(await w.list({ bucket, viewer: kid, search: parseSearch("beach") }))).toEqual(["beach c", "beach a"]);
+    expect(names(await w.list({ bucket, viewer: kid, favoritesOnly: true }))).toEqual(["beach c"]);
+    void a;
   });
 
   it("returns what the viewer shows (file name, size, type, album), so opening needs no request", async () => {
@@ -186,7 +170,7 @@ describe("jumping into the middle and scrolling back up", () => {
     const t = await w.add("IMG 1", "2024-05-01T00:00:00Z", { folderPath: "Trip/Day 1" });
     const { mediaFiles } = await import("@/lib/db/schema");
     await db.insert(mediaFiles).values({ ownerKind: "title", ownerId: t.id, partIndex: 0, boxFileId: `bf${++n}`, filename: "IMG_0001.HEIC", sizeBytes: 3_453_641, container: "heic", probeStatus: "ok" });
-    const item = (await w.list())!.items[0];
+    const item = (await w.list({ bucket: { level: "month", key: "2024-05" } }))!.items[0];
     expect(item).toMatchObject({ filename: "IMG_0001.HEIC", sizeBytes: 3_453_641, container: "heic", folderPath: "Trip/Day 1" });
   });
 });
@@ -201,6 +185,21 @@ describe("month counts", () => {
     await w.add("e", null);
     await w.add("f", null);
     expect(await w.months()).toEqual([{ key: "2024-03", count: 2 }, { key: "2024-02", count: 1 }, { key: "2023-12", count: 1 }, { key: "undated", count: 2 }]);
+  });
+  it("count per day or per year when asked, and every block's count matches what loading it returns", async () => {
+    const w = await world();
+    await w.add("a", "2024-03-31T23:59:59Z");
+    await w.add("b", "2024-03-31T00:00:00Z");
+    await w.add("c", "2024-03-01T00:00:00Z");
+    await w.add("d", "2023-12-25T00:00:00Z");
+    await w.add("e", null);
+    expect(await w.months({ level: "day" })).toEqual([{ key: "2024-03-31", count: 2 }, { key: "2024-03-01", count: 1 }, { key: "2023-12-25", count: 1 }, { key: "undated", count: 1 }]);
+    expect(await w.months({ level: "year" })).toEqual([{ key: "2024", count: 3 }, { key: "2023", count: 1 }, { key: "undated", count: 1 }]);
+    for (const level of ["day", "month", "year"] as const) {
+      for (const b of (await w.months({ level }))!) {
+        expect((await w.list({ bucket: { level, key: b.key }, limit: 500 }))!.items.length, `${level} ${b.key}`).toBe(b.count);
+      }
+    }
   });
   it("use the same narrowing as the listing: age limit, search, favorites", async () => {
     const w = await world();
