@@ -7,6 +7,9 @@ import type { PlayManifest, PlayOwnerKind, PlaySegment } from "@/lib/player/type
 import { buildPlaySegment } from "@/lib/player/timeline";
 import { shouldUseVariant } from "@/lib/player/variant-selection";
 
+/** How long to wait for Box to make its browser-friendly version of a video the first time it is opened (it is quick afterwards). */
+export const BROWSER_VERSION_WAIT_MS = 40_000;
+
 export type BuildManifestResult =
   | { ok: true; manifest: PlayManifest }
   | { ok: false; status: 404 | 409 | 424; error: string };
@@ -88,7 +91,7 @@ export async function buildPlayManifest(
       }
       if (!streaming && preferBrowserVersion && provider.getBrowserVideoUrl) {
         // Any trouble just means playing the original.
-        streaming = await provider.getBrowserVideoUrl(row.boxFileId).catch((err) => {
+        streaming = await provider.getBrowserVideoUrl(row.boxFileId, { budgetMs: BROWSER_VERSION_WAIT_MS }).catch((err) => {
           if (err instanceof BoxReauthRequiredError) throw err;
           return null;
         });
@@ -132,7 +135,8 @@ export async function buildPlayManifest(
       ownerId,
       durationSeconds: cursor,
       segments,
-      resumeSeconds: existingState?.finished ? 0 : (existingState?.positionSeconds ?? 0),
+      // Phone videos in a photo library always start from the beginning, like opening a picture.
+      resumeSeconds: preferBrowserVersion || existingState?.finished ? 0 : (existingState?.positionSeconds ?? 0),
       expiresAt: (earliestExpiry ?? new Date(Date.now() + 60_000)).toISOString(),
     },
   };

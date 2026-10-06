@@ -5,6 +5,7 @@ const h = vi.hoisted(() => ({
   testDb: null as unknown as { db: import("@/lib/playlists/test-db").TestDb },
   browser: null as { url: string; expiresAt: Date } | null | "throw",
   calls: [] as string[],
+  budgets: [] as (number | undefined)[],
 }));
 vi.mock("@/lib/db/client", async () => {
   const { createTestDb } = await import("@/lib/playlists/test-db");
@@ -14,7 +15,8 @@ vi.mock("@/lib/db/client", async () => {
 vi.mock("@/lib/storage/box", () => ({
   createBoxProviderForServer: () => ({
     getStreamingUrl: async (id: string) => (h.calls.push(`original:${id}`), { url: `https://orig/${id}`, expiresAt: new Date(Date.now() + 60_000) }),
-    getBrowserVideoUrl: async (id: string) => {
+    getBrowserVideoUrl: async (id: string, opts?: { budgetMs?: number }) => {
+      h.budgets.push(opts?.budgetMs);
       h.calls.push(`browser:${id}`);
       if (h.browser === "throw") throw new Error("Box: boom");
       return h.browser;
@@ -22,7 +24,7 @@ vi.mock("@/lib/storage/box", () => ({
   }),
 }));
 
-import { mediaFiles } from "@/lib/db/schema";
+import { mediaFiles, watchState } from "@/lib/db/schema";
 import { makeAccount, makeLibrary, makeServer, makeTitle, type TestDb } from "@/lib/playlists/test-db";
 import { buildPlayManifest } from "./manifest";
 
@@ -53,6 +55,18 @@ describe("preferring the browser-friendly version", () => {
     expect(r.ok && r.manifest.expiresAt).toBe(expiresAt.toISOString());
     expect(r.ok && r.manifest.durationSeconds).toBe(12);
     expect(h.calls).toEqual([`browser:${c.fileId}`]);
+  });
+
+  it("waits long enough for Box to make it the first time, and always starts from the beginning", async () => {
+    const c = await clip();
+    await db.insert(watchState).values({ viewerId: c.owner.viewer.id, ownerKind: "title", ownerId: c.t.id, positionSeconds: 7, durationSeconds: 12, finished: false });
+    h.browser = null;
+    h.budgets.length = 0;
+    const photo = await build(c, true);
+    expect(photo.ok && photo.manifest.resumeSeconds).toBe(0);
+    expect(h.budgets).toEqual([40_000]);
+    const other = await build(c, false);
+    expect(other.ok && other.manifest.resumeSeconds).toBe(7); // other libraries still resume
   });
 
   it("falls back to the original when Box has none yet, or when asking Box fails", async () => {
