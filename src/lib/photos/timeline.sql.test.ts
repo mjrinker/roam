@@ -2,9 +2,15 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { eq } from "drizzle-orm";
 import type { AccessProfile } from "@/lib/content/access";
-import { libraryMembers, titles } from "@/lib/db/schema";
+import { libraryMembers, mediaFiles, titles } from "@/lib/db/schema";
 import { adminLib, createTestDb, joinServer, makeAccount, makeLibrary, makeServer, makeTitle, type TestDb } from "@/lib/playlists/test-db";
-import { listTimeline, loadPhoto, photoNeighbors, type TimelineCursor } from "./timeline";
+import { listTimeline, loadPhoto, photoNeighbors as neighbors, type TimelineCursor } from "./timeline";
+
+/** Neighbours as ids, which is what most of these tests care about. */
+async function photoNeighbors(ex: Parameters<typeof neighbors>[0], args: Parameters<typeof neighbors>[1]) {
+  const r = await neighbors(ex, args);
+  return { prev: r.prev?.id ?? null, next: r.next?.id ?? null };
+}
 
 let db: TestDb;
 let close: () => Promise<void>;
@@ -133,7 +139,7 @@ describe("what a viewer may not see", () => {
 });
 
 describe("loadPhoto", () => {
-  it("loads a picture, but not a video, a missing id, another library kind, a hidden library or a blocked title", async () => {
+  it("loads a picture or a video beside it (with its file details), but not a missing id, another library kind, a hidden library or a blocked title", async () => {
     const w = await world();
     const photo = await w.add("2024-01-01T00:00:00Z", { name: "Beach", folderPath: "Trip/Day 1" });
     const clip = await w.add("2024-01-02T00:00:00Z", { kind: "movie" });
@@ -142,7 +148,11 @@ describe("loadPhoto", () => {
     const stray = await makeTitle(db, video.id, { kind: "photo", boxFolderId: `file:v${++n}` });
     const load = (id: string, viewer = everyone) => loadPhoto(db, { actor: w.memberLib, viewer, id });
     expect(await load(photo.id)).toMatchObject({ id: photo.id, name: "Beach", folderPath: "Trip/Day 1", libraryId: w.lib.id });
-    for (const id of [clip.id, stray.id, "00000000-0000-4000-8000-0000000000dd"]) expect(await load(id), id).toBeNull();
+    expect(await load(clip.id)).toMatchObject({ id: clip.id, kind: "movie", libraryId: w.lib.id });
+    for (const id of [stray.id, "00000000-0000-4000-8000-0000000000dd"]) expect(await load(id), id).toBeNull();
+    const detailed = await makeTitle(db, w.lib.id, { kind: "photo", boxFolderId: `file:d${++n}`, takenAt: iso("2024-01-05T00:00:00Z") });
+    await db.insert(mediaFiles).values({ ownerKind: "title", ownerId: detailed.id, partIndex: 0, boxFileId: `bx${n}`, filename: "IMG_0001.HEIC", sizeBytes: 3_453_641, container: "heic", probeStatus: "ok" });
+    expect(await load(detailed.id)).toMatchObject({ filename: "IMG_0001.HEIC", sizeBytes: 3_453_641, container: "heic", kind: "photo" });
     expect(await load(blocked.id, { locale: "en-US", maxAge: 12, allowUnrated: false })).toBeNull();
     const restricted = await makeLibrary(db, w.server.id, "photos", "restricted");
     const hidden = await makeTitle(db, restricted.id, { kind: "photo", boxFolderId: `file:h${++n}` });
@@ -151,16 +161,17 @@ describe("loadPhoto", () => {
 });
 
 describe("neighbours", () => {
-  it("timeline: the older picture is next, the newer is prev, videos are skipped, ends have none", async () => {
+  it("timeline: the older item is next, the newer is prev, videos are part of the sequence, ends have none", async () => {
     const w = await world();
     const p1 = await w.add("2024-01-01T00:00:00Z");
-    await w.add("2024-02-01T00:00:00Z", { kind: "movie" });
+    const clip = await w.add("2024-02-01T00:00:00Z", { kind: "movie" });
     const p2 = await w.add("2024-03-01T00:00:00Z");
     const p3 = await w.add("2024-04-01T00:00:00Z");
     const around = async (p: typeof p1) => photoNeighbors(db, { actor: w.memberLib, viewer: everyone, photo: (await loadPhoto(db, { actor: w.memberLib, viewer: everyone, id: p.id }))!, scope: { kind: "timeline" } });
-    expect(await around(p2)).toEqual({ prev: p3.id, next: p1.id });
+    expect(await around(p2)).toEqual({ prev: p3.id, next: clip.id });
     expect(await around(p3)).toEqual({ prev: null, next: p2.id });
-    expect(await around(p1)).toEqual({ prev: p2.id, next: null });
+    expect(await around(p1)).toEqual({ prev: clip.id, next: null });
+    expect(await around(clip as typeof p1)).toEqual({ prev: p2.id, next: p1.id });
   });
 
   it("timeline: pictures from the same second keep a stable order through ids", async () => {

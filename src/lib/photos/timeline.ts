@@ -115,6 +115,14 @@ export async function listTimeline(
 
 export interface PhotoDetail {
   id: string;
+  /** A picture, or a video that sits beside the pictures: the viewer shows both. */
+  kind: "photo" | "movie";
+  runtimeSeconds: number | null;
+  /** The file's name in Box, its size in bytes and its extension (for the info panel and zoom). */
+  filename: string | null;
+  sizeBytes: number | null;
+  container: string | null;
+  posterUrl: string | null;
   libraryId: string;
   libraryName: string;
   name: string;
@@ -125,11 +133,17 @@ export interface PhotoDetail {
   sortKey: string;
 }
 
-/** One picture's details, or null when it doesn't exist, isn't a picture in a photo library, or isn't visible to this viewer. */
+/** One picture's or video's details, or null when it doesn't exist, isn't one in a photo library, or isn't visible to this viewer. */
 export async function loadPhoto(ex: Db, args: { actor: LibraryActor; viewer: AccessProfile; id: string }): Promise<PhotoDetail | null> {
   const [row] = await ex
     .select({
       id: titles.id,
+      kind: titles.kind,
+      runtimeSeconds: titles.runtimeSeconds,
+      posterUrl: titles.posterUrl,
+      filename: sql<string | null>`(SELECT m.filename FROM media_files m WHERE m.owner_kind = 'title' AND m.owner_id = ${titles.id} AND m.part_index = 0 LIMIT 1)`,
+      sizeBytes: sql<string | null>`(SELECT m.size_bytes::text FROM media_files m WHERE m.owner_kind = 'title' AND m.owner_id = ${titles.id} AND m.part_index = 0 LIMIT 1)`,
+      container: sql<string | null>`(SELECT m.container FROM media_files m WHERE m.owner_kind = 'title' AND m.owner_id = ${titles.id} AND m.part_index = 0 LIMIT 1)`,
       libraryId: titles.libraryId,
       libraryName: libraries.name,
       name: titles.name,
@@ -141,34 +155,41 @@ export async function loadPhoto(ex: Db, args: { actor: LibraryActor; viewer: Acc
     })
     .from(titles)
     .innerJoin(libraries, eq(libraries.id, titles.libraryId))
-    .where(and(eq(titles.id, args.id), eq(titles.kind, "photo"), inArray(libraries.kind, [...PHOTO_LIBRARY_KINDS]), libraryVisible(ex, args.actor), contentFilter(args.viewer, titles.ratingAges)))
+    .where(and(eq(titles.id, args.id), inArray(titles.kind, ["photo", "movie"]), inArray(libraries.kind, [...PHOTO_LIBRARY_KINDS]), libraryVisible(ex, args.actor), contentFilter(args.viewer, titles.ratingAges)))
     .limit(1);
   if (!row) return null;
-  return { ...row, folderPath: row.folderPath ?? "" };
+  return { ...row, kind: row.kind === "movie" ? "movie" : "photo", sizeBytes: row.sizeBytes === null ? null : Number(row.sizeBytes), folderPath: row.folderPath ?? "" };
+}
+
+/** The item before or after a photo in the viewer: a picture or a video. */
+export interface Neighbor {
+  id: string;
+  kind: "photo" | "movie";
+  posterUrl: string | null;
 }
 
 export type NeighborScope = { kind: "timeline" } | { kind: "folder"; path: string };
 
 /**
- * The pictures either side of `photo` (videos are skipped: the viewer is for pictures), by date for
+ * The pictures and videos either side of `photo`, by date for
  * the timeline or by name within the folder. `prev` is the one shown before it, `next` the one after.
  * Only items this viewer may see are considered, so nothing hidden is ever offered.
  */
 export async function photoNeighbors(
   ex: Db,
   args: { actor: LibraryActor; viewer: AccessProfile; photo: PhotoDetail; scope: NeighborScope }
-): Promise<{ prev: string | null; next: string | null }> {
+): Promise<{ prev: Neighbor | null; next: Neighbor | null }> {
   const { photo } = args;
-  const base = and(visibleItems(ex, { ...args, libraryId: photo.libraryId }), eq(titles.kind, "photo"));
+  const base = and(visibleItems(ex, { ...args, libraryId: photo.libraryId }), inArray(titles.kind, ["photo", "movie"]));
   const pick = async (where: SQL | undefined, order: SQL[]) => {
     const [row] = await ex
-      .select({ id: titles.id })
+      .select({ id: titles.id, kind: titles.kind, posterUrl: titles.posterUrl })
       .from(titles)
       .innerJoin(libraries, eq(libraries.id, titles.libraryId))
       .where(and(base, where))
       .orderBy(...order)
       .limit(1);
-    return row?.id ?? null;
+    return row ? { id: row.id, kind: row.kind === "movie" ? ("movie" as const) : ("photo" as const), posterUrl: row.posterUrl } : null;
   };
 
   if (args.scope.kind === "timeline") {

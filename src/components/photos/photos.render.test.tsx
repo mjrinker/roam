@@ -67,27 +67,48 @@ describe("PhotoTimeline", () => {
 });
 
 describe("PhotoViewer", () => {
-  const base = { previewUrl: "/api/photos/p/preview", originalUrl: "/api/photos/p/original", name: "Beach", takenLabel: "March 30, 2024 at 10:00 AM", dimensions: "4000 × 3000", backHref: "/s/srv/library/lib", nextPreviewUrl: null };
+  const base = {
+    kind: "photo" as const,
+    id: "p",
+    name: "Beach",
+    previewUrl: "/api/photos/p/preview",
+    originalUrl: "/api/photos/p/original",
+    zoomOriginal: true,
+    posterUrl: null,
+    details: [["Taken", "March 30, 2024 at 10:00 AM"], ["Size", "4000 × 3000"]] as [string, string][],
+    backHref: "/s/srv/library/lib",
+    nextWarmUrl: null,
+  };
 
-  it("shows the preview, the details and a download link, with a way to step in each direction that exists", () => {
+  it("shows the preview, the date, a download link and a details button, with a way to step each way that exists", () => {
     const html = renderToStaticMarkup(<PhotoViewer {...base} prevHref="/s/srv/photo/new?from=timeline" nextHref="/s/srv/photo/old?from=timeline" />);
     expect(html).toContain('src="/api/photos/p/preview"');
     expect(html).not.toContain("/_next/image");
     expect(html).toContain("Beach");
-    expect(html).toContain("March 30, 2024 at 10:00 AM · 4000 × 3000");
+    expect(html).toContain("March 30, 2024 at 10:00 AM");
     expect(html).toContain('href="/api/photos/p/original"');
-    expect(html).toContain("Download original");
-    expect(html).toContain('aria-label="Previous photo"');
-    expect(html).toContain('aria-label="Next photo"');
+    expect(html).toContain('aria-label="Download original"');
+    expect(html).toContain('aria-label="Info"');
+    expect(html).toContain('aria-label="Previous"');
+    expect(html).toContain('aria-label="Next"');
     expect(html).toContain('aria-label="Back to the library"');
+    expect(html).not.toContain('aria-label="Details"'); // the panel starts closed
   });
 
-  it("offers no step past the first or last photo", () => {
+  it("offers no step past the first or last item", () => {
     const first = renderToStaticMarkup(<PhotoViewer {...base} prevHref={null} nextHref="/s/srv/photo/old?from=timeline" />);
-    expect(first).not.toContain("Previous photo");
-    expect(first).toContain("Next photo");
+    expect(first).not.toContain('aria-label="Previous"');
+    expect(first).toContain('aria-label="Next"');
     const last = renderToStaticMarkup(<PhotoViewer {...base} prevHref="/s/srv/photo/new?from=timeline" nextHref={null} />);
-    expect(last).toContain("Previous photo");
-    expect(last).not.toContain("Next photo");
+    expect(last).toContain('aria-label="Previous"');
+    expect(last).not.toContain('aria-label="Next"');
+  });
+
+  it("a video shows its poster with a play button (it never starts by itself) and no picture preview", () => {
+    const html = renderToStaticMarkup(<PhotoViewer {...base} kind="movie" id="v" name="Clip" posterUrl="/api/photos/v/thumb?v=1" prevHref={null} nextHref={null} />);
+    expect(html).toContain('aria-label="Play video Clip"');
+    expect(html).toContain('src="/api/photos/v/thumb?v=1"');
+    expect(html).not.toContain("/api/photos/p/preview");
+    expect(html).not.toContain("<video");
   });
 });

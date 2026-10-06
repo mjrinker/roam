@@ -32,8 +32,10 @@ describe("spendServerBudget", () => {
   it("refuses once the server is over its budget, and for a server that doesn't exist", async () => {
     const owner = await makeAccount(db, "o2");
     const s = await makeServer(db, owner.accountId);
-    for (let i = 0; i < SERVER_BOX_CALLS_PER_MINUTE; i++) await spendServerBudget(s.id);
+    // Put the counter exactly at the limit (as if the minute's calls had been made), then spend one more.
+    const windowStart = new Date(Math.floor(Date.now() / 60_000) * 60_000);
+    await db.insert(rateLimitBuckets).values({ profileId: owner.accountId, bucket: `photo_box:${s.id}`, windowStart, count: SERVER_BOX_CALLS_PER_MINUTE });
     expect(await spendServerBudget(s.id)).toBe(false);
     expect(await spendServerBudget("00000000-0000-4000-8000-0000000000ff")).toBe(false);
-  }, 60_000);
+  });
 });

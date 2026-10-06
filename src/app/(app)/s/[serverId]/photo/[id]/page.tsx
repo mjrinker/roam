@@ -6,6 +6,7 @@ import { PhotoViewer } from "@/components/photos/photo-viewer";
 import { photoOriginalUrl, photoPreviewUrl } from "@/lib/photos/urls";
 import { loadPhoto, photoNeighbors } from "@/lib/photos/timeline";
 import { isUuid } from "@/lib/playlists/http";
+import { formatFileSize, formatRuntime } from "@/lib/format";
 
 // The page links to a download URL that is a credential for a short while; never send it on as a referrer.
 export const metadata = { referrer: "no-referrer" as const };
@@ -32,17 +33,34 @@ export default async function PhotoPage({ params, searchParams }: PageProps<"/s/
   const library = `/s/${serverId}/library/${photo.libraryId}`;
   const backHref = fromAlbum ? `${library}?view=albums${photo.folderPath ? `&path=${encodeURIComponent(photo.folderPath)}` : ""}` : library;
 
+  const isVideo = photo.kind === "movie";
+  const rows: [string, string | null][] = [
+    ["Taken", photo.takenAt ? taken.format(photo.takenAt) : null],
+    ["Size", photo.width && photo.height ? `${photo.width} × ${photo.height}` : null],
+    ["Length", isVideo ? formatRuntime(photo.runtimeSeconds) : null],
+    ["File", photo.filename],
+    ["File size", formatFileSize(photo.sizeBytes)],
+    ["Album", photo.folderPath || null],
+  ];
+  // Browsers show these as they are, so zooming far in may swap to the full-size file (a HEIC can't be shown, so it never is).
+  const zoomOriginal = !isVideo && ["jpg", "jpeg", "png", "webp"].includes((photo.container ?? "").toLowerCase());
+
   return (
     <PhotoViewer
+      key={photo.id}
+      kind={photo.kind}
+      id={photo.id}
+      name={photo.name}
       previewUrl={photoPreviewUrl(photo.id)}
       originalUrl={photoOriginalUrl(photo.id)}
-      name={photo.name}
-      takenLabel={photo.takenAt ? taken.format(photo.takenAt) : null}
-      dimensions={photo.width && photo.height ? `${photo.width} × ${photo.height}` : null}
-      prevHref={neighbors.prev ? here(neighbors.prev) : null}
-      nextHref={neighbors.next ? here(neighbors.next) : null}
+      zoomOriginal={zoomOriginal}
+      posterUrl={photo.posterUrl}
+      details={rows.filter((r): r is [string, string] => r[1] !== null)}
+      prevHref={neighbors.prev ? here(neighbors.prev.id) : null}
+      nextHref={neighbors.next ? here(neighbors.next.id) : null}
       backHref={backHref}
-      nextPreviewUrl={neighbors.next ? photoPreviewUrl(neighbors.next) : null}
+      // The next item's image is warmed ahead of time (a video's poster; its file is only fetched when played).
+      nextWarmUrl={neighbors.next ? (neighbors.next.kind === "movie" ? neighbors.next.posterUrl : photoPreviewUrl(neighbors.next.id)) : null}
     />
   );
 }

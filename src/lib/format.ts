@@ -17,3 +17,17 @@ export function formatRemaining(
   if (remaining < 3600) return `${Math.max(Math.round(remaining / 60), 1)} min left`;
   return `${formatRuntime(remaining)} left`;
 }
+
+/** A file size for people: "3.5 MB". Null for an unknown or nonsensical size. */
+export function formatFileSize(bytes: number | null | undefined): string | null {
+  if (bytes === null || bytes === undefined || !Number.isFinite(bytes) || bytes < 0) return null;
+  if (bytes < 1024) return `${bytes} B`;
+  const units = ["KB", "MB", "GB", "TB"];
+  let value = bytes / 1024;
+  let i = 0;
+  while (value >= 1024 && i < units.length - 1) {
+    value /= 1024;
+    i++;
+  }
+  return `${value >= 100 || Number.isInteger(value) ? Math.round(value) : value.toFixed(1)} ${units[i]}`;
+}
