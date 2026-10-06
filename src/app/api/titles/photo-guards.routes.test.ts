@@ -96,6 +96,17 @@ describe("play, progress and audio routes refuse a photo", () => {
     }
   });
 
+  it("records no progress for a video in a photo library, but still does for an ordinary movie", async () => {
+    const w = await world();
+    const patch = (id: string) => watchPatch(new Request("http://x", { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ ownerKind: "title", ownerId: id, positionSeconds: 5, durationSeconds: 100, finished: false }) }));
+    const clip = await patch(w.clip.id);
+    expect([clip.status, (await clip.json()).recorded]).toEqual([200, false]);
+    expect((await patch(w.film.id)).status).toBe(200);
+    const rows = await db.query.watchState.findMany();
+    expect(rows.filter((r) => r.ownerId === w.clip.id)).toHaveLength(0);
+    expect(rows.filter((r) => r.ownerId === w.film.id)).toHaveLength(1);
+  });
+
   it("authorizeOwner takes an explicit list: a photo route can ask for photos, and nothing else changes", async () => {
     const w = await world();
     expect((await authorizeOwner("title", w.photo.id)).ok).toBe(false);
