@@ -31,7 +31,8 @@ export async function GET(request: Request, ctx: RouteContext<"/api/libraries/[i
   const after = decodeCursor(new URL(request.url).searchParams.get("after"), timelineCursorSchema);
   if (after === "invalid") return NextResponse.json({ error: "Invalid cursor" }, { status: 400, headers });
 
-  const page = await listTimeline(db, { actor: libraryActor(member, serverId), viewer: member.viewer, libraryId: id, after, limit: PAGE });
+  const favoritesOnly = new URL(request.url).searchParams.get("view") === "favorites";
+  const page = await listTimeline(db, { actor: libraryActor(member, serverId), viewer: member.viewer, viewerId: member.viewer.id, libraryId: id, after, limit: PAGE, favoritesOnly });
   if (!page) return notFound();
   return NextResponse.json({ items: page.items, next: page.next ? encodeCursor(page.next) : null }, { headers });
 }

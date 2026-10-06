@@ -3,6 +3,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push: () => undefined }) }));
 
+import { FavoriteButton } from "./favorite-button";
 import { PhotoTile, photoHref } from "./photo-tile";
 import { PhotoTimeline } from "./photo-timeline";
 import { PhotoViewer } from "./photo-viewer";
@@ -17,6 +18,7 @@ const item = (over: Partial<TimelineItem> = {}): TimelineItem => ({
   height: 3000,
   posterUrl: "/api/photos/11111111-1111-4111-8111-111111111111/thumb?v=1ab-2cd",
   runtimeSeconds: null,
+  favorite: false,
   ...over,
 });
 
@@ -63,6 +65,29 @@ describe("PhotoTimeline", () => {
     expect(more).not.toContain("everything");
     const empty = renderToStaticMarkup(<PhotoTimeline {...props} initialNext={null} initialItems={[]} />);
     expect(empty).toContain("No photos yet");
+  });
+});
+
+describe("favorites in the interface", () => {
+  it("a tile shows a heart only when it is a favorite", () => {
+    expect(renderToStaticMarkup(<PhotoTile serverId="srv" item={item()} from="from=timeline" />)).not.toContain("fill-rose-500");
+    expect(renderToStaticMarkup(<PhotoTile serverId="srv" item={{ ...item(), favorite: true }} from="from=timeline" />)).toContain("fill-rose-500");
+  });
+
+  it("a favorites timeline links tiles with where they came from and speaks in the profile's spelling", () => {
+    const html = renderToStaticMarkup(<PhotoTimeline serverId="srv" libraryId="lib" view="favorites" initialNext={null} initialItems={[item()]} />);
+    expect(html).toContain("?from=favorites");
+    const empty = renderToStaticMarkup(<PhotoTimeline serverId="srv" libraryId="lib" view="favorites" initialNext={null} initialItems={[]} emptyTitle="No favourites yet" emptyHint="Tap the heart…" />);
+    expect(empty).toContain("No favourites yet");
+  });
+
+  it("the heart button reads as pressed when set and offers the right action", () => {
+    const off = renderToStaticMarkup(<FavoriteButton id="p" initial={false} addLabel="Add to favorites" removeLabel="Remove from favorites" />);
+    expect(off).toContain('aria-pressed="false"');
+    expect(off).toContain('aria-label="Add to favorites"');
+    const on = renderToStaticMarkup(<FavoriteButton id="p" initial addLabel="Add to favorites" removeLabel="Remove from favorites" />);
+    expect(on).toContain('aria-pressed="true"');
+    expect(on).toContain('aria-label="Remove from favorites"');
   });
 });
 

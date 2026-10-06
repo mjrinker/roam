@@ -16,6 +16,7 @@ import { VideoFolderView } from "@/components/library/video-folder-view";
 import { listFolder as listVideoFolder, normalizeFolderPath } from "@/lib/libraries/folder-browse";
 import { isFileTreeLibraryKind, isPhotoLibraryKind } from "@/lib/libraries/profile";
 import { listTimeline } from "@/lib/photos/timeline";
+import { favoriteWords } from "@/lib/photos/favorite-word";
 import { PhotoTimeline } from "@/components/photos/photo-timeline";
 import { decodeCursor, encodeCursor } from "@/lib/playlists/http";
 import {
@@ -29,11 +30,11 @@ const KIND_LABEL = { movies: "Movies", shows: "TV Shows", audiobooks: "Audiobook
 const folderCursorSchema = z.object({ key: z.string().max(1000).regex(/^[^\u0000]*$/), id: z.string().uuid() });
 
 /** Timeline | Albums, for a photo library. */
-function PhotoViewTabs({ serverId, libraryId, active }: { serverId: string; libraryId: string; active: "timeline" | "albums" }) {
+function PhotoViewTabs({ serverId, libraryId, active, favoritesLabel }: { serverId: string; libraryId: string; active: "timeline" | "albums" | "favorites"; favoritesLabel: string }) {
   const base = `/s/${serverId}/library/${libraryId}`;
-  const tab = (view: "timeline" | "albums", label: string) => (
+  const tab = (view: "timeline" | "albums" | "favorites", label: string) => (
     <Link
-      href={view === "timeline" ? base : `${base}?view=albums`}
+      href={view === "timeline" ? base : `${base}?view=${view}`}
       aria-current={active === view ? "page" : undefined}
       className={`rounded-lg px-4 py-1.5 text-sm font-medium transition ${active === view ? "bg-white/[0.12] text-foreground" : "text-muted-foreground hover:text-foreground"}`}
     >
@@ -44,6 +45,7 @@ function PhotoViewTabs({ serverId, libraryId, active }: { serverId: string; libr
     <nav aria-label="Photo views" className="flex w-fit gap-1 rounded-xl bg-white/[0.05] p-1 ring-1 ring-white/[0.08]">
       {tab("timeline", "Timeline")}
       {tab("albums", "Albums")}
+      {tab("favorites", favoritesLabel)}
     </nav>
   );
 }
@@ -67,9 +69,10 @@ export default async function LibraryDetailPage({
   if (!library) notFound();
 
   // A photo library opens to its timeline (newest first, by month), with an Albums tab for its folders.
-  const photoView = isPhotoLibraryKind(library.kind) ? (query.view === "albums" ? "albums" : "timeline") : null;
-  if (photoView === "timeline") {
-    const page = await listTimeline(db, { actor: lib, viewer, libraryId, limit: 60 });
+  const photoView = isPhotoLibraryKind(library.kind) ? (query.view === "albums" ? "albums" : query.view === "favorites" ? "favorites" : "timeline") : null;
+  const words = favoriteWords(viewer.locale);
+  if (photoView === "timeline" || photoView === "favorites") {
+    const page = await listTimeline(db, { actor: lib, viewer, viewerId: viewer.id, libraryId, limit: 60, favoritesOnly: photoView === "favorites" });
     if (!page) notFound();
     const PhotoIcon = KIND_ICON[library.kind];
     return (
@@ -81,8 +84,16 @@ export default async function LibraryDetailPage({
           </span>
           <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">{library.name}</h1>
         </div>
-        <PhotoViewTabs serverId={serverId} libraryId={libraryId} active="timeline" />
-        <PhotoTimeline serverId={serverId} libraryId={libraryId} initialItems={page.items} initialNext={page.next ? encodeCursor(page.next) : null} />
+        <PhotoViewTabs serverId={serverId} libraryId={libraryId} active={photoView} favoritesLabel={words.plural} />
+        <PhotoTimeline
+          key={photoView}
+          serverId={serverId}
+          libraryId={libraryId}
+          view={photoView}
+          initialItems={page.items}
+          initialNext={page.next ? encodeCursor(page.next) : null}
+          {...(photoView === "favorites" ? { emptyTitle: words.empty, emptyHint: words.emptyHint } : {})}
+        />
       </div>
     );
   }
@@ -95,6 +106,7 @@ export default async function LibraryDetailPage({
     const page = await listVideoFolder(db, {
       actor: lib,
       viewer,
+      viewerId: viewer.id,
       libraryId,
       path,
       limit: 60,
@@ -114,7 +126,7 @@ export default async function LibraryDetailPage({
           </span>
           <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">{library.name}</h1>
         </div>
-        {photoView && <PhotoViewTabs serverId={serverId} libraryId={libraryId} active="albums" />}
+        {photoView && <PhotoViewTabs serverId={serverId} libraryId={libraryId} active="albums" favoritesLabel={words.plural} />}
         <VideoFolderView
           serverId={serverId}
           libraryId={libraryId}

@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { memo, useEffect, useState } from "react";
-import { Image as ImageIcon, Play } from "lucide-react";
+import { Heart, Image as ImageIcon, Play } from "lucide-react";
 import { Artwork } from "@/components/ui/artwork";
 import { cn } from "@/lib/utils";
 
@@ -12,6 +12,7 @@ export interface PhotoTileData {
   name: string;
   posterUrl: string | null;
   runtimeSeconds: number | null;
+  favorite?: boolean;
 }
 
 function duration(seconds: number | null): string | null {
@@ -64,6 +65,7 @@ export const PhotoTile = memo(function PhotoTile({ serverId, item, from, priorit
           <ImageIcon className="size-6 text-muted-foreground/50" aria-hidden />
         </div>
       )}
+      {item.favorite && <Heart aria-hidden className="absolute right-1.5 top-1.5 size-4 fill-rose-500 text-rose-500 drop-shadow" />}
       {item.kind === "movie" && (
         <span className={cn("absolute bottom-1.5 left-1.5 flex items-center gap-1 rounded-full bg-black/65 px-2 py-0.5 text-[11px] font-medium text-white")}>
           <Play className="size-3 fill-current" aria-hidden />

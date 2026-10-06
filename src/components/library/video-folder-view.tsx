@@ -85,7 +85,7 @@ export function VideoFolderView({
             <li key={item.id} className="min-w-0">
               <PhotoTile
                 serverId={serverId}
-                item={{ id: item.id, kind: item.kind === "photo" ? "photo" : "movie", name: item.name, posterUrl: item.posterUrl, runtimeSeconds: item.runtimeSeconds }}
+                item={{ id: item.id, kind: item.kind === "photo" ? "photo" : "movie", name: item.name, posterUrl: item.posterUrl, runtimeSeconds: item.runtimeSeconds, favorite: item.favorite }}
                 from={`from=album&path=${encodeURIComponent(path)}`}
                 priority={i < 12}
               />

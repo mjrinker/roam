@@ -13,7 +13,7 @@ import type { PgDatabase, PgQueryResultHKT } from "drizzle-orm/pg-core";
 import { z } from "zod";
 import { contentFilter, type AccessProfile } from "@/lib/content/access";
 import { libraryVisible, type LibraryActor } from "@/lib/content/library-access";
-import { libraries, titles } from "@/lib/db/schema";
+import { libraries, photoFavorites, titles } from "@/lib/db/schema";
 import { PHOTO_LIBRARY_KINDS } from "@/lib/libraries/profile";
 
 type Db = PgDatabase<PgQueryResultHKT, Record<string, unknown>>;
@@ -36,6 +36,8 @@ export interface TimelineItem {
   height: number | null;
   posterUrl: string | null;
   runtimeSeconds: number | null;
+  /** Whether the viewer asking has hearted it. */
+  favorite: boolean;
 }
 
 export interface TimelinePage {
@@ -66,7 +68,17 @@ function afterCursor(cursor: TimelineCursor): SQL {
 /** One page of a photo library's timeline, or null when the viewer can't see such a library. */
 export async function listTimeline(
   ex: Db,
-  args: { actor: LibraryActor; viewer: AccessProfile; libraryId: string; after?: TimelineCursor | null; limit?: number }
+  args: {
+    actor: LibraryActor;
+    viewer: AccessProfile;
+    /** The profile asking (favorites are theirs). Without it nothing is marked and the favorites view is empty. */
+    viewerId?: string;
+    libraryId: string;
+    after?: TimelineCursor | null;
+    limit?: number;
+    /** Only the viewer's favorites. */
+    favoritesOnly?: boolean;
+  }
 ): Promise<TimelinePage | null> {
   const limit = Math.min(Math.max(args.limit ?? 60, 1), MAX_PAGE);
   const rows = await ex
@@ -79,10 +91,18 @@ export async function listTimeline(
       height: titles.height,
       posterUrl: titles.posterUrl,
       runtimeSeconds: titles.runtimeSeconds,
+      favorite: args.viewerId ? sql<boolean>`EXISTS (SELECT 1 FROM ${photoFavorites} f WHERE f.title_id = ${titles.id} AND f.viewer_id = ${args.viewerId})` : sql<boolean>`false`,
     })
     .from(titles)
     .innerJoin(libraries, eq(libraries.id, titles.libraryId))
-    .where(and(visibleItems(ex, args), args.after ? afterCursor(args.after) : undefined))
+    .where(
+      and(
+        visibleItems(ex, args),
+        // The favorites view is the same query as the timeline, narrowed: access and age rules apply unchanged.
+        args.favoritesOnly ? (args.viewerId ? sql`EXISTS (SELECT 1 FROM ${photoFavorites} f WHERE f.title_id = ${titles.id} AND f.viewer_id = ${args.viewerId})` : sql`false`) : undefined,
+        args.after ? afterCursor(args.after) : undefined
+      )
+    )
     .orderBy(sql`${titles.takenAt} DESC NULLS LAST`, sql`${titles.id} DESC NULLS LAST`)
     .limit(limit + 1);
 
@@ -108,6 +128,7 @@ export async function listTimeline(
       height: r.height,
       posterUrl: r.posterUrl,
       runtimeSeconds: r.runtimeSeconds,
+      favorite: r.favorite === true,
     })),
     next: rows.length > limit && last ? { t: last.takenAt ? Math.floor(last.takenAt.getTime() / 1000) : null, id: last.id } : null,
   };
@@ -123,6 +144,8 @@ export interface PhotoDetail {
   sizeBytes: number | null;
   container: string | null;
   posterUrl: string | null;
+  /** Whether the viewer asking has hearted it. */
+  favorite: boolean;
   libraryId: string;
   libraryName: string;
   name: string;
@@ -134,13 +157,14 @@ export interface PhotoDetail {
 }
 
 /** One picture's or video's details, or null when it doesn't exist, isn't one in a photo library, or isn't visible to this viewer. */
-export async function loadPhoto(ex: Db, args: { actor: LibraryActor; viewer: AccessProfile; id: string }): Promise<PhotoDetail | null> {
+export async function loadPhoto(ex: Db, args: { actor: LibraryActor; viewer: AccessProfile; viewerId?: string; id: string }): Promise<PhotoDetail | null> {
   const [row] = await ex
     .select({
       id: titles.id,
       kind: titles.kind,
       runtimeSeconds: titles.runtimeSeconds,
       posterUrl: titles.posterUrl,
+      favorite: args.viewerId ? sql<boolean>`EXISTS (SELECT 1 FROM ${photoFavorites} f WHERE f.title_id = ${titles.id} AND f.viewer_id = ${args.viewerId})` : sql<boolean>`false`,
       filename: sql<string | null>`(SELECT m.filename FROM media_files m WHERE m.owner_kind = 'title' AND m.owner_id = ${titles.id} AND m.part_index = 0 LIMIT 1)`,
       sizeBytes: sql<string | null>`(SELECT m.size_bytes::text FROM media_files m WHERE m.owner_kind = 'title' AND m.owner_id = ${titles.id} AND m.part_index = 0 LIMIT 1)`,
       container: sql<string | null>`(SELECT m.container FROM media_files m WHERE m.owner_kind = 'title' AND m.owner_id = ${titles.id} AND m.part_index = 0 LIMIT 1)`,
@@ -158,7 +182,7 @@ export async function loadPhoto(ex: Db, args: { actor: LibraryActor; viewer: Acc
     .where(and(eq(titles.id, args.id), inArray(titles.kind, ["photo", "movie"]), inArray(libraries.kind, [...PHOTO_LIBRARY_KINDS]), libraryVisible(ex, args.actor), contentFilter(args.viewer, titles.ratingAges)))
     .limit(1);
   if (!row) return null;
-  return { ...row, kind: row.kind === "movie" ? "movie" : "photo", sizeBytes: row.sizeBytes === null ? null : Number(row.sizeBytes), folderPath: row.folderPath ?? "" };
+  return { ...row, favorite: row.favorite === true, kind: row.kind === "movie" ? "movie" : "photo", sizeBytes: row.sizeBytes === null ? null : Number(row.sizeBytes), folderPath: row.folderPath ?? "" };
 }
 
 /** The item before or after a photo in the viewer: a picture or a video. */
@@ -168,7 +192,7 @@ export interface Neighbor {
   posterUrl: string | null;
 }
 
-export type NeighborScope = { kind: "timeline" } | { kind: "folder"; path: string };
+export type NeighborScope = { kind: "timeline" } | { kind: "favorites"; viewerId: string } | { kind: "folder"; path: string };
 
 /**
  * The pictures and videos either side of `photo`, by date for
@@ -180,7 +204,12 @@ export async function photoNeighbors(
   args: { actor: LibraryActor; viewer: AccessProfile; photo: PhotoDetail; scope: NeighborScope }
 ): Promise<{ prev: Neighbor | null; next: Neighbor | null }> {
   const { photo } = args;
-  const base = and(visibleItems(ex, { ...args, libraryId: photo.libraryId }), inArray(titles.kind, ["photo", "movie"]));
+  const base = and(
+    visibleItems(ex, { ...args, libraryId: photo.libraryId }),
+    inArray(titles.kind, ["photo", "movie"]),
+    // Stepping through favorites only visits favorites (the viewer's own).
+    args.scope.kind === "favorites" ? sql`EXISTS (SELECT 1 FROM ${photoFavorites} f WHERE f.title_id = ${titles.id} AND f.viewer_id = ${args.scope.viewerId})` : undefined
+  );
   const pick = async (where: SQL | undefined, order: SQL[]) => {
     const [row] = await ex
       .select({ id: titles.id, kind: titles.kind, posterUrl: titles.posterUrl })
@@ -192,7 +221,7 @@ export async function photoNeighbors(
     return row ? { id: row.id, kind: row.kind === "movie" ? ("movie" as const) : ("photo" as const), posterUrl: row.posterUrl } : null;
   };
 
-  if (args.scope.kind === "timeline") {
+  if (args.scope.kind === "timeline" || args.scope.kind === "favorites") {
     // Never-dated items have no place in the timeline order, so they have no neighbours.
     if (!photo.takenAt) return { prev: null, next: null };
     const t = Math.floor(photo.takenAt.getTime() / 1000);

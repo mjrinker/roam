@@ -815,6 +815,29 @@ export const profilesRelations = relations(profiles, ({ many }) => ({
   ownedServers: many(servers),
 }));
 
+/**
+ * A profile's favorite photos and videos (per VIEWER, not account: each profile on a shared account keeps
+ * its own). Rows disappear with the viewer or the title. Reads always go through the library access and
+ * age filters, so a favorite that later becomes hidden simply stops showing.
+ */
+export const photoFavorites = pgTable(
+  "photo_favorites",
+  {
+    viewerId: uuid("viewer_id")
+      .notNull()
+      .references(() => viewers.id, { onDelete: "cascade" }),
+    titleId: uuid("title_id")
+      .notNull()
+      .references(() => titles.id, { onDelete: "cascade" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.viewerId, t.titleId] }),
+    // The primary key leads with the viewer; this serves the cascade when a title is deleted.
+    index("photo_favorites_title_idx").on(t.titleId),
+  ]
+).enableRLS();
+
 export const watchStateRelations = relations(watchState, ({ one }) => ({
   viewer: one(viewers, {
     fields: [watchState.viewerId],

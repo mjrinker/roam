@@ -15,18 +15,25 @@ export function PhotoTimeline({
   libraryId,
   initialItems,
   initialNext,
+  view = "timeline",
+  emptyTitle = "No photos yet",
+  emptyHint = "Photos and videos appear here once the first scan finishes.",
 }: {
   serverId: string;
   libraryId: string;
   initialItems: TimelineItem[];
   initialNext: string | null;
+  /** "favorites" lists only the profile's hearted items (same API, same visibility rules). */
+  view?: "timeline" | "favorites";
+  emptyTitle?: string;
+  emptyHint?: string;
 }) {
   const [items, setItems] = useState(initialItems);
   const [next, setNext] = useState(initialNext);
   const [loading, setLoading] = useState(false);
   const [failed, setFailed] = useState(false);
   const inFlight = useRef(false);
-  const storeKey = `roam:photos:${libraryId}`;
+  const storeKey = `roam:photos:${libraryId}:${view}`;
 
   // Coming back from the viewer: restore the pages already loaded and the scroll position, if the
   // timeline still starts with the same photo (else it changed, and starting afresh is right).
@@ -77,7 +84,7 @@ export function PhotoTimeline({
     setLoading(true);
     setFailed(false);
     try {
-      const res = await fetch(`/api/libraries/${libraryId}/photos?after=${encodeURIComponent(next)}`, { credentials: "same-origin" });
+      const res = await fetch(`/api/libraries/${libraryId}/photos?after=${encodeURIComponent(next)}${view === "favorites" ? "&view=favorites" : ""}`, { credentials: "same-origin" });
       if (!res.ok) throw new Error(String(res.status));
       const body = (await res.json()) as { items: TimelineItem[]; next: string | null };
       setItems((current) => {
@@ -91,7 +98,7 @@ export function PhotoTimeline({
       inFlight.current = false;
       setLoading(false);
     }
-  }, [libraryId, next]);
+  }, [libraryId, next, view]);
 
   useEffect(() => {
     const el = sentinel.current;
@@ -104,8 +111,8 @@ export function PhotoTimeline({
   if (items.length === 0) {
     return (
       <div className="mx-auto flex max-w-sm flex-col items-center gap-2 py-24 text-center">
-        <p className="text-lg font-medium">No photos yet</p>
-        <p className="text-sm text-muted-foreground">Photos and videos appear here once the first scan finishes.</p>
+        <p className="text-lg font-medium">{emptyTitle}</p>
+        <p className="text-sm text-muted-foreground">{emptyHint}</p>
       </div>
     );
   }
@@ -119,7 +126,7 @@ export function PhotoTimeline({
           <ul className="grid grid-cols-3 gap-1 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-8">
             {group.items.map((item, i) => (
               <li key={item.id} className="min-w-0">
-                <PhotoTile serverId={serverId} item={item} from="from=timeline" priority={g === 0 && i < 12} />
+                <PhotoTile serverId={serverId} item={item} from={view === "favorites" ? "from=favorites" : "from=timeline"} priority={g === 0 && i < 12} />
               </li>
             ))}
           </ul>
