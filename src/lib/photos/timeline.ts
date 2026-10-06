@@ -39,11 +39,19 @@ export interface TimelineItem {
   runtimeSeconds: number | null;
   /** Whether the viewer asking has hearted it. */
   favorite: boolean;
+  /** What the viewer's details panel shows (so opening an item needs no further request). */
+  filename: string | null;
+  sizeBytes: number | null;
+  container: string | null;
+  folderPath: string;
 }
 
 export interface TimelinePage {
   items: TimelineItem[];
+  /** The cursor for the next OLDER page, or null at the end. */
   next: TimelineCursor | null;
+  /** The cursor for the next NEWER page (only when asked to start part-way, or when paging upward), or null at the top. */
+  prev?: TimelineCursor | null;
 }
 
 const MAX_PAGE = 200;
@@ -59,6 +67,12 @@ function visibleItems(ex: Db, args: { actor: LibraryActor; viewer: AccessProfile
 }
 
 const at = (t: number) => sql`to_timestamp(${t}::double precision)`;
+
+/** Items strictly BEFORE `cursor` in timeline order (newer; a dated cursor never has undated items before it). */
+function beforeCursor(cursor: TimelineCursor): SQL {
+  if (cursor.t === null) return or(isNotNull(titles.takenAt), and(isNull(titles.takenAt), gt(titles.id, cursor.id)))!;
+  return or(gt(titles.takenAt, at(cursor.t)), and(sql`${titles.takenAt} = ${at(cursor.t)}`, gt(titles.id, cursor.id)))!;
+}
 
 /** Items strictly after `cursor` in timeline order (older, then NULL dates last). */
 function afterCursor(cursor: TimelineCursor): SQL {
@@ -142,6 +156,8 @@ export async function listTimeline(
     search?: SearchSpec | null;
     /** Start at this month ("2024-03", then older) or at the undated items ("undated"), for jumping with the scrubber. */
     month?: string | null;
+    /** Return the page of items NEWER than this cursor instead (for scrolling up after a jump), in display order. */
+    before?: TimelineCursor | null;
   }
 ): Promise<TimelinePage | null> {
   const limit = Math.min(Math.max(args.limit ?? 60, 1), MAX_PAGE);
@@ -156,11 +172,16 @@ export async function listTimeline(
       posterUrl: titles.posterUrl,
       runtimeSeconds: titles.runtimeSeconds,
       favorite: args.viewerId ? sql<boolean>`EXISTS (SELECT 1 FROM ${photoFavorites} f WHERE f.title_id = ${titles.id} AND f.viewer_id = ${args.viewerId})` : sql<boolean>`false`,
+      filename: sql<string | null>`(SELECT m.filename FROM media_files m WHERE m.owner_kind = 'title' AND m.owner_id = ${titles.id} AND m.part_index = 0 LIMIT 1)`,
+      sizeBytes: sql<string | null>`(SELECT m.size_bytes::text FROM media_files m WHERE m.owner_kind = 'title' AND m.owner_id = ${titles.id} AND m.part_index = 0 LIMIT 1)`,
+      container: sql<string | null>`(SELECT m.container FROM media_files m WHERE m.owner_kind = 'title' AND m.owner_id = ${titles.id} AND m.part_index = 0 LIMIT 1)`,
+      folderPath: titles.folderPath,
     })
     .from(titles)
     .innerJoin(libraries, eq(libraries.id, titles.libraryId))
-    .where(and(narrowed(ex, args), args.after ? afterCursor(args.after) : undefined, monthStart(args.month)))
-    .orderBy(sql`${titles.takenAt} DESC NULLS LAST`, sql`${titles.id} DESC NULLS LAST`)
+    .where(and(narrowed(ex, args), args.after ? afterCursor(args.after) : undefined, args.before ? beforeCursor(args.before) : undefined, args.before ? undefined : monthStart(args.month)))
+    // Paging upward asks for the nearest newer items, which is the reverse of display order; they are flipped back below.
+    .orderBy(...(args.before ? [sql`${titles.takenAt} ASC NULLS FIRST`, sql`${titles.id} ASC NULLS FIRST`] : [sql`${titles.takenAt} DESC NULLS LAST`, sql`${titles.id} DESC NULLS LAST`]))
     .limit(limit + 1);
 
   // An empty first page still needs the library itself to be visible and a photo library.
@@ -174,21 +195,32 @@ export async function listTimeline(
   }
 
   const page = rows.slice(0, limit);
+  if (args.before) page.reverse(); // back into display order: newest first
+  const toItem = (r: (typeof rows)[number]): TimelineItem => ({
+    id: r.id,
+    kind: r.kind === "movie" ? "movie" : "photo",
+    name: r.name,
+    takenAt: r.takenAt ? r.takenAt.toISOString() : null,
+    width: r.width,
+    height: r.height,
+    posterUrl: r.posterUrl,
+    runtimeSeconds: r.runtimeSeconds,
+    favorite: r.favorite === true,
+    filename: r.filename,
+    sizeBytes: r.sizeBytes === null ? null : Number(r.sizeBytes),
+    container: r.container,
+    folderPath: r.folderPath ?? "",
+  });
+  const cursorOf = (r: { takenAt: Date | null; id: string }): TimelineCursor => ({ t: r.takenAt ? Math.floor(r.takenAt.getTime() / 1000) : null, id: r.id });
+  const items = page.map(toItem);
+  if (args.before) {
+    // Paging up: more newer items exist if we got the extra row; the cursor for the next page up is the topmost item shown.
+    return { items, next: null, prev: rows.length > limit && page[0] ? cursorOf(page[0]) : null };
+  }
   const last = page[page.length - 1];
-  return {
-    items: page.map((r) => ({
-      id: r.id,
-      kind: r.kind === "movie" ? "movie" : "photo",
-      name: r.name,
-      takenAt: r.takenAt ? r.takenAt.toISOString() : null,
-      width: r.width,
-      height: r.height,
-      posterUrl: r.posterUrl,
-      runtimeSeconds: r.runtimeSeconds,
-      favorite: r.favorite === true,
-    })),
-    next: rows.length > limit && last ? { t: last.takenAt ? Math.floor(last.takenAt.getTime() / 1000) : null, id: last.id } : null,
-  };
+  const next = rows.length > limit && last ? cursorOf(last) : null;
+  // Starting part-way (a month jump) means there are newer items above that the page doesn't include.
+  return { items, next, prev: args.month && !args.after && page[0] ? cursorOf(page[0]) : args.after ? undefined : null };
 }
 
 export interface PhotoDetail {

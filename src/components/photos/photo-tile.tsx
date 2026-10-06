@@ -24,13 +24,14 @@ function duration(seconds: number | null): string | null {
   return h > 0 ? `${h}:${String(m).padStart(2, "0")}:${rest}` : `${m}:${rest}`;
 }
 
-/** Where a tile leads: a picture opens the viewer (remembering where you came from), a video plays. */
+/** Where a tile leads: the viewer, remembering where you came from. */
 export function photoHref(serverId: string, item: Pick<PhotoTileData, "id" | "kind">, from: string): string {
-  return item.kind === "photo" ? `/s/${serverId}/photo/${item.id}?${from}` : `/s/${serverId}/watch/title/${item.id}`;
+  // Pictures and the videos beside them open in the same viewer.
+  return `/s/${serverId}/photo/${item.id}?${from}`;
 }
 
 /** One square in a photo grid. A thumbnail that isn't ready (Box makes them on demand) or fails shows a quiet placeholder instead of a broken image. */
-export const PhotoTile = memo(function PhotoTile({ serverId, item, from, priority = false }: { serverId: string; item: PhotoTileData; from: string; priority?: boolean }) {
+export const PhotoTile = memo(function PhotoTile({ serverId, item, from, priority = false, onOpen }: { serverId: string; item: PhotoTileData; from: string; priority?: boolean; onOpen?: (id: string) => void }) {
   // A thumbnail Box hasn't made yet answers 404 (never cached): look once more after a few seconds before giving up.
   const [attempt, setAttempt] = useState(0);
   const [failed, setFailed] = useState(false);
@@ -46,6 +47,12 @@ export const PhotoTile = memo(function PhotoTile({ serverId, item, from, priorit
       href={photoHref(serverId, item, from)}
       // Each tile would otherwise prefetch its viewer page as it scrolls into view: dozens of server renders per screen.
       prefetch={false}
+      // On the timeline the viewer opens over the page (instant, nothing reloads); the link still works for a new tab.
+      onClick={onOpen ? (e) => {
+        if (e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+        e.preventDefault();
+        onOpen(item.id);
+      } : undefined}
       aria-label={item.kind === "movie" ? `Play video ${item.name}` : `Open photo ${item.name}`}
       className="group/tile relative block aspect-square overflow-hidden rounded-md bg-muted outline-none ring-1 ring-white/[0.06] focus-visible:ring-2 focus-visible:ring-primary"
     >

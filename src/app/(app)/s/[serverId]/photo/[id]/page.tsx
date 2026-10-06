@@ -2,18 +2,15 @@ import { notFound } from "next/navigation";
 import { requireServerMember } from "@/lib/auth/guards";
 import { libraryActor } from "@/lib/content/library-access";
 import { db } from "@/lib/db/client";
-import { PhotoViewer } from "@/components/photos/photo-viewer";
-import { photoOriginalUrl, photoPreviewUrl } from "@/lib/photos/urls";
+import { PhotoPageViewer } from "@/components/photos/photo-page-viewer";
+import { viewerItem } from "@/lib/photos/viewer-item";
 import { loadPhoto, photoNeighbors } from "@/lib/photos/timeline";
 import { isUuid } from "@/lib/playlists/http";
-import { FavoriteButton } from "@/components/photos/favorite-button";
 import { favoriteWords } from "@/lib/photos/favorite-word";
-import { formatFileSize, formatRuntime } from "@/lib/format";
 
 // The page links to a download URL that is a credential for a short while; never send it on as a referrer.
 export const metadata = { referrer: "no-referrer" as const };
 
-const taken = new Intl.DateTimeFormat("en-US", { dateStyle: "long", timeStyle: "short", timeZone: "UTC" });
 
 export default async function PhotoPage({ params, searchParams }: PageProps<"/s/[serverId]/photo/[id]">) {
   const { serverId, id } = await params;
@@ -42,35 +39,22 @@ export default async function PhotoPage({ params, searchParams }: PageProps<"/s/
   const backHref = fromFavorites ? `${library}?view=favorites` : fromAlbum ? `${library}?view=albums${photo.folderPath ? `&path=${encodeURIComponent(photo.folderPath)}` : ""}` : library;
 
   const words = favoriteWords(viewer.locale);
-  const isVideo = photo.kind === "movie";
-  const rows: [string, string | null][] = [
-    ["Taken", photo.takenAt ? taken.format(photo.takenAt) : null],
-    ["Size", photo.width && photo.height ? `${photo.width} × ${photo.height}` : null],
-    ["Length", isVideo ? formatRuntime(photo.runtimeSeconds) : null],
-    ["File", photo.filename],
-    ["File size", formatFileSize(photo.sizeBytes)],
-    ["Album", photo.folderPath || null],
-  ];
-  // Browsers show these as they are, so zooming far in may swap to the full-size file (a HEIC can't be shown, so it never is).
-  const zoomOriginal = !isVideo && ["jpg", "jpeg", "png", "webp"].includes((photo.container ?? "").toLowerCase());
+  const asItem = (x: typeof photo) => viewerItem({ ...x, takenAt: x.takenAt });
+  // A neighbour only needs its thumbnail beside the current item.
+  const neighbor = (n: { id: string; kind: "photo" | "movie"; posterUrl: string | null } | null) =>
+    n && viewerItem({ id: n.id, kind: n.kind, name: "", takenAt: null, width: null, height: null, posterUrl: n.posterUrl, runtimeSeconds: null, favorite: false, filename: null, sizeBytes: null, container: null, folderPath: "" });
 
   return (
-    <PhotoViewer
+    <PhotoPageViewer
       key={photo.id}
-      kind={photo.kind}
-      id={photo.id}
-      name={photo.name}
-      previewUrl={photoPreviewUrl(photo.id)}
-      originalUrl={photoOriginalUrl(photo.id)}
-      zoomOriginal={zoomOriginal}
-      posterUrl={photo.posterUrl}
-      details={rows.filter((r): r is [string, string] => r[1] !== null)}
+      current={asItem(photo)}
+      prev={neighbor(neighbors.prev)}
+      next={neighbor(neighbors.next)}
       prevHref={neighbors.prev ? here(neighbors.prev.id) : null}
       nextHref={neighbors.next ? here(neighbors.next.id) : null}
       backHref={backHref}
-      // The next item's image is warmed ahead of time (a video's poster; its file is only fetched when played).
-      actions={<FavoriteButton id={photo.id} libraryId={photo.libraryId} initial={photo.favorite} addLabel={words.add} removeLabel={words.remove} />}
-      nextWarmUrl={neighbors.next ? (neighbors.next.kind === "movie" ? neighbors.next.posterUrl : photoPreviewUrl(neighbors.next.id)) : null}
+      libraryId={photo.libraryId}
+      words={{ add: words.add, remove: words.remove }}
     />
   );
 }

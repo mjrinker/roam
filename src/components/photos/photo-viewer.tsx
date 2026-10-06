@@ -1,8 +1,6 @@
 "use client";
 
-import Link from "next/link";
-import { useRouter } from "next/navigation";
-import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { ArrowLeft, ChevronLeft, ChevronRight, Download, Info, Loader2, Play, X } from "lucide-react";
 import { Artwork } from "@/components/ui/artwork";
 import {
@@ -20,7 +18,12 @@ import {
   type DragAxis,
   type Tap,
 } from "@/lib/photos/gestures";
+import { FavoriteButton } from "@/components/photos/favorite-button";
 import { decideSwipe } from "@/lib/photos/swipe";
+import type { ViewerItem } from "@/lib/photos/viewer-item";
+
+/** How long the slide to the next or previous item takes. */
+const SLIDE_MS = 180;
 
 /** A key press that is about typing, or a shortcut for the browser, is never ours. */
 function isForUs(event: KeyboardEvent): boolean {
@@ -33,106 +36,89 @@ function isForUs(event: KeyboardEvent): boolean {
 }
 
 export interface PhotoViewerProps {
-  kind: "photo" | "movie";
-  id: string;
-  name: string;
-  /** Pictures: the large preview. */
-  previewUrl: string;
-  /** Pictures: the full-size file, swapped in when zoomed far in (only offered for formats browsers show). */
-  originalUrl: string;
-  zoomOriginal: boolean;
-  /** Videos: the poster shown before play. */
-  posterUrl: string | null;
-  /** Rows for the info panel: label, value. */
-  details: [string, string][];
-  prevHref: string | null;
-  nextHref: string | null;
-  backHref: string;
-  /** Warmed in the background so stepping forward is quick. */
-  nextWarmUrl: string | null;
-  /** Extra controls in the top bar (favorite). */
-  actions?: ReactNode;
+  /** The item shown, and its neighbours in display order (their thumbnails slide in beside it). */
+  current: ViewerItem;
+  prev: ViewerItem | null;
+  next: ViewerItem | null;
+  onPrev: () => void;
+  onNext: () => void;
+  onClose: () => void;
+  /** The library, so a heart set here can be told to the timeline behind. */
+  libraryId: string;
+  words: { add: string; remove: string };
+  /** Told when the heart is changed, so a list behind the viewer can follow. */
+  onFavoriteChange?: (id: string, favorite: boolean) => void;
 }
 
 /**
- * One photo or video, large. Pictures: pinch or double-tap to zoom, drag to pan when zoomed, swipe
- * sideways for the next or previous item, swipe down to close, tap to hide the controls. Videos play right here
- * (tap to start; iOS won't start one by itself) and swipe the same way. The arrow keys step and Escape closes.
+ * One photo or video, large, over whatever is behind it (the timeline keeps its place). Pictures: pinch or
+ * double-tap to zoom, drag to pan when zoomed, swipe sideways for the next or previous item (the neighbours
+ * slide in with the finger), swipe down to close, tap to hide the controls. Videos play right here (tap to
+ * start; iOS won't start one by itself) and swipe the same way. The arrow keys step and Escape closes.
  */
 export function PhotoViewer(props: PhotoViewerProps) {
-  const { kind, id, name, details, prevHref, nextHref, backHref, nextWarmUrl, actions } = props;
-  const router = useRouter();
+  const { current, prev, next, onPrev, onNext, onClose, libraryId, words, onFavoriteChange } = props;
   const [chrome, setChrome] = useState(true);
   const [panel, setPanel] = useState(false);
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if (!isForUs(event) || event.repeat) return; // holding a key down must not fire a navigation per repeat
-      if (event.key === "ArrowLeft" && prevHref) router.push(prevHref);
-      else if (event.key === "ArrowRight" && nextHref) router.push(nextHref);
+      if (event.key === "ArrowLeft" && prev) onPrev();
+      else if (event.key === "ArrowRight" && next) onNext();
       else if (event.key === "Escape") {
         if (panel) setPanel(false);
-        else router.push(backHref);
+        else onClose();
       } else if (event.key === "i") setPanel((p) => !p);
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [router, prevHref, nextHref, backHref, panel]);
+  }, [prev, next, onPrev, onNext, onClose, panel]);
 
-  // The viewer owns every gesture: no pull-to-refresh, no edge bounce behind it.
+  // The viewer owns every gesture (no pull-to-refresh, no bounce) and the page behind must not scroll.
   useEffect(() => {
     const root = document.documentElement;
-    const before = root.style.overscrollBehavior;
+    const before = { overscroll: root.style.overscrollBehavior, overflow: document.body.style.overflow };
     root.style.overscrollBehavior = "none";
+    document.body.style.overflow = "hidden";
     return () => {
-      root.style.overscrollBehavior = before;
+      root.style.overscrollBehavior = before.overscroll;
+      document.body.style.overflow = before.overflow;
     };
   }, []);
 
-  // Warm the next item once this one has had its turn.
-  useEffect(() => {
-    if (!nextWarmUrl) return;
-    const timer = window.setTimeout(() => {
-      const img = new Image();
-      img.src = nextWarmUrl;
-    }, 1200);
-    return () => window.clearTimeout(timer);
-  }, [nextWarmUrl]);
-
-  const go = useCallback((href: string) => router.push(href), [router]);
   const shown = chrome || panel;
-
   return (
-    <div className="relative flex h-svh flex-col overflow-hidden overscroll-none bg-black text-white">
+    <div role="dialog" aria-modal="true" aria-label={current.name} className="fixed inset-0 z-50 flex flex-col overflow-hidden overscroll-none bg-black text-white">
       <header className={`absolute inset-x-0 top-0 z-20 flex items-center gap-3 bg-gradient-to-b from-black/70 to-transparent px-4 py-3 transition-opacity duration-200 ${shown ? "opacity-100" : "pointer-events-none opacity-0"}`}>
-        <Link href={backHref} aria-label="Back to the library" className="flex size-9 shrink-0 items-center justify-center rounded-full bg-white/10 hover:bg-white/20">
+        <button type="button" onClick={onClose} aria-label="Back to the library" className="flex size-9 shrink-0 items-center justify-center rounded-full bg-white/10 hover:bg-white/20">
           <ArrowLeft className="size-4" />
-        </Link>
+        </button>
         <div className="min-w-0 flex-1">
-          <h1 className="truncate text-sm font-medium">{name}</h1>
-          <p className="truncate text-xs text-white/60">{details.find(([label]) => label === "Taken")?.[1] ?? ""}</p>
+          <h1 className="truncate text-sm font-medium">{current.name}</h1>
+          <p className="truncate text-xs text-white/60">{current.details.find(([label]) => label === "Taken")?.[1] ?? ""}</p>
         </div>
-        {actions}
+        <FavoriteButton key={current.id} id={current.id} libraryId={libraryId} initial={current.favorite} addLabel={words.add} removeLabel={words.remove} onChange={onFavoriteChange} />
         <button type="button" onClick={() => setPanel((p) => !p)} aria-label="Info" aria-pressed={panel} className="flex size-9 shrink-0 items-center justify-center rounded-full bg-white/10 hover:bg-white/20">
           <Info className="size-4" />
         </button>
-        <a href={props.originalUrl} download aria-label="Download original" className="flex size-9 shrink-0 items-center justify-center rounded-full bg-white/10 hover:bg-white/20 sm:w-auto sm:gap-2 sm:px-4 sm:text-sm">
+        <a href={current.originalUrl} download aria-label="Download original" className="flex size-9 shrink-0 items-center justify-center rounded-full bg-white/10 hover:bg-white/20 sm:w-auto sm:gap-2 sm:px-4 sm:text-sm">
           <Download className="size-4" aria-hidden />
           <span className="hidden sm:inline">Download original</span>
         </a>
       </header>
 
-      <Stage key={id} kind={kind} backHref={backHref} prevHref={prevHref} nextHref={nextHref} go={go} onToggleChrome={() => setChrome((c) => !c)} props={props} />
+      <Stage key={current.id} current={current} prev={prev} next={next} onPrev={onPrev} onNext={onNext} onClose={onClose} onToggleChrome={() => setChrome((c) => !c)} />
 
-      {shown && prevHref && (
-        <Link href={prevHref} aria-label="Previous" className="absolute left-3 top-1/2 z-10 hidden size-11 -translate-y-1/2 items-center justify-center rounded-full bg-black/50 hover:bg-black/75 sm:flex">
+      {shown && prev && (
+        <button type="button" onClick={onPrev} aria-label="Previous" className="absolute left-3 top-1/2 z-10 hidden size-11 -translate-y-1/2 items-center justify-center rounded-full bg-black/50 hover:bg-black/75 sm:flex">
           <ChevronLeft className="size-6" />
-        </Link>
+        </button>
       )}
-      {shown && nextHref && (
-        <Link href={nextHref} aria-label="Next" className="absolute right-3 top-1/2 z-10 hidden size-11 -translate-y-1/2 items-center justify-center rounded-full bg-black/50 hover:bg-black/75 sm:flex">
+      {shown && next && (
+        <button type="button" onClick={onNext} aria-label="Next" className="absolute right-3 top-1/2 z-10 hidden size-11 -translate-y-1/2 items-center justify-center rounded-full bg-black/50 hover:bg-black/75 sm:flex">
           <ChevronRight className="size-6" />
-        </Link>
+        </button>
       )}
 
       {panel && (
@@ -144,7 +130,7 @@ export function PhotoViewer(props: PhotoViewerProps) {
             </button>
           </div>
           <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 text-sm">
-            {details.map(([label, value]) => (
+            {current.details.map(([label, value]) => (
               <div key={label} className="contents">
                 <dt className="text-white/50">{label}</dt>
                 <dd className="min-w-0 break-words">{value}</dd>
@@ -159,23 +145,23 @@ export function PhotoViewer(props: PhotoViewerProps) {
 
 /** The gesture surface. Remounts for each item (keyed by id), so zoom and drag never carry over. */
 function Stage({
-  kind,
-  backHref,
-  prevHref,
-  nextHref,
-  go,
+  current,
+  prev,
+  next,
+  onPrev,
+  onNext,
+  onClose,
   onToggleChrome,
-  props,
 }: {
-  kind: "photo" | "movie";
-  backHref: string;
-  prevHref: string | null;
-  nextHref: string | null;
-  go: (href: string) => void;
+  current: ViewerItem;
+  prev: ViewerItem | null;
+  next: ViewerItem | null;
+  onPrev: () => void;
+  onNext: () => void;
+  onClose: () => void;
   onToggleChrome: () => void;
-  props: PhotoViewerProps;
 }) {
-  const router = useRouter();
+  const kind = current.kind;
   const frameRef = useRef<HTMLDivElement>(null);
   const pointers = useRef(new Map<number, { x: number; y: number }>());
   const g = useRef({
@@ -187,6 +173,8 @@ function Stage({
   const [scale, setScale] = useState(1);
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const [drag, setDrag] = useState({ x: 0, y: 0 });
+  // Once a swipe is let go, the strip slides the rest of the way (to -1 or +1 frame widths), then the parent steps.
+  const [settle, setSettle] = useState(0);
   const [dragging, setDragging] = useState(false);
   const [pinching, setPinching] = useState(false);
   const [failed, setFailed] = useState(false);
@@ -206,6 +194,7 @@ function Stage({
   };
 
   const onPointerDown = (e: React.PointerEvent) => {
+    if (settle !== 0) return; // already sliding to the next one
     if (e.pointerType === "mouse" && e.button !== 0) return; // a right click isn't a gesture
     // A press on a button or link (Try again, Play) is that control's, and one on a video's own controls (its
     // bottom strip: play, seek bar, volume) must not become a swipe or a drag. Never capture those.
@@ -256,7 +245,7 @@ function Stage({
     }
     if (e.pointerType === "mouse") return; // swipes are a touch thing
     s.axis ??= dragAxis(dx, dy);
-    if (s.axis === "x" && (dx < 0 ? nextHref : prevHref)) {
+    if (s.axis === "x" && (dx < 0 ? next : prev)) {
       setDrag({ x: dx, y: 0 });
       setDragging(true);
     } else if (s.axis === "y" && zoomable && dy > 0) {
@@ -300,10 +289,19 @@ function Stage({
     if (scale === 1 && e.pointerType !== "mouse" && s.axis) {
       if (s.axis === "x") {
         const decision = decideSwipe({ dx, dy, ms, fingers: 1 });
-        if (decision === "next" && nextHref) go(nextHref);
-        else if (decision === "prev" && prevHref) go(prevHref);
+        const w = frame().w;
+        if (decision === "next" && next) {
+          setSettle(-w);
+          window.setTimeout(onNext, SLIDE_MS);
+          return;
+        }
+        if (decision === "prev" && prev) {
+          setSettle(w);
+          window.setTimeout(onPrev, SLIDE_MS);
+          return;
+        }
       } else if (zoomable && shouldClose(dy, ms)) {
-        router.push(backHref);
+        onClose();
       }
       return;
     }
@@ -326,9 +324,10 @@ function Stage({
   };
 
   const closeFade = drag.y > 0 ? Math.max(0.4, 1 - drag.y / 500) : 1;
-  const transform = `translate(${pan.x + drag.x}px, ${pan.y + drag.y}px) scale(${scale})`;
-  const src = attempt === 0 ? props.previewUrl : `${props.previewUrl}?retry=${attempt}`;
-  const wantOriginal = zoomable && props.zoomOriginal && scale > ORIGINAL_ZOOM_THRESHOLD;
+  const transform = `translate(${pan.x}px, ${pan.y + drag.y}px) scale(${scale})`;
+  const src = attempt === 0 ? current.previewUrl : `${current.previewUrl}?retry=${attempt}`;
+  const wantOriginal = zoomable && current.zoomOriginal && scale > ORIGINAL_ZOOM_THRESHOLD;
+  const slide = dragging || pinching ? "none" : `transform ${SLIDE_MS}ms ease-out`;
 
   return (
     <div
@@ -340,45 +339,65 @@ function Stage({
       onPointerCancel={finish}
       style={{ opacity: closeFade, cursor: scale > 1 ? (dragging ? "grabbing" : "grab") : undefined }}
     >
-      <div
-        className="absolute inset-0"
-        style={{ transform, transformOrigin: "center", transition: dragging || pinching ? "none" : "transform 180ms ease-out", willChange: "transform" }}
-      >
-        {kind === "movie" ? (
-          <VideoStage id={props.id} name={props.name} posterUrl={props.posterUrl} />
-        ) : failed ? (
-          <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 text-center">
-            <p className="text-lg font-medium">This photo can&apos;t be shown right now</p>
-            <p className="max-w-sm text-sm text-white/60">It may still be getting ready. You can try again or download the original.</p>
-            <button
-              type="button"
-              onClick={() => {
-                setFailed(false);
-                setAttempt((a) => a + 1);
-              }}
-              className="rounded-full bg-white/10 px-4 py-2 text-sm hover:bg-white/20"
-            >
-              Try again
-            </button>
-          </div>
-        ) : (
-          <>
-            <Artwork key={src} src={src} alt={props.name} fill priority sizes="100vw" draggable={false} onError={() => setFailed(true)} className="object-contain" />
-            {wantOriginal && (
-              <Artwork
-                src={props.originalUrl}
-                alt=""
-                fill
-                sizes="400vw"
-                draggable={false}
-                onLoad={() => setOriginalReady(true)}
-                className="object-contain transition-opacity duration-200"
-                style={{ opacity: originalReady ? 1 : 0 }}
-              />
-            )}
-          </>
-        )}
+      {/* The strip: the previous item, this one, the next, side by side; the finger moves all three. */}
+      <div className="absolute inset-0" style={{ transform: `translateX(${drag.x + settle}px)`, transition: settle !== 0 ? `transform ${SLIDE_MS}ms ease-out` : dragging ? "none" : `transform ${SLIDE_MS}ms ease-out`, willChange: "transform" }}>
+        {prev && <Neighbor item={prev} at="-100%" />}
+        {next && <Neighbor item={next} at="100%" />}
+        <div className="absolute inset-0" style={{ transform, transformOrigin: "center", transition: slide, willChange: "transform" }}>
+          {kind === "movie" ? (
+            <VideoStage id={current.id} name={current.name} posterUrl={current.thumbUrl} />
+          ) : failed ? (
+            <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 text-center">
+              <p className="text-lg font-medium">This photo can&apos;t be shown right now</p>
+              <p className="max-w-sm text-sm text-white/60">It may still be getting ready. You can try again or download the original.</p>
+              <button
+                type="button"
+                onClick={() => {
+                  setFailed(false);
+                  setAttempt((a) => a + 1);
+                }}
+                className="rounded-full bg-white/10 px-4 py-2 text-sm hover:bg-white/20"
+              >
+                Try again
+              </button>
+            </div>
+          ) : (
+            <>
+              {/* The thumbnail is already in the browser from the grid, so the picture is there at once and sharpens when the full preview arrives. */}
+              {current.thumbUrl && <Artwork src={current.thumbUrl} alt="" fill sizes="100vw" draggable={false} className="object-contain" />}
+              <Artwork key={src} src={src} alt={current.name} fill priority sizes="100vw" draggable={false} onError={() => setFailed(true)} className="object-contain" />
+              {wantOriginal && (
+                <Artwork
+                  src={current.originalUrl}
+                  alt=""
+                  fill
+                  sizes="400vw"
+                  draggable={false}
+                  onLoad={() => setOriginalReady(true)}
+                  className="object-contain transition-opacity duration-200"
+                  style={{ opacity: originalReady ? 1 : 0 }}
+                />
+              )}
+            </>
+          )}
+        </div>
       </div>
+    </div>
+  );
+}
+
+/** A neighbouring item waiting just off screen: only its cached thumbnail, so swiping costs nothing extra. */
+function Neighbor({ item, at }: { item: ViewerItem; at: string }) {
+  return (
+    <div className="absolute inset-0" style={{ left: at }} aria-hidden>
+      {item.thumbUrl ? <Artwork src={item.thumbUrl} alt="" fill sizes="100vw" draggable={false} className="object-contain" /> : <div className="size-full bg-neutral-900" />}
+      {item.kind === "movie" && (
+        <span className="absolute inset-0 flex items-center justify-center">
+          <span className="flex size-16 items-center justify-center rounded-full bg-black/60 ring-1 ring-white/30">
+            <Play className="size-7 translate-x-0.5 fill-current" />
+          </span>
+        </span>
+      )}
     </div>
   );
 }

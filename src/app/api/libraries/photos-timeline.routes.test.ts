@@ -112,6 +112,23 @@ describe("GET /api/libraries/[id]/photos", () => {
   });
 });
 
+describe("scrolling up after a jump, through the API", () => {
+  it("returns the newer page with a cursor for the next one up, and rejects a malformed cursor", async () => {
+    const w = await world(0);
+    const mk = async (i: number) => makeTitle(db, w.lib.id, { kind: "photo", name: `p${i}`, boxFolderId: `file:u${++n}`, takenAt: new Date(Date.UTC(2024, i, 15)), takenAtSource: "box" });
+    for (let i = 0; i < 6; i++) await mk(i);
+    const jumped = await (await get(w.lib.id, "?month=2024-03")).json(); // March (p2) and older
+    expect(jumped.items.map((x: { name: string }) => x.name)).toEqual(["p2", "p1", "p0"]);
+    expect(typeof jumped.prev).toBe("string");
+    const up = await (await get(w.lib.id, `?before=${encodeURIComponent(jumped.prev)}`)).json();
+    expect(up.items.map((x: { name: string }) => x.name)).toEqual(["p5", "p4", "p3"]);
+    expect(up.prev).toBeNull();
+    for (const bad of ["?before=%%%", `?before=${Buffer.from(JSON.stringify({ t: "x", id: "y" })).toString("base64url")}`]) {
+      expect((await get(w.lib.id, bad)).status, bad).toBe(400);
+    }
+  });
+});
+
 describe("search, month jumps and the scrubber's months through the API", () => {
   const monthsOf = (id: string, query = "") => getMonths(new Request(`http://x/api/libraries/${id}/photos/months${query}`), ctx(id));
 

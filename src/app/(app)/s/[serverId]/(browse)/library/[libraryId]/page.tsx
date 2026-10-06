@@ -104,6 +104,7 @@ export default async function LibraryDetailPage({
         <PhotoTimeline
           key={`${photoView}:${search?.text ?? ""}`}
           q={search?.text ?? ""}
+          words={{ add: words.add, remove: words.remove }}
           serverId={serverId}
           libraryId={libraryId}
           view={photoView}

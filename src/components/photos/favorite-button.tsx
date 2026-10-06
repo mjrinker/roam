@@ -16,7 +16,7 @@ function remember(libraryId: string, id: string, favorite: boolean) {
 }
 
 /** The heart in the viewer. Flips at once and puts itself back if the server says no. */
-export function FavoriteButton({ id, libraryId, initial, addLabel, removeLabel }: { id: string; libraryId: string; initial: boolean; addLabel: string; removeLabel: string }) {
+export function FavoriteButton({ id, libraryId, initial, addLabel, removeLabel, onChange }: { id: string; libraryId: string; initial: boolean; addLabel: string; removeLabel: string; onChange?: (id: string, favorite: boolean) => void }) {
   const [on, setOn] = useState(initial);
   const [busy, setBusy] = useState(false);
 
@@ -24,13 +24,17 @@ export function FavoriteButton({ id, libraryId, initial, addLabel, removeLabel }
     if (busy) return;
     const next = !on;
     setOn(next);
+    onChange?.(id, next);
     setBusy(true);
     try {
       const res = await fetch(`/api/photos/${id}/favorite`, { method: next ? "PUT" : "DELETE", credentials: "same-origin" });
-      if (!res.ok) setOn(!next);
-      else remember(libraryId, id, next);
+      if (!res.ok) {
+        setOn(!next);
+        onChange?.(id, !next);
+      } else remember(libraryId, id, next);
     } catch {
       setOn(!next);
+      onChange?.(id, !next);
     } finally {
       setBusy(false);
     }

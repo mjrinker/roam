@@ -31,6 +31,8 @@ export async function GET(request: Request, ctx: RouteContext<"/api/libraries/[i
 
   const after = decodeCursor(new URL(request.url).searchParams.get("after"), timelineCursorSchema);
   if (after === "invalid") return NextResponse.json({ error: "Invalid cursor" }, { status: 400, headers });
+  const before = decodeCursor(new URL(request.url).searchParams.get("before"), timelineCursorSchema);
+  if (before === "invalid") return NextResponse.json({ error: "Invalid cursor" }, { status: 400, headers });
 
   const params = new URL(request.url).searchParams;
   const page = await listTimeline(db, {
@@ -39,11 +41,12 @@ export async function GET(request: Request, ctx: RouteContext<"/api/libraries/[i
     viewerId: member.viewer.id,
     libraryId: id,
     after,
+    before,
     limit: PAGE,
     favoritesOnly: params.get("view") === "favorites",
     search: parseSearch(params.get("q")),
     month: params.get("month"),
   });
   if (!page) return notFound();
-  return NextResponse.json({ items: page.items, next: page.next ? encodeCursor(page.next) : null }, { headers });
+  return NextResponse.json({ items: page.items, next: page.next ? encodeCursor(page.next) : null, prev: page.prev ? encodeCursor(page.prev) : null }, { headers });
 }

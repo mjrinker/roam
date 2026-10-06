@@ -8,6 +8,7 @@ import { PhotoTile, photoHref } from "./photo-tile";
 import { PhotoTimeline } from "./photo-timeline";
 import { PhotoViewer } from "./photo-viewer";
 import type { TimelineItem } from "@/lib/photos/timeline";
+import type { ViewerItem } from "@/lib/photos/viewer-item";
 
 const item = (over: Partial<TimelineItem> = {}): TimelineItem => ({
   id: "11111111-1111-4111-8111-111111111111",
@@ -19,13 +20,17 @@ const item = (over: Partial<TimelineItem> = {}): TimelineItem => ({
   posterUrl: "/api/photos/11111111-1111-4111-8111-111111111111/thumb?v=1ab-2cd",
   runtimeSeconds: null,
   favorite: false,
+  filename: "IMG_0042.JPG",
+  sizeBytes: 3_453_641,
+  container: "jpg",
+  folderPath: "Trip",
   ...over,
 });
 
 describe("PhotoTile", () => {
-  it("opens a picture in the viewer (remembering where you came from) and plays a video in the player", () => {
+  it("opens pictures and videos in the same viewer (remembering where you came from)", () => {
     expect(photoHref("srv", { id: "p", kind: "photo" }, "from=timeline")).toBe("/s/srv/photo/p?from=timeline");
-    expect(photoHref("srv", { id: "v", kind: "movie" }, "from=timeline")).toBe("/s/srv/watch/title/v");
+    expect(photoHref("srv", { id: "v", kind: "movie" }, "from=timeline")).toBe("/s/srv/photo/v?from=timeline");
   });
 
   it("draws the thumbnail straight from Roam's private route (never through the shared image optimizer), with a descriptive link", () => {
@@ -49,7 +54,7 @@ describe("PhotoTile", () => {
 });
 
 describe("PhotoTimeline", () => {
-  const props = { serverId: "srv", libraryId: "lib" };
+  const props = { serverId: "srv", libraryId: "lib", words: { add: "Add to favorites", remove: "Remove from favorites" } };
 
   it("groups tiles under month headings, newest first, and says when that is everything", () => {
     const html = renderToStaticMarkup(
@@ -75,9 +80,9 @@ describe("favorites in the interface", () => {
   });
 
   it("a favorites timeline links tiles with where they came from and speaks in the profile's spelling", () => {
-    const html = renderToStaticMarkup(<PhotoTimeline serverId="srv" libraryId="lib" view="favorites" initialNext={null} initialItems={[item()]} />);
+    const html = renderToStaticMarkup(<PhotoTimeline serverId="srv" libraryId="lib" view="favorites" initialNext={null} initialItems={[item()]} words={{ add: "a", remove: "r" }} />);
     expect(html).toContain("?from=favorites");
-    const empty = renderToStaticMarkup(<PhotoTimeline serverId="srv" libraryId="lib" view="favorites" initialNext={null} initialItems={[]} emptyTitle="No favourites yet" emptyHint="Tap the heart…" />);
+    const empty = renderToStaticMarkup(<PhotoTimeline serverId="srv" libraryId="lib" view="favorites" initialNext={null} initialItems={[]} emptyTitle="No favourites yet" emptyHint="Tap the heart…" words={{ add: "a", remove: "r" }} />);
     expect(empty).toContain("No favourites yet");
   });
 
@@ -92,7 +97,7 @@ describe("favorites in the interface", () => {
 });
 
 describe("timeline zoom and search copy", () => {
-  const props = { serverId: "srv", libraryId: "lib", initialNext: null };
+  const props = { serverId: "srv", libraryId: "lib", initialNext: null, words: { add: "Add to favorites", remove: "Remove from favorites" } };
   const items = [item({ id: "a", takenAt: "2024-03-30T10:00:00Z" }), item({ id: "b", takenAt: "2024-03-02T10:00:00Z" })];
 
   it("offers days, months and years, starting at months, with the other levels one tap away", () => {
@@ -112,48 +117,55 @@ describe("timeline zoom and search copy", () => {
 });
 
 describe("PhotoViewer", () => {
-  const base = {
-    kind: "photo" as const,
-    id: "p",
-    name: "Beach",
-    previewUrl: "/api/photos/p/preview",
-    originalUrl: "/api/photos/p/original",
+  const mk = (id: string, over: Partial<ViewerItem> = {}): ViewerItem => ({
+    id,
+    kind: "photo",
+    name: `Photo ${id}`,
+    thumbUrl: `/api/photos/${id}/thumb?v=1`,
+    previewUrl: `/api/photos/${id}/preview`,
+    originalUrl: `/api/photos/${id}/original`,
     zoomOriginal: true,
-    posterUrl: null,
-    details: [["Taken", "March 30, 2024 at 10:00 AM"], ["Size", "4000 × 3000"]] as [string, string][],
-    backHref: "/s/srv/library/lib",
-    nextWarmUrl: null,
-  };
+    details: [["Taken", "March 30, 2024 at 10:00 AM"], ["Size", "4000 × 3000"]],
+    favorite: false,
+    ...over,
+  });
+  const noop = () => undefined;
+  const base = { onPrev: noop, onNext: noop, onClose: noop, libraryId: "lib", words: { add: "Add to favorites", remove: "Remove from favorites" } };
 
-  it("shows the preview, the date, a download link and a details button, with a way to step each way that exists", () => {
-    const html = renderToStaticMarkup(<PhotoViewer {...base} prevHref="/s/srv/photo/new?from=timeline" nextHref="/s/srv/photo/old?from=timeline" />);
+  it("shows the thumbnail and the preview, the date, a download link and the controls, as a dialog over the page", () => {
+    const html = renderToStaticMarkup(<PhotoViewer {...base} current={mk("p")} prev={mk("a")} next={mk("b")} />);
+    expect(html).toContain('role="dialog"');
+    expect(html).toContain('src="/api/photos/p/thumb?v=1"'); // at once: already cached from the grid
     expect(html).toContain('src="/api/photos/p/preview"');
     expect(html).not.toContain("/_next/image");
-    expect(html).toContain("Beach");
     expect(html).toContain("March 30, 2024 at 10:00 AM");
     expect(html).toContain('href="/api/photos/p/original"');
-    expect(html).toContain('aria-label="Download original"');
-    expect(html).toContain('aria-label="Info"');
-    expect(html).toContain('aria-label="Previous"');
-    expect(html).toContain('aria-label="Next"');
-    expect(html).toContain('aria-label="Back to the library"');
+    for (const label of ["Download original", "Info", "Previous", "Next", "Back to the library", "Add to favorites"]) expect(html).toContain(`aria-label="${label}"`);
     expect(html).not.toContain('aria-label="Details"'); // the panel starts closed
   });
 
+  it("puts the neighbours' thumbnails beside the current item, ready to slide in, but not their full previews", () => {
+    const html = renderToStaticMarkup(<PhotoViewer {...base} current={mk("p")} prev={mk("a")} next={mk("b")} />);
+    expect(html).toContain('src="/api/photos/a/thumb?v=1"');
+    expect(html).toContain('src="/api/photos/b/thumb?v=1"');
+    expect(html).not.toContain("/api/photos/a/preview");
+    expect(html).not.toContain("/api/photos/b/preview");
+  });
+
   it("offers no step past the first or last item", () => {
-    const first = renderToStaticMarkup(<PhotoViewer {...base} prevHref={null} nextHref="/s/srv/photo/old?from=timeline" />);
+    const first = renderToStaticMarkup(<PhotoViewer {...base} current={mk("p")} prev={null} next={mk("b")} />);
     expect(first).not.toContain('aria-label="Previous"');
     expect(first).toContain('aria-label="Next"');
-    const last = renderToStaticMarkup(<PhotoViewer {...base} prevHref="/s/srv/photo/new?from=timeline" nextHref={null} />);
+    const last = renderToStaticMarkup(<PhotoViewer {...base} current={mk("p")} prev={mk("a")} next={null} />);
     expect(last).toContain('aria-label="Previous"');
     expect(last).not.toContain('aria-label="Next"');
   });
 
   it("a video shows its poster with a play button (it never starts by itself) and no picture preview", () => {
-    const html = renderToStaticMarkup(<PhotoViewer {...base} kind="movie" id="v" name="Clip" posterUrl="/api/photos/v/thumb?v=1" prevHref={null} nextHref={null} />);
+    const html = renderToStaticMarkup(<PhotoViewer {...base} current={mk("v", { kind: "movie", name: "Clip" })} prev={mk("c", { kind: "movie" })} next={null} />);
     expect(html).toContain('aria-label="Play video Clip"');
     expect(html).toContain('src="/api/photos/v/thumb?v=1"');
-    expect(html).not.toContain("/api/photos/p/preview");
+    expect(html).not.toContain("/api/photos/v/preview");
     expect(html).not.toContain("<video");
   });
 });
