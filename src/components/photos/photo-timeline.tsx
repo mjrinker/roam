@@ -59,7 +59,12 @@ export function PhotoTimeline({
     try {
       const saved = JSON.parse(sessionStorage.getItem(storeKey) ?? "null") as { items: TimelineItem[]; next: string | null; y: number } | null;
       if (!saved || saved.items.length <= initialItems.length || saved.items[0]?.id !== initialItems[0]?.id) return;
-      setItems(saved.items);
+      // Hearts changed in the viewer since this list was saved (the viewer records them) win over the saved flags.
+      const changed = JSON.parse(sessionStorage.getItem(`roam:photos:fav:${libraryId}`) ?? "{}") as Record<string, boolean>;
+      const fresh = saved.items
+        .map((i) => (i.id in changed ? { ...i, favorite: changed[i.id] } : i))
+        .filter((i) => !(view === "favorites" && changed[i.id] === false));
+      setItems(fresh);
       setNext(saved.next);
       requestAnimationFrame(() => window.scrollTo(0, saved.y));
     } catch {
@@ -97,12 +102,14 @@ export function PhotoTimeline({
   const loadMore = useCallback(async () => {
     if (!next || inFlight.current) return;
     inFlight.current = true;
+    const token = jumpToken.current; // if the user jumps meanwhile, this answer is for a place they have left
     setLoading(true);
     setFailed(false);
     try {
       const res = await fetch(`/api/libraries/${libraryId}/photos?after=${encodeURIComponent(next)}${extraQuery}`, { credentials: "same-origin" });
       if (!res.ok) throw new Error(String(res.status));
       const body = (await res.json()) as { items: TimelineItem[]; next: string | null };
+      if (token !== jumpToken.current) return;
       setItems((current) => {
         const have = new Set(current.map((i) => i.id));
         return [...current, ...body.items.filter((i) => !have.has(i.id))];
@@ -137,6 +144,9 @@ export function PhotoTimeline({
         const res = await fetch(`/api/libraries/${libraryId}/photos?month=${encodeURIComponent(key)}${extraQuery}`, { credentials: "same-origin" });
         if (!res.ok || token !== jumpToken.current) return;
         const body = (await res.json()) as { items: TimelineItem[]; next: string | null };
+        if (token !== jumpToken.current) return;
+        inFlight.current = false;
+        setLoading(false);
         setItems(body.items);
         setNext(body.next);
         setJumped(key);
@@ -151,6 +161,8 @@ export function PhotoTimeline({
 
   const backToLatest = () => {
     jumpToken.current++;
+    inFlight.current = false;
+    setLoading(false);
     setItems(initialItems);
     setNext(initialNext);
     setJumped(null);
@@ -210,7 +222,7 @@ export function PhotoTimeline({
         ))}
       </div>
       {groups.map((group, g) => (
-        <section key={group.key} aria-label={group.label} style={{ contentVisibility: "auto", containIntrinsicSize: "auto 600px" }}>
+        <section key={group.key} aria-label={group.label} style={{ contentVisibility: "auto", containIntrinsicSize: `auto ${{ day: 260, month: 600, year: 800 }[zoom]}px` }}>
           <h2 className="sticky top-16 z-10 -mx-1 mb-3 bg-background/85 px-1 py-2 text-sm font-semibold tracking-tight text-muted-foreground backdrop-blur">{group.label}</h2>
           <ul className={`grid gap-1 ${dense}`}>
             {group.items.map((item, i) => (

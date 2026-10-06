@@ -29,5 +29,10 @@ export function formatFileSize(bytes: number | null | undefined): string | null 
     value /= 1024;
     i++;
   }
+  // Round first, then roll over: 1,048,575 bytes is "1.0 MB", not "1024 KB".
+  if (value >= 1023.95 && i < units.length - 1) {
+    value /= 1024;
+    i++;
+  }
   return `${value >= 100 || Number.isInteger(value) ? Math.round(value) : value.toFixed(1)} ${units[i]}`;
 }

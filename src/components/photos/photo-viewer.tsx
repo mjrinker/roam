@@ -206,6 +206,15 @@ function Stage({
   };
 
   const onPointerDown = (e: React.PointerEvent) => {
+    if (e.pointerType === "mouse" && e.button !== 0) return; // a right click isn't a gesture
+    // A press on a button or link (Try again, Play) is that control's, and one on a video's own controls (its
+    // bottom strip: play, seek bar, volume) must not become a swipe or a drag. Never capture those.
+    const target = e.target as HTMLElement;
+    if (target.closest("button, a")) return;
+    if (target.tagName === "VIDEO") {
+      const f = frame();
+      if (e.clientY > f.top + f.h * 0.72) return;
+    }
     pointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
     const s = g.current;
     if (pointers.current.size === 1) {
@@ -384,6 +393,7 @@ function VideoStage({ id, name, posterUrl }: { id: string; name: string; posterU
   const [state, setState] = useState<"idle" | "loading" | "ready" | "error">("idle");
   const [url, setUrl] = useState<string | null>(null);
   const expiresAt = useRef(0);
+  const refreshes = useRef<number[]>([]);
 
   const load = useCallback(async (): Promise<string | null> => {
     try {
@@ -413,6 +423,15 @@ function VideoStage({ id, name, posterUrl }: { id: string; name: string; posterU
   const refresh = async () => {
     const video = videoRef.current;
     if (!video) return;
+    // At most 3 fresh links per minute: a file that keeps failing must end in the error state, not loop
+    // (each fresh link can mean live calls to Box and a wait of up to 40 seconds).
+    const now = Date.now();
+    refreshes.current = refreshes.current.filter((t) => now - t < 60_000);
+    if (refreshes.current.length >= 3) {
+      setUrl(null);
+      return setState("error");
+    }
+    refreshes.current.push(now);
     const at = video.currentTime;
     const wasPlaying = !video.paused;
     const next = await load();
@@ -430,8 +449,10 @@ function VideoStage({ id, name, posterUrl }: { id: string; name: string; posterU
 
   // Release the decoder and the stream when this item is left.
   useEffect(() => {
-    const video = videoRef.current;
     return () => {
+      // Read the element when leaving, not when mounting: it only exists once the video is ready.
+      // eslint-disable-next-line react-hooks/exhaustive-deps -- the ref is wanted as it is at unmount
+      const video = videoRef.current;
       if (video) {
         video.pause();
         video.removeAttribute("src");

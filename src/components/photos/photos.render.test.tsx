@@ -82,10 +82,10 @@ describe("favorites in the interface", () => {
   });
 
   it("the heart button reads as pressed when set and offers the right action", () => {
-    const off = renderToStaticMarkup(<FavoriteButton id="p" initial={false} addLabel="Add to favorites" removeLabel="Remove from favorites" />);
+    const off = renderToStaticMarkup(<FavoriteButton id="p" libraryId="l" initial={false} addLabel="Add to favorites" removeLabel="Remove from favorites" />);
     expect(off).toContain('aria-pressed="false"');
     expect(off).toContain('aria-label="Add to favorites"');
-    const on = renderToStaticMarkup(<FavoriteButton id="p" initial addLabel="Add to favorites" removeLabel="Remove from favorites" />);
+    const on = renderToStaticMarkup(<FavoriteButton id="p" libraryId="l" initial addLabel="Add to favorites" removeLabel="Remove from favorites" />);
     expect(on).toContain('aria-pressed="true"');
     expect(on).toContain('aria-label="Remove from favorites"');
   });

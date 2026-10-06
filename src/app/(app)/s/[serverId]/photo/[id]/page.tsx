@@ -69,7 +69,7 @@ export default async function PhotoPage({ params, searchParams }: PageProps<"/s/
       nextHref={neighbors.next ? here(neighbors.next.id) : null}
       backHref={backHref}
       // The next item's image is warmed ahead of time (a video's poster; its file is only fetched when played).
-      actions={<FavoriteButton id={photo.id} initial={photo.favorite} addLabel={words.add} removeLabel={words.remove} />}
+      actions={<FavoriteButton id={photo.id} libraryId={photo.libraryId} initial={photo.favorite} addLabel={words.add} removeLabel={words.remove} />}
       nextWarmUrl={neighbors.next ? (neighbors.next.kind === "movie" ? neighbors.next.posterUrl : photoPreviewUrl(neighbors.next.id)) : null}
     />
   );

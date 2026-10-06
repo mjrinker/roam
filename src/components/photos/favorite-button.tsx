@@ -3,8 +3,20 @@
 import { useState } from "react";
 import { Heart } from "lucide-react";
 
+/** Tells the timeline (which may restore an older saved list on Back) what this profile changed. */
+function remember(libraryId: string, id: string, favorite: boolean) {
+  try {
+    const key = `roam:photos:fav:${libraryId}`;
+    const map = JSON.parse(sessionStorage.getItem(key) ?? "{}") as Record<string, boolean>;
+    map[id] = favorite;
+    sessionStorage.setItem(key, JSON.stringify(map));
+  } catch {
+    /* storage unavailable: the list just refreshes from the server next time */
+  }
+}
+
 /** The heart in the viewer. Flips at once and puts itself back if the server says no. */
-export function FavoriteButton({ id, initial, addLabel, removeLabel }: { id: string; initial: boolean; addLabel: string; removeLabel: string }) {
+export function FavoriteButton({ id, libraryId, initial, addLabel, removeLabel }: { id: string; libraryId: string; initial: boolean; addLabel: string; removeLabel: string }) {
   const [on, setOn] = useState(initial);
   const [busy, setBusy] = useState(false);
 
@@ -16,6 +28,7 @@ export function FavoriteButton({ id, initial, addLabel, removeLabel }: { id: str
     try {
       const res = await fetch(`/api/photos/${id}/favorite`, { method: next ? "PUT" : "DELETE", credentials: "same-origin" });
       if (!res.ok) setOn(!next);
+      else remember(libraryId, id, next);
     } catch {
       setOn(!next);
     } finally {
