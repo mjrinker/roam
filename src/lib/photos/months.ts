@@ -114,6 +114,19 @@ export function bucketRange(level: ZoomLevel, key: string): { from: Date; to: Da
   return from.getUTCMonth() === +m[2] - 1 ? { from, to: new Date(from.getTime() + 86_400_000) } : null; // Feb 30 rolls over: not a day
 }
 
+/**
+ * Where a finger at `fraction` (0 top .. 1 bottom) of the scrubber's rail points: a month number and how far
+ * through that month. Months are spaced evenly (month i sits at i/(count-1)), so the top of the rail is the
+ * start of the newest month, the bottom the start of the oldest, and anything between is a continuous position.
+ */
+export function scrubTarget(fraction: number, count: number): { index: number; within: number } {
+  if (count <= 1) return { index: 0, within: 0 };
+  const f = Math.min(1, Math.max(0, Number.isFinite(fraction) ? fraction : 0));
+  const p = f * (count - 1);
+  const index = Math.min(count - 1, Math.floor(p));
+  return { index, within: index === count - 1 ? 0 : p - index };
+}
+
 /** Which bucket a position along the rail (0..1) lands on. */
 export function bucketAt(fraction: number, count: number): number {
   if (count <= 0) return -1;

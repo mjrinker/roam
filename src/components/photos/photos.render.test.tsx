@@ -125,6 +125,24 @@ describe("timeline zoom and search copy", () => {
   });
 });
 
+describe("the month scrubber", () => {
+  const timelineWithMonths = () =>
+    renderToStaticMarkup(
+      <PhotoTimeline serverId="srv" libraryId="lib" words={W} initialItems={[item()]} initialBuckets={[{ key: "2024-03", count: 1 }, { key: "2024-02", count: 4 }, { key: "2023-12", count: 2 }]} />
+    );
+  it("is a slider on the right edge that the pull-down-to-refresh is told to leave alone", () => {
+    const html = timelineWithMonths();
+    const rail = html.match(/<div[^>]*role="slider"[^>]*>/)![0];
+    expect(rail).toContain("data-no-pull");
+    expect(rail).toContain("touch-none");
+    expect(rail).toContain('aria-label="Jump to a month"');
+  });
+  it("is absent when there is only one month to move between", () => {
+    const html = renderToStaticMarkup(<PhotoTimeline serverId="srv" libraryId="lib" words={W} initialItems={[item()]} initialBuckets={[{ key: "2024-03", count: 1 }]} />);
+    expect(html).not.toContain('role="slider"');
+  });
+});
+
 describe("PhotoViewer", () => {
   const mk = (id: string, over: Partial<ViewerItem> = {}): ViewerItem => ({
     id,

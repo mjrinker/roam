@@ -24,6 +24,8 @@ interface Loaded {
 }
 
 const MAX_CONCURRENT = 3;
+/** The top of a block sits this far below the top of the screen when scrolled to (under the top bar and its heading). */
+const SCRUB_OFFSET = 72;
 /** A block is read in pages of 500 until complete; this many pages is far more than any real day, month or year holds. */
 const MAX_PAGES = 20;
 
@@ -78,7 +80,8 @@ export function PhotoTimeline({
     return seeded;
   });
   const [layout, setLayout] = useState<{ width: number; viewport: number } | null>(null);
-  const [currentMonth, setCurrentMonth] = useState<string | null>(null);
+  // Where the page is, as a month number with a fraction (for the scrubber's marker to glide with).
+  const [position, setPosition] = useState<number | null>(null);
   const [openId, setOpenId] = useState<{ id: string; key: string } | null>(null);
 
   const listRef = useRef<HTMLDivElement | null>(null);
@@ -248,7 +251,13 @@ export function PhotoTimeline({
       frame = 0;
       const el = document.elementFromPoint(Math.min(window.innerWidth - 60, 80), 150)?.closest("[data-bucket]");
       const key = el?.getAttribute("data-bucket");
-      if (key) setCurrentMonth(months.find((m) => m === key || m.startsWith(key)) ?? null);
+      if (!el || !key) return;
+      const index = months.findIndex((m) => m === key || m.startsWith(key));
+      if (index < 0) return;
+      // How far through this block the top of the screen is.
+      const rect = el.getBoundingClientRect();
+      const within = rect.height > 0 ? Math.min(1, Math.max(0, (SCRUB_OFFSET - rect.top) / rect.height)) : 0;
+      setPosition(index + within);
     };
     const onScroll = () => {
       if (!frame) frame = requestAnimationFrame(update);
@@ -262,15 +271,28 @@ export function PhotoTimeline({
 
   // Going to a month is just scrolling to its block (blocks above and below already have their heights), instantly:
   // a long animated scroll would load every block it passed.
-  const jump = useCallback((monthKey: string) => {
+  const blockOf = useCallback((monthKey: string) => {
     const root = listRef.current;
-    if (!root) return;
-    const target =
+    if (!root) return null;
+    return (
       root.querySelector(`[data-bucket="${monthKey}"]`) ??
       (monthKey === "undated" ? null : root.querySelector(`[data-bucket^="${monthKey}"]`)) ??
-      root.querySelector(`[data-bucket="${monthKey.slice(0, 4)}"]`);
-    target?.scrollIntoView({ block: "start" });
+      root.querySelector(`[data-bucket="${monthKey.slice(0, 4)}"]`)
+    );
   }, []);
+  const jump = useCallback((monthKey: string) => blockOf(monthKey)?.scrollIntoView({ block: "start" }), [blockOf]);
+  // Sliding the scrubber: scroll to `within` of month number `index`, live. Blocks above and below already have
+  // their heights, so any point on the rail is a real position and the page just follows the finger.
+  const scrub = useCallback(
+    (index: number, within: number) => {
+      const key = months[index];
+      const el = key ? blockOf(key) : null;
+      if (!el) return;
+      const rect = el.getBoundingClientRect();
+      window.scrollTo(0, window.scrollY + rect.top - SCRUB_OFFSET + within * rect.height);
+    },
+    [months, blockOf]
+  );
 
   const chooseZoom = (level: ZoomLevel) => {
     setZoom(level);
@@ -406,7 +428,7 @@ export function PhotoTimeline({
           );
         })}
       </div>
-      <PhotoScrubber keys={months} onJump={jump} current={currentMonth} />
+      <PhotoScrubber keys={months} position={position} onScrub={scrub} onJump={jump} />
       {viewerItems && viewerItems[1] && (
         <PhotoViewer
           current={viewerItems[1]}

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { blockHeight, bucketRange, gridColumns, HEADING_GAP, HEADING_HEIGHT, tileSize, TILE_GAP, bucketAt, bucketLabel, groupByMonth, groupItems, groupKey, groupLabel, monthKey, monthLabel, scrubberMarks } from "./months";
+import { scrubTarget, blockHeight, bucketRange, gridColumns, HEADING_GAP, HEADING_HEIGHT, tileSize, TILE_GAP, bucketAt, bucketLabel, groupByMonth, groupItems, groupKey, groupLabel, monthKey, monthLabel, scrubberMarks } from "./months";
 
 describe("month grouping", () => {
   it("reads the month in UTC, so a photo taken at 23:50 on the 31st stays in that month", () => {
@@ -137,5 +137,34 @@ describe("laying blocks out up front", () => {
       expect(h).toBeGreaterThanOrEqual(last);
       last = h;
     }
+  });
+});
+
+describe("scrubTarget", () => {
+  it("the top of the rail is the start of the newest month and the bottom the start of the oldest", () => {
+    expect(scrubTarget(0, 5)).toEqual({ index: 0, within: 0 });
+    expect(scrubTarget(1, 5)).toEqual({ index: 4, within: 0 });
+  });
+  it("everything between is a continuous position: month i sits at i/(count-1), and halfway there is halfway through", () => {
+    expect(scrubTarget(0.25, 5)).toEqual({ index: 1, within: 0 });
+    const t = scrubTarget(0.375, 5);
+    expect(t.index).toBe(1);
+    expect(t.within).toBeCloseTo(0.5);
+    // smooth: a tiny move never jumps more than a tiny amount of position
+    let last = 0;
+    for (let i = 0; i <= 1000; i++) {
+      const { index, within } = scrubTarget(i / 1000, 40);
+      const pos = index + within;
+      expect(pos - last).toBeLessThan(0.05);
+      expect(pos).toBeGreaterThanOrEqual(last);
+      last = pos;
+    }
+  });
+  it("clamps a finger past either end, and copes with one month or none", () => {
+    expect(scrubTarget(-3, 5)).toEqual({ index: 0, within: 0 });
+    expect(scrubTarget(9, 5)).toEqual({ index: 4, within: 0 });
+    expect(scrubTarget(NaN, 5)).toEqual({ index: 0, within: 0 });
+    expect(scrubTarget(0.5, 1)).toEqual({ index: 0, within: 0 });
+    expect(scrubTarget(0.5, 0)).toEqual({ index: 0, within: 0 });
   });
 });
