@@ -152,6 +152,13 @@ describe("PhotoViewer", () => {
     expect(html).not.toContain("/api/photos/b/preview");
   });
 
+  it("neighbours are moved by a transform and keep one frame's width, never stretched across the screen behind the current photo", () => {
+    const html = renderToStaticMarkup(<PhotoViewer {...base} current={mk("p")} prev={mk("a")} next={mk("b")} />);
+    expect(html).toContain("translateX(-100%)");
+    expect(html).toContain("translateX(100%)");
+    expect(html).not.toMatch(/style="[^"]*left:\s*-?100%/);
+  });
+
   it("offers no step past the first or last item", () => {
     const first = renderToStaticMarkup(<PhotoViewer {...base} current={mk("p")} prev={null} next={mk("b")} />);
     expect(first).not.toContain('aria-label="Previous"');
@@ -167,5 +174,12 @@ describe("PhotoViewer", () => {
     expect(html).toContain('src="/api/photos/v/thumb?v=1"');
     expect(html).not.toContain("/api/photos/v/preview");
     expect(html).not.toContain("<video");
+  });
+
+  it("only the round play button is a button, so swiping over the rest of a video's poster steps like any photo", () => {
+    const html = renderToStaticMarkup(<PhotoViewer {...base} current={mk("v", { kind: "movie", name: "Clip" })} prev={null} next={null} />);
+    const play = html.match(/<button[^>]*aria-label="Play video Clip"[^>]*>/)![0];
+    expect(play).toContain("size-16"); // the circle, not the whole screen
+    expect(play).not.toContain("inset-0");
   });
 });

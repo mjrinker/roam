@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { bucketAt, bucketLabel, groupByMonth, groupItems, groupKey, groupLabel, monthKey, monthLabel, scrubberMarks } from "./months";
+import { canScrollInPlace, bucketAt, bucketLabel, groupByMonth, groupItems, groupKey, groupLabel, monthKey, monthLabel, scrubberMarks } from "./months";
 
 describe("month grouping", () => {
   it("reads the month in UTC, so a photo taken at 23:50 on the 31st stays in that month", () => {
@@ -90,5 +90,33 @@ describe("scrubber", () => {
     expect(bucketLabel("2024-03")).toBe("March 2024");
     expect(bucketLabel("undated")).toBe("Undated");
     expect(bucketLabel("weird")).toBe("weird");
+  });
+});
+
+describe("canScrollInPlace", () => {
+  const at = (...t: string[]) => t.map((takenAt) => ({ takenAt }));
+  // After jumping to July the run is July, June, May; newer photos are still above (hasNewerToLoad).
+  const july = at("2024-07-20T00:00:00Z", "2024-07-02T00:00:00Z", "2024-06-10T00:00:00Z", "2024-05-01T00:00:00Z");
+
+  it("a month deeper in the run is complete from its newest photo, so it scrolls in place", () => {
+    expect(canScrollInPlace(july, true, "2024-06")).toBe(true);
+    expect(canScrollInPlace(july, true, "2024-05")).toBe(true);
+  });
+  it("the month that starts the run while newer photos are still to load would show partly, so it loads afresh", () => {
+    expect(canScrollInPlace(july, true, "2024-07")).toBe(false);
+  });
+  it("...but once the top of the library is loaded, it is complete", () => {
+    expect(canScrollInPlace(july, false, "2024-07")).toBe(true);
+  });
+  it("a month with nothing loaded always loads afresh (August after scrubbing to July)", () => {
+    expect(canScrollInPlace(july, true, "2024-08")).toBe(false);
+    expect(canScrollInPlace(july, false, "2024-08")).toBe(false);
+    expect(canScrollInPlace([], false, "2024-07")).toBe(false);
+  });
+  it("after scrolling up and loading newer pages, the months now above are complete", () => {
+    const more = [...at("2024-09-03T00:00:00Z", "2024-08-15T00:00:00Z", "2024-08-01T00:00:00Z"), ...july];
+    expect(canScrollInPlace(more, true, "2024-08")).toBe(true);
+    expect(canScrollInPlace(more, true, "2024-09")).toBe(false); // starts the run, more may be above
+    expect(canScrollInPlace(more, false, "2024-09")).toBe(true);
   });
 });

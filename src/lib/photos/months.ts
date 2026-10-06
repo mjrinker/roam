@@ -97,6 +97,17 @@ export function scrubberMarks(keys: readonly string[], minGap = 0.045): Scrubber
   });
 }
 
+/**
+ * Whether a month can be scrolled to in place, or must be loaded afresh. The loaded photos are one unbroken
+ * run; a month is complete from its newest photo only if something newer sits above its first loaded photo
+ * (so nothing of it is missing above), or the very top of the library is loaded (`prev` is null). A month
+ * that starts the loaded run while newer photos are still to load would show partly, so it is loaded again.
+ */
+export function canScrollInPlace(items: readonly { takenAt: string | null }[], hasNewerToLoad: boolean, key: string): boolean {
+  const first = items.findIndex((i) => groupKey(i.takenAt, "month") === key);
+  return first > 0 || (first === 0 && !hasNewerToLoad);
+}
+
 /** Which bucket a position along the rail (0..1) lands on. */
 export function bucketAt(fraction: number, count: number): number {
   if (count <= 0) return -1;

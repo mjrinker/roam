@@ -244,11 +244,16 @@ function Stage({
       return;
     }
     if (e.pointerType === "mouse") return; // swipes are a touch thing
-    s.axis ??= dragAxis(dx, dy);
+    if (s.axis === null) {
+      s.axis = dragAxis(dx, dy);
+      // Pictures capture the pointer from the start; for a video, only once it is clearly a swipe, so its own
+      // controls keep working for taps.
+      if (s.axis && !zoomable) (e.currentTarget as HTMLElement).setPointerCapture?.(e.pointerId);
+    }
     if (s.axis === "x" && (dx < 0 ? next : prev)) {
       setDrag({ x: dx, y: 0 });
       setDragging(true);
-    } else if (s.axis === "y" && zoomable && dy > 0) {
+    } else if (s.axis === "y" && dy > 0) {
       setDrag({ x: 0, y: dy });
       setDragging(true);
     }
@@ -300,7 +305,7 @@ function Stage({
           window.setTimeout(onPrev, SLIDE_MS);
           return;
         }
-      } else if (zoomable && shouldClose(dy, ms)) {
+      } else if (shouldClose(dy, ms)) {
         onClose();
       }
       return;
@@ -389,7 +394,9 @@ function Stage({
 /** A neighbouring item waiting just off screen: only its cached thumbnail, so swiping costs nothing extra. */
 function Neighbor({ item, at }: { item: ViewerItem; at: string }) {
   return (
-    <div className="absolute inset-0" style={{ left: at }} aria-hidden>
+    // Moved by a transform, so it stays exactly one frame wide (setting `left` on an inset-0 box stretches it
+    // across the whole screen, which showed the previous photo behind the current one).
+    <div className="absolute inset-0" style={{ transform: `translateX(${at})` }} aria-hidden>
       {item.thumbUrl ? <Artwork src={item.thumbUrl} alt="" fill sizes="100vw" draggable={false} className="object-contain" /> : <div className="size-full bg-neutral-900" />}
       {item.kind === "movie" && (
         <span className="absolute inset-0 flex items-center justify-center">
@@ -499,12 +506,14 @@ function VideoStage({ id, name, posterUrl }: { id: string; name: string; posterU
     );
   }
   return (
-    <button type="button" onClick={() => void start()} disabled={state === "loading"} aria-label={`Play video ${name}`} className="absolute inset-0 flex items-center justify-center">
+    // Only the round button is a button: the poster around it is just a picture, so swiping over it steps and
+    // pulls down to close like any other photo.
+    <div className="absolute inset-0 flex items-center justify-center">
       {posterUrl && <Artwork src={posterUrl} alt="" fill sizes="100vw" draggable={false} className="object-contain opacity-80" />}
-      <span className="relative flex size-16 items-center justify-center rounded-full bg-black/60 ring-1 ring-white/30">
+      <button type="button" onClick={() => void start()} disabled={state === "loading"} aria-label={`Play video ${name}`} className="relative flex size-16 items-center justify-center rounded-full bg-black/60 ring-1 ring-white/30">
         {state === "loading" ? <Loader2 className="size-7 animate-spin" /> : <Play className="size-7 translate-x-0.5 fill-current" />}
-      </span>
-      {state === "error" && <span className="absolute bottom-24 rounded-full bg-black/70 px-4 py-2 text-sm">This video can&apos;t be played right now. Tap to try again.</span>}
-    </button>
+      </button>
+      {state === "error" && <span className="pointer-events-none absolute bottom-24 rounded-full bg-black/70 px-4 py-2 text-sm">This video can&apos;t be played right now. Tap the button to try again.</span>}
+    </div>
   );
 }

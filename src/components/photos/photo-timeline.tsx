@@ -4,7 +4,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import { PhotoScrubber } from "@/components/photos/photo-scrubber";
 import { PhotoTile } from "@/components/photos/photo-tile";
 import { PhotoViewer } from "@/components/photos/photo-viewer";
-import { groupItems, groupKey, ZOOM_LEVELS, type ZoomLevel } from "@/lib/photos/months";
+import { canScrollInPlace, groupItems, groupKey, ZOOM_LEVELS, type ZoomLevel } from "@/lib/photos/months";
 import type { TimelineItem } from "@/lib/photos/timeline";
 import { viewerItem, type ViewerItem } from "@/lib/photos/viewer-item";
 
@@ -54,6 +54,7 @@ export function PhotoTimeline({
   const [months, setMonths] = useState<string[]>([]);
   const [currentMonth, setCurrentMonth] = useState<string | null>(null);
   const [openId, setOpenId] = useState<string | null>(null);
+  const [jumping, setJumping] = useState(false);
   const olderInFlight = useRef(false);
   const newerInFlight = useRef(false);
   const generation = useRef(0); // bumped by a jump: answers for the place the user left are dropped
@@ -201,18 +202,23 @@ export function PhotoTimeline({
   // one list: older photos below, newer ones above as you scroll up (never a filtered view).
   const jump = useCallback(
     async (key: string) => {
-      if (items.some((i) => groupKey(i.takenAt, "month") === key)) {
+      // Scroll in place only if the month is loaded from its newest photo: that holds when something newer sits
+      // above its first loaded photo, or the top of the library is already loaded. A month that begins the loaded
+      // list while newer photos are still to load would show partly, so it is loaded afresh instead.
+      if (canScrollInPlace(items, prev !== null, key)) {
         document.querySelector(`[data-month="${key}"]`)?.scrollIntoView({ block: "start", behavior: "smooth" });
         return;
       }
       const gen = ++generation.current; // a later jump wins; an earlier answer arriving late is dropped
       olderInFlight.current = false;
       newerInFlight.current = false;
+      setJumping(true);
       try {
         const res = await fetch(`/api/libraries/${libraryId}/photos?month=${encodeURIComponent(key)}${extraQuery}`, { credentials: "same-origin" });
         if (!res.ok || gen !== generation.current) return;
         const body = (await res.json()) as Page;
         if (gen !== generation.current) return;
+        // The new list replaces the old at once, scrolled to its place, so no half-way position is ever drawn.
         scrollToMonth.current = body.items.some((i) => groupKey(i.takenAt, "month") === key) ? key : body.items[0] ? groupKey(body.items[0].takenAt, "month") : null;
         setItems(body.items);
         setNext(body.next);
@@ -221,9 +227,11 @@ export function PhotoTimeline({
         setFailed(false);
       } catch {
         /* the scrubber just doesn't move; the timeline is unchanged */
+      } finally {
+        if (gen === generation.current) setJumping(false);
       }
     },
-    [items, libraryId, extraQuery]
+    [items, prev, libraryId, extraQuery]
   );
 
   const chooseZoom = (level: ZoomLevel) => {
@@ -329,7 +337,7 @@ export function PhotoTimeline({
   const from = view === "favorites" ? "from=favorites" : "from=timeline";
 
   return (
-    <div className="flex flex-col gap-6 pr-8">
+    <div className={`flex flex-col gap-6 pr-8 transition-opacity duration-200 ${jumping ? "opacity-50" : "opacity-100"}`} style={{ overflowAnchor: "none" }}>
       <div role="group" aria-label="Zoom" className="flex w-fit gap-1 rounded-xl bg-white/[0.05] p-1 ring-1 ring-white/[0.08]">
         {ZOOM_LEVELS.map((level) => (
           <button
