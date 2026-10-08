@@ -209,7 +209,7 @@ describe("continue listening and where Back goes from a clip", () => {
     expect((await watchInfo(db, w.scope(), "title", clip.id))!.back).toEqual({ kind: "folder", libraryId: video.id, path: "Trips/Paris" });
     const photoClip = await makeTitle(db, (await w.lib("photos")).id, { kind: "movie", name: "Photo clip", takenAt: new Date() });
     const photoLib = photoClip.libraryId;
-    expect((await watchInfo(db, w.scope(), "title", photoClip.id))!.back).toEqual({ kind: "photos", libraryId: photoLib, after: gridCursorAt(photoClip.takenAt) });
+    expect((await watchInfo(db, w.scope(), "title", photoClip.id))!.back).toEqual({ kind: "photoGrid", libraryId: photoLib, after: gridCursorAt(photoClip.takenAt) });
     const film = await makeTitle(db, (await w.lib("movies")).id, { kind: "movie", name: "Film" });
     expect((await watchInfo(db, w.scope(), "title", film.id))!.back).toEqual({ kind: "title", id: film.id });
   });
