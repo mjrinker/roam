@@ -204,6 +204,13 @@
       "when": 1791263735472,
       "tag": "0028_photo_favorites",
       "breakpoints": true
+    },
+    {
+      "idx": 29,
+      "version": "7",
+      "when": 1791421281130,
+      "tag": "0029_demo_server_join_links",
+      "breakpoints": true
     }
   ]
 }

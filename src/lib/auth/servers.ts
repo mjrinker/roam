@@ -1,13 +1,13 @@
 import { count, eq } from "drizzle-orm";
 import { db } from "@/lib/db/client";
-import { servers, serverMembers } from "@/lib/db/schema";
+import { profiles, servers, serverMembers } from "@/lib/db/schema";
 import type { ServerRole } from "@/lib/auth/guards";
 
 const MAX_SERVERS_PER_USER = Number(process.env.MAX_SERVERS_PER_USER ?? 3);
 
 export type CreateServerResult =
   | { ok: true; server: typeof servers.$inferSelect }
-  | { ok: false; reason: "too_many_servers" };
+  | { ok: false; reason: "too_many_servers" | "guest" };
 
 /**
  * Creates a server owned by `profileId` and makes them its first admin
@@ -19,6 +19,10 @@ export async function createServer(
   profileId: string,
   name: string
 ): Promise<CreateServerResult> {
+  // A guest (an anonymous demo visitor) can watch, not own anything.
+  const [account] = await db.select({ isGuest: profiles.isGuest }).from(profiles).where(eq(profiles.id, profileId)).limit(1);
+  if (account?.isGuest) return { ok: false, reason: "guest" };
+
   const [{ ownedCount }] = await db
     .select({ ownedCount: count() })
     .from(servers)

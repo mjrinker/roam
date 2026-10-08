@@ -15,21 +15,26 @@ interface AuthFormProps {
   initialEmail?: string;
   /** Carried through the whole auth flow so the right invite gets redeemed once signed in. */
   inviteToken?: string;
+  /** A server's open join link, carried through the whole auth flow like an invite so it is redeemed once signed in. */
+  joinToken?: string;
 }
 
-const INVITE_ERROR_MESSAGES: Record<string, string> = {
+export const INVITE_ERROR_MESSAGES: Record<string, string> = {
   "invite-not-found": "That invite link is invalid or has expired.",
   "invite-email-mismatch": "That invite was sent to a different email address.",
+  "join-not-found": "That join link is no longer valid.",
+  "join-rate-limited": "Too many joins from this account. Try again in a little while.",
 };
 
-async function completeSignIn(
+export async function completeSignIn(
   router: ReturnType<typeof useRouter>,
-  inviteToken?: string
+  inviteToken?: string,
+  joinToken?: string
 ) {
   const res = await fetch("/api/auth/ensure-profile", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ inviteToken }),
+    body: JSON.stringify({ inviteToken, joinToken }),
   });
   if (!res.ok) {
     toast.error("Something went wrong signing you in.");
@@ -45,7 +50,7 @@ async function completeSignIn(
   router.refresh();
 }
 
-export function AuthForm({ mode, initialEmail = "", inviteToken }: AuthFormProps) {
+export function AuthForm({ mode, initialEmail = "", inviteToken, joinToken }: AuthFormProps) {
   const router = useRouter();
   const [email, setEmail] = useState(initialEmail);
   const [password, setPassword] = useState("");
@@ -61,6 +66,7 @@ export function AuthForm({ mode, initialEmail = "", inviteToken }: AuthFormProps
   function redirectTarget() {
     const callbackUrl = new URL("/auth/callback", window.location.origin);
     if (inviteToken) callbackUrl.searchParams.set("invite_token", inviteToken);
+    if (joinToken) callbackUrl.searchParams.set("join_token", joinToken);
     return callbackUrl.toString();
   }
 
@@ -105,7 +111,7 @@ export function AuthForm({ mode, initialEmail = "", inviteToken }: AuthFormProps
         toast.success("Check your email to confirm your account, then sign in.");
         return;
       }
-      await completeSignIn(router, inviteToken);
+      await completeSignIn(router, inviteToken, joinToken);
     } else {
       const { error } = await supabase.auth.signInWithPassword({ email, password });
       if (error) {
@@ -113,7 +119,7 @@ export function AuthForm({ mode, initialEmail = "", inviteToken }: AuthFormProps
         toast.error(error.message);
         return;
       }
-      await completeSignIn(router, inviteToken);
+      await completeSignIn(router, inviteToken, joinToken);
     }
     setLoading(null);
   }

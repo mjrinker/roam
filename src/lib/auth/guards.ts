@@ -6,6 +6,7 @@ import { and, eq } from "drizzle-orm";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import type { profiles as ProfilesTable, Viewer } from "@/lib/db/schema";
 import { getCurrentViewer } from "@/lib/auth/viewer";
+import { touchGuest } from "@/lib/auth/guests";
 
 export type Profile = typeof ProfilesTable.$inferSelect;
 export type ServerRole = "admin" | "viewer";
@@ -73,6 +74,7 @@ export async function getServerMembership(
 /** Requires the signed-in profile to be a member of `serverId`, redirecting to /servers otherwise. */
 export async function requireServerMember(serverId: string): Promise<ServerMembership> {
   const { account: profile, viewer } = await requireViewer();
+  await touchGuest(profile); // a guest's inactivity clock (a no-op for everyone else)
   const membership = await getServerMembership(profile.id, serverId);
   if (!membership) redirect("/servers");
   return { profile, viewer, role: membership.role };

@@ -74,6 +74,11 @@ export const profiles = pgTable("profiles", {
   id: uuid("id").primaryKey(),
   email: text("email").notNull(),
   displayName: text("display_name"),
+  // An anonymous visitor (the public demo's one-click guest): no real email, can only watch, and is deleted
+  // after a stretch of inactivity (see lib/auth/guests).
+  isGuest: boolean("is_guest").notNull().default(false),
+  // When a guest last loaded a page (touched at most hourly); what "inactive" is measured against.
+  lastSeenAt: timestamp("last_seen_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true })
     .notNull()
     .defaultNow(),
@@ -144,6 +149,11 @@ export const servers = pgTable("servers", {
   boxAuthStatus: boxAuthStatusEnum("box_auth_status")
     .notNull()
     .default("disconnected"),
+  // An open invitation: anyone with /join/<token> can join as a viewer, as often as they like, until the admin
+  // turns it off or replaces it. NULL = no open link.
+  joinToken: text("join_token").unique(),
+  // A public demo server: shows a notice, caps plays per day, and hides new joiners from each other.
+  isDemo: boolean("is_demo").notNull().default(false),
   createdAt: timestamp("created_at", { withTimezone: true })
     .notNull()
     .defaultNow(),

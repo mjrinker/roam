@@ -44,6 +44,7 @@ export async function GET(request: Request) {
   if (refused) return refused;
 
   const profile = await getCurrentProfile();
+  if (profile?.isGuest) return NextResponse.json({ error: "Not available to guests." }, { status: 403 });
   if (!profile || !(await checkRateLimit(profile.id, "audible_search", 20, 60))) {
     return NextResponse.json({ error: "Too many searches — try again in a minute." }, { status: 429 });
   }

@@ -1,4 +1,5 @@
 import { BrandLogo } from "@/components/shell/brand";
+import { TmdbAttribution } from "@/components/shell/tmdb-attribution";
 
 /** Cinematic full-screen backdrop + centered glass card shared by sign-in and invite pages. */
 export function AuthShell({
@@ -44,6 +45,7 @@ export function AuthShell({
         <p className="text-xs text-muted-foreground/70">
           A private media server for your people.
         </p>
+        <TmdbAttribution />
       </div>
     </main>
   );

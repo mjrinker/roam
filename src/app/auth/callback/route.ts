@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
-import { acceptInvite, ensureProfile } from "@/lib/auth/invites";
+import { acceptInvite, ensureProfileWithStatus } from "@/lib/auth/invites";
+import { acceptJoin } from "@/lib/auth/join";
+import { scheduleGuestCleanup } from "@/lib/auth/guest-cleanup";
 import { resolveLandingPath } from "@/lib/auth/servers";
 
 /**
@@ -18,13 +20,24 @@ export async function GET(request: Request) {
   const { searchParams, origin } = new URL(request.url);
   const code = searchParams.get("code");
   const inviteToken = searchParams.get("invite_token");
+  const joinToken = searchParams.get("join_token");
 
   if (code) {
     const supabase = await createSupabaseServerClient();
     const { data, error } = await supabase.auth.exchangeCodeForSession(code);
 
     if (!error && data.user?.email) {
-      const profile = await ensureProfile(data.user.id, data.user.email);
+      const { profile, created } = await ensureProfileWithStatus(data.user.id, data.user.email);
+
+      if (joinToken) {
+        // The server's open link: always lands in that server's library, never on a path taken from the request.
+        const joined = await acceptJoin(joinToken, profile, { hide: created });
+        if (joined.ok) {
+          scheduleGuestCleanup();
+          return NextResponse.redirect(`${origin}/s/${joined.serverId}/library`);
+        }
+        return NextResponse.redirect(`${origin}/servers?error=${joined.reason === "rate_limited" ? "join-rate-limited" : "join-not-found"}`);
+      }
 
       if (inviteToken) {
         const result = await acceptInvite(inviteToken, profile);

@@ -18,6 +18,9 @@ export async function POST(request: Request) {
   }
 
   const result = await createServer(profile.id, parsed.data.name);
+  if (!result.ok && result.reason === "guest") {
+    return NextResponse.json({ error: "Guests can watch the demo but can't create servers. Sign up to create your own." }, { status: 403 });
+  }
   if (!result.ok) {
     return NextResponse.json(
       { error: "You've reached the limit on servers you can create." },

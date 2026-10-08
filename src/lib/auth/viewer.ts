@@ -18,10 +18,20 @@ export function defaultViewerName(account: Pick<Profile, "displayName" | "email"
  * Makes sure an account has its default profile. The default reuses the
  * account's own id, so this is idempotent and safe to race.
  */
-export async function ensureDefaultViewer(account: Pick<Profile, "id" | "displayName" | "email">): Promise<Viewer> {
+export async function ensureDefaultViewer(
+  account: Pick<Profile, "id" | "displayName" | "email">,
+  /** A guest's profile is named "Guest" (never derived from an email) and is hidden from other members from the start. */
+  opts: { guest?: boolean; hidden?: boolean } = {}
+): Promise<Viewer> {
   const [created] = await db
     .insert(viewers)
-    .values({ id: account.id, accountId: account.id, name: defaultViewerName(account), role: "owner" })
+    .values({
+      id: account.id,
+      accountId: account.id,
+      name: opts.guest ? "Guest" : defaultViewerName(account),
+      role: "owner",
+      visibleOnServer: !(opts.guest || opts.hidden),
+    })
     .onConflictDoNothing({ target: viewers.id })
     .returning();
   if (created) return created;

@@ -1,6 +1,7 @@
-import { asc } from "drizzle-orm";
+import { accountLabel } from "@/lib/auth/guests";
+import { asc, eq } from "drizzle-orm";
 import { db } from "@/lib/db/client";
-import { libraries } from "@/lib/db/schema";
+import { libraries, servers } from "@/lib/db/schema";
 import { requireServerMember } from "@/lib/auth/guards";
 import { libraryActor, libraryVisible } from "@/lib/content/library-access";
 import { listServerMemberships } from "@/lib/auth/servers";
@@ -10,6 +11,8 @@ import { AppSidebar } from "@/components/shell/app-sidebar";
 import { PullToRefresh } from "@/components/shell/pull-to-refresh";
 import { ShellProvider } from "@/components/shell/shell-context";
 import { TopBar } from "@/components/shell/top-bar";
+import { DemoBanner } from "@/components/shell/demo-banner";
+import { TmdbAttribution } from "@/components/shell/tmdb-attribution";
 
 /** The browsing chrome: persistent sidebar (a drawer on mobile) + top bar with search and account menu. */
 export default async function BrowseLayout({
@@ -19,13 +22,14 @@ export default async function BrowseLayout({
   const { serverId } = await params;
   const { profile, viewer, role } = await requireServerMember(serverId);
 
-  const [memberships, serverLibraries] = await Promise.all([
+  const [memberships, serverLibraries, [serverRow]] = await Promise.all([
     listServerMemberships(profile.id),
     db
       .select({ id: libraries.id, name: libraries.name, kind: libraries.kind })
       .from(libraries)
       .where(libraryVisible(db, libraryActor({ profile, role }, serverId)))
       .orderBy(asc(libraries.name)),
+    db.select({ isDemo: servers.isDemo }).from(servers).where(eq(servers.id, serverId)).limit(1),
   ]);
   const current = memberships.find((m) => m.serverId === serverId);
 
@@ -41,13 +45,17 @@ export default async function BrowseLayout({
           isAdmin={role === "admin"}
         />
         <div className="flex min-w-0 flex-1 flex-col">
+          {serverRow?.isDemo && <DemoBanner serverId={serverId} />}
           <TopBar
             serverId={serverId}
-            email={profile.email}
+            email={accountLabel(profile)}
             profileName={viewer.name}
             avatarKey={viewer.avatarKey}
           />
           <main className="flex-1">{children}</main>
+          <footer className="px-4 py-8">
+            <TmdbAttribution />
+          </footer>
           <PlayerErrorBoundary>
             <MiniPlayer serverId={serverId} />
           </PlayerErrorBoundary>

@@ -5,6 +5,7 @@ import { invites, libraries, scanRuns, servers, titles } from "@/lib/db/schema";
 import { requireServerAdmin } from "@/lib/auth/guards";
 import { LibraryManager } from "@/components/admin/library-manager";
 import { InviteManager } from "@/components/admin/invite-manager";
+import { JoinLinkManager } from "@/components/admin/join-link-manager";
 import { UnmatchedTitles } from "@/components/admin/unmatched-titles";
 import { Button } from "@/components/ui/button";
 import { Breadcrumbs } from "@/components/shell/breadcrumbs";
@@ -156,6 +157,8 @@ export default async function AdminPage({
           metadataStatus: t.metadataStatus as "pending" | "not_found",
         }))}
       />
+      <JoinLinkManager serverId={serverId} initialToken={server?.joinToken ?? null} initialDemo={server?.isDemo ?? false} />
+
       <InviteManager
         serverId={serverId}
         invites={allInvites.map((i) => ({

@@ -4,6 +4,7 @@ import { db } from "@/lib/db/client";
 import { invites, profiles, serverMembers } from "@/lib/db/schema";
 import { checkRateLimit } from "@/lib/rate-limit";
 import { ensureDefaultViewer } from "@/lib/auth/viewer";
+import { guestEmail } from "@/lib/auth/guests";
 
 const INVITE_TTL_DAYS = 7;
 const MAX_PENDING_INVITES_PER_SERVER = Number(
@@ -18,19 +19,29 @@ const MAX_PENDING_INVITES_PER_SERVER = Number(
  * acceptInvite and lib/auth/servers.ts).
  */
 export async function ensureProfile(userId: string, email: string) {
-  const normalizedEmail = email.toLowerCase();
-  const [profile] = await db
+  return (await ensureProfileWithStatus(userId, email)).profile;
+}
+
+/**
+ * Same, and also says whether this call created the account, and can make a guest (an anonymous visitor:
+ * no real email, so a placeholder one that can never receive mail; a "Guest" profile hidden from others).
+ */
+export async function ensureProfileWithStatus(
+  userId: string,
+  email: string | null,
+  opts: { guest?: boolean } = {}
+): Promise<{ profile: typeof profiles.$inferSelect; created: boolean }> {
+  const normalizedEmail = opts.guest ? guestEmail(userId) : (email ?? "").toLowerCase();
+  const [inserted] = await db
     .insert(profiles)
-    .values({ id: userId, email: normalizedEmail })
+    .values({ id: userId, email: normalizedEmail, isGuest: !!opts.guest })
     .onConflictDoNothing({ target: profiles.id })
     .returning();
 
-  const account =
-    profile ??
-    (await db.select().from(profiles).where(eq(profiles.id, userId)).limit(1))[0];
+  const account = inserted ?? (await db.select().from(profiles).where(eq(profiles.id, userId)).limit(1))[0];
   // Every account starts with one profile of its own.
-  await ensureDefaultViewer(account);
-  return account;
+  await ensureDefaultViewer(account, { guest: account.isGuest });
+  return { profile: account, created: !!inserted };
 }
 
 export interface CreateInviteResult {

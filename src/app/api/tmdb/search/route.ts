@@ -22,6 +22,9 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
+  // Guests are free to create, so a per-account limit means nothing for them: they can't spend the TMDB quota at all.
+  if (profile.isGuest) return NextResponse.json({ error: "Not available to guests." }, { status: 403 });
+
   const withinLimit = await checkRateLimit(profile.id, "tmdb_search", 20, 60);
   if (!withinLimit) {
     return NextResponse.json({ error: "Too many searches — try again in a minute." }, { status: 429 });

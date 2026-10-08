@@ -1,3 +1,4 @@
+import { accountLabel } from "@/lib/auth/guests";
 import { redirect } from "next/navigation";
 import { getCurrentViewer } from "@/lib/auth/viewer";
 import { SignOutButton } from "@/components/nav/sign-out-button";
@@ -23,7 +24,7 @@ export default async function ProfilesPage({ searchParams }: PageProps<"/profile
       <header className="flex items-center justify-between px-5 py-5 sm:px-10">
         <BrandLogo variant="muted" className="h-5" />
         <div className="flex items-center gap-2 text-sm text-muted-foreground">
-          <span className="hidden sm:inline">{resolved.account.email}</span>
+          <span className="hidden sm:inline">{accountLabel(resolved.account)}</span>
           <SignOutButton />
         </div>
       </header>

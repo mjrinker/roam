@@ -1,3 +1,4 @@
+import { accountLabel } from "@/lib/auth/guests";
 import Link from "next/link";
 import { ArrowRight, TriangleAlert } from "lucide-react";
 import { requireViewer } from "@/lib/auth/guards";
@@ -10,6 +11,8 @@ import { SignOutButton } from "@/components/nav/sign-out-button";
 
 const INVITE_ERROR_MESSAGES: Record<string, string> = {
   "invite-not-found": "That invite link is invalid or has expired.",
+  "join-not-found": "That join link is no longer valid.",
+  "join-rate-limited": "Too many joins from this account. Try again in a little while.",
   "invite-email-mismatch": "That invite was sent to a different email address.",
 };
 
@@ -40,7 +43,7 @@ export default async function ServersPage({
             <ViewerAvatar avatarKey={viewer.avatarKey} size="xs" />
             <span className="max-w-32 truncate">{viewer.name}</span>
           </Link>
-          <span className="hidden sm:inline">{profile.email}</span>
+          <span className="hidden sm:inline">{accountLabel(profile)}</span>
           <SignOutButton />
         </div>
       </header>
