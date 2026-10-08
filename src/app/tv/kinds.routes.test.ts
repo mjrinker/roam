@@ -289,4 +289,12 @@ describe("the home screen", () => {
     for (const label of ["Videos", "Audio", "Music", "Photos", "Audiobooks"]) expect(body).toContain(`<small>${label}</small>`);
     expect(body).toContain("1 more library isn't available on TV yet");
   });
+  it("shows a Recently added row that links each item to its page", async () => {
+    const w = await world();
+    const film = await makeTitle(db, (await w.lib("movies")).id, { kind: "movie", name: "Fresh <Film>" });
+    const body = await text(await home(req("/x"), ctx(sid(w))));
+    expect(body).toContain("Recently added");
+    expect(body).toContain("Fresh &lt;Film&gt;");
+    expect(body).toContain(`href="/tv/s/${w.server.id}/title/${film.id}"`);
+  });
 });

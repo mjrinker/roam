@@ -11,7 +11,7 @@ import { libraryVisible, type LibraryActor } from "@/lib/content/library-access"
 import { episodes, libraries, seasons, titles, watchState } from "@/lib/db/schema";
 import { listFolder, normalizeFolderPath, type FolderPage } from "@/lib/libraries/folder-browse";
 import type { LibraryKind } from "@/lib/db/schema";
-import { isPhotoLibraryKind, libraryRemembersProgress, tvBrowseStyle, TV_LISTEN_KINDS, TV_WATCH_KINDS, type TvBrowseStyle } from "@/lib/libraries/profile";
+import { GLOBALLY_LISTED_LIBRARY_KINDS, isPhotoLibraryKind, libraryRemembersProgress, tvBrowseStyle, TV_LISTEN_KINDS, TV_WATCH_KINDS, type TvBrowseStyle } from "@/lib/libraries/profile";
 import { getAlbum } from "@/lib/music/browse";
 import { listTimeline, loadPhoto, photoNeighbors, type NeighborScope, type TimelineCursor } from "@/lib/photos/timeline";
 
@@ -340,4 +340,41 @@ export async function listenInfo(ex: Db, scope: TvScope, id: string): Promise<Li
     if (album && at >= 0) queue = { items: album.tracks.map((x) => ({ id: x.id, title: x.name, by: x.artist ?? album.album.artistName })), index: at };
   }
   return { id: t.id, name: t.name, subtitle: by, coverUrl: t.posterUrl, libraryKind, remembers: libraryRemembersProgress(libraryKind), back, next, queue };
+}
+
+// ── Recently added ───────────────────────────────────────────────────────────────
+
+export interface RecentItem {
+  /** Where it opens, relative to the TV's base path. */
+  href: string;
+  name: string;
+  meta: string | null;
+  posterUrl: string | null;
+  square: boolean;
+}
+
+/** Where a title of a TV library opens, relative to the TV's base path: a movie or show on its page, an audiobook on its page, an audio file straight to the player. */
+export function titleHref(kind: string, id: string, libraryKind: LibraryKind): string {
+  if (kind === "show") return `/show/${id}`;
+  if (kind === "audiobook") return tvBrowseStyle(libraryKind) === "grid" ? `/book/${id}` : `/listen/${id}`;
+  return `/title/${id}`;
+}
+
+/** The newest titles across the libraries that are listed on the home page (not pictures or songs), within sharing and the age limit. */
+export async function recentlyAdded(ex: Db, scope: TvScope, limit = 12): Promise<RecentItem[]> {
+  const kinds = GLOBALLY_LISTED_LIBRARY_KINDS.filter((k) => tvBrowseStyle(k) !== null);
+  const rows = await ex
+    .select({ id: titles.id, kind: titles.kind, name: titles.name, year: titles.year, posterUrl: titles.posterUrl, authors: titles.authors, libraryKind: libraries.kind })
+    .from(titles)
+    .innerJoin(libraries, eq(titles.libraryId, libraries.id))
+    .where(and(inArray(libraries.kind, [...kinds]), inArray(titles.kind, ["movie", "show", "audiobook"]), libraryVisible(ex, scope.actor), contentFilter(scope.viewer, titles.ratingAges)))
+    .orderBy(desc(titles.addedAt), asc(titles.id))
+    .limit(limit);
+  return rows.map((r) => ({
+    href: titleHref(r.kind, r.id, r.libraryKind),
+    name: r.name,
+    meta: r.kind === "audiobook" ? (r.authors ?? []).join(", ") || null : r.year ? String(r.year) : null,
+    posterUrl: r.posterUrl,
+    square: r.kind === "audiobook",
+  }));
 }

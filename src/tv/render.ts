@@ -91,6 +91,7 @@ export interface HomeData {
   profileName: string;
   continueWatching: Poster[];
   continueListening?: Poster[];
+  recentlyAdded?: Poster[];
   libraries: { id: string; name: string; kind: string; count?: number | null }[];
   /** Libraries that exist but have no TV interface yet. */
   unsupported: number;
@@ -103,14 +104,17 @@ export function homePage(d: HomeData): string {
   const listening = d.continueListening?.length
     ? `<h2>Continue listening</h2><div class="row">${d.continueListening.map((c, i) => card(c, i === 0 && !cont)).join("")}</div>`
     : "";
-  const first = !cont && !listening;
+  const recent = d.recentlyAdded?.length
+    ? `<h2>Recently added</h2><div class="row">${d.recentlyAdded.map((c, i) => card(c, i === 0 && !cont && !listening)).join("")}</div>`
+    : "";
+  const first = !cont && !listening && !recent;
   const libs = d.libraries.length
     ? `<h2>Libraries</h2><div class="row">${d.libraries.map((l, i) => `<a class="tile" data-f${first && i === 0 ? " data-autofocus" : ""} href="${esc(d.base)}/library/${esc(l.id)}">${esc(l.name)}<small>${esc(l.kind)}</small></a>`).join("")}</div>`
     : `<p class="sub">Nothing to show here yet.</p>`;
   const more = d.unsupported > 0 ? `<p class="note">${d.unsupported} more ${d.unsupported === 1 ? "library isn't" : "libraries aren't"} available on TV yet.</p>` : "";
   return tvDocument({
     title: d.serverName,
-    body: `<div class="page">${top(esc(d.profileName))}<h1>${esc(d.serverName)}</h1>${cont}${listening}${libs}${more}<div class="row" style="margin-top:2rem"><a class="btn" data-f href="/tv/profiles">Switch profile</a>${postButton("/tv/signout", "Sign out")}</div></div>`,
+    body: `<div class="page">${top(esc(d.profileName))}<h1>${esc(d.serverName)}</h1>${cont}${listening}${recent}${libs}${more}<div class="row" style="margin-top:2rem"><a class="btn" data-f href="/tv/profiles">Switch profile</a>${postButton("/tv/signout", "Sign out")}</div></div>`,
   });
 }
 

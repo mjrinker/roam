@@ -5,7 +5,7 @@ import { musicAlbums, musicArtists, titles, watchState } from "@/lib/db/schema";
 import type { AccessProfile } from "@/lib/content/access";
 import type { LibraryActor } from "@/lib/content/library-access";
 import { createTestDb, joinServer, makeAccount, makeLibrary, makeServer, makeTitle, type TestDb } from "@/lib/playlists/test-db";
-import { bookDetail, gridCursorAt, continueWatching, folderLevel, listenInfo, parseFolderCursor, photoPage, photoView, tvLibrary, watchInfo, TV_FOLDER_PAGE, type TvScope } from "./data";
+import { bookDetail, gridCursorAt, recentlyAdded, continueWatching, folderLevel, listenInfo, parseFolderCursor, photoPage, photoView, tvLibrary, watchInfo, TV_FOLDER_PAGE, type TvScope } from "./data";
 
 let db: TestDb;
 let close: () => Promise<void>;
@@ -219,5 +219,40 @@ describe("continue listening and where Back goes from a clip", () => {
     expect((await watchInfo(db, w.scope(), "title", photoClip.id))!.back).toEqual({ kind: "photoGrid", libraryId: photoLib, after: gridCursorAt(photoClip.takenAt) });
     const film = await makeTitle(db, (await w.lib("movies")).id, { kind: "movie", name: "Film" });
     expect((await watchInfo(db, w.scope(), "title", film.id))!.back).toEqual({ kind: "title", id: film.id });
+  });
+});
+
+describe("recentlyAdded", () => {
+  const ago = (min: number) => new Date(Date.now() - min * 60_000);
+  it("lists the newest movies, shows, books and audio files first, and leaves out pictures, songs and anything hidden", async () => {
+    const w = await world();
+    const movies = await w.lib("movies");
+    await makeTitle(db, movies.id, { kind: "movie", name: "Old", addedAt: ago(500) });
+    await makeTitle(db, movies.id, { kind: "movie", name: "New", year: 2024, addedAt: ago(1) });
+    await makeTitle(db, (await w.lib("audiobooks")).id, { kind: "audiobook", name: "Book", authors: ["Ann"], addedAt: ago(10) });
+    const audio = await makeTitle(db, (await w.lib("audio")).id, { kind: "audiobook", name: "Talk", addedAt: ago(20) });
+    await makeTitle(db, (await w.lib("photos")).id, { kind: "photo", name: "Snap", takenAt: new Date(), addedAt: ago(0) });
+    await makeTitle(db, (await w.lib("music")).id, { kind: "audiobook", name: "Song", addedAt: ago(0) });
+    await makeTitle(db, (await w.lib("ebooks")).id, { kind: "ebook", name: "Epub", addedAt: ago(0) });
+    const items = await recentlyAdded(db, w.scope());
+    expect(items.map((i) => i.name)).toEqual(["New", "Book", "Talk", "Old"]);
+    expect(items[0]).toMatchObject({ meta: "2024", square: false });
+    expect(items[1]).toMatchObject({ meta: "Ann", square: true });
+    expect(items[2].href).toBe(`/listen/${audio.id}`); // an audio file goes straight to the player
+    expect(items[1].href).toMatch(/^\/book\//);
+    expect(items[0].href).toMatch(/^\/title\//);
+  });
+  it("respects the limit, sharing, the age limit and server boundaries", async () => {
+    const w = await world();
+    const movies = await w.lib("movies");
+    for (let i = 0; i < 5; i++) await makeTitle(db, movies.id, { kind: "movie", name: `M${i}`, addedAt: ago(i), ratingAges: { ANY: i === 0 ? 17 : 0 } });
+    expect(await recentlyAdded(db, w.scope(), 3)).toHaveLength(3);
+    expect((await recentlyAdded(db, w.scope(kid))).map((i) => i.name)).toEqual(["M1", "M2", "M3", "M4"]);
+    const hidden = await world("restricted");
+    await makeTitle(db, (await hidden.lib("movies")).id, { kind: "movie", name: "Secret" });
+    expect(await recentlyAdded(db, hidden.scope())).toEqual([]);
+    const other = await world();
+    await makeTitle(db, (await other.lib("movies")).id, { kind: "movie", name: "Theirs" });
+    expect((await recentlyAdded(db, w.scope())).map((i) => i.name)).not.toContain("Theirs");
   });
 });
