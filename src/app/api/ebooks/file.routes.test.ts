@@ -1,4 +1,4 @@
-/** GET /api/ebooks/[id]/file: books only, behind library access and the age limit, one 404 for every refusal, and a fresh Box address each time. */
+/** GET /api/ebooks/[id]/file and /url: books only, behind library access and the age limit, one 404 for every refusal, and a fresh Box address each time. */
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { eq } from "drizzle-orm";
 
@@ -21,6 +21,7 @@ vi.mock("@/lib/storage/box", () => ({
 import { libraryMembers, mediaFiles, profiles, viewers } from "@/lib/db/schema";
 import { joinServer, putArtwork, makeAccount, makeLibrary, makeServer, makeTitle, type TestDb } from "@/lib/playlists/test-db";
 import { GET } from "./[id]/file/route";
+import { GET as getUrl } from "./[id]/url/route";
 import { GET as artwork } from "../titles/[id]/artwork/route";
 
 let db: TestDb;
@@ -102,5 +103,18 @@ describe("GET /api/ebooks/[id]/file", () => {
     await db.insert(libraryMembers).values({ libraryId: w.lib.id, serverId: w.server.id, accountId: w.member.accountId });
     const res = await art();
     expect([res.status, res.headers.get("content-type")]).toEqual([200, "image/jpeg"]);
+  });
+
+  it("the JSON address for the in-browser reader follows the same rules: a member gets the address, nobody else learns anything", async () => {
+    const w = await world("restricted");
+    const ask = (id: string) => getUrl(new Request("http://x"), { params: Promise.resolve({ id }) } as never);
+    expect((await ask(w.book.id)).status).toBe(404); // not granted
+    expect((await ask(w.film.id)).status).toBe(404); // not a book
+    expect((await ask("nope")).status).toBe(404);
+    await db.insert(libraryMembers).values({ libraryId: w.lib.id, serverId: w.server.id, accountId: w.member.accountId });
+    const res = await ask(w.book.id);
+    expect(res.status).toBe(200);
+    expect(res.headers.get("cache-control")).toBe("no-store");
+    expect(await res.json()).toMatchObject({ url: "https://dl.box.example/box-file-1?token=abc" });
   });
 });

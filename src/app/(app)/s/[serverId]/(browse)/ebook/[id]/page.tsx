@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { notFound } from "next/navigation";
 import { and, eq } from "drizzle-orm";
 import { BookOpen, Download } from "lucide-react";
@@ -10,6 +11,7 @@ import { libraries, mediaFiles, titles } from "@/lib/db/schema";
 import { formatFileSize } from "@/lib/format";
 import { isUuid } from "@/lib/playlists/http";
 import { Breadcrumbs } from "@/components/shell/breadcrumbs";
+import { PdfOpenButton } from "@/components/ebooks/pdf-open-button";
 
 export default async function EbookPage({ params }: PageProps<"/s/[serverId]/ebook/[id]">) {
   const { serverId, id } = await params;
@@ -58,12 +60,18 @@ export default async function EbookPage({ params }: PageProps<"/s/[serverId]/ebo
             {series && <p className="mt-1 text-sm text-muted-foreground">{series}</p>}
             {details && <p className="mt-1 text-sm text-muted-foreground">{details}</p>}
           </div>
-          <div className="flex justify-center md:justify-start">
-            <a
-              href={href}
-              className="inline-flex h-12 items-center gap-2.5 rounded-xl bg-primary px-8 text-base font-semibold text-primary-foreground shadow-[0_10px_34px_-8px_oklch(0.853_0.163_169/0.7)] transition hover:opacity-90"
-            >
-              <Download className="size-5" /> {file?.container === "pdf" ? "Open PDF" : "Download"}
+          <div className="flex flex-wrap justify-center gap-3 md:justify-start">
+            {file?.container === "epub" && (
+              <Link
+                href={`/s/${serverId}/read/${id}`}
+                className="inline-flex h-12 items-center gap-2.5 rounded-xl bg-primary px-8 text-base font-semibold text-primary-foreground shadow-[0_10px_34px_-8px_oklch(0.853_0.163_169/0.7)] transition hover:opacity-90"
+              >
+                <BookOpen className="size-5" /> Read
+              </Link>
+            )}
+            {file?.container === "pdf" && <PdfOpenButton titleId={id} sizeBytes={file.sizeBytes} />}
+            <a href={href} className="inline-flex h-12 items-center gap-2.5 rounded-xl bg-white/[0.08] px-6 text-base font-medium ring-1 ring-white/10 transition hover:bg-white/[0.14]">
+              <Download className="size-5" /> Download
             </a>
           </div>
           {book.overview && <p className="max-w-prose text-sm leading-relaxed text-muted-foreground">{book.overview}</p>}
