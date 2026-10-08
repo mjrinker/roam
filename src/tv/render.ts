@@ -114,7 +114,7 @@ export function homePage(d: HomeData): string {
   const more = d.unsupported > 0 ? `<p class="note">${d.unsupported} more ${d.unsupported === 1 ? "library isn't" : "libraries aren't"} available on TV yet.</p>` : "";
   return tvDocument({
     title: d.serverName,
-    body: `<div class="page">${top(esc(d.profileName))}<h1>${esc(d.serverName)}</h1>${cont}${listening}${recent}${libs}${more}<div class="row" style="margin-top:2rem"><a class="btn" data-f href="/tv/profiles">Switch profile</a>${postButton("/tv/signout", "Sign out")}</div></div>`,
+    body: `<div class="page">${top(esc(d.profileName))}<h1>${esc(d.serverName)}</h1>${cont}${listening}${recent}${libs}${more}<div class="row" style="margin-top:2rem"><a class="btn" data-f href="${esc(d.base)}/search">Search</a><a class="btn" data-f href="/tv/profiles">Switch profile</a>${postButton("/tv/signout", "Sign out")}</div></div>`,
   });
 }
 
@@ -267,5 +267,40 @@ export function photoViewPage(d: PhotoViewData): string {
       `<div class="player photo"><img id="pimg" src="${esc(safeUrl(d.imageUrl) ?? "")}" alt="${esc(d.title)}"><div id="status" class="status"></div>` +
       `<div id="hud" class="hud on"><div class="t">${esc(d.title)}</div><div class="clock">${d.position ? esc(d.position) + " · " : ""}Left and right for the previous and next picture, OK to start a slideshow</div></div></div>` +
       `<script type="application/json" id="photo-config">${cfg}</script>`,
+  });
+}
+
+// ── Search ────────────────────────────────────────────────────────────
+
+const KEYS = "abcdefghijklmnopqrstuvwxyz0123456789".split("");
+
+export interface SearchData {
+  base: string;
+  query: string;
+  /** The key that was just pressed, so focus returns to it after the page reloads. */
+  focusKey: string | null;
+  results: Poster[];
+  max: number;
+}
+
+/** A search page with an on-screen keyboard: every key is a link that adds a letter, so it works with nothing but the arrows and OK. */
+export function searchPage(d: SearchData): string {
+  const at = (q: string, k: string) => `${esc(d.base)}/search?q=${encodeURIComponent(q)}&amp;k=${encodeURIComponent(k)}`;
+  // Nothing pressed yet: start on the first key, so typing can begin straight away (Back is always on the Back key).
+  const start = d.focusKey ?? "a";
+  const full = d.query.length >= d.max;
+  const letters = KEYS.map((c) => `<a class="key" data-f${start === c ? " data-autofocus" : ""} href="${full ? at(d.query, c) : at(d.query + c, c)}">${esc(c.toUpperCase())}</a>`).join("");
+  const space = `<a class="key wide" data-f${start === "space" ? " data-autofocus" : ""} href="${full ? at(d.query, "space") : at(d.query + " ", "space")}">Space</a>`;
+  const del = `<a class="key wide" data-f${start === "del" ? " data-autofocus" : ""} href="${at(d.query.slice(0, -1), "del")}">Delete</a>`;
+  const clear = `<a class="key wide" data-f${start === "clear" ? " data-autofocus" : ""} href="${at("", "clear")}">Clear</a>`;
+  const results = d.results.length
+    ? d.results.map((r) => `<a class="hit" data-f href="${esc(safeUrl(r.href) ?? "/tv")}">${esc(r.name)}${r.meta ? `<small>${esc(r.meta)}</small>` : ""}</a>`).join("")
+    : `<p class="sub">${d.query.trim() ? "Nothing found." : "Type to search your movies, shows, books and music."}</p>`;
+  return tvDocument({
+    title: "Search",
+    body:
+      `<div class="page">${top(`<a data-f data-back href="${esc(d.base)}" class="btn" style="margin:0">Back</a>`)}<h1>Search</h1>` +
+      `<div class="query">${d.query ? esc(d.query) : "&nbsp;"}</div>` +
+      `<div class="searchbox"><div class="keys">${letters}${space}${del}${clear}</div><div class="hits">${results}</div></div></div>`,
   });
 }

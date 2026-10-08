@@ -64,3 +64,12 @@ button.tile { margin: 0 1.5rem 1.5rem 0; }
 .modern .backdrop img { width: 100%; height: 100%; object-fit: cover; opacity: 0.32; display: block; }
 .modern .backdrop:after { content: ""; position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: linear-gradient(to right, rgba(11, 11, 16, 0.92), rgba(11, 11, 16, 0.35)); }
 .modern [data-f] { transition: transform 0.12s ease-out, background-color 0.12s, border-color 0.12s; }
+
+.query { font-size: 2.2rem; min-height: 3rem; color: #7fd8bd; border-bottom: 0.15rem solid #2a2a36; margin-bottom: 1.2rem; max-width: 60rem; }
+.searchbox { display: flex; }
+.keys { display: flex; flex-wrap: wrap; width: 27rem; flex-shrink: 0; margin-right: 3rem; align-content: flex-start; }
+.key { display: block; width: 3.2rem; height: 3.2rem; line-height: 3.2rem; margin: 0 0.5rem 0.5rem 0; text-align: center; border-radius: 0.5rem; background: #1b1b25; font-size: 1.4rem; border: 0.2rem solid transparent; }
+.key.wide { width: 8.1rem; font-size: 1.1rem; }
+.hits { flex: 1; min-width: 0; }
+.hit { display: block; padding: 0.8rem 1.1rem; margin-bottom: 0.45rem; border-radius: 0.5rem; background: #14141c; font-size: 1.3rem; border: 0.25rem solid transparent; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.hit small { color: #8d8d99; font-size: 1rem; margin-left: 0.8rem; }

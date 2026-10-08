@@ -11,7 +11,7 @@ import http from "node:http";
 import fs from "node:fs";
 import path from "node:path";
 import { launch, type Page } from "./lib-cdp";
-import { detailPage, homePage, listenPage, listPage, messagePage, pairPage, photoViewPage, watchPage } from "../src/tv/render";
+import { detailPage, homePage, listenPage, listPage, messagePage, pairPage, photoViewPage, searchPage, watchPage } from "../src/tv/render";
 
 const MEDIA = process.env.TV_MEDIA_DIR ?? "/tmp/tvsite/media";
 const browsers = (process.env.TV_BROWSERS ?? "").split(",").filter(Boolean).map((s) => s.split("=") as [string, string]);
@@ -24,6 +24,7 @@ const pages: Record<string, string> = {
   "/tv/s/x": homePage({ serverName: "Test Server", base: "/tv/s/x", profileName: "Matt", continueWatching: [poster(1), poster(2)], libraries: [{ id: "a", name: "Movies", kind: "Movies" }, { id: "b", name: "Shows", kind: "TV Shows" }], unsupported: 1 }),
   "/tv/s/x/library/a": listPage({ base: "/tv/s/x", title: "Movies", backHref: "/tv/s/x", items: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].map(poster), prevHref: null, nextHref: "/tv/s/x/library/a?page=2" }),
   "/tv/s/x/title/1": detailPage({ title: "Movie 1", meta: "2020", overview: "About it.", posterUrl: null, backdropUrl: "/media/pic2.png", backHref: "/tv/s/x/library/a", actions: [{ href: "/tv/s/x/watch/title/1", label: "Play", primary: true }, { href: "/tv/s/x", label: "Home" }] }),
+  "/tv/s/x/search": searchPage({ base: "/tv/s/x", query: "mo", focusKey: null, max: 40, results: [1, 2, 3].map(poster) }),
   "/tv/s/x/library/f": listPage({ base: "/tv/s/x", title: "Videos", backHref: "/tv/s/x", folders: [{ href: "/tv/s/x/library/f?path=Trips", name: "Trips" }, { href: "/tv/s/x/library/f?path=Pets", name: "Pets" }], items: [1, 2, 3].map(poster), prevHref: null, nextHref: null }),
   "/tv/s/x/album/1": detailPage({ title: "First Record", meta: "The Band · 1999 · 2 songs", overview: null, posterUrl: null, square: true, backHref: "/tv/s/x/library/m", actions: [{ href: "/tv/s/x/listen/1", label: "Play album", primary: true }], listHeading: "Songs", episodes: [{ href: "/tv/s/x/listen/1", label: "1. Intro", sub: "0:12" }, { href: "/tv/s/x/listen/2", label: "2. Second", sub: "0:12" }] }),
   "/tv/s/x/listen/1": listenPage({ title: "Intro", subtitle: "The Band", coverUrl: null, ownerId: "1", remembers: false, skip: 10, back: "/tv/s/x/album/1", next: "/tv/s/x/listen/2", queue: { items: [{ id: "1", title: "Intro", by: "The Band" }, { id: "2", title: "Second", by: "The Band" }], index: 0 } }),
@@ -204,6 +205,14 @@ async function run(label: string, exe: string, m56: boolean) {
   for (let i = 0; i < 30 && !saves.some((s) => s.finished); i++) await new Promise((r) => setTimeout(r, 100)); // a beacon arrives just after the page changes
   check(L("the end was saved as finished"), saves.some((s) => s.finished), JSON.stringify(saves));
 
+
+  // Search: the keyboard is reachable with the arrows, and the arrows cross from the keys to the results.
+  await page.goto(base + "/tv/s/x/search");
+  check(L("search starts on the first key when nothing was typed"), (await focusedText(page)) === "A", await focusedText(page));
+  await key(page, 40);
+  check(L("down moves along the keyboard rows"), (await focusedText(page)) !== "A", await focusedText(page));
+  for (let i = 0; i < 12 && !(await focusedText(page)).startsWith("Movie"); i++) await key(page, 39);
+  check(L("right crosses from the keys to the results"), (await focusedText(page)).startsWith("Movie"), await focusedText(page));
 
   // A folder page: folders come first and take focus, and arrows reach the files below.
   await page.goto(base + "/tv/s/x/library/f");

@@ -51,6 +51,7 @@ import { GET as album } from "./s/[serverId]/album/[id]/route";
 import { GET as photo } from "./s/[serverId]/photo/[id]/route";
 import { GET as watch } from "./s/[serverId]/watch/[kind]/[id]/route";
 import { GET as title } from "./s/[serverId]/title/[id]/route";
+import { GET as search } from "./s/[serverId]/search/route";
 
 let db: TestDb;
 beforeAll(() => {
@@ -277,6 +278,44 @@ describe("photos", () => {
     const theirs = await makeTitle(db, (await other.lib("photos")).id, { kind: "photo", name: "Theirs", takenAt: day(1) });
     await signIn(w.member);
     expect((await photo(req("/x"), ctx({ ...sid(w), id: theirs.id }))).status).toBe(404);
+  });
+});
+
+describe("search", () => {
+  it("shows a keyboard whose keys add a letter, the typed text, and results that link to their pages", async () => {
+    const w = await world();
+    const film = await makeTitle(db, (await w.lib("movies")).id, { kind: "movie", name: "Moon <Rise>" });
+    const empty = await text(await search(req("/x"), ctx(sid(w))));
+    expect(empty).toContain("Type to search");
+    expect(empty).toContain(`href="/tv/s/${w.server.id}/search?q=a&amp;k=a"`); // the A key adds an "a"
+    expect(empty).toContain(`class="key" data-f data-autofocus href="/tv/s/${w.server.id}/search?q=a&amp;k=a"`); // starts on the first key
+    const typed = await text(await search(req("/x?q=mo&k=o"), ctx(sid(w))));
+    expect(typed).toContain(`href="/tv/s/${w.server.id}/search?q=mon&amp;k=n"`);
+    expect(typed).toContain(`href="/tv/s/${w.server.id}/search?q=m&amp;k=del"`); // Delete drops the last letter
+    expect(typed).toContain(`href="/tv/s/${w.server.id}/search?q=&amp;k=clear"`);
+    expect(typed).toContain(`class="key" data-f data-autofocus href="/tv/s/${w.server.id}/search?q=moo&amp;k=o"`); // focus returns to the key just pressed
+    expect(typed).toContain("Moon &lt;Rise&gt;");
+    expect(typed).not.toContain("Moon <Rise>");
+    expect(typed).toContain(`href="/tv/s/${w.server.id}/title/${film.id}"`);
+    expect(await text(await search(req("/x?q=zzzz"), ctx(sid(w))))).toContain("Nothing found.");
+  });
+  it("copes with hostile input, a full box and a missing server", async () => {
+    const w = await world();
+    const hostile = await text(await search(req(`/x?q=${encodeURIComponent("<script>alert(1)</script>")}&k=${encodeURIComponent('"><x>')}`), ctx(sid(w))));
+    expect(hostile).not.toContain("<script>alert");
+    expect(hostile).toContain("&lt;script&gt;");
+    const long = await text(await search(req(`/x?q=${"a".repeat(300)}&k=a`), ctx(sid(w))));
+    expect(long).toContain("a".repeat(40));
+    expect(long).not.toContain("a".repeat(41));
+    expect((await search(req("/x"), ctx({ serverId: "not-a-uuid" }))).status).toBe(404);
+    const other = await world();
+    await signIn(w.member);
+    expect((await search(req("/x"), ctx(sid(other)))).status).toBe(404); // a server the signed-in person is not in
+  });
+  it("never finds a hidden library's titles", async () => {
+    const hidden = await world("restricted");
+    await makeTitle(db, (await hidden.lib("movies")).id, { kind: "movie", name: "Secret Film" });
+    expect(await text(await search(req("/x?q=secret"), ctx(sid(hidden))))).toContain("Nothing found.");
   });
 });
 
