@@ -74,3 +74,6 @@ button.tile { margin: 0 1.5rem 1.5rem 0; }
 .hit { display: block; padding: 0.8rem 1.1rem; margin-bottom: 0.45rem; border-radius: 0.5rem; background: #14141c; font-size: 1.3rem; border: 0.25rem solid transparent; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .hit small { color: #8d8d99; font-size: 1rem; margin-left: 0.8rem; }
 .modern a[data-more].auto { display: none; }
+.upnext { position: absolute; right: 3.5rem; bottom: 9rem; width: 26rem; padding: 1.4rem 1.6rem; background: rgba(20, 20, 28, 0.94); border-radius: 0.8rem; border: 0.2rem solid #7fd8bd; font-size: 1.3rem; }
+.upnext b { display: block; font-size: 1.6rem; margin: 0.3rem 0 0.6rem 0; }
+.upnext small { display: block; color: #a8a8b4; font-size: 1.05rem; margin-top: 0.6rem; }

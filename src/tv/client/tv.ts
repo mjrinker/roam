@@ -181,6 +181,9 @@ interface PlayConfig {
   ownerId: string;
   back: string;
   next: string | null;
+  upNextSeconds?: number;
+  title?: string;
+  subtitle?: string | null;
 }
 interface Manifest {
   durationSeconds: number;
@@ -200,7 +203,8 @@ function unsupportedCodecsQuery(): string {
   return bad.length ? "?unsupportedCodecs=" + bad.join(",") : "";
 }
 
-function startPlayer(cfg: PlayConfig) {
+function startPlayer(first: PlayConfig) {
+  let cfg = first;
   const video = doc.getElementById("pv") as HTMLVideoElement;
   const bar = doc.getElementById("bar") as HTMLElement;
   const fill = doc.getElementById("fill") as HTMLElement;
@@ -295,18 +299,21 @@ function startPlayer(cfg: PlayConfig) {
     showHud();
   }
 
-  function load(resumeFrom?: number, autoplay?: boolean) {
+  function fetchPlay(kind: string, id: string): Promise<Manifest> {
+    return fetch("/api/play/" + kind + "/" + id + unsupportedCodecsQuery(), { credentials: "same-origin" }).then((res) => {
+      if (res.status === 401 || res.status === 403) {
+        window.location.href = "/tv";
+        throw new Error("Signed out.");
+      }
+      if (res.status === 429) throw new Error("The demo has reached today's play limit. Try again tomorrow.");
+      if (!res.ok) throw new Error("This can't be played right now.");
+      return res.json();
+    });
+  }
+
+  function load(resumeFrom?: number, autoplay?: boolean, ahead?: Promise<Manifest>) {
     say("Loading…");
-    fetch("/api/play/" + cfg.ownerKind + "/" + cfg.ownerId + unsupportedCodecsQuery(), { credentials: "same-origin" })
-      .then((res) => {
-        if (res.status === 401 || res.status === 403) {
-          window.location.href = "/tv";
-          throw new Error("Signed out.");
-        }
-        if (res.status === 429) throw new Error("The demo has reached today's play limit. Try again tomorrow.");
-        if (!res.ok) throw new Error("This can't be played right now.");
-        return res.json();
-      })
+    (ahead || fetchPlay(cfg.ownerKind, cfg.ownerId))
       .then((m: Manifest) => {
         manifest = m;
         const start = resumeFrom !== undefined ? resumeFrom : m.resumeSeconds > 0 && m.resumeSeconds < m.durationSeconds - 30 ? m.resumeSeconds : 0;
@@ -315,6 +322,70 @@ function startPlayer(cfg: PlayConfig) {
         openPart(at.segment, at.localTime, autoplay === undefined ? true : autoplay);
       })
       .catch((e: Error) => say(e.message || "This can't be played right now."));
+  }
+
+  // ── Up next (newer browsers): the next episode starts in this page after a short countdown ──
+  let upNextTimer: number | undefined;
+  let upNextGo: (() => void) | null = null;
+
+  function upNext() {
+    const nextHref = cfg.next as string;
+    fetch(nextHref + (nextHref.indexOf("?") < 0 ? "?" : "&") + "json=1", { credentials: "same-origin" })
+      .then((res) => {
+        if (!res.ok) throw new Error("no details");
+        return res.json();
+      })
+      .then((info: PlayConfig) => {
+        const box = doc.getElementById("upnext") as HTMLElement;
+        const ahead = fetchPlay(info.ownerKind, info.ownerId); // fetched during the countdown, so the episode starts at once
+        ahead.catch(() => undefined);
+        let left = info.upNextSeconds || 10;
+        const paint2 = () => {
+          box.innerHTML = "";
+          const head = doc.createElement("div");
+          head.textContent = "Up next in " + left;
+          const name = doc.createElement("b");
+          name.textContent = (info.title || "") + (info.subtitle ? " · " + info.subtitle : "");
+          const hint = doc.createElement("small");
+          hint.textContent = "OK to play now · Back to stop";
+          box.appendChild(head);
+          box.appendChild(name);
+          box.appendChild(hint);
+        };
+        const go = () => {
+          window.clearTimeout(upNextTimer);
+          upNextGo = null;
+          box.style.display = "none";
+          cfg = { ownerKind: info.ownerKind, ownerId: info.ownerId, back: info.back, next: info.next, upNextSeconds: info.upNextSeconds };
+          manifest = null;
+          part = null;
+          recoveries = 0;
+          const t = doc.getElementById("wtitle");
+          const sub = doc.getElementById("wsub");
+          if (t) t.textContent = info.title || "";
+          if (sub) sub.textContent = info.subtitle ? " · " + info.subtitle : "";
+          doc.title = (info.title || "") + " · Roam";
+          try {
+            window.history.replaceState(null, "", nextHref);
+          } catch {
+            /* the address is only cosmetic */
+          }
+          load(undefined, true, ahead);
+        };
+        upNextGo = go;
+        box.style.display = "block";
+        paint2();
+        const tick = () => {
+          left--;
+          if (left <= 0) return go();
+          paint2();
+          upNextTimer = window.setTimeout(tick, 1000);
+        };
+        upNextTimer = window.setTimeout(tick, 1000);
+      })
+      .catch(() => {
+        window.location.href = nextHref; // couldn't get the details: load the next page the ordinary way
+      });
   }
 
   video.addEventListener("timeupdate", () => {
@@ -336,6 +407,7 @@ function startPlayer(cfg: PlayConfig) {
     const nextPart = manifest.segments[part.index + 1];
     if (nextPart) return openPart(nextPart, nextPart.inFileOffsetSeconds || 0, true);
     save(true, true);
+    if (MODERN && cfg.next) return upNext();
     window.location.href = cfg.next || cfg.back;
   });
   video.addEventListener("error", () => {
@@ -349,6 +421,12 @@ function startPlayer(cfg: PlayConfig) {
 
   /** Player keys, called from the page's key handler; returns true when it handled the key. */
   playerKeys = (action: Action | null, dirKey: string | null): boolean => {
+    if (upNextGo) {
+      // While the countdown runs, OK starts the next episode now and Back stops (the episode just watched is already saved as finished).
+      if (action === "enter" || action === "play" || action === "playpause") upNextGo();
+      else if (action === "back" || action === "stop") window.location.href = cfg.back;
+      return true;
+    }
     if (action === "back" || action === "stop") {
       save(undefined, true);
       window.location.href = cfg.back;

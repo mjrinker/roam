@@ -193,6 +193,20 @@ describe("what a profile sees", () => {
     expect(second).toContain("Next Year");
   });
 
+  it("answers ?json=1 with the next episode's details for a newer browser's Up next, and never to someone who may not see it", async () => {
+    const w = await world();
+    const res = await watch(req("/x?json=1"), ctx({ serverId: w.server.id, kind: "episode", id: w.eps[1].id }));
+    expect(res.headers.get("content-type")).toContain("application/json");
+    expect(res.headers.get("cache-control")).toBe("no-store");
+    expect(await res.json()).toEqual({ ownerKind: "episode", ownerId: w.eps[1].id, back: `/tv/s/${w.server.id}/show/${w.show.id}?season=${w.season.number}`, next: null, title: "The Show", subtitle: "S1 · E2 · Ep 2", upNextSeconds: 10 });
+    const first = await (await watch(req("/x?json=1"), ctx({ serverId: w.server.id, kind: "episode", id: w.eps[0].id }))).json();
+    expect(first.next).toBe(`/tv/s/${w.server.id}/watch/episode/${w.eps[1].id}`);
+    const other = await world();
+    await signIn(w.member);
+    expect((await watch(req("/x?json=1"), ctx({ serverId: w.server.id, kind: "episode", id: other.eps[0].id }))).status).toBe(404);
+    expect((await watch(req("/x?json=1"), ctx({ serverId: other.server.id, kind: "episode", id: other.eps[0].id }))).status).toBe(404);
+  });
+
   it("builds the watch page with where Back and the next episode go, and puts nothing from the library into the script", async () => {
     const w = await world();
     const ep = await text(await watch(req("/x"), ctx({ serverId: w.server.id, kind: "episode", id: w.eps[0].id })));

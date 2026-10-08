@@ -186,14 +186,19 @@ export interface WatchData {
   next: string | null;
 }
 
+/** What the player needs to know about one watch page (nothing from the library: names are drawn by the page itself). */
+export function watchConfig(d: WatchData) {
+  return { ownerKind: d.ownerKind, ownerId: d.ownerId, back: safeUrl(d.back) ?? "/tv", next: d.next ? safeUrl(d.next) : null };
+}
+
 export function watchPage(d: WatchData): string {
-  const cfg = JSON.stringify({ ownerKind: d.ownerKind, ownerId: d.ownerId, back: safeUrl(d.back) ?? "/tv", next: d.next ? safeUrl(d.next) : null }).replace(/</g, "\\u003c");
+  const cfg = JSON.stringify(watchConfig(d)).replace(/</g, "\\u003c");
   return tvDocument({
     title: d.title,
     bodyClass: "watch",
     body:
-      `<div class="player"><video id="pv" playsinline></video><div id="status" class="status"></div>` +
-      `<div id="hud" class="hud on"><div class="t">${esc(d.title)}${d.subtitle ? ` · ${esc(d.subtitle)}` : ""}</div><div id="bar" class="track" style="display:none"><b id="fill"></b></div><div id="clock" class="clock"></div></div></div>` +
+      `<div class="player"><video id="pv" playsinline></video><div id="status" class="status"></div><div id="upnext" class="upnext" style="display:none"></div>` +
+      `<div id="hud" class="hud on"><div class="t"><span id="wtitle">${esc(d.title)}</span><span id="wsub">${d.subtitle ? ` · ${esc(d.subtitle)}` : ""}</span></div><div id="bar" class="track" style="display:none"><b id="fill"></b></div><div id="clock" class="clock"></div></div></div>` +
       `<script type="application/json" id="play-config">${cfg}</script>`,
   });
 }

@@ -33,6 +33,8 @@ const pages: Record<string, string> = {
   "/tv/s/x/photo/1": photoViewPage({ title: "Picture one", imageUrl: "/media/pic1.png", prev: null, next: "/tv/s/x/photo/2", back: "/tv/s/x/library/p", position: "2024-05-01" }),
   "/tv/s/x/photo/2": photoViewPage({ title: "Picture two", imageUrl: "/media/pic2.png", prev: "/tv/s/x/photo/1", next: "/tv/s/x/photo/3", back: "/tv/s/x/library/p", position: "2024-05-02" }),
   "/tv/s/x/photo/3": photoViewPage({ title: "Picture three", imageUrl: "/media/missing.png", prev: "/tv/s/x/photo/2", next: null, back: "/tv/s/x/library/p", position: null }),
+  "/tv/s/x/watch/episode/1": watchPage({ title: "The Show", subtitle: "S1 · E1", ownerKind: "episode", ownerId: "1", back: "/tv/s/x/title/1", next: "/tv/s/x/watch/episode/2" }),
+  "/tv/s/x/watch/episode/2": watchPage({ title: "The Show", subtitle: "S1 · E2", ownerKind: "episode", ownerId: "2", back: "/tv/s/x/title/1", next: null }),
   "/tv/s/x/watch/title/1": watchPage({ title: "Movie 1", subtitle: null, ownerKind: "title", ownerId: "1", back: "/tv/s/x/title/1", next: null }),
 };
 
@@ -46,6 +48,10 @@ let signouts = 0;
 
 const server = http.createServer((req, res) => {
   const url = new URL(req.url!, "http://x");
+  if (url.searchParams.get("json") === "1" && url.pathname.startsWith("/tv/s/x/watch/episode/")) {
+    // the real server's lookup of the next episode's details; a short countdown keeps the check quick
+    return void res.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify({ ownerKind: "episode", ownerId: "2", back: "/tv/s/x/title/1", next: null, title: "The Show", subtitle: "S1 · E2", upNextSeconds: 2 }));
+  }
   if (url.pathname === "/tv/s/x/library/a" && url.searchParams.get("page") === "2") {
     return void res.writeHead(200, { "content-type": "text/html" }).end(listPage({ base: "/tv/s/x", title: "Movies", backHref: "/tv/s/x", items: [13, 14, 15, 16, 17, 18].map(poster), prevHref: null, nextHref: null }));
   }
@@ -345,6 +351,42 @@ async function run(label: string, exe: string, m56: boolean) {
   check(L("a picture that fails to load says so"), await page.waitFor(`document.getElementById("status").textContent.indexOf("can't be shown") >= 0`, 8000));
   await key(page, 27);
   check(L("Back leaves the picture viewer for the grid"), await page.waitFor(`location.pathname === "/tv/s/x/library/p"`));
+
+  // Up next: a newer browser counts down and starts the next episode in the same page; Back stops it; the basic path loads the next page.
+  const skipToEnd = async () => {
+    await page.waitFor(`${V} && ${V}.currentTime > 0.3 && !${V}.paused`, 15000);
+    await key(page, 417);
+  };
+  saves.length = 0;
+  await page.goto(base + "/tv/s/x/watch/episode/1?modern=1");
+  await page.evaluate(`window.__sameDocument = 1`);
+  await skipToEnd();
+  check(L("an episode's end shows the Up next countdown"), await page.waitFor(`document.getElementById("upnext").style.display === "block" && document.getElementById("upnext").textContent.indexOf("Up next in") >= 0`, 15000), await page.url());
+  check(L("and the episode just watched is saved as finished"), saves.some((x) => x.finished), JSON.stringify(saves));
+  check(L("the next episode starts by itself in the same page"), await page.waitFor(`location.pathname === "/tv/s/x/watch/episode/2" && ${V}.currentTime > 0.3 && !${V}.paused`, 15000), await page.url());
+  check(L("with no reload, and the new episode's name on screen"), await page.evaluate<boolean>(`window.__sameDocument === 1 && document.getElementById("wsub").textContent.indexOf("E2") >= 0 && document.getElementById("upnext").style.display === "none"`));
+  await skipToEnd();
+  check(L("after the last episode the player goes back (no countdown)"), await page.waitFor(`location.pathname === "/tv/s/x/title/1"`, 20000), await page.url());
+
+  await page.goto(base + "/tv/s/x/watch/episode/1");
+  await skipToEnd();
+  await page.waitFor(`document.getElementById("upnext").style.display === "block"`, 15000);
+  await key(page, 27);
+  check(L("Back during the countdown stops and goes back"), await page.waitFor(`location.pathname === "/tv/s/x/title/1"`, 5000), await page.url());
+
+  await page.goto(base + "/tv/s/x/watch/episode/1");
+  await page.waitFor(`document.getElementById("upnext")`, 5000);
+  await page.waitFor(`${V}.currentTime > 0.3`, 15000);
+  await key(page, 417);
+  await page.waitFor(`document.getElementById("upnext").style.display === "block"`, 15000);
+  await key(page, 13);
+  check(L("OK during the countdown starts the next episode at once"), await page.waitFor(`location.pathname === "/tv/s/x/watch/episode/2"`, 5000), await page.url());
+
+  await page.goto(base + "/tv/s/x/watch/episode/1?modern=0");
+  await page.evaluate(`window.__sameDocument = 1`);
+  await skipToEnd();
+  check(L("on the basic path the next episode is a new page"), await page.waitFor(`location.pathname === "/tv/s/x/watch/episode/2" && !window.__sameDocument`, 20000), await page.url());
+  await page.goto(base + "/tv/s/x/title/1?modern=1");
 
   // A link that has gone bad is replaced: the first manifest points at a missing file; the script asks again and plays.
   manifestRequests = 0;
