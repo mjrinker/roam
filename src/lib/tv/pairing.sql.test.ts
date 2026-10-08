@@ -123,7 +123,7 @@ describe("pairing", () => {
 
   it("recycles a code once its row has been swept, and re-draws when a pick lands on a code still held", async () => {
     // A rigged random source that always spells the same code: "ABCDE" (the first five symbols of the alphabet).
-    const rigged = () => { let i = 0; return (_max: number) => i++ % 5; };
+    const rigged = () => { let i = 0; return () => i++ % 5; };
 
     // First TV gets ABCDE, three hours ago.
     const t0 = new Date(Date.now() - 3 * 60 * 60 * 1000);
@@ -137,7 +137,7 @@ describe("pairing", () => {
 
     // While that one is live, a draw that lands on it is refused and re-drawn, so a new TV gets a different code...
     let calls = 0;
-    const collideThenFree = (_max: number) => (calls++ < 5 ? calls - 1 : 20 + (calls % 5)); // first five draws spell ABCDE, then something else
+    const collideThenFree = () => (calls++ < 5 ? calls - 1 : 20 + (calls % 5)); // first five draws spell ABCDE, then something else
     const other = await startPairing(db, { ip: ip(), userAgent: null, rand: collideThenFree });
     expect(other.ok).toBe(true);
     expect(other.ok && other.userCode).not.toBe("ABCDE");
