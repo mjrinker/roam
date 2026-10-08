@@ -19,14 +19,15 @@ let n = 0;
 const ip = () => `10.0.${Math.floor(++n / 250)}.${n % 250}`;
 
 describe("codes", () => {
-  it("are eight characters from an alphabet without look-alikes, and shown as ABCD-EFGH", () => {
+  it("are five characters from an alphabet without look-alikes", () => {
     for (let i = 0; i < 200; i++) {
       const code = generateUserCode();
       expect(code).toHaveLength(CODE_LENGTH);
       expect([...code].every((c) => CODE_ALPHABET.includes(c))).toBe(true);
     }
     expect(CODE_ALPHABET).not.toMatch(/[01OIL]/);
-    expect(formatUserCode("ABCDEFGH")).toBe("ABCD-EFGH");
+    expect(CODE_LENGTH).toBe(5);
+    expect(formatUserCode("ABCDE")).toBe("ABCDE");
   });
   it("use every symbol of the alphabet (the choice is spread over all of it)", () => {
     const seen = new Set<string>();
@@ -34,9 +35,9 @@ describe("codes", () => {
     expect(seen.size).toBe(CODE_ALPHABET.length);
   });
   it("are read back forgivingly and strictly", () => {
-    expect(normalizeUserCode("abcd-efgh")).toBe("ABCDEFGH");
-    expect(normalizeUserCode(" abcd efgh ")).toBe("ABCDEFGH");
-    for (const bad of ["", null, undefined, "ABCDEFG", "ABCDEFGHJ", "ABCD-EF0H", "ABCD-EFIH", "ABCD_EFGH", "'; drop table"]) expect(normalizeUserCode(bad as never), String(bad)).toBeNull();
+    // upper case, lower case and mixed all mean the same code; spaces and hyphens are ignored
+    for (const typed of ["abcde", "ABCDE", "AbCdE", " ab cde ", "ab-cde", "A-B-C-D-E"]) expect(normalizeUserCode(typed), typed).toBe("ABCDE");
+    for (const bad of ["", null, undefined, "ABCD", "ABCDEF", "ABC-D0", "ABCIE", "ABC_E", "'; drop table", "ABCDEFGH"]) expect(normalizeUserCode(bad as never), String(bad)).toBeNull();
   });
   it("names a TV from its browser", () => {
     expect(deviceLabel("Mozilla/5.0 (SMART-TV; Linux; Tizen 5.5) AppleWebKit/537.36")).toBe("Samsung TV");
@@ -84,8 +85,8 @@ describe("pairing", () => {
   it("does not know a secret it never issued, or a code that was never open", async () => {
     expect(await pollPairing(db, "not-a-secret")).toEqual({ status: "expired" });
     const who = await makeAccount(db, "guesser");
-    expect(await approvePairing(db, { userCode: "ABCDEFGH", accountId: who.accountId })).toBe(false);
-    expect(await findOpenPairing(db, "ABCDEFGH")).toBeNull();
+    expect(await approvePairing(db, { userCode: "ABCDE", accountId: who.accountId })).toBe(false);
+    expect(await findOpenPairing(db, "ABCDE")).toBeNull();
   });
 
   it("lets a code lapse after ten minutes: it can't be approved and the TV is told", async () => {

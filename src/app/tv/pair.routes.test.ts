@@ -46,14 +46,14 @@ beforeEach(() => {
 
 let n = 0;
 const getPage = (ip = `198.51.100.${++n % 250}`, extra: Record<string, string> = {}) => GET(new Request("https://roam.example/tv/pair", { headers: { "x-vercel-forwarded-for": ip, "user-agent": "Mozilla/5.0 (SMART-TV; Tizen 4.0)", ...extra } }));
-const code = (body: string) => /class="code">([A-Z0-9]{4}-[A-Z0-9]{4})</.exec(body)?.[1] ?? "";
+const code = (body: string) => /class="code">([A-Z0-9]{5})</.exec(body)?.[1] ?? "";
 
 describe("GET /tv/pair", () => {
   it("shows a code and where to enter it, and remembers the TV with a cookie it alone holds", async () => {
     const res = await getPage();
     const body = await res.text();
     expect(res.status).toBe(200);
-    expect(code(body)).toMatch(/^[A-Z2-9]{4}-[A-Z2-9]{4}$/);
+    expect(code(body)).toMatch(/^[A-Z2-9]{5}$/);
     expect(body).toContain("roam.example/link");
     expect(body).toMatch(/<svg class="qr"/); // a QR code the phone's camera can scan
     expect(body).not.toContain("width=\""); // sized by CSS, not fixed pixels
@@ -91,7 +91,7 @@ describe("GET /tv/pair", () => {
     const first = code(await (await getPage()).text());
     const again = code(await (await getPage()).text());
     expect(again).toBe(first);
-    expect(await db.select().from(tvPairings).where(eq(tvPairings.userCode, first.replace("-", "")))).toHaveLength(1);
+    expect(await db.select().from(tvPairings).where(eq(tvPairings.userCode, first))).toHaveLength(1);
   });
   it("sends a TV that is already signed in on to the home screen", async () => {
     h.signedIn = true;
@@ -120,7 +120,7 @@ describe("POST /tv/pair/poll", () => {
   });
   it("signs the TV in once the code is approved, then forgets the pairing", async () => {
     const who = await makeAccount(db, "tvuser");
-    const shown = code(await (await getPage()).text()).replace("-", "");
+    const shown = code(await (await getPage()).text());
     await approvePairing(db, { userCode: shown, accountId: who.accountId });
     expect(await poll()).toEqual({ status: "approved" });
     expect(h.minted).toEqual([who.accountId]);
@@ -130,7 +130,7 @@ describe("POST /tv/pair/poll", () => {
   });
   it("does not claim success when the session could not be made, and tries again on the next poll instead of losing the approval", async () => {
     const who = await makeAccount(db, "tvfail");
-    const shown = code(await (await getPage()).text()).replace("-", "");
+    const shown = code(await (await getPage()).text());
     await approvePairing(db, { userCode: shown, accountId: who.accountId });
     h.mintOk = false;
     expect(await poll()).toEqual({ status: "pending" });

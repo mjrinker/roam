@@ -20,7 +20,7 @@ export async function POST(request: Request) {
 
   const parsed = body.safeParse(await request.json().catch(() => null));
   if (!parsed.success) return NextResponse.json({ error: "Bad request" }, { status: 400 });
-  if (!(await checkRateLimit(account.id, "tv_pair", 30, 10 * 60))) return NextResponse.json({ error: "Too many tries. Wait a few minutes." }, { status: 429 });
+  if (!(await checkRateLimit(account.id, "tv_pair", 20, 10 * 60))) return NextResponse.json({ error: "Too many tries. Wait a few minutes." }, { status: 429 });
 
   const code = normalizeUserCode(parsed.data.code);
   if (!code) return invalid();

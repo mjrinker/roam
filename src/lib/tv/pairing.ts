@@ -14,8 +14,9 @@ import { hmacSign } from "@/lib/crypto";
 
 type Db = PgDatabase<PgQueryResultHKT, Record<string, unknown>>;
 
-export const CODE_ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"; // no 0, O, 1, I or L
-export const CODE_LENGTH = 8;
+import { CODE_ALPHABET, CODE_LENGTH } from "@/lib/tv/code";
+
+export { CODE_ALPHABET, CODE_LENGTH, formatUserCode, normalizeUserCode } from "@/lib/tv/code";
 export const PAIRING_TTL_MS = 10 * 60 * 1000;
 export const MAX_STARTS_PER_ADDRESS_PER_HOUR = 20;
 export const MAX_PENDING = 5000;
@@ -24,15 +25,6 @@ export function generateUserCode(rand: (max: number) => number = randomInt): str
   let code = "";
   for (let i = 0; i < CODE_LENGTH; i++) code += CODE_ALPHABET[rand(CODE_ALPHABET.length)];
   return code;
-}
-
-/** "ABCDEFGH" as shown to people: "ABCD-EFGH". */
-export const formatUserCode = (code: string): string => `${code.slice(0, 4)}-${code.slice(4)}`;
-
-/** What someone typed, as a code, or null if it can't be one (wrong length or characters). Spaces, hyphens and case are ignored. */
-export function normalizeUserCode(input: string | null | undefined): string | null {
-  const code = (input ?? "").toUpperCase().replace(/[\s-]/g, "");
-  return code.length === CODE_LENGTH && [...code].every((c) => CODE_ALPHABET.includes(c)) ? code : null;
 }
 
 export const newDeviceSecret = (): string => randomBytes(32).toString("base64url");

@@ -20,7 +20,7 @@ export default async function LinkPage({ searchParams }: PageProps<"/link">) {
   // A code in the address (from the QR code) skips straight to "is this your TV?", counted against the same try limit as typing one in.
   const raw = (await searchParams).code;
   const code = normalizeUserCode(typeof raw === "string" ? raw : null);
-  const open = code && (await checkRateLimit(account.id, "tv_pair", 30, 10 * 60)) ? await findOpenPairing(db, code) : null;
+  const open = code && (await checkRateLimit(account.id, "tv_pair", 20, 10 * 60)) ? await findOpenPairing(db, code) : null;
   return (
     <AuthShell title="Sign in a TV" description="Type the code your TV is showing to sign it in to your account.">
       <LinkTvForm email={accountLabel(account)} initial={open && code ? { code, deviceLabel: open.deviceLabel, location: open.locationHint } : undefined} />

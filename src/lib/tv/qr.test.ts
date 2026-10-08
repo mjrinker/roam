@@ -11,12 +11,12 @@ async function decode(svg: string): Promise<string | null> {
 
 describe("QR codes for the TV sign-in screen", () => {
   it("scan back to the link with the TV's code filled in", async () => {
-    const url = linkUrl("https://roam-three-gray.vercel.app", "ABCDEFGH");
-    expect(url).toBe("https://roam-three-gray.vercel.app/link?code=ABCDEFGH");
+    const url = linkUrl("https://roam-three-gray.vercel.app", "ABCDE");
+    expect(url).toBe("https://roam-three-gray.vercel.app/link?code=ABCDE");
     expect(await decode(await qrSvg(url))).toBe(url);
   });
   it("are drawn in black on white with a quiet border, sized by CSS", async () => {
-    const svg = await qrSvg("https://x.example/link?code=ABCDEFGH");
+    const svg = await qrSvg("https://x.example/link?code=ABCDE");
     expect(svg).toMatch(/^<svg class="qr" /);
     expect(svg).not.toMatch(/ (width|height)="\d+"/);
     expect(svg).toContain("#ffffff");

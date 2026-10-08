@@ -29,7 +29,7 @@ button.tile { margin: 0 1.5rem 1.5rem 0; }
 .detail .poster img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .detail .text { flex: 1; min-width: 0; }
 .overview { font-size: 1.2rem; color: #b8b8c4; max-width: 52rem; margin: 0 0 1.6rem 0; }
-.code { font-size: 5rem; font-weight: 700; letter-spacing: 0.5rem; color: #7fd8bd; margin: 1.5rem 0; }
+.code { font-size: 6.5rem; font-weight: 700; letter-spacing: 0.9rem; color: #7fd8bd; margin: 1.5rem 0; }
 .note { font-size: 1.15rem; color: #9a9aa6; max-width: 46rem; }
 .msg { font-size: 1.4rem; color: #e0b3a8; }
 [data-f]:focus { outline: none; border-color: #7fd8bd; background-color: #262634; transform: scale(1.04); }

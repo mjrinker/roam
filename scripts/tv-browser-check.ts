@@ -20,7 +20,7 @@ if (browsers.length === 0) throw new Error("Set TV_BROWSERS=name=/path/to/chrome
 const poster = (n: number) => ({ href: `/tv/s/x/title/${n}`, name: `Movie ${n}`, meta: "2020", posterUrl: null });
 const pages: Record<string, string> = {
   "/tv": messagePage("Signed in", "Welcome."),
-  "/tv/pair": pairPage({ userCode: "ABCD-EFGH", linkUrl: "roam.example/link", pollUrl: "/tv/pair/poll", expiredUrl: "/tv/pair" }),
+  "/tv/pair": pairPage({ userCode: "ABCDE", linkUrl: "roam.example/link", pollUrl: "/tv/pair/poll", expiredUrl: "/tv/pair" }),
   "/tv/s/x": homePage({ serverName: "Test Server", base: "/tv/s/x", profileName: "Matt", continueWatching: [poster(1), poster(2)], libraries: [{ id: "a", name: "Movies", kind: "Movies" }, { id: "b", name: "Shows", kind: "TV Shows" }], unsupported: 1 }),
   "/tv/s/x/library/a": listPage({ base: "/tv/s/x", title: "Movies", backHref: "/tv/s/x", items: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].map(poster), prevHref: null, nextHref: "/tv/s/x/library/a?page=2" }),
   "/tv/s/x/title/1": detailPage({ title: "Movie 1", meta: "2020", overview: "About it.", posterUrl: null, backHref: "/tv/s/x/library/a", actions: [{ href: "/tv/s/x/watch/title/1", label: "Play", primary: true }, { href: "/tv/s/x", label: "Home" }] }),
@@ -109,7 +109,7 @@ async function run(label: string, exe: string, m56: boolean) {
   // The pairing screen asks again every few seconds and moves on by itself once the code is approved.
   polls = 0;
   await page.goto(base + "/tv/pair");
-  check(L("the pairing screen shows the code"), (await page.evaluate<string>(`document.querySelector(".code").textContent`)) === "ABCD-EFGH");
+  check(L("the pairing screen shows the code"), (await page.evaluate<string>(`document.querySelector(".code").textContent`)) === "ABCDE");
   check(L("the pairing screen moves on once approved"), await page.waitFor(`location.pathname === "/tv"`, 20000), `polls=${polls}`);
 
   // Home: the first continue-watching card has focus; arrows move; OK opens a library.

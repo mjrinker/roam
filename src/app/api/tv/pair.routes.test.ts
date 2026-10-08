@@ -57,7 +57,7 @@ describe("POST /api/tv/pair", () => {
     expect(look.status).toBe(200);
     expect(await look.json()).toMatchObject({ deviceLabel: "Samsung TV", location: "Denver, US" });
     expect((await db.select().from(tvPairings).where(eq(tvPairings.userCode, r.userCode)))[0]).toMatchObject({ status: "pending", accountId: null });
-    const ok = await post({ code: `${r.userCode.slice(0, 4)}-${r.userCode.slice(4)}`, approve: true });
+    const ok = await post({ code: ` ${r.userCode.slice(0, 2).toLowerCase()}-${r.userCode.slice(2).toLowerCase()} `, approve: true }); // typed in lower case, with a hyphen and spaces
     expect([ok.status, (await ok.json()).ok]).toEqual([200, true]);
     expect((await db.select().from(tvPairings).where(eq(tvPairings.userCode, r.userCode)))[0]).toMatchObject({ status: "approved", accountId: account.id });
   });
@@ -69,7 +69,7 @@ describe("POST /api/tv/pair", () => {
     const expired = await open();
     await db.update(tvPairings).set({ expiresAt: new Date(Date.now() - 1000) }).where(eq(tvPairings.userCode, expired.userCode));
     const answers = [];
-    for (const code of ["ABCDEFGH", "nope", "", used.userCode, expired.userCode]) {
+    for (const code of ["ZZZZZ", "nope", "", used.userCode, expired.userCode]) {
       const res = await post({ code, approve: true });
       answers.push([res.status, JSON.stringify(await res.json())]);
     }
@@ -87,11 +87,11 @@ describe("POST /api/tv/pair", () => {
   it("limits tries per account, so a code can't be guessed", async () => {
     await signIn("d");
     const statuses: number[] = [];
-    for (let i = 0; i < 32; i++) statuses.push((await post({ code: "ABCDEFGH" })).status);
-    expect(statuses.slice(0, 30).every((s) => s === 404)).toBe(true);
-    expect(statuses.slice(30)).toEqual([429, 429]);
+    for (let i = 0; i < 22; i++) statuses.push((await post({ code: "ZZZZZ" })).status);
+    expect(statuses.slice(0, 20).every((s) => s === 404)).toBe(true);
+    expect(statuses.slice(20)).toEqual([429, 429]);
     const other = await signIn("e"); // another account has its own allowance
     expect(other).toBeTruthy();
-    expect((await post({ code: "ABCDEFGH" })).status).toBe(404);
+    expect((await post({ code: "ZZZZZ" })).status).toBe(404);
   });
 });

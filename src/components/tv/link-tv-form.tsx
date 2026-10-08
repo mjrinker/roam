@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { Loader2, Tv } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { CODE_LENGTH, typedLength } from "@/lib/tv/code";
 
 type Step = { name: "enter" } | { name: "confirm"; deviceLabel: string; location: string | null } | { name: "done"; deviceLabel: string };
 
@@ -69,16 +70,16 @@ export function LinkTvForm({ email, initial }: { email: string; initial?: { code
       <input
         id="tv-code"
         value={code}
-        onChange={(e) => setCode(e.target.value.toUpperCase().slice(0, 12))}
+        onChange={(e) => setCode(e.target.value.toUpperCase().slice(0, CODE_LENGTH + 4))}
         autoComplete="off"
         autoCapitalize="characters"
         spellCheck={false}
         inputMode="text"
-        placeholder="ABCD-EFGH"
+        placeholder="ABCDE"
         className="h-14 rounded-xl bg-white/[0.06] px-4 text-center text-2xl font-semibold tracking-[0.3em] ring-1 ring-white/10 focus:outline-none focus:ring-2 focus:ring-primary"
       />
       {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
-      <Button type="submit" disabled={busy || code.replace(/[\s-]/g, "").length < 8} className="h-11 rounded-xl">
+      <Button type="submit" disabled={busy || typedLength(code) < CODE_LENGTH} className="h-11 rounded-xl">
         {busy ? <Loader2 className="size-4 animate-spin" /> : "Continue"}
       </Button>
     </form>
