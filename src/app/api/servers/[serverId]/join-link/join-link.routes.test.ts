@@ -29,8 +29,11 @@ describe("PUT /api/servers/[serverId]/join-link", () => {
     h.resolution = { account, viewer: all[0], viewers: all };
   }
 
+  const grant = (id: string) => db.update(profiles).set({ canManageOpenLinks: true }).where(eq(profiles.id, id));
+
   it("lets the server's admin switch the link on, replace it and mark the demo, and returns the token", async () => {
     const owner = await makeAccount(db, "o");
+    await grant(owner.accountId);
     const server = await makeServer(db, owner.accountId);
     await signInAs(owner.accountId);
     const on = await (await put(server.id, { enabled: true, demo: true })).json();
@@ -41,8 +44,23 @@ describe("PUT /api/servers/[serverId]/join-link", () => {
     expect(await (await put(server.id, { enabled: false })).json()).toEqual({ joinToken: null, isDemo: true });
   });
 
+  it("an admin who was not given the permission gets the same 404 as anyone else, and nothing changes", async () => {
+    const owner = await makeAccount(db, "o"); // an ordinary server admin: no permission
+    const server = await makeServer(db, owner.accountId);
+    await signInAs(owner.accountId);
+    for (const body of [{ enabled: true }, { demo: true }, { enabled: true, demo: true }]) {
+      const r = await put(server.id, body);
+      expect([r.status, await r.json()]).toEqual([404, { error: "Not found" }]);
+    }
+    expect((await db.select().from(servers).where(eq(servers.id, server.id)))[0]).toMatchObject({ joinToken: null, isDemo: false });
+    await grant(owner.accountId);
+    await signInAs(owner.accountId); // reload the account
+    expect((await put(server.id, { enabled: true })).status).toBe(200);
+  });
+
   it("is the same 404 for a viewer, a stranger, a signed-out visitor, a bad id and a missing server, and changes nothing", async () => {
     const owner = await makeAccount(db, "o");
+    await grant(owner.accountId);
     const server = await makeServer(db, owner.accountId);
     const viewer = await makeAccount(db, "v");
     await joinServer(db, server.id, viewer.accountId, "viewer");
@@ -67,6 +85,7 @@ describe("PUT /api/servers/[serverId]/join-link", () => {
 
   it("requires a JSON body, rejects unknown fields and wrong types, so a form posted from another site changes nothing", async () => {
     const owner = await makeAccount(db, "o");
+    await grant(owner.accountId);
     const server = await makeServer(db, owner.accountId);
     await signInAs(owner.accountId);
     expect((await put(server.id, "enabled=true", "application/x-www-form-urlencoded")).status).toBe(415);

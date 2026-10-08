@@ -5,9 +5,9 @@
  * one-admin rule in the database stands behind that.
  */
 import { randomBytes } from "node:crypto";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { db } from "@/lib/db/client";
-import { serverMembers, servers, viewers } from "@/lib/db/schema";
+import { profiles, serverMembers, servers, viewers } from "@/lib/db/schema";
 import { checkRateLimit } from "@/lib/rate-limit";
 
 /** 24 random bytes as base64url: 32 characters. */
@@ -23,10 +23,13 @@ export interface JoinTarget {
 /** The server an open link points at, or null for any token that isn't one (unknown, switched off, replaced, malformed): all alike. */
 export async function getJoinTarget(token: string): Promise<JoinTarget | null> {
   if (!TOKEN_SHAPE.test(token)) return null;
+  // Checked every time the link is used, not only when it was made: taking the permission away from an account
+  // switches off every open link its servers have, at once.
   const [row] = await db
     .select({ serverId: servers.id, serverName: servers.name, isDemo: servers.isDemo })
     .from(servers)
-    .where(eq(servers.joinToken, token))
+    .innerJoin(profiles, eq(profiles.id, servers.ownerId))
+    .where(and(eq(servers.joinToken, token), eq(profiles.canManageOpenLinks, true)))
     .limit(1);
   return row ?? null;
 }

@@ -77,6 +77,9 @@ export const profiles = pgTable("profiles", {
   // An anonymous visitor (the public demo's one-click guest): no real email, can only watch, and is deleted
   // after a stretch of inactivity (see lib/auth/guests).
   isGuest: boolean("is_guest").notNull().default(false),
+  // Who may switch on a server's open join link and mark it a public demo. Off for everyone; granted by hand
+  // (scripts/grant-open-links.ts), because an open link lets strangers (and anonymous guests) into a server.
+  canManageOpenLinks: boolean("can_manage_open_links").notNull().default(false),
   // When a guest last loaded a page (touched at most hourly); what "inactive" is measured against.
   lastSeenAt: timestamp("last_seen_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true })

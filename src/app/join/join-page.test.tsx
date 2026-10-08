@@ -12,7 +12,7 @@ vi.mock("@/lib/db/client", async () => {
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push: () => undefined, refresh: () => undefined }) }));
 vi.mock("@/lib/supabase/client", () => ({ createSupabaseBrowserClient: () => ({}) }));
 
-import { servers } from "@/lib/db/schema";
+import { profiles, servers } from "@/lib/db/schema";
 import { makeAccount, makeServer, type TestDb } from "@/lib/playlists/test-db";
 import { setJoinLink } from "@/lib/auth/join";
 import JoinPage, { metadata } from "./[token]/page";
@@ -27,6 +27,7 @@ beforeAll(() => {
 const render = async (token: string) => renderToStaticMarkup(await JoinPage({ params: Promise.resolve({ token }) } as never));
 async function open(name: string, demo: boolean) {
   const owner = await makeAccount(db, "o");
+  await db.update(profiles).set({ canManageOpenLinks: true }).where(eq(profiles.id, owner.accountId));
   const server = await makeServer(db, owner.accountId);
   await db.update(servers).set({ name }).where(eq(servers.id, server.id));
   const link = (await setJoinLink(server.id, { enabled: true, demo }))!;

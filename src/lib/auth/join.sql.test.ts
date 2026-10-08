@@ -28,6 +28,7 @@ const uuid = () => crypto.randomUUID();
 
 async function demoServer(demo = true) {
   const owner = await makeAccount(db, "owner");
+  await db.update(profiles).set({ canManageOpenLinks: true }).where(eq(profiles.id, owner.accountId));
   const server = await makeServer(db, owner.accountId);
   const link = (await setJoinLink(server.id, { enabled: true, demo }))!;
   return { owner, server, token: link.joinToken! };
@@ -36,6 +37,7 @@ async function demoServer(demo = true) {
 describe("the join link (admin side)", () => {
   it("is switched on, replaced and switched off, and a replaced or disabled link stops working", async () => {
     const owner = await makeAccount(db, "o");
+    await db.update(profiles).set({ canManageOpenLinks: true }).where(eq(profiles.id, owner.accountId));
     const server = await makeServer(db, owner.accountId);
     expect((await setJoinLink(server.id, {}))!.joinToken).toBeNull();
     const on = (await setJoinLink(server.id, { enabled: true }))!;
@@ -49,6 +51,18 @@ describe("the join link (admin side)", () => {
     expect((await setJoinLink(server.id, { enabled: false }))!.joinToken).toBeNull();
     expect(await getJoinTarget(rotated.joinToken!)).toBeNull();
     expect(await setJoinLink(uuid(), { enabled: true })).toBeNull(); // no such server
+  });
+
+  it("a link only works while the server's owner holds the permission: taking it away switches every link off at once", async () => {
+    const { owner, server, token } = await demoServer();
+    expect(await getJoinTarget(token)).not.toBeNull();
+    await db.update(profiles).set({ canManageOpenLinks: false }).where(eq(profiles.id, owner.accountId));
+    expect(await getJoinTarget(token)).toBeNull();
+    const a = await makeAccount(db, "a");
+    expect(await acceptJoin(token, { id: a.accountId })).toEqual({ ok: false, reason: "not_found" });
+    expect(await roleOf(server.id, a.accountId)).toBeNull();
+    await db.update(profiles).set({ canManageOpenLinks: true }).where(eq(profiles.id, owner.accountId));
+    expect(await getJoinTarget(token)).not.toBeNull(); // the link itself was never deleted
   });
 
   it("rotating a link that is off does not switch it on, and the demo flag changes independently", async () => {

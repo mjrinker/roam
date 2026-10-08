@@ -9,7 +9,7 @@ const bodySchema = z
 
 /**
  * The server admin's controls for its open join link: switch it on or off, replace it, and mark the server as a
- * public demo. Admin only (a non-admin, a non-member and a missing server all get the same answer), and a JSON
+ * public demo. Admin only, and only for accounts granted the permission (a non-admin, a non-member and a missing server all get the same answer), and a JSON
  * body is required, so a form posted from another site can't change it.
  */
 export async function PUT(request: Request, ctx: RouteContext<"/api/servers/[serverId]/join-link">) {
@@ -19,7 +19,9 @@ export async function PUT(request: Request, ctx: RouteContext<"/api/servers/[ser
   if (!(request.headers.get("content-type") ?? "").includes("application/json")) return NextResponse.json({ error: "Expected JSON" }, { status: 415 });
 
   const admin = await getCurrentServerAdmin(serverId);
-  if (!admin) return notFound();
+  // Open links let strangers into a server, so only accounts that were given this permission may use them; to everyone else
+  // this does not exist.
+  if (!admin || !admin.profile.canManageOpenLinks) return notFound();
 
   const parsed = bodySchema.safeParse(await request.json().catch(() => null));
   if (!parsed.success) return NextResponse.json({ error: "Invalid request" }, { status: 400 });

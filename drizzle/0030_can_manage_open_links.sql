@@ -1,0 +1,1 @@
+ALTER TABLE "profiles" ADD COLUMN "can_manage_open_links" boolean DEFAULT false NOT NULL;

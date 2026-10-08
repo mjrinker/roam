@@ -35,6 +35,7 @@ const post = (body: unknown) => ensureProfile(new Request("http://x", { method: 
 const uuid = () => crypto.randomUUID();
 async function demo() {
   const owner = await makeAccount(db, "owner");
+  await db.update(profiles).set({ canManageOpenLinks: true }).where(eq(profiles.id, owner.accountId));
   const server = await makeServer(db, owner.accountId);
   const link = (await setJoinLink(server.id, { enabled: true, demo: true }))!;
   return { owner, server, token: link.joinToken! };

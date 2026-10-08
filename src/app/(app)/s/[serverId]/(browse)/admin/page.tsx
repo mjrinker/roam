@@ -160,7 +160,7 @@ export default async function AdminPage({
           metadataStatus: t.metadataStatus as "pending" | "not_found",
         }))}
       />
-      <JoinLinkManager serverId={serverId} initialToken={server?.joinToken ?? null} initialDemo={server?.isDemo ?? false} visibleProfileNames={visibleProfileNames} />
+      {adminAccount.canManageOpenLinks && <JoinLinkManager serverId={serverId} initialToken={server?.joinToken ?? null} initialDemo={server?.isDemo ?? false} visibleProfileNames={visibleProfileNames} />}
 
       <InviteManager
         serverId={serverId}
