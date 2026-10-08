@@ -73,3 +73,4 @@ button.tile { margin: 0 1.5rem 1.5rem 0; }
 .hits { flex: 1; min-width: 0; }
 .hit { display: block; padding: 0.8rem 1.1rem; margin-bottom: 0.45rem; border-radius: 0.5rem; background: #14141c; font-size: 1.3rem; border: 0.25rem solid transparent; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .hit small { color: #8d8d99; font-size: 1rem; margin-left: 0.8rem; }
+.modern a[data-more].auto { display: none; }

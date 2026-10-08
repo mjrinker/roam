@@ -48,6 +48,7 @@ function reveal(el: HTMLElement) {
 function focusEl(el: HTMLElement) {
   el.focus();
   reveal(el);
+  maybeLoadMore(el);
 }
 
 function current(): HTMLElement | null {
@@ -72,8 +73,98 @@ function move(dir: "left" | "up" | "right" | "down") {
 
 function activate(el: HTMLElement) {
   const href = el.getAttribute("href");
-  if (href) window.location.href = href;
-  else el.click();
+  if (href) {
+    rememberFocus(href);
+    window.location.href = href;
+  } else el.click();
+}
+
+// ── Remembering your place ───────────────────────────────────────────────
+
+const PLACE_KEY = "roamTvPlaces";
+const pageKey = () => window.location.pathname + window.location.search;
+
+/** Notes which link was opened from this page, so Back can put the highlight on it again instead of at the top. */
+function rememberFocus(href: string) {
+  try {
+    const raw = window.sessionStorage.getItem(PLACE_KEY);
+    const places: { [page: string]: string } = raw ? JSON.parse(raw) : {};
+    delete places[pageKey()];
+    places[pageKey()] = href;
+    const keys = Object.keys(places);
+    for (let i = 0; i < keys.length - 30; i++) delete places[keys[i]]; // keep the last thirty pages
+    window.sessionStorage.setItem(PLACE_KEY, JSON.stringify(places));
+  } catch {
+    /* storage may be unavailable; the highlight just starts at the top */
+  }
+}
+
+/** Puts the highlight back on the link that was opened from this page last time, if it is still here. */
+function restoreFocus(): boolean {
+  try {
+    const raw = window.sessionStorage.getItem(PLACE_KEY);
+    if (!raw) return false;
+    const places: { [page: string]: string } = JSON.parse(raw);
+    const href = places[pageKey()];
+    if (!href) return false;
+    delete places[pageKey()];
+    window.sessionStorage.setItem(PLACE_KEY, JSON.stringify(places));
+    const items = visibleItems();
+    for (let i = 0; i < items.length; i++) {
+      if (items[i].getAttribute("href") === href) {
+        focusEl(items[i]);
+        return true;
+      }
+    }
+  } catch {
+    /* ignore */
+  }
+  return false;
+}
+
+// ── Endless lists (newer browsers) ──────────────────────────────────────
+
+let loadingMore = false;
+
+/** On a long list, the next page is fetched and added as the highlight nears the end, so there is no More button to press. */
+function maybeLoadMore(el: HTMLElement) {
+  if (!MODERN || loadingMore) return;
+  const more = doc.querySelector("a[data-more]");
+  const cards = doc.querySelector("[data-cards]");
+  if (!more || !cards || !cards.contains(el)) return;
+  let at = -1;
+  for (let i = 0; i < cards.children.length; i++) if (cards.children[i] === el || cards.children[i].contains(el)) at = i;
+  if (at < cards.children.length - 8) return;
+  loadingMore = true;
+  const href = more.getAttribute("href") || "";
+  fetch(href, { credentials: "same-origin" })
+    .then((res) => {
+      if (!res.ok) throw new Error("page failed");
+      return res.text();
+    })
+    .then((text) => {
+      const next = new DOMParser().parseFromString(text, "text/html");
+      const added = next.querySelector("[data-cards]");
+      if (!added) throw new Error("no cards");
+      const nodes: Node[] = [];
+      for (let i = 0; i < added.children.length; i++) nodes.push(added.children[i]);
+      for (let i = 0; i < nodes.length; i++) cards.appendChild(doc.importNode(nodes[i], true));
+      const nextMore = next.querySelector("a[data-more]");
+      if (nextMore) more.setAttribute("href", nextMore.getAttribute("href") || "");
+      else if (more.parentNode) more.parentNode.removeChild(more);
+      try {
+        // The address now names the page just added, so coming Back to it (and remembering your place) lands where you were.
+        window.history.replaceState(null, "", href);
+      } catch {
+        /* cosmetic */
+      }
+      loadingMore = false;
+    })
+    .catch(() => {
+      // Fall back to the visible More button.
+      more.className = more.className.replace(" auto", "");
+      loadingMore = false;
+    });
 }
 
 function goBack() {
@@ -673,7 +764,11 @@ function init() {
   if (photoEl) return startPhotoViewer(JSON.parse(photoEl.textContent || "{}") as PhotoConfig);
   const start = doc.querySelector("[data-autofocus]") as HTMLElement | null;
   const items = visibleItems();
-  if (start) focusEl(start);
+  const more = doc.querySelector("a[data-more]");
+  if (more && MODERN) more.className += " auto"; // the next page loads by itself; the button stays as a fallback
+  if (restoreFocus()) {
+    /* back where you were */
+  } else if (start) focusEl(start);
   else if (items.length) focusEl(items[0]);
   // A page that polls (the pairing screen) names its script-free refresh target.
   const poll = doc.querySelector("[data-poll]");

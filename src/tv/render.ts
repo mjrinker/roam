@@ -78,7 +78,7 @@ export interface Poster {
 export const card = (p: Poster, autofocus = false): string => {
   const img = safeUrl(p.posterUrl);
   return (
-    `<a class="card${p.square ? " sq" : ""}" data-f${autofocus ? " data-autofocus" : ""} href="${esc(safeUrl(p.href) ?? "/tv")}"><span class="poster">${img ? `<img src="${esc(img)}" alt="">` : ""}</span>` +
+    `<a class="card${p.square ? " sq" : ""}" data-f${autofocus ? " data-autofocus" : ""} href="${esc(safeUrl(p.href) ?? "/tv")}"><span class="poster">${img ? `<img src="${esc(img)}" alt="" loading="lazy">` : ""}</span>` +
     `<span class="name">${esc(p.name)}</span>${p.meta ? `<span class="meta">${esc(p.meta)}</span>` : ""}` +
     (p.progress ? `<span class="bar"><b style="width:${Math.round(Math.min(1, Math.max(0, p.progress)) * 100)}%"></b></span>` : "") +
     `</a>`
@@ -137,8 +137,8 @@ export function listPage(d: ListData): string {
   const body =
     `<div class="page">${top(`<a data-f data-back href="${esc(d.backHref)}" class="btn" style="margin:0">Back</a>`)}<h1>${esc(d.title)}</h1>${d.subtitle ? `<p class="sub">${esc(d.subtitle)}</p>` : ""}` +
     (d.folders?.length ? `<div class="row">${d.folders.map((f, i) => `<a class="tile folder" data-f${i === 0 ? " data-autofocus" : ""} href="${esc(safeUrl(f.href) ?? "/tv")}">${esc(f.name)}<small>${esc(f.note ?? "Folder")}</small></a>`).join("")}</div>` : "") +
-    (d.items.length ? `<div class="row">${d.items.map((c, i) => card(c, i === 0 && !d.folders?.length)).join("")}</div>` : d.folders?.length ? "" : `<p class="sub">Nothing here yet.</p>`) +
-    `<div class="row">${d.prevHref ? `<a class="btn" data-f href="${esc(d.prevHref)}">Previous</a>` : ""}${d.nextHref ? `<a class="btn" data-f href="${esc(d.nextHref)}">More</a>` : ""}</div></div>`;
+    (d.items.length ? `<div class="row" data-cards>${d.items.map((c, i) => card(c, i === 0 && !d.folders?.length)).join("")}</div>` : d.folders?.length ? "" : `<p class="sub">Nothing here yet.</p>`) +
+    `<div class="row">${d.prevHref ? `<a class="btn" data-f href="${esc(d.prevHref)}">Previous</a>` : ""}${d.nextHref ? `<a class="btn" data-f data-more href="${esc(d.nextHref)}">More</a>` : ""}</div></div>`;
   return tvDocument({ title: d.title, body });
 }
 

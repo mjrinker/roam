@@ -46,6 +46,9 @@ let signouts = 0;
 
 const server = http.createServer((req, res) => {
   const url = new URL(req.url!, "http://x");
+  if (url.pathname === "/tv/s/x/library/a" && url.searchParams.get("page") === "2") {
+    return void res.writeHead(200, { "content-type": "text/html" }).end(listPage({ base: "/tv/s/x", title: "Movies", backHref: "/tv/s/x", items: [13, 14, 15, 16, 17, 18].map(poster), prevHref: null, nextHref: null }));
+  }
   if (pages[url.pathname]) return void res.writeHead(200, { "content-type": "text/html" }).end(pages[url.pathname]);
   if (url.pathname === "/tv/tv.css") return void res.writeHead(200, { "content-type": "text/css" }).end(fs.readFileSync("public/tv/tv.css"));
   if (url.pathname === "/tv/tv.js") return void res.writeHead(200, { "content-type": "text/javascript" }).end(fs.readFileSync("public/tv/tv.js"));
@@ -154,6 +157,28 @@ async function run(label: string, exe: string, m56: boolean) {
   await key(page, 13);
   check(L("OK opens the focused library"), await page.waitFor(`location.pathname === "/tv/s/x/library/a"`));
   await ready(page);
+
+  // Remembering your place: open a title from the grid, come back, and the highlight is on that title again.
+  await page.goto(base + "/tv/s/x/library/a?modern=0");
+  await key(page, 39);
+  await key(page, 39);
+  const third = await focusedText(page);
+  await key(page, 13);
+  await page.waitFor(`location.pathname === "/tv/s/x/title/3"`);
+  await page.goto(base + "/tv/s/x/library/a?modern=0");
+  check(L("coming back to a list puts the highlight on the item that was opened"), (await focusedText(page)) === third && third.startsWith("Movie 3"), `${third} -> ${await focusedText(page)}`);
+
+  // Endless lists: on a newer browser the next page is added as the highlight nears the end; on the basic path the More button stays.
+  const cardCount = `document.querySelectorAll("[data-cards] .card").length`;
+  await page.goto(base + "/tv/s/x/library/a?modern=0");
+  await key(page, 40);
+  await new Promise((r) => setTimeout(r, 600));
+  check(L("on the basic path nothing is added by itself and More is shown"), (await page.evaluate<number>(cardCount)) === 12 && (await page.evaluate<boolean>(`!!document.querySelector("a[data-more]") && document.querySelector("a[data-more]").getBoundingClientRect().width > 0`)));
+  await page.goto(base + "/tv/s/x/library/a?modern=1");
+  check(L("on a newer browser the More button is hidden"), await page.evaluate<boolean>(`document.querySelector("a[data-more]").getBoundingClientRect().width === 0`));
+  await key(page, 40);
+  check(L("the next page is added as the highlight nears the end"), await page.waitFor(`document.querySelectorAll("[data-cards] .card").length === 18`, 8000));
+  check(L("the address names the added page and the end of the list removes the button"), await page.evaluate<boolean>(`location.search === "?page=2" && !document.querySelector("a[data-more]")`));
 
   // A POST button (Sign out) works with the remote's OK key, and only then.
   await page.goto(base + "/tv/s/x");
