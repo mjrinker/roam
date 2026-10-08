@@ -3,7 +3,9 @@
  * The only script Roam's TV pages load. It is compiled for Chromium 56 (Samsung 2018) and does three things:
  *  1. moves a highlight between the page's focusable items with the remote's arrow keys,
  *  2. handles Back and OK, and the media keys,
- *  3. on a watch page, plays the title in a <video> element, part after part, and keeps the viewer's place.
+ *  3. on a watch page, plays the title in a <video> element, part after part, and keeps the viewer's place,
+ *  4. on a listening page, does the same for audio (an audiobook, an audio file or a song) in an <audio> element,
+ *  5. on a picture page, shows one picture full screen, with left and right for its neighbours and a slideshow.
  * No framework: the pages are plain HTML from the server.
  */
 import { UNSUPPORTED_AUDIO_CODECS } from "@/lib/scan/codec-support";
@@ -268,6 +270,275 @@ function startPlayer(cfg: PlayConfig) {
   load();
 }
 
+
+// ── Listening (audiobooks, audio files, songs) ───────────────────────────────
+
+interface ListenConfig {
+  ownerKind: "title";
+  ownerId: string;
+  /** Whether the place is saved (audiobooks and audio files, not songs). */
+  remembers: boolean;
+  skip: number;
+  back: string;
+  next: string | null;
+}
+interface AudioPart {
+  index: number;
+  startSeconds: number;
+  durationSeconds: number;
+}
+interface AudioManifest {
+  durationSeconds: number;
+  segments: AudioPart[];
+  resumeSeconds: number;
+  urls: { index: number; url: string; expiresAt: string }[];
+}
+
+function startListening(cfg: ListenConfig) {
+  const audio = doc.getElementById("pa") as HTMLAudioElement;
+  const bar = doc.getElementById("bar") as HTMLElement;
+  const fill = doc.getElementById("fill") as HTMLElement;
+  const clock = doc.getElementById("clock") as HTMLElement;
+  const status = doc.getElementById("status") as HTMLElement;
+  const hud = doc.getElementById("hud") as HTMLElement;
+  let manifest: AudioManifest | null = null;
+  let part: AudioPart | null = null;
+  let lastSave = 0;
+  let wantPlaying = true;
+  let recoveries = 0;
+  let hudTimer: number | undefined;
+
+  const position = () => (manifest && part ? part.startSeconds + audio.currentTime : 0);
+  const say = (text: string) => {
+    status.textContent = text;
+    status.style.display = text ? "block" : "none";
+  };
+  function showHud() {
+    hud.className = "hud on";
+    if (hudTimer) window.clearTimeout(hudTimer);
+    hudTimer = window.setTimeout(() => {
+      if (!audio.paused) hud.className = "hud";
+    }, 5000);
+  }
+  function paint() {
+    if (!manifest) return;
+    const p = position();
+    fill.style.width = Math.min(100, (p / Math.max(1, manifest.durationSeconds)) * 100) + "%";
+    clock.textContent = formatClock(p) + " / " + formatClock(manifest.durationSeconds);
+  }
+  function save(finished?: boolean, leaving?: boolean) {
+    if (!cfg.remembers || !manifest) return;
+    const p = Math.floor(position());
+    lastSave = Date.now();
+    const body = JSON.stringify({ ownerKind: cfg.ownerKind, ownerId: cfg.ownerId, positionSeconds: p, durationSeconds: Math.floor(manifest.durationSeconds), finished: finished === undefined ? isFinished(p, manifest.durationSeconds) : finished });
+    try {
+      // text/plain: Chromium 69 refuses a JSON beacon (see the video player)
+      if (leaving && navigator.sendBeacon && navigator.sendBeacon("/api/watch-state", new Blob([body], { type: "text/plain" }))) return;
+    } catch {
+      /* fall through to a normal request */
+    }
+    fetch("/api/watch-state", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: body, credentials: "same-origin" }).catch(function () {
+      /* a save lost to a page change is not worth an error */
+    });
+  }
+
+  /** The link for one part: the manifest carries the first two, any other (or an expired one) is asked for. */
+  function urlFor(index: number): Promise<string> {
+    const known = manifest && manifest.urls.filter((u) => u.index === index && Date.parse(u.expiresAt) - Date.now() > 60000)[0];
+    if (known) return Promise.resolve(known.url);
+    return fetch("/api/audiobooks/" + cfg.ownerId + "/segments/" + index, { credentials: "same-origin" })
+      .then((r) => {
+        if (!r.ok) throw new Error("This can't be played right now.");
+        return r.json();
+      })
+      .then((j: { url: string }) => j.url);
+  }
+
+  function openPart(seg: AudioPart, fileTime: number, autoplay: boolean) {
+    part = seg;
+    urlFor(seg.index)
+      .then((url) => {
+        if (part !== seg) return; // another part was chosen while this link was being fetched
+        audio.src = url;
+        const onMeta = () => {
+          audio.removeEventListener("loadedmetadata", onMeta);
+          if (fileTime > 0) audio.currentTime = fileTime;
+          if (autoplay) {
+            const played = audio.play();
+            if (played && played.catch) played.catch(() => say("Press OK to play"));
+          }
+        };
+        audio.addEventListener("loadedmetadata", onMeta);
+        audio.load();
+      })
+      .catch((e: Error) => say(e.message || "This can't be played right now."));
+  }
+
+  function partAt(seconds: number): { seg: AudioPart; local: number } {
+    const segs = (manifest as AudioManifest).segments;
+    let found = segs[0];
+    for (let i = 0; i < segs.length; i++) if (segs[i].startSeconds <= seconds) found = segs[i];
+    return { seg: found, local: Math.max(0, seconds - found.startSeconds) };
+  }
+  function seekTo(seconds: number) {
+    if (!manifest) return;
+    const t = Math.min(Math.max(0, seconds), Math.max(0, manifest.durationSeconds - 1));
+    const at = partAt(t);
+    if (part && at.seg.index === part.index) audio.currentTime = at.local;
+    else openPart(at.seg, at.local, wantPlaying);
+    paint();
+    showHud();
+  }
+  function toggle() {
+    if (audio.paused) {
+      wantPlaying = true;
+      const p = audio.play();
+      if (p && p.catch) p.catch(() => undefined);
+    } else {
+      wantPlaying = false;
+      audio.pause();
+    }
+    showHud();
+  }
+
+  function load(resumeFrom?: number, autoplay?: boolean) {
+    say("Loading…");
+    fetch("/api/audiobooks/" + cfg.ownerId + "/manifest", { credentials: "same-origin" })
+      .then((res) => {
+        if (res.status === 401 || res.status === 403) {
+          window.location.href = "/tv";
+          throw new Error("Signed out.");
+        }
+        if (res.status === 429) throw new Error("The demo has reached today's play limit. Try again tomorrow.");
+        if (res.status === 409) throw new Error("This isn't ready to play yet. Try again in a few minutes.");
+        if (!res.ok) throw new Error("This can't be played right now.");
+        return res.json();
+      })
+      .then((m: AudioManifest) => {
+        manifest = m;
+        const resume = cfg.remembers && m.resumeSeconds > 0 && m.resumeSeconds < m.durationSeconds - 30 ? m.resumeSeconds : 0;
+        const at = partAt(resumeFrom !== undefined ? resumeFrom : resume);
+        say("");
+        openPart(at.seg, at.local, autoplay === undefined ? true : autoplay);
+      })
+      .catch((e: Error) => say(e.message || "This can't be played right now."));
+  }
+
+  audio.addEventListener("timeupdate", () => {
+    paint();
+    if (Date.now() - lastSave > SAVE_EVERY_MS && !audio.paused) save();
+  });
+  audio.addEventListener("playing", () => {
+    recoveries = 0;
+    say("");
+    showHud();
+  });
+  audio.addEventListener("waiting", () => say("Buffering…"));
+  audio.addEventListener("pause", () => {
+    showHud();
+    save();
+  });
+  audio.addEventListener("ended", () => {
+    if (!manifest || !part) return;
+    const nextPart = manifest.segments[part.index + 1];
+    if (nextPart) return openPart(nextPart, 0, true);
+    save(true, true);
+    window.location.href = cfg.next || cfg.back;
+  });
+  audio.addEventListener("error", () => {
+    // Usually a link that expired while paused: ask again and carry on from the same spot (twice at most).
+    if (manifest && recoveries < 2) {
+      recoveries++;
+      load(position(), wantPlaying);
+    } else say("Playback failed. Press Back and try again.");
+  });
+  window.addEventListener("pagehide", () => save(undefined, true));
+
+  playerKeys = (action: Action | null, dirKey: string | null): boolean => {
+    if (action === "back" || action === "stop") {
+      save(undefined, true);
+      window.location.href = cfg.back;
+      return true;
+    }
+    if (action === "playpause" || action === "enter") return toggle(), true;
+    if (action === "play") return audio.paused ? (toggle(), true) : true;
+    if (action === "pause") return audio.paused ? true : (toggle(), true);
+    if (action === "forward" || dirKey === "right") return seekTo(position() + (action === "forward" ? cfg.skip * 3 : cfg.skip)), true;
+    if (action === "rewind" || dirKey === "left") return seekTo(position() - (action === "rewind" ? cfg.skip * 3 : cfg.skip)), true;
+    if (dirKey === "up" || dirKey === "down") return showHud(), true;
+    return false;
+  };
+  bar.style.display = "block";
+  load();
+}
+
+// ── Pictures ─────────────────────────────────────────────────────────────
+
+interface PhotoConfig {
+  prev: string | null;
+  next: string | null;
+  back: string;
+}
+
+const SLIDE_MS = 6000;
+
+function startPhotoViewer(cfg: PhotoConfig) {
+  const img = doc.getElementById("pimg") as HTMLImageElement;
+  const status = doc.getElementById("status") as HTMLElement;
+  const hud = doc.getElementById("hud") as HTMLElement;
+  let slideshow = window.location.hash === "#slide";
+  let slideTimer: number | undefined;
+  let hudTimer: number | undefined;
+
+  const go = (href: string | null, keepShow: boolean) => {
+    if (!href) return;
+    window.location.href = href + (keepShow && slideshow ? "#slide" : "");
+  };
+  function showHud() {
+    hud.className = "hud on";
+    if (hudTimer) window.clearTimeout(hudTimer);
+    hudTimer = window.setTimeout(() => {
+      hud.className = "hud";
+    }, 4000);
+  }
+  function armSlideshow() {
+    if (slideTimer) window.clearTimeout(slideTimer);
+    if (slideshow && cfg.next) slideTimer = window.setTimeout(() => go(cfg.next, true), SLIDE_MS);
+  }
+  const failed = () => {
+    status.textContent = "This picture can't be shown.";
+    status.style.display = "block";
+    armSlideshow();
+  };
+  img.addEventListener("error", failed);
+  img.addEventListener("load", armSlideshow);
+  // The picture may have finished (or failed) before this script started, in which case neither event will fire.
+  if (img.complete) {
+    if (img.naturalWidth > 0) armSlideshow();
+    else failed();
+  }
+  showHud();
+
+  playerKeys = (action: Action | null, dirKey: string | null): boolean => {
+    if (action === "back" || action === "stop") return go(cfg.back, false), true;
+    if (dirKey === "right" || action === "forward") return go(cfg.next, true), true;
+    if (dirKey === "left" || action === "rewind") return go(cfg.prev, true), true;
+    if (action === "enter" || action === "playpause" || action === "play" || action === "pause") {
+      slideshow = action === "pause" ? false : action === "play" ? true : !slideshow;
+      status.textContent = slideshow ? "Slideshow" : "Slideshow stopped";
+      status.style.display = "block";
+      window.setTimeout(() => {
+        status.style.display = "none";
+      }, 1500);
+      armSlideshow();
+      showHud();
+      return true;
+    }
+    if (dirKey === "up" || dirKey === "down") return showHud(), true;
+    return false;
+  };
+}
+
 let playerKeys: ((action: Action | null, dirKey: string | null) => boolean) | null = null;
 
 // ── Wiring ───────────────────────────────────────────────────────────────
@@ -303,6 +574,10 @@ function init() {
   }
   const cfgEl = doc.getElementById("play-config");
   if (cfgEl) return startPlayer(JSON.parse(cfgEl.textContent || "{}") as PlayConfig);
+  const listenEl = doc.getElementById("listen-config");
+  if (listenEl) return startListening(JSON.parse(listenEl.textContent || "{}") as ListenConfig);
+  const photoEl = doc.getElementById("photo-config");
+  if (photoEl) return startPhotoViewer(JSON.parse(photoEl.textContent || "{}") as PhotoConfig);
   const start = doc.querySelector("[data-autofocus]") as HTMLElement | null;
   const items = visibleItems();
   if (start) focusEl(start);

@@ -59,3 +59,34 @@ export function isFileTreeLibraryKind(kind: LibraryKind | null | undefined): kin
 export function libraryKindUsesExternalMetadata(kind: LibraryKind | null | undefined): boolean {
   return kind === "movies" || kind === "shows" || kind === "audiobooks";
 }
+
+/**
+ * How a library is laid out on the TV interface. A kind that isn't listed isn't on TV yet (it is counted on the home screen, not shown).
+ * `grid`: one wall of titles; `folders`: a file manager; `artists`: artists, then albums, then songs; `timeline`: pictures by date.
+ */
+export type TvBrowseStyle = "grid" | "folders" | "artists" | "timeline";
+const TV_BROWSE: Partial<Record<LibraryKind, TvBrowseStyle>> = {
+  movies: "grid",
+  shows: "grid",
+  audiobooks: "grid",
+  video: "folders",
+  audio: "folders",
+  music: "artists",
+  photos: "timeline",
+};
+export const tvBrowseStyle = (kind: LibraryKind | null | undefined): TvBrowseStyle | null => (kind ? (TV_BROWSE[kind] ?? null) : null);
+
+/** The libraries whose items the TV plays as video, and as audio (what "continue watching" and "continue listening" read from). */
+export const TV_WATCH_KINDS: readonly LibraryKind[] = ["movies", "video"];
+export const TV_LISTEN_KINDS: readonly LibraryKind[] = ["audiobooks", "audio", "music"];
+
+/** The name a library kind goes by on the TV's home screen. */
+export const TV_KIND_LABEL: Partial<Record<LibraryKind, string>> = {
+  movies: "Movies",
+  shows: "TV Shows",
+  audiobooks: "Audiobooks",
+  video: "Videos",
+  audio: "Audio",
+  music: "Music",
+  photos: "Photos",
+};

@@ -32,14 +32,15 @@ async function world(access: "everyone" | "restricted" = "everyone") {
 }
 
 describe("tvLibraries", () => {
-  it("lists movies and shows libraries, counts the rest, and leaves out libraries it can't see", async () => {
+  it("lists the kinds that have a TV interface, counts the rest, and leaves out libraries it can't see", async () => {
     const w = await world();
     await makeLibrary(db, w.server.id, "music", "everyone");
     await makeLibrary(db, w.server.id, "photos", "everyone");
+    await makeLibrary(db, w.server.id, "ebooks", "everyone"); // the one kind not on TV
     await makeLibrary(db, w.server.id, "movies", "restricted"); // not shared with this member
     const r = await tvLibraries(db, w.scope());
-    expect(r.supported.map((l) => l.kind).sort()).toEqual(["movies", "shows"]);
-    expect(r.unsupported).toBe(2);
+    expect(r.supported.map((l) => l.kind).sort()).toEqual(["movies", "music", "photos", "shows"]);
+    expect(r.unsupported).toBe(1);
   });
   it("shows a restricted library to an admin and to a member it was shared with", async () => {
     const w = await world("restricted");
@@ -72,8 +73,10 @@ describe("libraryTitles", () => {
     await makeTitle(db, w.movies.id, { kind: "movie", name: "Thriller", ratingAges: { ANY: 17 } });
     expect((await libraryTitles(db, w.scope(kid), w.movies.id, 1))!.items.map((t) => t.name)).toEqual(["Cartoon"]);
     expect((await libraryTitles(db, w.scope(), w.movies.id, 1))!.items).toHaveLength(2);
-    const music = await makeLibrary(db, w.server.id, "music", "everyone");
+    const music = await makeLibrary(db, w.server.id, "music", "everyone"); // browsed as artists, not as a grid of titles
     expect(await libraryTitles(db, w.scope(), music.id, 1)).toBeNull();
+    const ebooks = await makeLibrary(db, w.server.id, "ebooks", "everyone");
+    expect(await libraryTitles(db, w.scope(), ebooks.id, 1)).toBeNull();
     const other = await world();
     expect(await libraryTitles(db, w.scope(), other.movies.id, 1)).toBeNull();
   });
@@ -97,7 +100,7 @@ describe("continueWatching", () => {
     await state(w.member.viewer.id, "title", m2.id, { finished: true });
     await state(w.member.viewer.id, "title", m3.id, { positionSeconds: 0 });
     await state(w.member.viewer.id, "episode", eps[1].id, { positionSeconds: 1500, durationSeconds: 3000 });
-    const items = await continueWatching(db, w.scope());
+    const { watching: items } = await continueWatching(db, w.scope());
     expect(items.map((i) => [i.kind, i.name])).toEqual([["episode", "Great Show"], ["title", "Old Movie"]]);
     expect(items[0]).toMatchObject({ meta: "S1 · E2 · Ep 2", progress: 0.5, posterUrl: "https://img/s.jpg" });
     expect(items[1].progress).toBeCloseTo(0.1);
@@ -107,17 +110,17 @@ describe("continueWatching", () => {
     const w = await world("restricted");
     const hidden = await makeTitle(db, w.movies.id, { kind: "movie", name: "Hidden" });
     await state(w.member.viewer.id, "title", hidden.id);
-    expect(await continueWatching(db, w.scope())).toEqual([]);
+    expect((await continueWatching(db, w.scope())).watching).toEqual([]);
     await db.insert(libraryMembers).values({ libraryId: w.movies.id, serverId: w.server.id, accountId: w.member.accountId });
-    expect(await continueWatching(db, w.scope())).toHaveLength(1);
-    expect(await continueWatching(db, w.scope(kid))).toEqual([]); // unrated, and this profile allows only rated
+    expect((await continueWatching(db, w.scope())).watching).toHaveLength(1);
+    expect((await continueWatching(db, w.scope(kid))).watching).toEqual([]); // unrated, and this profile allows only rated
     const other = await makeAccount(db, "other");
-    expect(await continueWatching(db, { ...w.scope(), viewerId: other.viewer.id })).toEqual([]);
+    expect(await continueWatching(db, { ...w.scope(), viewerId: other.viewer.id })).toEqual({ watching: [], listening: [] });
   });
   it("respects the limit", async () => {
     const w = await world();
     for (let i = 0; i < 5; i++) await state(w.member.viewer.id, "title", (await makeTitle(db, w.movies.id, { kind: "movie", name: `M${i}` })).id);
-    expect(await continueWatching(db, w.scope(), 3)).toHaveLength(3);
+    expect((await continueWatching(db, w.scope(), 3)).watching).toHaveLength(3);
   });
 });
 

@@ -71,12 +71,14 @@ export interface Poster {
   posterUrl: string | null;
   /** 0..1, for a bar under a card (continue watching). */
   progress?: number | null;
+  /** A square picture (album covers, photos) rather than a tall poster. */
+  square?: boolean;
 }
 
 export const card = (p: Poster, autofocus = false): string => {
   const img = safeUrl(p.posterUrl);
   return (
-    `<a class="card" data-f${autofocus ? " data-autofocus" : ""} href="${esc(safeUrl(p.href) ?? "/tv")}"><span class="poster">${img ? `<img src="${esc(img)}" alt="">` : ""}</span>` +
+    `<a class="card${p.square ? " sq" : ""}" data-f${autofocus ? " data-autofocus" : ""} href="${esc(safeUrl(p.href) ?? "/tv")}"><span class="poster">${img ? `<img src="${esc(img)}" alt="">` : ""}</span>` +
     `<span class="name">${esc(p.name)}</span>${p.meta ? `<span class="meta">${esc(p.meta)}</span>` : ""}` +
     (p.progress ? `<span class="bar"><b style="width:${Math.round(Math.min(1, Math.max(0, p.progress)) * 100)}%"></b></span>` : "") +
     `</a>`
@@ -88,6 +90,7 @@ export interface HomeData {
   base: string;
   profileName: string;
   continueWatching: Poster[];
+  continueListening?: Poster[];
   libraries: { id: string; name: string; kind: string; count?: number | null }[];
   /** Libraries that exist but have no TV interface yet. */
   unsupported: number;
@@ -97,13 +100,17 @@ export function homePage(d: HomeData): string {
   const cont = d.continueWatching.length
     ? `<h2>Continue watching</h2><div class="row">${d.continueWatching.map((c, i) => card(c, i === 0)).join("")}</div>`
     : "";
+  const listening = d.continueListening?.length
+    ? `<h2>Continue listening</h2><div class="row">${d.continueListening.map((c, i) => card(c, i === 0 && !cont)).join("")}</div>`
+    : "";
+  const first = !cont && !listening;
   const libs = d.libraries.length
-    ? `<h2>Libraries</h2><div class="row">${d.libraries.map((l, i) => `<a class="tile" data-f${!cont && i === 0 ? " data-autofocus" : ""} href="${esc(d.base)}/library/${esc(l.id)}">${esc(l.name)}<small>${esc(l.kind)}</small></a>`).join("")}</div>`
+    ? `<h2>Libraries</h2><div class="row">${d.libraries.map((l, i) => `<a class="tile" data-f${first && i === 0 ? " data-autofocus" : ""} href="${esc(d.base)}/library/${esc(l.id)}">${esc(l.name)}<small>${esc(l.kind)}</small></a>`).join("")}</div>`
     : `<p class="sub">Nothing to show here yet.</p>`;
   const more = d.unsupported > 0 ? `<p class="note">${d.unsupported} more ${d.unsupported === 1 ? "library isn't" : "libraries aren't"} available on TV yet.</p>` : "";
   return tvDocument({
     title: d.serverName,
-    body: `<div class="page">${top(esc(d.profileName))}<h1>${esc(d.serverName)}</h1>${cont}${libs}${more}<div class="row" style="margin-top:2rem"><a class="btn" data-f href="/tv/profiles">Switch profile</a>${postButton("/tv/signout", "Sign out")}</div></div>`,
+    body: `<div class="page">${top(esc(d.profileName))}<h1>${esc(d.serverName)}</h1>${cont}${listening}${libs}${more}<div class="row" style="margin-top:2rem"><a class="btn" data-f href="/tv/profiles">Switch profile</a>${postButton("/tv/signout", "Sign out")}</div></div>`,
   });
 }
 
@@ -113,6 +120,8 @@ export interface ListData {
   subtitle?: string | null;
   backHref: string;
   items: Poster[];
+  /** Subfolders to open before the items. */
+  folders?: { href: string; name: string }[];
   /** Link to the next page, or null. */
   nextHref: string | null;
   prevHref: string | null;
@@ -121,7 +130,8 @@ export interface ListData {
 export function listPage(d: ListData): string {
   const body =
     `<div class="page">${top(`<a data-f data-back href="${esc(d.backHref)}" class="btn" style="margin:0">Back</a>`)}<h1>${esc(d.title)}</h1>${d.subtitle ? `<p class="sub">${esc(d.subtitle)}</p>` : ""}` +
-    (d.items.length ? `<div class="row">${d.items.map((c, i) => card(c, i === 0)).join("")}</div>` : `<p class="sub">Nothing here yet.</p>`) +
+    (d.folders?.length ? `<div class="row">${d.folders.map((f, i) => `<a class="tile folder" data-f${i === 0 ? " data-autofocus" : ""} href="${esc(safeUrl(f.href) ?? "/tv")}">${esc(f.name)}<small>Folder</small></a>`).join("")}</div>` : "") +
+    (d.items.length ? `<div class="row">${d.items.map((c, i) => card(c, i === 0 && !d.folders?.length)).join("")}</div>` : d.folders?.length ? "" : `<p class="sub">Nothing here yet.</p>`) +
     `<div class="row">${d.prevHref ? `<a class="btn" data-f href="${esc(d.prevHref)}">Previous</a>` : ""}${d.nextHref ? `<a class="btn" data-f href="${esc(d.nextHref)}">More</a>` : ""}</div></div>`;
   return tvDocument({ title: d.title, body });
 }
@@ -135,6 +145,10 @@ export interface DetailData {
   actions: { href: string; label: string; primary?: boolean }[];
   /** Episodes of one season, for a show. */
   episodes?: { href: string; label: string; sub?: string | null }[];
+  /** The heading over `episodes` (songs on an album); "Episodes" by default. */
+  listHeading?: string;
+  /** A square cover, not a tall poster. */
+  square?: boolean;
   seasons?: { href: string; label: string; current: boolean }[];
 }
 
@@ -142,12 +156,12 @@ export function detailPage(d: DetailData): string {
   const img = safeUrl(d.posterUrl);
   const actions = d.actions.map((a, i) => `<a class="btn${a.primary ? " primary" : ""}" data-f${i === 0 ? " data-autofocus" : ""} href="${esc(safeUrl(a.href) ?? "/tv")}">${esc(a.label)}</a>`).join("");
   const seasons = d.seasons?.length ? `<div class="row">${d.seasons.map((s) => `<a class="btn${s.current ? " primary" : ""}" data-f href="${esc(safeUrl(s.href) ?? "/tv")}">${esc(s.label)}</a>`).join("")}</div>` : "";
-  const eps = d.episodes?.length ? `<h2>Episodes</h2>${d.episodes.map((e) => `<a class="ep" data-f href="${esc(safeUrl(e.href) ?? "/tv")}">${esc(e.label)}${e.sub ? `<small>${esc(e.sub)}</small>` : ""}</a>`).join("")}` : "";
+  const eps = d.episodes?.length ? `<h2>${esc(d.listHeading ?? "Episodes")}</h2>${d.episodes.map((e) => `<a class="ep" data-f href="${esc(safeUrl(e.href) ?? "/tv")}">${esc(e.label)}${e.sub ? `<small>${esc(e.sub)}</small>` : ""}</a>`).join("")}` : "";
   return tvDocument({
     title: d.title,
     body:
       `<div class="page">${top(`<a data-f data-back href="${esc(d.backHref)}" class="btn" style="margin:0">Back</a>`)}` +
-      `<div class="detail"><span class="poster">${img ? `<img src="${esc(img)}" alt="">` : ""}</span><div class="text"><h1>${esc(d.title)}</h1><p class="sub">${esc(d.meta)}</p>` +
+      `<div class="detail"><span class="poster${d.square ? " sq" : ""}">${img ? `<img src="${esc(img)}" alt="">` : ""}</span><div class="text"><h1>${esc(d.title)}</h1><p class="sub">${esc(d.meta)}</p>` +
       (d.overview ? `<p class="overview">${esc(d.overview)}</p>` : "") +
       `<div>${actions}</div>${seasons}</div></div>${eps}</div>`,
   });
@@ -188,5 +202,60 @@ export function serversPage(list: { id: string; name: string }[]): string {
   return tvDocument({
     title: "Choose a server",
     body: `<div class="page">${top()}<h1>Choose a server</h1><div class="row">${list.map((s, i) => `<a class="tile" data-f${i === 0 ? " data-autofocus" : ""} href="/tv/s/${esc(s.id)}">${esc(s.name)}</a>`).join("")}</div></div>`,
+  });
+}
+
+
+// ── Listening ─────────────────────────────────────────────────────────
+
+export interface ListenData {
+  title: string;
+  subtitle: string | null;
+  coverUrl: string | null;
+  ownerId: string;
+  /** Whether the profile's place is saved (audiobooks and audio files, not songs). */
+  remembers: boolean;
+  /** Skip size in seconds for the left and right keys: long for books, short for songs. */
+  skip: number;
+  back: string;
+  next: string | null;
+}
+
+export function listenPage(d: ListenData): string {
+  const cfg = JSON.stringify({ ownerKind: "title", ownerId: d.ownerId, remembers: d.remembers, skip: d.skip, back: safeUrl(d.back) ?? "/tv", next: d.next ? safeUrl(d.next) : null }).replace(/</g, "\\u003c");
+  const img = safeUrl(d.coverUrl);
+  return tvDocument({
+    title: d.title,
+    bodyClass: "watch",
+    body:
+      `<div class="player listen"><audio id="pa"></audio><div class="cover">${img ? `<img src="${esc(img)}" alt="">` : ""}</div>` +
+      `<div class="now"><div class="t">${esc(d.title)}</div>${d.subtitle ? `<div class="by">${esc(d.subtitle)}</div>` : ""}</div><div id="status" class="status"></div>` +
+      `<div id="hud" class="hud on"><div id="bar" class="track" style="display:none"><b id="fill"></b></div><div id="clock" class="clock"></div></div></div>` +
+      `<script type="application/json" id="listen-config">${cfg}</script>`,
+  });
+}
+
+// ── Pictures ──────────────────────────────────────────────────────────
+
+export interface PhotoViewData {
+  title: string;
+  /** The picture shown full screen. */
+  imageUrl: string;
+  /** Where the left and right keys go (the page of the neighbouring item), and Back. */
+  prev: string | null;
+  next: string | null;
+  back: string;
+  position: string | null;
+}
+
+export function photoViewPage(d: PhotoViewData): string {
+  const cfg = JSON.stringify({ prev: d.prev ? safeUrl(d.prev) : null, next: d.next ? safeUrl(d.next) : null, back: safeUrl(d.back) ?? "/tv" }).replace(/</g, "\\u003c");
+  return tvDocument({
+    title: d.title,
+    bodyClass: "watch",
+    body:
+      `<div class="player photo"><img id="pimg" src="${esc(safeUrl(d.imageUrl) ?? "")}" alt="${esc(d.title)}"><div id="status" class="status"></div>` +
+      `<div id="hud" class="hud on"><div class="t">${esc(d.title)}</div><div class="clock">${d.position ? esc(d.position) + " · " : ""}Left and right for the previous and next picture, OK to start a slideshow</div></div></div>` +
+      `<script type="application/json" id="photo-config">${cfg}</script>`,
   });
 }

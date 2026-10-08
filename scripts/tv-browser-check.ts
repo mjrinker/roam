@@ -11,7 +11,7 @@ import http from "node:http";
 import fs from "node:fs";
 import path from "node:path";
 import { launch, type Page } from "./lib-cdp";
-import { detailPage, homePage, listPage, messagePage, pairPage, watchPage } from "../src/tv/render";
+import { detailPage, homePage, listenPage, listPage, messagePage, pairPage, photoViewPage, watchPage } from "../src/tv/render";
 
 const MEDIA = process.env.TV_MEDIA_DIR ?? "/tmp/tvsite/media";
 const browsers = (process.env.TV_BROWSERS ?? "").split(",").filter(Boolean).map((s) => s.split("=") as [string, string]);
@@ -24,6 +24,13 @@ const pages: Record<string, string> = {
   "/tv/s/x": homePage({ serverName: "Test Server", base: "/tv/s/x", profileName: "Matt", continueWatching: [poster(1), poster(2)], libraries: [{ id: "a", name: "Movies", kind: "Movies" }, { id: "b", name: "Shows", kind: "TV Shows" }], unsupported: 1 }),
   "/tv/s/x/library/a": listPage({ base: "/tv/s/x", title: "Movies", backHref: "/tv/s/x", items: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].map(poster), prevHref: null, nextHref: "/tv/s/x/library/a?page=2" }),
   "/tv/s/x/title/1": detailPage({ title: "Movie 1", meta: "2020", overview: "About it.", posterUrl: null, backHref: "/tv/s/x/library/a", actions: [{ href: "/tv/s/x/watch/title/1", label: "Play", primary: true }, { href: "/tv/s/x", label: "Home" }] }),
+  "/tv/s/x/library/f": listPage({ base: "/tv/s/x", title: "Videos", backHref: "/tv/s/x", folders: [{ href: "/tv/s/x/library/f?path=Trips", name: "Trips" }, { href: "/tv/s/x/library/f?path=Pets", name: "Pets" }], items: [1, 2, 3].map(poster), prevHref: null, nextHref: null }),
+  "/tv/s/x/album/1": detailPage({ title: "First Record", meta: "The Band · 1999 · 2 songs", overview: null, posterUrl: null, square: true, backHref: "/tv/s/x/library/m", actions: [{ href: "/tv/s/x/listen/1", label: "Play album", primary: true }], listHeading: "Songs", episodes: [{ href: "/tv/s/x/listen/1", label: "1. Intro", sub: "0:12" }, { href: "/tv/s/x/listen/2", label: "2. Second", sub: "0:12" }] }),
+  "/tv/s/x/listen/1": listenPage({ title: "Intro", subtitle: "The Band", coverUrl: null, ownerId: "1", remembers: true, skip: 10, back: "/tv/s/x/album/1", next: "/tv/s/x/listen/2" }),
+  "/tv/s/x/listen/2": listenPage({ title: "Second", subtitle: "The Band", coverUrl: null, ownerId: "2", remembers: false, skip: 10, back: "/tv/s/x/album/1", next: null }),
+  "/tv/s/x/photo/1": photoViewPage({ title: "Picture one", imageUrl: "/media/pic1.png", prev: null, next: "/tv/s/x/photo/2", back: "/tv/s/x/library/p", position: "2024-05-01" }),
+  "/tv/s/x/photo/2": photoViewPage({ title: "Picture two", imageUrl: "/media/pic2.png", prev: "/tv/s/x/photo/1", next: "/tv/s/x/photo/3", back: "/tv/s/x/library/p", position: "2024-05-02" }),
+  "/tv/s/x/photo/3": photoViewPage({ title: "Picture three", imageUrl: "/media/missing.png", prev: "/tv/s/x/photo/2", next: null, back: "/tv/s/x/library/p", position: null }),
   "/tv/s/x/watch/title/1": watchPage({ title: "Movie 1", subtitle: null, ownerKind: "title", ownerId: "1", back: "/tv/s/x/title/1", next: null }),
 };
 
@@ -31,6 +38,8 @@ const saves: { positionSeconds: number; finished: boolean }[] = [];
 let manifestRequests = 0;
 let failFirstManifestUrl = false;
 let polls = 0;
+let audioManifests = 0;
+let failFirstAudioUrl = false;
 let signouts = 0;
 
 const server = http.createServer((req, res) => {
@@ -52,6 +61,19 @@ const server = http.createServer((req, res) => {
     const segments = [1, 2].map((i) => ({ index: i - 1, url: bad ? "/media/missing.webm" : `/media/part${i}.webm`, durationSeconds: 12, startSeconds: (i - 1) * 12 }));
     return void res.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify({ ownerKind: "title", ownerId: "1", durationSeconds: 24, segments, resumeSeconds: 0, expiresAt: "2099-01-01T00:00:00Z" }));
   }
+  const audioId = /^\/api\/audiobooks\/([^/]+)\/manifest$/.exec(url.pathname);
+  if (audioId) {
+    audioManifests++;
+    const n = audioId[1] === "2" ? 2 : 1;
+    const segments = [0, 1].map((i) => ({ index: i, startSeconds: i * 12, durationSeconds: 12 }));
+    const bad = failFirstAudioUrl && audioManifests === 1;
+    const urls = [0, 1].map((i) => ({ index: i, url: bad ? "/media/missing.ogg" : `/media/aud${i + 1}.ogg`, expiresAt: "2099-01-01T00:00:00Z" }));
+    return void res.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify({ titleId: String(n), durationSeconds: 24, segments, resumeSeconds: 0, urls }));
+  }
+  if (/^\/api\/audiobooks\/[^/]+\/segments\/\d+$/.test(url.pathname)) {
+    const i = Number(url.pathname.split("/").pop());
+    return void res.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify({ index: i, url: `/media/aud${i + 1}.ogg`, expiresAt: "2099-01-01T00:00:00Z" }));
+  }
   if (url.pathname === "/api/watch-state") {
     let body = "";
     req.on("data", (c) => (body += c));
@@ -70,10 +92,10 @@ const server = http.createServer((req, res) => {
     if (range) {
       const start = Number(range[1]);
       const end = range[2] ? Number(range[2]) : size - 1;
-      res.writeHead(206, { "content-type": "video/webm", "content-range": `bytes ${start}-${end}/${size}`, "accept-ranges": "bytes", "content-length": end - start + 1 });
+      res.writeHead(206, { "content-type": file.endsWith(".ogg") ? "audio/ogg" : file.endsWith(".png") ? "image/png" : "video/webm", "content-range": `bytes ${start}-${end}/${size}`, "accept-ranges": "bytes", "content-length": end - start + 1 });
       return void fs.createReadStream(file, { start, end }).pipe(res);
     }
-    res.writeHead(200, { "content-type": "video/webm", "content-length": size, "accept-ranges": "bytes" });
+    res.writeHead(200, { "content-type": file.endsWith(".ogg") ? "audio/ogg" : file.endsWith(".png") ? "image/png" : "video/webm", "content-length": size, "accept-ranges": "bytes" });
     return void fs.createReadStream(file).pipe(res);
   }
   res.writeHead(404).end("not found");
@@ -98,6 +120,11 @@ async function key(page: Page, code: number) {
 }
 const focusedText = (page: Page) => page.evaluate<string>(`(document.activeElement && document.activeElement.textContent || "(none)").trim().slice(0, 30)`);
 const V = `document.getElementById("pv")`;
+/** A page that has finished loading and had a moment to start its script (a real person cannot press a key faster than that). */
+const settled = async (page: Page) => {
+  await page.waitFor(`document.readyState === "complete" && document.getElementById("pimg") && document.getElementById("pimg").complete`, 8000);
+  await new Promise((r) => setTimeout(r, 300));
+};
 const ready = (page: Page) => page.waitFor(`document.readyState === "complete"`);
 
 async function run(label: string, exe: string, m56: boolean) {
@@ -175,6 +202,79 @@ async function run(label: string, exe: string, m56: boolean) {
   check(L("finishing returns to the title"), await page.waitFor(`location.pathname === "/tv/s/x/title/1"`, 25000), await page.url());
   for (let i = 0; i < 30 && !saves.some((s) => s.finished); i++) await new Promise((r) => setTimeout(r, 100)); // a beacon arrives just after the page changes
   check(L("the end was saved as finished"), saves.some((s) => s.finished), JSON.stringify(saves));
+
+
+  // A folder page: folders come first and take focus, and arrows reach the files below.
+  await page.goto(base + "/tv/s/x/library/f");
+  check(L("a folder page focuses the first folder"), (await focusedText(page)).startsWith("Trips"), await focusedText(page));
+  await key(page, 39);
+  check(L("right moves between folders"), (await focusedText(page)).startsWith("Pets"), await focusedText(page));
+  await key(page, 40);
+  check(L("down reaches the files under the folders"), (await focusedText(page)).startsWith("Movie"), await focusedText(page));
+
+  // An album page lists songs; OK on a song opens the listening page.
+  await page.goto(base + "/tv/s/x/album/1");
+  check(L("an album focuses Play album"), (await focusedText(page)) === "Play album", await focusedText(page));
+  await key(page, 40);
+  check(L("down reaches the songs"), (await focusedText(page)).startsWith("1. Intro"), await focusedText(page));
+
+  // Listening: plays part one, pause/resume, skip, rolls into part two, ends, saves as finished and goes to the next song.
+  const A = `document.getElementById("pa")`;
+  saves.length = 0;
+  await page.goto(base + "/tv/s/x/listen/1");
+  await page.waitFor(`${A} && ${A}.currentTime > 0.5 && !${A}.paused`, 15000);
+  check(L("the audio plays part one"), (await page.evaluate<string>(`${A}.currentSrc.split("/").pop()`)) === "aud1.ogg");
+  await key(page, 19);
+  check(L("the Pause key pauses the audio"), await page.evaluate<boolean>(`${A}.paused`));
+  await key(page, 13);
+  await new Promise((r) => setTimeout(r, 400));
+  check(L("OK resumes the audio"), !(await page.evaluate<boolean>(`${A}.paused`)));
+  const aBefore = await page.evaluate<number>(`${A}.currentTime`);
+  await key(page, 39);
+  await new Promise((r) => setTimeout(r, 500));
+  check(L("right skips the audio ahead about ten seconds"), (await page.evaluate<number>(`${A}.currentTime`)) - aBefore > 7);
+  check(L("the clock shows the whole length"), (await page.evaluate<string>(`document.getElementById("clock").textContent`)).endsWith("/ 0:24"), await page.evaluate<string>(`document.getElementById("clock").textContent`));
+  await key(page, 417);
+  check(L("fast-forward moves the audio into part two"), await page.waitFor(`${A}.currentSrc.endsWith("aud2.ogg")`, 8000));
+  check(L("finishing goes on to the next song"), await page.waitFor(`location.pathname === "/tv/s/x/listen/2"`, 25000), await page.url());
+  for (let i = 0; i < 30 && !saves.some((s) => s.finished); i++) await new Promise((r) => setTimeout(r, 100));
+  check(L("a book or file's end is saved as finished"), saves.some((s) => s.finished), JSON.stringify(saves));
+
+  // A song never saves a place, and Back leaves for the album.
+  saves.length = 0;
+  await page.waitFor(`${A} && ${A}.currentTime > 0.3`, 15000);
+  await key(page, 19);
+  await new Promise((r) => setTimeout(r, 400));
+  check(L("a song never saves a place"), saves.length === 0, JSON.stringify(saves));
+  await key(page, 10009);
+  check(L("Back leaves a song for its album"), await page.waitFor(`location.pathname === "/tv/s/x/album/1"`));
+
+  // A bad audio link is replaced by asking again.
+  audioManifests = 0;
+  failFirstAudioUrl = true;
+  await page.goto(base + "/tv/s/x/listen/1");
+  await page.waitFor(`${A} && ${A}.currentTime > 0.3 && !${A}.paused`, 15000);
+  check(L("a failed audio link is replaced by a fresh one"), audioManifests >= 2, `requests=${audioManifests}`);
+  failFirstAudioUrl = false;
+
+  // Pictures: right and left go to the neighbours, a slideshow advances by itself, and a picture that fails says so.
+  await page.goto(base + "/tv/s/x/photo/2");
+  await page.waitFor(`document.getElementById("pimg").complete`, 8000);
+  check(L("a picture is shown"), await page.evaluate<boolean>(`document.getElementById("pimg").naturalWidth > 0`));
+  await key(page, 37);
+  check(L("left goes to the previous picture"), await page.waitFor(`location.pathname === "/tv/s/x/photo/1"`));
+  await settled(page);
+  await key(page, 37);
+  check(L("left on the first picture stays put"), (await page.url()).endsWith("/tv/s/x/photo/1"));
+  await key(page, 39);
+  check(L("right goes to the next picture"), await page.waitFor(`location.pathname === "/tv/s/x/photo/2"`));
+  await settled(page);
+  await key(page, 13);
+  check(L("OK starts a slideshow"), await page.evaluate<boolean>(`document.getElementById("status").textContent === "Slideshow"`));
+  check(L("the slideshow moves on by itself and keeps going"), await page.waitFor(`location.pathname === "/tv/s/x/photo/3" && location.hash === "#slide"`, 15000), await page.url());
+  check(L("a picture that fails to load says so"), await page.waitFor(`document.getElementById("status").textContent.indexOf("can't be shown") >= 0`, 8000));
+  await key(page, 27);
+  check(L("Back leaves the picture viewer for the grid"), await page.waitFor(`location.pathname === "/tv/s/x/library/p"`));
 
   // A link that has gone bad is replaced: the first manifest points at a missing file; the script asks again and plays.
   manifestRequests = 0;

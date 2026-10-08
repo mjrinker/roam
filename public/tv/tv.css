@@ -46,3 +46,14 @@ button.tile { margin: 0 1.5rem 1.5rem 0; }
 .pair { display: flex; align-items: center; }
 .qrbox { width: 15rem; margin-right: 4rem; flex-shrink: 0; }
 .qr { display: block; width: 15rem; height: 15rem; background: #fff; border-radius: 0.6rem; }
+
+.card.sq .poster { height: 11rem; }
+.card.sq .poster.sq { height: 11rem; }
+.detail .poster.sq { width: 17rem; height: 17rem; }
+.tile.folder { width: 18rem; font-size: 1.3rem; padding: 1rem 1.3rem; }
+.listen .cover { position: absolute; top: 6%; left: 50%; width: 22rem; height: 22rem; margin-left: -11rem; background: #1c1c26; border-radius: 0.8rem; overflow: hidden; }
+.listen .cover img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.listen .now { position: absolute; top: 62%; left: 0; width: 100%; text-align: center; padding: 0 3rem; box-sizing: border-box; }
+.listen .now .t { font-size: 2.2rem; font-weight: 700; }
+.listen .now .by { font-size: 1.5rem; color: #a8a8b4; margin-top: 0.4rem; }
+.photo img { position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: contain; background: #000; }

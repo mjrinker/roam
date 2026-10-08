@@ -14,6 +14,11 @@ export async function GET(request: Request, ctx: RouteContext<"/tv/s/[serverId]/
 
   const info = await watchInfo(db, access.scope, params.kind, id);
   if (!info) return notFoundPage();
-  const back = info.back.kind === "title" ? `${access.base}/title/${info.back.id}` : `${access.base}/show/${info.back.id}?season=${info.back.season}`;
+  const b = info.back;
+  const back =
+    b.kind === "title" ? `${access.base}/title/${b.id}`
+    : b.kind === "show" ? `${access.base}/show/${b.id}?season=${b.season}`
+    : b.kind === "photo" ? `${access.base}/photo/${b.id}`
+    : `${access.base}/library/${b.libraryId}${b.path ? `?path=${encodeURIComponent(b.path)}` : ""}`;
   return html(watchPage({ title: info.title, subtitle: info.subtitle, ownerKind: info.ownerKind, ownerId: info.ownerId, back, next: info.next ? `${access.base}/watch/episode/${info.next.id}` : null }));
 }

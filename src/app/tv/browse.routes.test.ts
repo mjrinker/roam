@@ -84,7 +84,7 @@ async function world(access: "everyone" | "restricted" = "everyone") {
   await joinServer(db, server.id, member.accountId);
   const movies = await makeLibrary(db, server.id, "movies", access);
   const shows = await makeLibrary(db, server.id, "shows", access);
-  await makeLibrary(db, server.id, "music", "everyone");
+  await makeLibrary(db, server.id, "ebooks", "everyone"); // the one kind that has no TV interface
   const film = await makeTitle(db, movies.id, { kind: "movie", name: "The Film", year: 2001, overview: "A story & more.", posterUrl: "https://img.example/film.jpg", runtimeSeconds: 5400 });
   const { show: s, season, episodes: eps } = await makeShow(db, shows.id, 2, { name: "The Show", posterUrl: "https://img.example/show.jpg" });
   await signIn(member);

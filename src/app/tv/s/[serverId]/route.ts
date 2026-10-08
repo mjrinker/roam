@@ -4,9 +4,9 @@ import { eq } from "drizzle-orm";
 import { asUuid, notFoundPage, tvAccess } from "@/lib/tv/context";
 import { continueWatching, tvLibraries } from "@/lib/tv/data";
 import { html } from "@/lib/tv/http";
+import { TV_KIND_LABEL } from "@/lib/libraries/profile";
 import { homePage } from "@/tv/render";
 
-const KIND_LABEL: Record<string, string> = { movies: "Movies", shows: "TV Shows" };
 
 export async function GET(request: Request, ctx: RouteContext<"/tv/s/[serverId]">) {
   const serverId = asUuid((await ctx.params).serverId);
@@ -21,8 +21,9 @@ export async function GET(request: Request, ctx: RouteContext<"/tv/s/[serverId]"
       serverName: server?.name ?? "Roam",
       base: access.base,
       profileName: access.profileName,
-      continueWatching: cont.map((c) => ({ href: `${access.base}/watch/${c.kind}/${c.id}`, name: c.name, meta: c.meta, posterUrl: c.posterUrl, progress: c.progress })),
-      libraries: libs.supported.map((l) => ({ id: l.id, name: l.name, kind: KIND_LABEL[l.kind] ?? l.kind })),
+      continueWatching: cont.watching.map((c) => ({ href: `${access.base}/watch/${c.kind}/${c.id}`, name: c.name, meta: c.meta, posterUrl: c.posterUrl, progress: c.progress })),
+      continueListening: cont.listening.map((c) => ({ href: `${access.base}/listen/${c.id}`, name: c.name, meta: c.meta, posterUrl: c.posterUrl, progress: c.progress, square: true })),
+      libraries: libs.supported.map((l) => ({ id: l.id, name: l.name, kind: TV_KIND_LABEL[l.kind] ?? l.kind })),
       unsupported: libs.unsupported,
     })
   );
