@@ -22,5 +22,7 @@ export function uploadFile(args: {
   name: string;
   filePath: string;
   replaceFileId?: string;
+  /** Stamps a new small file with this creation date (ISO time). */
+  contentCreatedAt?: string;
   onProgress?: (p: { part: number; parts: number; uploadedBytes: number; size: number }) => void;
 }): Promise<UploadResult>;

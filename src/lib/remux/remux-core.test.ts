@@ -101,6 +101,18 @@ describe("uploadFile", () => {
     expect(fetchMock.mock.calls[0][0]).toBe("https://upload.box.com/api/2.0/files/content");
   });
 
+  it("stamps a new small file with the creation date it is given, and never a replacement version", async () => {
+    const filePath = join(dir, "photo.jpg");
+    await writeFile(filePath, Buffer.alloc(64, 1));
+    fetchMock.mockResolvedValueOnce(json({ entries: [{ id: "12", name: "photo.jpg", size: 64 }] }, 201));
+    await uploadFile({ getToken, folderId: "f1", name: "photo.jpg", filePath, contentCreatedAt: "2019-05-06T07:08:09.000Z" });
+    const attrs = JSON.parse((fetchMock.mock.calls[0][1].body as FormData).get("attributes") as string);
+    expect(attrs).toEqual({ name: "photo.jpg", parent: { id: "f1" }, content_created_at: "2019-05-06T07:08:09.000Z", content_modified_at: "2019-05-06T07:08:09.000Z" });
+    fetchMock.mockResolvedValueOnce(json({ entries: [{ id: "12", name: "photo.jpg", size: 64 }] }, 201));
+    await uploadFile({ getToken, folderId: "f1", name: "photo.jpg", filePath, replaceFileId: "12", contentCreatedAt: "2019-05-06T07:08:09.000Z" });
+    expect(JSON.parse((fetchMock.mock.calls[1][1].body as FormData).get("attributes") as string)).toEqual({ name: "photo.jpg" });
+  });
+
   it("uploads a new version of an existing file when replaceFileId is given", async () => {
     const filePath = join(dir, "out.mp4");
     await writeFile(filePath, Buffer.alloc(1024, 1));

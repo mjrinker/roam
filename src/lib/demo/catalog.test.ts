@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { parseEpisodeFileName, parseSeasonFolderName, parseTitleFolderName, isVideoFile } from "@/lib/scan/conventions";
-import { CLIP_SECONDS, DEMO_MOVIES, DEMO_SHOWS, DEMO_SOURCES, demoCredits, planDemoMedia, safeName } from "./catalog";
+import { CLIP_SECONDS, DEMO_MOVIES, DEMO_SHOWS, DEMO_SOURCES, HOME_VIDEO_CLIPS, PHOTO_VIDEO_CLIPS, demoCredits, planDemoMedia, planExtraVideos, safeName } from "./catalog";
 
 describe("planDemoMedia", () => {
   const plan = planDemoMedia();
@@ -66,10 +66,41 @@ describe("demoCredits", () => {
       expect(c.usedFor.length).toBeGreaterThan(0);
     }
     const allLabels = credits.flatMap((c) => c.usedFor);
-    expect(new Set(allLabels).size).toBe(planDemoMedia().length); // every file is credited exactly once
+    const extra = planExtraVideos();
+    expect(new Set(allLabels).size).toBe(planDemoMedia().length + extra.homeVideos.length + extra.photoVideos.length); // every file is credited exactly once
   });
 
   it("leaves out a source nothing uses", () => {
     expect(demoCredits([], DEMO_SOURCES)).toEqual([]);
+  });
+});
+
+describe("planExtraVideos", () => {
+  const main = planDemoMedia();
+  const extra = planExtraVideos();
+  const all = [...main, ...extra.homeVideos, ...extra.photoVideos];
+
+  it("plans the clips it was asked for, for the two libraries", () => {
+    expect(extra.homeVideos).toHaveLength(HOME_VIDEO_CLIPS);
+    expect(extra.photoVideos).toHaveLength(PHOTO_VIDEO_CLIPS);
+  });
+  it("never reuses footage that the movies and shows (or each other) already show", () => {
+    for (const source of DEMO_SOURCES) {
+      const clips = all.filter((f) => f.sourceId === source.id).sort((a, b) => a.startSeconds - b.startSeconds);
+      for (let i = 1; i < clips.length; i++) expect(clips[i].startSeconds).toBeGreaterThanOrEqual(clips[i - 1].startSeconds + clips[i - 1].durationSeconds);
+      for (const c of clips) expect(c.startSeconds + c.durationSeconds).toBeLessThanOrEqual(source.durationSeconds);
+    }
+  });
+  it("names each clip for what it is, in a folder named for the film (home videos) or at the top (photos), never as something else", () => {
+    for (const f of extra.homeVideos) {
+      const film = DEMO_SOURCES.find((s) => s.id === f.sourceId)!.title;
+      expect(f.folders).toEqual([film]);
+      expect(f.fileName).toMatch(new RegExp(`^${film} - \\d+m\\d{2}s\\.mp4$`));
+    }
+    for (const f of extra.photoVideos) expect(f.folders).toEqual([]);
+    expect(new Set(all.map((f) => [...f.folders, f.fileName].join("/"))).size).toBe(all.length);
+  });
+  it("is deterministic", () => {
+    expect(planExtraVideos()).toEqual(extra);
   });
 });

@@ -102,14 +102,11 @@ export interface PlannedFile {
 /** A name safe to use as a Box file or folder name. */
 export const safeName = (s: string) => s.replace(/[\\/:*?"<>|]/g, "").replace(/\s+/g, " ").trim();
 
-/**
- * Lays out every demo file in the Plex-style names Roam scans, assigning each a clip: the sources in turn, each
- * source cut into non-overlapping 45-second pieces, so no two files show the same footage.
- */
-export function planDemoMedia(sources: DemoSource[] = DEMO_SOURCES): PlannedFile[] {
+/** Hands out non-overlapping clips from the sources in turn, so no two files show the same footage. */
+function clipAllocator(sources: DemoSource[]) {
   const cursor = new Map<string, number>(sources.map((s) => [s.id, CLIP_START_MARGIN]));
   let turn = 0;
-  const nextClip = () => {
+  return () => {
     for (let tries = 0; tries < sources.length; tries++) {
       const source = sources[turn++ % sources.length];
       const start = cursor.get(source.id)!;
@@ -120,7 +117,9 @@ export function planDemoMedia(sources: DemoSource[] = DEMO_SOURCES): PlannedFile
     }
     throw new Error("The demo sources don't hold enough footage for every file.");
   };
+}
 
+function moviesAndShows(nextClip: ReturnType<typeof clipAllocator>): PlannedFile[] {
   const files: PlannedFile[] = [];
   for (const m of DEMO_MOVIES) {
     const base = safeName(`${m.name} (${m.year})`);
@@ -136,8 +135,43 @@ export function planDemoMedia(sources: DemoSource[] = DEMO_SOURCES): PlannedFile
   return files;
 }
 
+/** How many extra clips the generic video library and the photo library get (after the movies and shows have theirs). */
+export const HOME_VIDEO_CLIPS = 4;
+export const PHOTO_VIDEO_CLIPS = 2;
+
+const clipTime = (seconds: number) => `${Math.floor(seconds / 60)}m${String(seconds % 60).padStart(2, "0")}s`;
+
+/**
+ * Lays out every demo movie and episode in the Plex-style names Roam scans, assigning each a clip: the sources in
+ * turn, each cut into non-overlapping 45-second pieces, so no two files show the same footage.
+ */
+export function planDemoMedia(sources: DemoSource[] = DEMO_SOURCES): PlannedFile[] {
+  return moviesAndShows(clipAllocator(sources));
+}
+
+/**
+ * The clips for the generic "Home Videos" library and for the photo library's videos, taken from the footage that is
+ * left after the movies and shows. Generic libraries show file names as they are, so these are named honestly: for
+ * what they are and where they are from, never as something else.
+ */
+export function planExtraVideos(sources: DemoSource[] = DEMO_SOURCES): { homeVideos: PlannedFile[]; photoVideos: PlannedFile[] } {
+  const next = clipAllocator(sources);
+  moviesAndShows(next); // skip past what the movies and shows use
+  const make = (count: number, folderFor: (title: string) => string[]): PlannedFile[] =>
+    Array.from({ length: count }, () => {
+      const clip = next();
+      const source = sources.find((s) => s.id === clip.sourceId)!;
+      const name = safeName(`${source.title} - ${clipTime(clip.startSeconds)}`);
+      return { folders: folderFor(source.title), fileName: `${name}.mp4`, label: name, ...clip };
+    });
+  return {
+    homeVideos: make(HOME_VIDEO_CLIPS, (title) => [safeName(title)]),
+    photoVideos: make(PHOTO_VIDEO_CLIPS, () => []),
+  };
+}
+
 /** The credits for the footage, with the files that play each clip. */
-export function demoCredits(plan: PlannedFile[] = planDemoMedia(), sources: DemoSource[] = DEMO_SOURCES) {
+export function demoCredits(plan: PlannedFile[] = [...planDemoMedia(), ...Object.values(planExtraVideos()).flat()], sources: DemoSource[] = DEMO_SOURCES) {
   return sources
     .map((s) => ({
       title: s.title,

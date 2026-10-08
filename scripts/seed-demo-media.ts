@@ -9,13 +9,18 @@
  *
  *   npx tsx --env-file=.env.local scripts/seed-demo-media.ts --list
  *   npx tsx --env-file=.env.local scripts/seed-demo-media.ts --sources ~/demo-sources --dry-run
- *   npx tsx --env-file=.env.local scripts/seed-demo-media.ts --sources ~/demo-sources --server <serverId> --root <boxFolderId>
+ *   npx tsx --env-file=.env.local scripts/seed-demo-media.ts --sources ~/demo-sources --server <serverId> \
+ *     --movies <folderId> --shows <folderId> --home-videos <folderId> --photo-videos <folderId>
  *
  * Options:
  *   --list              print the source films, their licences and where to get them, then stop
  *   --sources <dir>     where the downloaded films are (searched recursively; matched by file name)
  *   --server <id>       the demo server in Roam (its Box connection is used)
- *   --root <id>         the Box folder to build "Movies" and "TV Shows" inside (create an empty one, e.g. "Roam Demo")
+ *   --movies <id>       the Box folder for the Movies library (movie folders are made inside it)
+ *   --shows <id>        the Box folder for the TV Shows library
+ *   --home-videos <id>  the Box folder for the generic "Home Videos" library (clips named for the film they are from)
+ *   --photo-videos <id> the Box folder for the Photos library (a couple of video clips for the timeline)
+ *                       (leave out any of the four to skip that library)
  *   --dry-run           show what would be made and uploaded; change nothing (needs only --sources)
  *   --only <text>       only files whose label contains this text
  *   --tmp <dir>         scratch space for the encoded clips
@@ -27,13 +32,10 @@ import { spawn } from "node:child_process";
 import { mkdir, readdir, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { BoxApiError } from "box-node-sdk";
-import { DEMO_SOURCES, planDemoMedia, type DemoSource } from "@/lib/demo/catalog";
+import { DEMO_SOURCES, planDemoMedia, planExtraVideos, type DemoSource, type PlannedFile } from "@/lib/demo/catalog";
 import { clipEncodeArgs } from "@/lib/demo/encode";
-import { createBoxProviderForServer } from "@/lib/storage/box";
-import { withBoxClient } from "@/lib/storage/box-token-storage";
-import { uploadFile } from "@/lib/remux/remux-core.mjs";
-import { ensureFfmpeg, uploadTokenProvider } from "@/lib/remux/tier1";
+import { ensureFolder, fileExists, uploadIfNew } from "@/lib/demo/box-seed";
+import { ensureFfmpeg } from "@/lib/remux/tier1";
 
 const args = process.argv.slice(2);
 const flag = (name: string) => {
@@ -83,23 +85,6 @@ function encodeClip(ffmpeg: string, input: string, output: string, start: number
   });
 }
 
-/** The id of the folder called `name` inside `parentId`, creating it if it isn't there. */
-async function ensureFolder(serverId: string, parentId: string, name: string): Promise<string> {
-  const provider = createBoxProviderForServer(serverId);
-  const existing = (await provider.listFolder(parentId)).find((e) => e.kind === "folder" && e.name === name);
-  if (existing) return existing.id;
-  try {
-    return await withBoxClient(serverId, async (client) => (await client.folders.createFolder({ name, parent: { id: parentId } })).id);
-  } catch (err) {
-    // Created by something else between the listing and now.
-    if (err instanceof BoxApiError && err.responseInfo?.statusCode === 409) {
-      const again = (await provider.listFolder(parentId)).find((e) => e.kind === "folder" && e.name === name);
-      if (again) return again.id;
-    }
-    throw err;
-  }
-}
-
 async function main() {
   if (has("--list")) return listSources();
 
@@ -107,8 +92,16 @@ async function main() {
   if (!sourcesDir) throw new Error("Pass --sources <dir> (or --list to see which films to download).");
   const dryRun = has("--dry-run");
   const serverId = flag("--server");
-  const root = flag("--root");
-  if (!dryRun && (!serverId || !root)) throw new Error("Pass --server <id> and --root <boxFolderId> (or --dry-run).");
+  if (!dryRun && !serverId) throw new Error("Pass --server <id> (or --dry-run).");
+  const extra = planExtraVideos();
+  // Which Box folder each part of the plan goes into; a part with no folder given is skipped.
+  const targets: { root: string | undefined; files: PlannedFile[]; strip: number }[] = [
+    { root: flag("--movies"), files: planDemoMedia().filter((f) => f.folders[0] === "Movies"), strip: 1 },
+    { root: flag("--shows"), files: planDemoMedia().filter((f) => f.folders[0] === "TV Shows"), strip: 1 },
+    { root: flag("--home-videos"), files: extra.homeVideos, strip: 0 },
+    { root: flag("--photo-videos"), files: extra.photoVideos, strip: 0 },
+  ];
+  if (!dryRun && !targets.some((t) => t.root)) throw new Error("Pass at least one of --movies, --shows, --home-videos, --photo-videos (or --dry-run).");
   const only = flag("--only");
 
   const found = await walk(sourcesDir);
@@ -124,7 +117,10 @@ async function main() {
     process.exit(1);
   }
 
-  const plan = planDemoMedia().filter((f) => !only || f.label.toLowerCase().includes(only.toLowerCase()));
+  const plan = targets
+    .filter((t) => dryRun || t.root)
+    .flatMap((t) => t.files.map((f) => ({ ...f, root: t.root, folders: f.folders.slice(t.strip) })))
+    .filter((f) => !only || f.label.toLowerCase().includes(only.toLowerCase()));
   console.log(`${plan.length} file(s) planned from ${sourceFile.size} source film(s):`);
   for (const f of plan) console.log(`  ${[...f.folders, f.fileName].join("/")}   <- ${f.sourceId} @ ${f.startSeconds}s`);
   if (dryRun) {
@@ -135,27 +131,27 @@ async function main() {
   const ffmpeg = await ensureFfmpeg();
   const work = join(flag("--tmp") ?? tmpdir(), `roam-demo-${process.pid}`);
   await mkdir(work, { recursive: true });
-  const folderIds = new Map<string, string>([["", root!]]);
+  const folderIds = new Map<string, string>();
   const created: string[] = [];
   try {
     for (const [i, file] of plan.entries()) {
       console.log(`\n[${i + 1}/${plan.length}] ${file.label}`);
-      let parent = root!;
-      let key = "";
+      let parent = file.root!;
+      let key = file.root!;
       for (const part of file.folders) {
         key = `${key}/${part}`;
         if (!folderIds.has(key)) folderIds.set(key, await ensureFolder(serverId!, parent, part));
         parent = folderIds.get(key)!;
       }
-      if ((await createBoxProviderForServer(serverId!).listFolder(parent)).some((e) => e.kind === "file" && e.name === file.fileName)) {
+      if (await fileExists(serverId!, parent, file.fileName)) {
         console.log("  already in Box, skipped");
         continue;
       }
       const out = join(work, `${i}.mp4`);
       await encodeClip(ffmpeg, sourceFile.get(file.sourceId)!, out, file.startSeconds, file.durationSeconds);
-      const result = await uploadFile({ getToken: uploadTokenProvider(serverId!, parent), folderId: parent, name: file.fileName, filePath: out });
-      console.log("conflictId" in result ? "  already in Box, left alone" : `  uploaded (${Math.round((await stat(out)).size / 1024 / 1024)} MB)`);
-      if (!("conflictId" in result)) created.push(file.fileName);
+      const result = await uploadIfNew(serverId!, parent, file.fileName, out);
+      console.log(result === "exists" ? "  already in Box, left alone" : `  uploaded (${((await stat(out)).size / 1024 / 1024).toFixed(1)} MB)`);
+      if (result === "uploaded") created.push(file.fileName);
       await rm(out, { force: true });
     }
   } finally {

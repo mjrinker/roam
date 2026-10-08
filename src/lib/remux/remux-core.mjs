@@ -160,7 +160,7 @@ export async function preflightUpload({ getToken, folderId, name, size }) {
   throw err;
 }
 
-async function uploadSimple({ getToken, folderId, name, filePath, replaceFileId }) {
+async function uploadSimple({ getToken, folderId, name, filePath, replaceFileId, contentCreatedAt }) {
   const { readFile } = await import("node:fs/promises");
   const data = await readFile(filePath);
   const url = replaceFileId
@@ -169,7 +169,9 @@ async function uploadSimple({ getToken, folderId, name, filePath, replaceFileId 
   const res = await boxFetch(getToken, url, (token) => {
     const form = new FormData();
     // "attributes" must precede the file part.
-    form.append("attributes", JSON.stringify(replaceFileId ? { name } : { name, parent: { id: folderId } }));
+    // A new file can carry the date it was "made" (content_created_at), which photo libraries use for the timeline when a file has no EXIF date.
+    const dates = !replaceFileId && contentCreatedAt ? { content_created_at: contentCreatedAt, content_modified_at: contentCreatedAt } : {};
+    form.append("attributes", JSON.stringify(replaceFileId ? { name } : { name, parent: { id: folderId }, ...dates }));
     form.append("file", new Blob([data]), name);
     return { method: "POST", headers: { authorization: `Bearer ${token}` }, body: form };
   });
@@ -265,12 +267,13 @@ async function uploadChunked({ getToken, folderId, name, filePath, size, replace
  * Uploads a local file into a Box folder. Returns `{ id, name, size }`, or
  * `{ conflictId }` when a file by that name already exists (the earlier
  * attempt succeeded — the caller links that existing file rather than fail).
+ * With `contentCreatedAt` (an ISO time), a new small file is stamped with that creation date (large chunked uploads ignore it).
  * With `replaceFileId`, uploads a new VERSION of that existing file instead
  * (same Box file id, so anything keyed on it keeps working).
  */
-export async function uploadFile({ getToken, folderId, name, filePath, replaceFileId, onProgress }) {
+export async function uploadFile({ getToken, folderId, name, filePath, replaceFileId, onProgress, contentCreatedAt }) {
   const { size } = await stat(filePath);
   return size >= CHUNKED_UPLOAD_MIN_BYTES
     ? uploadChunked({ getToken, folderId, name, filePath, size, replaceFileId, onProgress })
-    : uploadSimple({ getToken, folderId, name, filePath, replaceFileId });
+    : uploadSimple({ getToken, folderId, name, filePath, replaceFileId, contentCreatedAt });
 }
