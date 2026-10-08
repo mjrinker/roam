@@ -5,6 +5,7 @@ CREATE TABLE "tv_pairings" (
 	"status" text DEFAULT 'pending' NOT NULL,
 	"account_id" uuid,
 	"device_label" text DEFAULT 'TV' NOT NULL,
+	"location_hint" text,
 	"ip_hash" text NOT NULL,
 	"expires_at" timestamp with time zone NOT NULL,
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL

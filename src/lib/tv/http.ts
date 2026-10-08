@@ -1,9 +1,10 @@
 /** Small helpers for the TV route handlers. */
 
-/** The visitor's address as the platform reports it (the first entry of x-forwarded-for), or "unknown". */
+/** The visitor's address as the platform reports it, or "unknown". */
 export function clientAddress(request: Request): string {
-  const forwarded = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim();
-  return forwarded || request.headers.get("x-real-ip")?.trim() || "unknown";
+  // x-vercel-forwarded-for is set by the platform and can't be supplied by the visitor; the others are fallbacks for other hosts.
+  const h = request.headers;
+  return h.get("x-vercel-forwarded-for")?.split(",")[0]?.trim() || h.get("x-real-ip")?.trim() || h.get("x-forwarded-for")?.split(",")[0]?.trim() || "unknown";
 }
 
 /** An HTML response that no one may keep: the pages are per person. */

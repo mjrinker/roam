@@ -1,6 +1,6 @@
 import { cookies } from "next/headers";
 import { db } from "@/lib/db/client";
-import { pollPairing } from "@/lib/tv/pairing";
+import { pollPairing, releasePairing } from "@/lib/tv/pairing";
 import { mintTvSession } from "@/lib/tv/session";
 import { json, TV_PAIR_COOKIE } from "@/lib/tv/http";
 
@@ -14,6 +14,12 @@ export async function POST() {
   if (result.status !== "approved") return json({ status: result.status });
 
   const minted = await mintTvSession(result.accountId);
+  if (!minted.ok) {
+    // Supabase said no (busy, or the account can't have a session): put the approval back so the next poll tries again, until the code lapses.
+    console.error("TV sign-in could not be completed:", minted.reason);
+    await releasePairing(db, secret);
+    return json({ status: "pending" });
+  }
   store.delete({ name: TV_PAIR_COOKIE, path: "/tv" });
-  return json({ status: minted.ok ? "approved" : "expired" });
+  return json({ status: "approved" });
 }

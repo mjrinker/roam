@@ -51,10 +51,11 @@ describe("POST /api/tv/pair", () => {
 
   it("shows which TV a code belongs to without approving it, then approves it on confirmation", async () => {
     const account = await signIn("a");
-    const r = await open();
+    const r = await startPairing(db, { ip: "192.0.2.250", userAgent: "Mozilla/5.0 (SMART-TV; Tizen 5.5)", location: "Denver, US" });
+    if (!r.ok) throw new Error(r.reason);
     const look = await post({ code: r.userCode.toLowerCase() });
     expect(look.status).toBe(200);
-    expect(await look.json()).toMatchObject({ deviceLabel: "Samsung TV" });
+    expect(await look.json()).toMatchObject({ deviceLabel: "Samsung TV", location: "Denver, US" });
     expect((await db.select().from(tvPairings).where(eq(tvPairings.userCode, r.userCode)))[0]).toMatchObject({ status: "pending", accountId: null });
     const ok = await post({ code: `${r.userCode.slice(0, 4)}-${r.userCode.slice(4)}`, approve: true });
     expect([ok.status, (await ok.json()).ok]).toEqual([200, true]);
@@ -86,9 +87,9 @@ describe("POST /api/tv/pair", () => {
   it("limits tries per account, so a code can't be guessed", async () => {
     await signIn("d");
     const statuses: number[] = [];
-    for (let i = 0; i < 17; i++) statuses.push((await post({ code: "ABCDEFGH" })).status);
-    expect(statuses.slice(0, 15).every((s) => s === 404)).toBe(true);
-    expect(statuses.slice(15)).toEqual([429, 429]);
+    for (let i = 0; i < 32; i++) statuses.push((await post({ code: "ABCDEFGH" })).status);
+    expect(statuses.slice(0, 30).every((s) => s === 404)).toBe(true);
+    expect(statuses.slice(30)).toEqual([429, 429]);
     const other = await signIn("e"); // another account has its own allowance
     expect(other).toBeTruthy();
     expect((await post({ code: "ABCDEFGH" })).status).toBe(404);

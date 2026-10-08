@@ -14,6 +14,8 @@ export const esc = (s: string | number | null | undefined): string =>
 /** An address that is safe to put in href or src: a path on this site or an https address, never javascript: or data:. */
 export function safeUrl(url: string | null | undefined): string | null {
   const u = (url ?? "").trim();
+  // A leading "/\" is read by browsers as "//" (another site), so a backslash or control character anywhere rules the address out.
+  if (/[\\\u0000-\u001f\u007f]/.test(u)) return null;
   if (/^\/(?!\/)/.test(u) || /^https:\/\//i.test(u)) return u;
   return null;
 }
@@ -31,6 +33,11 @@ export function tvDocument(opts: { title: string; body: string; script?: boolean
   );
 }
 
+/** A button that sends a POST (for anything that changes state): a focusable submit button works with the remote's OK key. */
+export const postButton = (action: string, label: string, opts: { autofocus?: boolean; fields?: Record<string, string>; className?: string } = {}): string =>
+  `<form method="post" action="${esc(action)}" style="display:inline">${Object.entries(opts.fields ?? {}).map(([k, v]) => `<input type="hidden" name="${esc(k)}" value="${esc(v)}">`).join("")}` +
+  `<button type="submit" class="${esc(opts.className ?? "btn")}" data-f${opts.autofocus ? " data-autofocus" : ""}>${esc(label)}</button></form>`;
+
 const top = (right = "") => `<div class="top"><span class="brand">ROAM</span><span class="sub" style="margin:0">${right}</span></div>`;
 
 // ── Pairing ──────────────────────────────────────────────────────────────
@@ -46,10 +53,10 @@ export function pairPage(args: { userCode: string; linkUrl: string; pollUrl: str
   });
 }
 
-export function messagePage(title: string, message: string, link?: { href: string; label: string }): string {
+export function messagePage(title: string, message: string, link?: { href: string; label: string; post?: boolean }): string {
   return tvDocument({
     title,
-    body: `<div class="page">${top()}<h1>${esc(title)}</h1><p class="msg">${esc(message)}</p>${link ? `<a class="btn primary" data-f data-autofocus href="${esc(safeUrl(link.href) ?? "/tv")}">${esc(link.label)}</a>` : ""}</div>`,
+    body: `<div class="page">${top()}<h1>${esc(title)}</h1><p class="msg">${esc(message)}</p>${link ? (link.post ? postButton(link.href, link.label, { autofocus: true, className: "btn primary" }) : `<a class="btn primary" data-f data-autofocus href="${esc(safeUrl(link.href) ?? "/tv")}">${esc(link.label)}</a>`) : ""}</div>`,
   });
 }
 
@@ -94,7 +101,7 @@ export function homePage(d: HomeData): string {
   const more = d.unsupported > 0 ? `<p class="note">${d.unsupported} more ${d.unsupported === 1 ? "library isn't" : "libraries aren't"} available on TV yet.</p>` : "";
   return tvDocument({
     title: d.serverName,
-    body: `<div class="page">${top(esc(d.profileName))}<h1>${esc(d.serverName)}</h1>${cont}${libs}${more}<div class="row" style="margin-top:2rem"><a class="btn" data-f href="/tv/profiles">Switch profile</a><a class="btn" data-f href="/tv/signout">Sign out</a></div></div>`,
+    body: `<div class="page">${top(esc(d.profileName))}<h1>${esc(d.serverName)}</h1>${cont}${libs}${more}<div class="row" style="margin-top:2rem"><a class="btn" data-f href="/tv/profiles">Switch profile</a>${postButton("/tv/signout", "Sign out")}</div></div>`,
   });
 }
 
@@ -170,7 +177,7 @@ export function profilesPage(args: { profiles: { id: string; name: string }[]; s
     title: "Who's watching?",
     body:
       `<div class="page">${top()}<h1>Who's watching?</h1><div class="row">` +
-      args.profiles.map((p, i) => `<a class="tile" data-f${i === 0 ? " data-autofocus" : ""} href="${esc(args.selectUrl)}?viewer=${esc(p.id)}">${esc(p.name)}</a>`).join("") +
+      args.profiles.map((p, i) => postButton(args.selectUrl, p.name, { autofocus: i === 0, fields: { viewer: p.id }, className: "tile" })).join("") +
       `</div></div>`,
   });
 }

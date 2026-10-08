@@ -958,6 +958,8 @@ export const tvPairings = pgTable(
     status: text("status").$type<"pending" | "approved" | "consumed">().notNull().default("pending"),
     accountId: uuid("account_id").references(() => profiles.id, { onDelete: "cascade" }),
     deviceLabel: text("device_label").notNull().default("TV"),
+    // A rough place the request came from ("Denver, US"), shown to whoever approves the code so a code relayed from far away stands out.
+    locationHint: text("location_hint"),
     ipHash: text("ip_hash").notNull(),
     expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),

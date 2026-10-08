@@ -44,8 +44,8 @@ import { episodes, libraryMembers, profiles, seasons, viewers, watchState } from
 import { joinServer, makeAccount, makeLibrary, makeServer, makeShow, makeTitle, type TestDb } from "@/lib/playlists/test-db";
 import { VIEWER_COOKIE } from "@/lib/viewers/cookie";
 import { GET as front } from "./route";
-import { GET as profilesRoute } from "./profiles/route";
-import { GET as signout } from "./signout/route";
+import { GET as profilesRoute, POST as selectProfile } from "./profiles/route";
+import { GET as signoutGet, POST as signout } from "./signout/route";
 import { GET as home } from "./s/[serverId]/route";
 import { GET as library } from "./s/[serverId]/library/[id]/route";
 import { GET as title } from "./s/[serverId]/title/[id]/route";
@@ -68,6 +68,7 @@ beforeEach(() => {
 const req = (path: string) => new Request(`https://roam.example${path}`);
 const ctx = (params: Record<string, string>) => ({ params: Promise.resolve(params) }) as never;
 const text = async (r: Response) => r.text();
+const post = (path: string, fields: Record<string, string>) => new Request(`https://roam.example${path}`, { method: "POST", body: new URLSearchParams(fields) });
 
 async function signIn(who: Awaited<ReturnType<typeof makeAccount>>, viewerOverride?: unknown) {
   const [account] = await db.select().from(profiles).where(eq(profiles.id, who.accountId));
@@ -243,7 +244,8 @@ describe("profiles and signing out", () => {
     expect(list).toContain("Who&#39;s watching?");
     expect(list).toContain("Kid");
     expect(list).not.toContain("Dad");
-    const picked = await profilesRoute(req(`/tv/profiles?viewer=${kid.id}`));
+    expect(list).toContain('method="post" action="/tv/profiles"'); // choosing is a POST
+    const picked = await selectProfile(post("/tv/profiles", { viewer: kid.id }));
     expect(picked.headers.get("location")).toBe("https://roam.example/tv");
     expect(h.jar.get(VIEWER_COOKIE)).toContain(kid.id);
   });
@@ -254,20 +256,29 @@ describe("profiles and signing out", () => {
     const stranger = await makeAccount(db, "stranger");
     for (const id of [locked.id, stranger.viewer.id]) {
       h.jar.clear();
-      const res = await profilesRoute(req(`/tv/profiles?viewer=${id}`));
+      const res = await selectProfile(post("/tv/profiles", { viewer: id }));
       expect(res.headers.get("location")).toBe("https://roam.example/tv/profiles");
       expect(h.jar.has(VIEWER_COOKIE)).toBe(false);
     }
   });
   it("needs a signed-in account, and explains when every profile is locked", async () => {
     expect((await profilesRoute(req("/tv/profiles"))).headers.get("location")).toBe("https://roam.example/tv/pair");
+    expect((await selectProfile(post("/tv/profiles", { viewer: "x" }))).headers.get("location")).toBe("https://roam.example/tv/pair");
     const w = await world();
     await db.update(viewers).set({ pinHash: "x" }).where(and(eq(viewers.accountId, w.member.accountId)));
     expect(await text(await profilesRoute(req("/tv/profiles")))).toContain("Profiles with a PIN can&#39;t be used on a TV yet");
   });
-  it("signs this TV out and forgets the profile", async () => {
+  it("signs this TV out and forgets the profile, but only on a POST: opening the address just goes home", async () => {
     h.jar.set(VIEWER_COOKIE, "x");
-    const res = await signout(req("/tv/signout"));
+    const link = await signoutGet(req("/tv/signout"));
+    expect([link.headers.get("location"), h.signedOut, h.jar.has(VIEWER_COOKIE)]).toEqual(["https://roam.example/tv", 0, true]);
+    const res = await signout(post("/tv/signout", {}));
     expect([res.status, res.headers.get("location"), h.signedOut, h.jar.has(VIEWER_COOKIE)]).toEqual([302, "https://roam.example/tv/pair", 1, false]);
+  });
+  it("offers Sign out on the home screen as a form button", async () => {
+    const w = await world();
+    const body = await text(await home(req("/x"), ctx({ serverId: w.server.id })));
+    expect(body).toContain('<form method="post" action="/tv/signout"');
+    expect(body).not.toContain('href="/tv/signout"');
   });
 });

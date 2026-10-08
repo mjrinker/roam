@@ -53,7 +53,7 @@ export function deviceLabel(userAgent: string | null | undefined): string {
 
 export type StartResult = { ok: true; userCode: string; secret: string; expiresAt: Date } | { ok: false; reason: "too_many" | "busy" };
 
-export async function startPairing(ex: Db, args: { ip: string; userAgent: string | null; now?: Date }): Promise<StartResult> {
+export async function startPairing(ex: Db, args: { ip: string; userAgent: string | null; location?: string | null; now?: Date }): Promise<StartResult> {
   const now = args.now ?? new Date();
   const ipHash = addressKey(args.ip);
   // Old rows are not worth keeping: an hour past their life they go.
@@ -70,7 +70,7 @@ export async function startPairing(ex: Db, args: { ip: string; userAgent: string
     const userCode = generateUserCode();
     const inserted = await ex
       .insert(tvPairings)
-      .values({ userCode, deviceHash: hashSecret(secret), deviceLabel: deviceLabel(args.userAgent), ipHash, expiresAt, createdAt: now })
+      .values({ userCode, deviceHash: hashSecret(secret), deviceLabel: deviceLabel(args.userAgent), locationHint: args.location?.slice(0, 80) || null, ipHash, expiresAt, createdAt: now })
       .onConflictDoNothing({ target: tvPairings.userCode })
       .returning({ userCode: tvPairings.userCode });
     if (inserted.length > 0) return { ok: true, userCode, secret, expiresAt };
@@ -81,11 +81,30 @@ export async function startPairing(ex: Db, args: { ip: string; userAgent: string
 /** A still-open pairing for a typed code (so the approver can be shown what they are approving), or null. */
 export async function findOpenPairing(ex: Db, userCode: string, now = new Date()) {
   const [row] = await ex
-    .select({ id: tvPairings.id, deviceLabel: tvPairings.deviceLabel, createdAt: tvPairings.createdAt, expiresAt: tvPairings.expiresAt })
+    .select({ id: tvPairings.id, deviceLabel: tvPairings.deviceLabel, locationHint: tvPairings.locationHint, createdAt: tvPairings.createdAt, expiresAt: tvPairings.expiresAt })
     .from(tvPairings)
     .where(and(eq(tvPairings.userCode, userCode), eq(tvPairings.status, "pending"), gt(tvPairings.expiresAt, now)))
     .limit(1);
   return row ?? null;
+}
+
+/** Where a request came from, in words, from the platform's location headers ("Denver, US"); null when it doesn't say. */
+export function locationHint(headers: { get(name: string): string | null }): string | null {
+  const decode = (v: string | null) => {
+    if (!v) return "";
+    try {
+      return decodeURIComponent(v).replace(/[\u0000-\u001f<>]/g, "").trim();
+    } catch {
+      return "";
+    }
+  };
+  const place = [decode(headers.get("x-vercel-ip-city")), decode(headers.get("x-vercel-ip-country"))].filter(Boolean).join(", ");
+  return place ? place.slice(0, 80) : null;
+}
+
+/** Gives back an approved pairing that was claimed but could not be turned into a session, so the TV's next poll tries again. */
+export async function releasePairing(ex: Db, secret: string): Promise<void> {
+  await ex.update(tvPairings).set({ status: "approved" }).where(and(eq(tvPairings.deviceHash, hashSecret(secret)), eq(tvPairings.status, "consumed")));
 }
 
 /** The code a TV was given, if its pairing is still open (a reloaded pairing screen keeps its code instead of spending another). */

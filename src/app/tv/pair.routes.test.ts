@@ -45,7 +45,7 @@ beforeEach(() => {
 });
 
 let n = 0;
-const getPage = (ip = `198.51.100.${++n % 250}`) => GET(new Request("https://roam.example/tv/pair", { headers: { "x-forwarded-for": ip, "user-agent": "Mozilla/5.0 (SMART-TV; Tizen 4.0)" } }));
+const getPage = (ip = `198.51.100.${++n % 250}`, extra: Record<string, string> = {}) => GET(new Request("https://roam.example/tv/pair", { headers: { "x-vercel-forwarded-for": ip, "user-agent": "Mozilla/5.0 (SMART-TV; Tizen 4.0)", ...extra } }));
 const code = (body: string) => /class="code">([A-Z0-9]{4}-[A-Z0-9]{4})</.exec(body)?.[1] ?? "";
 
 describe("GET /tv/pair", () => {
@@ -59,6 +59,21 @@ describe("GET /tv/pair", () => {
     expect(res.headers.get("cache-control")).toBe("private, no-store");
     expect(h.jar.get(TV_PAIR_COOKIE)).toBeTruthy();
     expect(body).not.toContain(h.jar.get(TV_PAIR_COOKIE)!); // the secret never reaches the page
+  });
+  it("records roughly where the TV asked from, for whoever approves it, and counts addresses by the platform's header", async () => {
+    await getPage("203.0.113.9", { "x-vercel-ip-city": "S%C3%A3o%20Paulo", "x-vercel-ip-country": "BR" });
+    const [row] = await db.select().from(tvPairings).where(eq(tvPairings.status, "pending")).orderBy(tvPairings.createdAt);
+    expect(row).toBeTruthy();
+    const rows = await db.select().from(tvPairings);
+    expect(rows.some((r) => r.locationHint === "São Paulo, BR")).toBe(true);
+    // a visitor can't pick their own address with x-forwarded-for when the platform's header is present
+    const ip = "203.0.113.50";
+    let last = 200;
+    for (let i = 0; i < 25; i++) {
+      h.jar.clear();
+      last = (await GET(new Request("https://roam.example/tv/pair", { headers: { "x-vercel-forwarded-for": ip, "x-forwarded-for": `9.9.9.${i}`, "user-agent": "Tizen" } }))).status;
+    }
+    expect(last).toBe(429);
   });
   it("keeps the same code when the screen is reloaded, instead of spending another", async () => {
     const first = code(await (await getPage()).text());
@@ -101,11 +116,15 @@ describe("POST /tv/pair/poll", () => {
     expect(await poll()).toEqual({ status: "expired" });
     expect(h.minted).toHaveLength(1);
   });
-  it("does not claim success when the session could not be made", async () => {
+  it("does not claim success when the session could not be made, and tries again on the next poll instead of losing the approval", async () => {
     const who = await makeAccount(db, "tvfail");
     const shown = code(await (await getPage()).text()).replace("-", "");
     await approvePairing(db, { userCode: shown, accountId: who.accountId });
     h.mintOk = false;
-    expect(await poll()).toEqual({ status: "expired" });
+    expect(await poll()).toEqual({ status: "pending" });
+    expect(h.jar.has(TV_PAIR_COOKIE)).toBe(true);
+    h.mintOk = true;
+    expect(await poll()).toEqual({ status: "approved" });
+    expect(h.minted).toHaveLength(2);
   });
 });

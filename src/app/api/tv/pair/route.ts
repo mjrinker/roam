@@ -20,13 +20,13 @@ export async function POST(request: Request) {
 
   const parsed = body.safeParse(await request.json().catch(() => null));
   if (!parsed.success) return NextResponse.json({ error: "Bad request" }, { status: 400 });
-  if (!(await checkRateLimit(account.id, "tv_pair", 15, 10 * 60))) return NextResponse.json({ error: "Too many tries. Wait a few minutes." }, { status: 429 });
+  if (!(await checkRateLimit(account.id, "tv_pair", 30, 10 * 60))) return NextResponse.json({ error: "Too many tries. Wait a few minutes." }, { status: 429 });
 
   const code = normalizeUserCode(parsed.data.code);
   if (!code) return invalid();
   const open = await findOpenPairing(db, code);
   if (!open) return invalid();
-  if (!parsed.data.approve) return NextResponse.json({ deviceLabel: open.deviceLabel, startedAt: open.createdAt.toISOString() });
+  if (!parsed.data.approve) return NextResponse.json({ deviceLabel: open.deviceLabel, location: open.locationHint, startedAt: open.createdAt.toISOString() });
 
   return (await approvePairing(db, { userCode: code, accountId: account.id })) ? NextResponse.json({ ok: true, deviceLabel: open.deviceLabel }) : invalid();
 }

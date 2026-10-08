@@ -1,3 +1,4 @@
+/* eslint-disable @next/next/no-location-assign-relative-destination -- a plain page script for TV browsers, not a Next.js component */
 /**
  * The only script Roam's TV pages load. It is compiled for Chromium 56 (Samsung 2018) and does three things:
  *  1. moves a highlight between the page's focusable items with the remote's arrow keys,
@@ -196,10 +197,14 @@ function startPlayer(cfg: PlayConfig) {
     showHud();
   }
 
-  function load(resumeFrom?: number) {
+  function load(resumeFrom?: number, autoplay?: boolean) {
     say("Loading…");
     fetch("/api/play/" + cfg.ownerKind + "/" + cfg.ownerId + unsupportedCodecsQuery(), { credentials: "same-origin" })
       .then((res) => {
+        if (res.status === 401 || res.status === 403) {
+          window.location.href = "/tv";
+          throw new Error("Signed out.");
+        }
         if (res.status === 429) throw new Error("The demo has reached today's play limit. Try again tomorrow.");
         if (!res.ok) throw new Error("This can't be played right now.");
         return res.json();
@@ -209,7 +214,7 @@ function startPlayer(cfg: PlayConfig) {
         const start = resumeFrom !== undefined ? resumeFrom : m.resumeSeconds > 0 && m.resumeSeconds < m.durationSeconds - 30 ? m.resumeSeconds : 0;
         const at = locate(m.segments, start);
         say("");
-        openPart(at.segment, at.localTime, true);
+        openPart(at.segment, at.localTime, autoplay === undefined ? true : autoplay);
       })
       .catch((e: Error) => say(e.message || "This can't be played right now."));
   }
@@ -239,7 +244,7 @@ function startPlayer(cfg: PlayConfig) {
     // Usually a link that expired while paused: ask for fresh ones and carry on from the same spot (twice at most).
     if (manifest && recoveries < 2) {
       recoveries++;
-      load(position());
+      load(position(), wantPlaying);
     } else say("Playback failed. Press Back and try again.");
   });
   window.addEventListener("pagehide", () => save(undefined, true));
@@ -312,7 +317,12 @@ function startPolling(el: HTMLElement) {
   const url = el.getAttribute("data-poll") || "";
   const done = el.getAttribute("data-done") || "/tv";
   const gone = el.getAttribute("data-expired") || window.location.href;
+  const giveUp = Date.now() + 11 * 60 * 1000; // a code lasts ten minutes; after that, ask for a new one
   const tick = () => {
+    if (Date.now() > giveUp) {
+      window.location.href = gone;
+      return;
+    }
     fetch(url, { method: "POST", credentials: "same-origin" })
       .then((r) => r.json())
       .then((j: { status: string }) => {

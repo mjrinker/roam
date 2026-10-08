@@ -31,12 +31,17 @@ const saves: { positionSeconds: number; finished: boolean }[] = [];
 let manifestRequests = 0;
 let failFirstManifestUrl = false;
 let polls = 0;
+let signouts = 0;
 
 const server = http.createServer((req, res) => {
   const url = new URL(req.url!, "http://x");
   if (pages[url.pathname]) return void res.writeHead(200, { "content-type": "text/html" }).end(pages[url.pathname]);
   if (url.pathname === "/tv/tv.css") return void res.writeHead(200, { "content-type": "text/css" }).end(fs.readFileSync("public/tv/tv.css"));
   if (url.pathname === "/tv/tv.js") return void res.writeHead(200, { "content-type": "text/javascript" }).end(fs.readFileSync("public/tv/tv.js"));
+  if (url.pathname === "/tv/signout" && req.method === "POST") {
+    signouts++;
+    return void res.writeHead(302, { location: "/tv/pair" }).end();
+  }
   if (url.pathname === "/tv/pair/poll") {
     polls++;
     return void res.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify({ status: polls < 3 ? "pending" : "approved" }));
@@ -121,7 +126,16 @@ async function run(label: string, exe: string, m56: boolean) {
   check(L("OK opens the focused library"), await page.waitFor(`location.pathname === "/tv/s/x/library/a"`));
   await ready(page);
 
+  // A POST button (Sign out) works with the remote's OK key, and only then.
+  await page.goto(base + "/tv/s/x");
+  signouts = 0;
+  for (let i = 0; i < 12 && (await focusedText(page)) !== "Sign out"; i++) await key(page, i < 4 ? 40 : 39);
+  check(L("the Sign out button can be reached with the arrows"), (await focusedText(page)) === "Sign out", await focusedText(page));
+  await key(page, 13);
+  check(L("OK on Sign out sends a POST and follows its redirect"), (await page.waitFor(`location.pathname === "/tv/pair"`)) && signouts === 1, `signouts=${signouts}`);
+
   // Back keys of Tizen (10009) and webOS (461) follow the page's Back button.
+  await page.goto(base + "/tv/s/x/library/a");
   await key(page, 10009);
   check(L("Tizen Back key goes back"), await page.waitFor(`location.pathname === "/tv/s/x"`));
   await page.goto(base + "/tv/s/x/library/a");

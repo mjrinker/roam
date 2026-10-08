@@ -1,5 +1,5 @@
 {
-  "id": "6861e9ac-e1f2-46cf-8659-980a722cd271",
+  "id": "411c9031-733c-4749-917a-6e05e6874508",
   "prevId": "5572d422-fc2f-479a-911c-cb5f2d6c4d49",
   "version": "7",
   "dialect": "postgresql",
@@ -2841,6 +2841,12 @@
           "primaryKey": false,
           "notNull": true,
           "default": "'TV'"
+        },
+        "location_hint": {
+          "name": "location_hint",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
         },
         "ip_hash": {
           "name": "ip_hash",
