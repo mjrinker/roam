@@ -24,12 +24,12 @@ export interface OrganizeResult {
  * Two passes grouping one library at once (or a prune sweeping while a pass fills an artist) could delete a group the other is
  * about to use, so every write here first takes this library's lock for the length of its transaction.
  */
-const lockLibrary = (tx: Pick<typeof db, "execute">, libraryId: string) => tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${"music:" + libraryId}))`);
+export const lockMusicLibrary = (tx: Pick<typeof db, "execute">, libraryId: string) => tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${"music:" + libraryId}))`);
 
 /** Removes albums with no tracks, then artists with no albums, in one library (after tracks leave Box or move). */
 export async function sweepEmptyMusicGroups(libraryId: string): Promise<void> {
   await db.transaction(async (tx) => {
-    await lockLibrary(tx, libraryId);
+    await lockMusicLibrary(tx, libraryId);
     await tx
       .delete(musicAlbums)
       .where(
@@ -78,7 +78,7 @@ export async function organizeMusicLibrary(libraryId: string, deadline = Infinit
     const placements = rows.map((r) => ({ row: r, p: placeTrack({ folderPath: r.folderPath ?? "", fileName: r.fileName, tagArtist: r.tagArtist?.[0] ?? null }) }));
 
     placed += await db.transaction(async (tx) => {
-      await lockLibrary(tx, libraryId);
+      await lockMusicLibrary(tx, libraryId);
       // Another pass may have removed groups we resolved in an earlier chunk (an empty-group sweep): start each chunk from the database.
       artistIds.clear();
       albumIds.clear();

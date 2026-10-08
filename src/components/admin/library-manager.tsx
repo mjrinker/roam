@@ -40,6 +40,7 @@ export interface LibraryRow {
   ratingAges: Record<string, number> | null;
   /** Video libraries: remove a video once it has left Box. */
   pruneMissing: boolean;
+  musicLookup: boolean;
   boxFolderId: string;
   audibleRegion: string;
   lastScannedAt: string | null;
@@ -170,6 +171,34 @@ function PruneToggle({ libraryId, initial }: { libraryId: string; initial: boole
     <label className="mt-2 flex items-center gap-2 text-xs text-muted-foreground">
       <input type="checkbox" className="size-3.5 accent-[var(--primary)]" checked={enabled} onChange={(e) => change(e.target.checked)} />
       Remove items that were deleted from Box (and their watch history and playlist spots)
+    </label>
+  );
+}
+
+/** Whether a music library looks its albums up on MusicBrainz (sending the artist and album folder names there). */
+function MusicLookupToggle({ libraryId, initial }: { libraryId: string; initial: boolean }) {
+  const [enabled, setEnabled] = useState(initial);
+
+  async function change(next: boolean) {
+    const previous = enabled;
+    setEnabled(next);
+    const res = await fetch(`/api/libraries/${libraryId}/music-lookup`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ enabled: next }),
+    });
+    if (!res.ok) {
+      setEnabled(previous);
+      toast.error("Couldn't change the setting.");
+      return;
+    }
+    toast.success(next ? "Albums will be looked up on MusicBrainz on the next scan." : "Nothing about this library will be sent to MusicBrainz.");
+  }
+
+  return (
+    <label className="mt-2 flex items-center gap-2 text-xs text-muted-foreground">
+      <input type="checkbox" className="size-3.5 accent-[var(--primary)]" checked={enabled} onChange={(e) => change(e.target.checked)} />
+      Look up albums on MusicBrainz for titles, years and cover art (sends artist and album folder names)
     </label>
   );
 }
@@ -515,6 +544,7 @@ export function LibraryManager({
               {lib.kind === "audiobooks" && <AudibleRegionSelect libraryId={lib.id} initial={lib.audibleRegion} />}
               {isFileTreeLibraryKind(lib.kind) && <VideoRatingSelect libraryId={lib.id} initial={agesToRating(lib.ratingAges)} />}
               {isFileTreeLibraryKind(lib.kind) && <PruneToggle libraryId={lib.id} initial={lib.pruneMissing} />}
+              {lib.kind === "music" && <MusicLookupToggle libraryId={lib.id} initial={lib.musicLookup} />}
               {statusById[lib.id] && <ScanProgress status={statusById[lib.id]} />}
               {lib.lastScan && <ScanErrors errors={lib.lastScan.errors} />}
             </CardContent>

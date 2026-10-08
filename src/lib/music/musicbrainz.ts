@@ -8,6 +8,11 @@ export const MB_USER_AGENT = "Roam/1.0 (https://github.com/mjrinker/roam)";
 const MB_API = "https://musicbrainz.org/ws/2";
 const CAA = "https://coverartarchive.org";
 const MIN_INTERVAL_MS = 1100;
+/** No single request may take longer than this: a stalled one would hold up every lookup queued behind it. */
+const REQUEST_TIMEOUT_MS = 10_000;
+const MAX_COVER_BYTES = 3 * 1024 * 1024;
+const MAX_REDIRECTS = 3;
+const COVER_HOSTS = [/^coverartarchive\.org$/, /(^|\.)archive\.org$/];
 
 // ── Matching (pure) ──────────────────────────────────────────────────────
 
@@ -45,6 +50,12 @@ export function sameArtist(folderName: string, mbName: string): boolean {
   const [small, big] = x.size <= y.size ? [x, y] : [y, x];
   // Every word of the shorter name is in the longer one, and the shorter has a real word (not just "the").
   return small.size > 0 && [...small].every((t) => big.has(t)) && [...small].some((t) => t.length > 2 && !["the", "and"].includes(t));
+}
+
+/** Like sameArtist but only for the very same name (a leading "The" aside): used before an id is attached to an artist. */
+export function sameArtistExactly(folderName: string, mbName: string): boolean {
+  const drop = (s: string) => normalizeName(s).replace(/^(the|a|an) (?=\S)/, "");
+  return drop(folderName) !== "" && drop(folderName) === drop(mbName);
 }
 
 export interface ReleaseCandidate {
@@ -164,6 +175,31 @@ const creditName = (credit: MbSearchRelease["artist-credit"]): string => (credit
 /** Escapes what Lucene (MusicBrainz's search syntax) would read as syntax, inside a quoted phrase. */
 export const luceneQuote = (s: string): string => `"${s.replace(/(["\\])/g, "\\$1")}"`;
 
+/** The response body, or null if it is longer than `max` (stopped as soon as it is). */
+async function readCapped(res: Response, max: number): Promise<Uint8Array | null> {
+  if (!res.body) return new Uint8Array(0); // an empty body
+  const reader = res.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    total += value.length;
+    if (total > max) {
+      await reader.cancel();
+      return null;
+    }
+    chunks.push(value);
+  }
+  const out = new Uint8Array(total);
+  let at = 0;
+  for (const c of chunks) {
+    out.set(c, at);
+    at += c.length;
+  }
+  return out;
+}
+
 export function createMusicBrainz(opts: { fetch?: Fetch; userAgent?: string; minIntervalMs?: number; now?: () => number; sleep?: (ms: number) => Promise<void> } = {}): MusicBrainzClient {
   const doFetch = opts.fetch ?? fetch;
   const ua = opts.userAgent ?? MB_USER_AGENT;
@@ -190,7 +226,7 @@ export function createMusicBrainz(opts: { fetch?: Fetch; userAgent?: string; min
   async function mb<T>(path: string): Promise<T | null> {
     return throttled(async () => {
       for (let attempt = 0; attempt < 3; attempt++) {
-        const res = await doFetch(`${MB_API}${path}`, { headers: { "user-agent": ua, accept: "application/json" } });
+        const res = await doFetch(`${MB_API}${path}`, { headers: { "user-agent": ua, accept: "application/json" }, signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) });
         if (res.ok) return (await res.json()) as T;
         if (res.status === 404) return null;
         if (res.status === 503 || res.status === 429) {
@@ -241,15 +277,27 @@ export function createMusicBrainz(opts: { fetch?: Fetch; userAgent?: string; min
 
     async getFrontCover(releaseId) {
       if (!/^[0-9a-f-]{36}$/i.test(releaseId)) throw new Error("Not a MusicBrainz id");
-      // The archive redirects to the image's own address; only follow to archive.org hosts.
-      const res = await doFetch(`${CAA}/release/${releaseId}/front-500`, { headers: { "user-agent": ua }, redirect: "follow" });
-      if (res.status === 404) return null;
-      if (!res.ok) throw new Error(`Cover Art Archive answered ${res.status}`);
-      const type = (res.headers.get("content-type") ?? "").split(";")[0].trim().toLowerCase();
-      if (type !== "image/jpeg" && type !== "image/png") return null;
-      const bytes = new Uint8Array(await res.arrayBuffer());
-      if (bytes.length === 0 || bytes.length > 3 * 1024 * 1024) return null;
-      return { contentType: type, bytes };
+      // The archive answers with a redirect to the image's own address; follow it by hand, and only to archive.org hosts.
+      let url = `${CAA}/release/${releaseId}/front-500`;
+      for (let hop = 0; ; hop++) {
+        const res = await doFetch(url, { headers: { "user-agent": ua }, redirect: "manual", signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) });
+        if (res.status >= 300 && res.status < 400) {
+          const next = res.headers.get("location");
+          if (!next || hop >= MAX_REDIRECTS) return null;
+          const target = new URL(next, url);
+          if (target.protocol !== "https:" || !COVER_HOSTS.some((re) => re.test(target.hostname))) return null;
+          url = target.toString();
+          continue;
+        }
+        if (res.status === 404) return null;
+        if (!res.ok) throw new Error(`Cover Art Archive answered ${res.status}`);
+        const type = (res.headers.get("content-type") ?? "").split(";")[0].trim().toLowerCase();
+        if (type !== "image/jpeg" && type !== "image/png") return null;
+        const declared = Number(res.headers.get("content-length"));
+        if (Number.isFinite(declared) && declared > MAX_COVER_BYTES) return null;
+        const bytes = await readCapped(res, MAX_COVER_BYTES);
+        return bytes && bytes.length > 0 ? { contentType: type, bytes } : null;
+      }
     },
   };
 }

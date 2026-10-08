@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { createMusicBrainz, luceneQuote, mapTracks, nameSimilarity, normalizeName, pickRelease, sameArtist, yearOfDate, type ReleaseCandidate } from "./musicbrainz";
+import { createMusicBrainz, luceneQuote, mapTracks, nameSimilarity, normalizeName, pickRelease, sameArtist, sameArtistExactly, yearOfDate, type ReleaseCandidate } from "./musicbrainz";
 
 describe("names", () => {
   it("normalizes accents, case, punctuation and ampersands", () => {
@@ -23,6 +23,12 @@ describe("names", () => {
     expect(sameArtist("", "X")).toBe(false);
     expect(sameArtist("Bach", "Johann Sebastian Bach")).toBe(true);
     expect(sameArtist("Bach", "Bachman Turner Overdrive")).toBe(false);
+  });
+  it("only attaches an artist id for the very same name", () => {
+    expect(sameArtistExactly("beatles", "The Beatles")).toBe(true);
+    expect(sameArtistExactly("Prince", "Prince and the Revolution")).toBe(false);
+    expect(sameArtistExactly("Chopin", "Frédéric Chopin")).toBe(false);
+    expect(sameArtistExactly("", "")).toBe(false);
   });
   it("reads years", () => {
     expect([yearOfDate("1969-09-26"), yearOfDate("1969"), yearOfDate("1969-09"), yearOfDate(""), yearOfDate(null), yearOfDate("n/a"), yearOfDate("0001-01-01")]).toEqual([1969, 1969, 1969, null, null, null, null]);
@@ -126,6 +132,40 @@ describe("createMusicBrainz", () => {
     expect(await mb.getRelease("11111111-2222-3333-4444-555555555555")).toBeNull();
     await expect(mb.getRelease("../etc/passwd")).rejects.toThrow(/Not a MusicBrainz id/);
     await expect(mb.getFrontCover("x?y")).rejects.toThrow(/Not a MusicBrainz id/);
+  });
+  it("gives every request a time limit", async () => {
+    const f = vi.fn(async () => json({ releases: [] }));
+    await createMusicBrainz({ fetch: f as never, ...fast }).searchReleases("a", "b");
+    expect((f.mock.calls[0] as unknown as [string, RequestInit])[1].signal).toBeInstanceOf(AbortSignal);
+    const c = vi.fn(async () => new Response("", { status: 404 }));
+    await createMusicBrainz({ fetch: c as never }).getFrontCover("11111111-2222-3333-4444-555555555555");
+    expect((c.mock.calls[0] as unknown as [string, RequestInit])[1].signal).toBeInstanceOf(AbortSignal);
+  });
+  it("follows the cover archive's redirect to archive.org by hand, and nowhere else", async () => {
+    const id = "11111111-2222-3333-4444-555555555555";
+    const redirect = (location: string) => new Response(null, { status: 307, headers: { location } });
+    const image = () => new Response(new Uint8Array(50), { status: 200, headers: { "content-type": "image/jpeg" } });
+    const good = vi.fn().mockResolvedValueOnce(redirect("https://ia800000.us.archive.org/img.jpg")).mockResolvedValueOnce(image());
+    expect((await createMusicBrainz({ fetch: good as never }).getFrontCover(id))?.bytes.length).toBe(50);
+    expect((good.mock.calls[0] as unknown as [string, RequestInit])[1].redirect).toBe("manual");
+    for (const bad of ["https://evil.example/x.jpg", "http://ia800000.us.archive.org/img.jpg", "https://archive.org.evil.example/x.jpg", "https://127.0.0.1/x.jpg"]) {
+      const f = vi.fn().mockResolvedValueOnce(redirect(bad)).mockResolvedValueOnce(image());
+      expect(await createMusicBrainz({ fetch: f as never }).getFrontCover(id), bad).toBeNull();
+      expect(f).toHaveBeenCalledTimes(1); // never even asked the other host
+    }
+    const loop = vi.fn(async () => redirect("https://coverartarchive.org/again"));
+    expect(await createMusicBrainz({ fetch: loop as never }).getFrontCover(id)).toBeNull();
+    expect(loop.mock.calls.length).toBeLessThanOrEqual(5);
+  });
+  it("refuses a cover that says it is too big, and stops reading one that turns out to be", async () => {
+    const id = "11111111-2222-3333-4444-555555555555";
+    const declared = (async () => new Response(new Uint8Array(10), { status: 200, headers: { "content-type": "image/png", "content-length": String(10 * 1024 * 1024) } })) as never;
+    expect(await createMusicBrainz({ fetch: declared }).getFrontCover(id)).toBeNull();
+    let pulled = 0;
+    const stream = new ReadableStream<Uint8Array>({ pull(c) { pulled++; c.enqueue(new Uint8Array(1024 * 1024)); if (pulled > 50) c.close(); } });
+    const endless = (async () => new Response(stream, { status: 200, headers: { "content-type": "image/png" } })) as never;
+    expect(await createMusicBrainz({ fetch: endless }).getFrontCover(id)).toBeNull();
+    expect(pulled).toBeLessThan(10);
   });
   it("takes a front cover that is a JPEG or PNG of sane size, and nothing else", async () => {
     const id = "11111111-2222-3333-4444-555555555555";

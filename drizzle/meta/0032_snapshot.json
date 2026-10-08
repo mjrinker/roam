@@ -1,5 +1,5 @@
 {
-  "id": "1a0862fc-dc26-4c8f-b553-f67ecf392f3e",
+  "id": "e1666221-5d12-4ed8-acd8-bd16b1f77fe9",
   "prevId": "f3bda20c-8475-471d-87c9-fadbf239ce54",
   "version": "7",
   "dialect": "postgresql",
@@ -338,6 +338,13 @@
         },
         "prune_missing": {
           "name": "prune_missing",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": true
+        },
+        "music_lookup": {
+          "name": "music_lookup",
           "type": "boolean",
           "primaryKey": false,
           "notNull": true,

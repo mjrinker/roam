@@ -9,7 +9,7 @@ vi.mock("@/lib/db/client", async () => {
   return { db: h.testDb.db };
 });
 
-import { musicAlbums, musicArtists, titles } from "@/lib/db/schema";
+import { libraries, musicAlbums, musicArtists, titles } from "@/lib/db/schema";
 import { artworkOf, makeAccount, makeLibrary, makeServer, putArtwork, type TestDb } from "@/lib/playlists/test-db";
 import { MUSIC_PROFILE } from "@/lib/scan/tree-profile";
 import { syncVideoDirectory } from "@/lib/scan/video-library";
@@ -52,6 +52,7 @@ function client(over: Partial<MusicBrainzClient> = {}): MusicBrainzClient & { ca
     ...over,
   };
 }
+const later = () => new Date(Date.now() + 3600_000);
 const run = (id: string, c: MusicBrainzClient, errors: string[] = [], opts: { now?: () => Date; deadline?: number } = {}) =>
   enrichMusicLibrary(id, opts.deadline ?? Date.now() + 60_000, errors, { client: c, now: opts.now });
 
@@ -106,7 +107,7 @@ describe("enrichMusicLibrary", () => {
     await syncVideoDirectory(a.lib.id, "p", "beatles/abbey road", [{ id: `enr-new-${n}`, name: "03 - new.mp3", kind: "file", sizeBytes: 10 }], null, MUSIC_PROFILE);
     await organizeMusicLibrary(a.lib.id);
     const loud = client({ searchReleases: async () => [candidate({ trackCount: 3 })] });
-    await run(a.lib.id, loud);
+    await run(a.lib.id, loud, [], { now: later }); // a re-look waits out the retry gap first
     expect(loud.calls.release).toBe(1);
     expect((await a.albumRow()).matchedTrackCount).toBe(3);
   });
@@ -116,7 +117,7 @@ describe("enrichMusicLibrary", () => {
     await run(a.lib.id, client());
     await syncVideoDirectory(a.lib.id, "p", "beatles/abbey road", [{ id: `enr-bonus-${n}`, name: "03 - bonus.mp3", kind: "file", sizeBytes: 10 }], null, MUSIC_PROFILE);
     await organizeMusicLibrary(a.lib.id);
-    await run(a.lib.id, client()); // the release has 2 tracks; we now have 3
+    await run(a.lib.id, client(), [], { now: later }); // the release has 2 tracks; we now have 3
     expect(await a.albumRow()).toMatchObject({ name: "Abbey Road", matchStatus: "matched", mbid: RID, matchedTrackCount: 3 });
     const quiet = client();
     await run(a.lib.id, quiet);
@@ -156,6 +157,51 @@ describe("enrichMusicLibrary", () => {
     await run(a.lib.id, client({ getFrontCover: async () => { throw new Error("archive down"); } }));
     expect(await a.albumRow()).toMatchObject({ matchStatus: "matched" });
     expect((await a.tracks()).every((t) => t.posterUrl === null)).toBe(true);
+  });
+
+  it("sends nothing anywhere for a library whose lookup is switched off, and works again when it is switched back on", async () => {
+    const a = await album();
+    await db.update(libraries).set({ musicLookup: false }).where(eq(libraries.id, a.lib.id));
+    const c = client();
+    expect(await run(a.lib.id, c)).toBe(false);
+    expect(c.calls).toEqual({ search: 0, release: 0, cover: 0 });
+    expect((await a.albumRow()).matchStatus).toBe("pending");
+    await db.update(libraries).set({ musicLookup: true }).where(eq(libraries.id, a.lib.id));
+    await run(a.lib.id, c);
+    expect((await a.albumRow()).matchStatus).toBe("matched");
+  });
+
+  it("attaches an artist id only when the credited artist is the folder's artist, not a bigger act with the same words", async () => {
+    const a = await album(["01 - come together.mp3", "02 - something.mp3"], "prince/abbey road");
+    await run(a.lib.id, client({ searchReleases: async () => [candidate({ artist: "Prince and the Revolution" })], getRelease: async () => ({ id: RID, title: "Abbey Road", artist: "Prince and the Revolution", artistId: "revolution-id", date: null, tracks: [] }) }));
+    expect((await a.artistRow()).mbid).toBeNull();
+    expect((await a.albumRow()).matchStatus).toBe("matched");
+  });
+
+  it("never replaces a cover that a tag pass stored while the network was being asked", async () => {
+    const a = await album(["01 - come together.mp3", "02 - something.mp3"]);
+    const target = (await a.tracks()).find((t) => t.trackNumber === 1)!;
+    await run(a.lib.id, client({ getFrontCover: async () => (await putArtwork(db, target.id, [7, 7], "image/jpeg", "embedded"), { contentType: "image/jpeg" as const, bytes: Uint8Array.from(TEST_JPEG) }) }));
+    const kept = await artworkOf(db, target.id);
+    expect([kept!.source, Array.from(kept!.bytes)]).toEqual(["embedded", [7, 7]]);
+    expect((await artworkOf(db, (await a.tracks()).find((t) => t.trackNumber === 2)!.id))!.source).toBe("online");
+  });
+
+  it("a matched album whose later look-up keeps failing stays matched, and waits between tries", async () => {
+    const a = await album(["01 - come together.mp3", "02 - something.mp3"]);
+    await run(a.lib.id, client());
+    await syncVideoDirectory(a.lib.id, "p", "beatles/abbey road", [{ id: `enr-fail-${n}`, name: "03 - x.mp3", kind: "file", sizeBytes: 10 }], null, MUSIC_PROFILE);
+    await organizeMusicLibrary(a.lib.id);
+    const boom = client({ searchReleases: async () => { throw new Error("down"); } });
+    let clock = new Date(Date.now() + 3600_000);
+    for (let i = 0; i < MAX_MATCH_ATTEMPTS + 2; i++) {
+      await run(a.lib.id, boom, [], { now: () => clock });
+      clock = new Date(clock.getTime() + 3600_000);
+    }
+    expect(await a.albumRow()).toMatchObject({ matchStatus: "matched", mbid: RID, name: "Abbey Road" });
+    const tooSoon = client();
+    await run(a.lib.id, boom, [], { now: () => new Date(clock.getTime() - 3600_000 + 60_000) });
+    expect(tooSoon.calls.search).toBe(0);
   });
 
   it("stops when its time is up", async () => {

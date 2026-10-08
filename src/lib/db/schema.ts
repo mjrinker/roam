@@ -245,6 +245,8 @@ export const libraries = pgTable(
     scanCycleClean: boolean("scan_cycle_clean").notNull().default(true),
     // Remove a video's entry (and its watch history and playlist spots) once it has left Box.
     pruneMissing: boolean("prune_missing").notNull().default(true),
+    // Music libraries: look albums up on MusicBrainz (sends the artist and album folder names there). An admin can turn it off.
+    musicLookup: boolean("music_lookup").notNull().default(true),
     lastScannedAt: timestamp("last_scanned_at", { withTimezone: true }),
     // Updated at the START of every scan attempt, success or failure —
     // distinct from lastScannedAt (which only advances on completion, and

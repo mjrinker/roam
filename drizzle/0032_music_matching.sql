@@ -1,3 +1,4 @@
+ALTER TABLE "libraries" ADD COLUMN "music_lookup" boolean DEFAULT true NOT NULL;--> statement-breakpoint
 ALTER TABLE "music_albums" ADD COLUMN "mbid" text;--> statement-breakpoint
 ALTER TABLE "music_albums" ADD COLUMN "match_status" text DEFAULT 'pending' NOT NULL;--> statement-breakpoint
 ALTER TABLE "music_albums" ADD COLUMN "match_attempts" integer DEFAULT 0 NOT NULL;--> statement-breakpoint

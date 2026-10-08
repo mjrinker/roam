@@ -7,10 +7,11 @@
  *
  * Time-bounded and retry-capped like the other metadata passes: a few tries per album, then it is left as it is.
  */
-import { and, asc, eq, isNull, lt, or, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull, lt, notExists, or, sql } from "drizzle-orm";
 import { db } from "@/lib/db/client";
-import { musicAlbums, musicArtists, titleArtwork, titles } from "@/lib/db/schema";
-import { createMusicBrainz, mapTracks, pickRelease, yearOfDate, sameArtist, type MusicBrainzClient } from "@/lib/music/musicbrainz";
+import { libraries, musicAlbums, musicArtists, titleArtwork, titles } from "@/lib/db/schema";
+import { createMusicBrainz, mapTracks, pickRelease, yearOfDate, sameArtistExactly, type MusicBrainzClient } from "@/lib/music/musicbrainz";
+import { lockMusicLibrary } from "@/lib/music/organize";
 import { storeArtwork } from "@/lib/scan/artwork-store";
 
 export const MAX_MATCH_ATTEMPTS = 3;
@@ -22,13 +23,15 @@ const RETRY_AFTER_MS = 30 * 60 * 1000;
 let shared: MusicBrainzClient | null = null;
 const defaultClient = () => (shared ??= createMusicBrainz());
 
-/** Turns online matching off for one library without touching the others: see the library's `musicLookup` setting. */
+/** `client` and `now` are for tests. A library's own `musicLookup` setting turns matching off for that library. */
 export interface EnrichDeps {
   client?: MusicBrainzClient;
   now?: () => Date;
 }
 
 export async function enrichMusicLibrary(libraryId: string, deadline: number, errors: string[], deps: EnrichDeps = {}): Promise<boolean> {
+  const [library] = await db.select({ lookup: libraries.musicLookup }).from(libraries).where(eq(libraries.id, libraryId));
+  if (!library?.lookup) return false; // switched off: nothing about this library leaves Roam
   const client = deps.client ?? defaultClient();
   const now = deps.now ?? (() => new Date());
   const retryBefore = new Date(now().getTime() - RETRY_AFTER_MS);
@@ -44,7 +47,11 @@ export async function enrichMusicLibrary(libraryId: string, deadline: number, er
         or(
           and(eq(musicAlbums.matchStatus, "pending"), lt(musicAlbums.matchAttempts, MAX_MATCH_ATTEMPTS), or(isNull(musicAlbums.matchAttemptedAt), lt(musicAlbums.matchAttemptedAt, retryBefore))),
           // Matched, but files have since been added or removed.
-          and(eq(musicAlbums.matchStatus, "matched"), sql`${musicAlbums.matchedTrackCount} IS DISTINCT FROM ${trackCount}`)
+          and(
+            eq(musicAlbums.matchStatus, "matched"),
+            sql`${musicAlbums.matchedTrackCount} IS DISTINCT FROM ${trackCount}`,
+            or(isNull(musicAlbums.matchAttemptedAt), lt(musicAlbums.matchAttemptedAt, retryBefore))
+          )
         )
       )
     )
@@ -56,14 +63,19 @@ export async function enrichMusicLibrary(libraryId: string, deadline: number, er
     if (Date.now() > deadline) return true;
     if (album.tracks === 0) continue; // about to be swept
     try {
-      await matchAlbum(client, album, now());
+      await matchAlbum(client, album, now(), libraryId);
     } catch (err) {
       incomplete = true;
       errors.push(`music lookup ${album.artist} / ${album.name}: ${(err as Error).message}`);
       // Counted so an album that always fails stops being tried; the wait before the next try is the retry gap.
       await db
         .update(musicAlbums)
-        .set({ matchAttempts: sql`${musicAlbums.matchAttempts} + 1`, matchAttemptedAt: now(), ...(album.attempts + 1 >= MAX_MATCH_ATTEMPTS ? { matchStatus: "unmatched" as const } : {}) })
+        .set({
+          matchAttempts: sql`${musicAlbums.matchAttempts} + 1`,
+          matchAttemptedAt: now(),
+          // An album that was matched before keeps its match whatever happens to this later look-up.
+          ...(album.attempts + 1 >= MAX_MATCH_ATTEMPTS && !album.mbid ? { matchStatus: "unmatched" as const } : {}),
+        })
         .where(eq(musicAlbums.id, album.id));
     }
   }
@@ -73,7 +85,8 @@ export async function enrichMusicLibrary(libraryId: string, deadline: number, er
 async function matchAlbum(
   client: MusicBrainzClient,
   album: { id: string; name: string; artistId: string; artist: string; mbid: string | null; tracks: number },
-  at: Date
+  at: Date,
+  libraryId: string
 ): Promise<void> {
   const tracks = await db
     .select({ id: titles.id, disc: titles.discNumber, track: titles.trackNumber, name: titles.name, nameSource: titles.nameSource })
@@ -105,6 +118,7 @@ async function matchAlbum(
   const cover = needCover.length > 0 ? await client.getFrontCover(release.id).catch(() => null) : null;
 
   await db.transaction(async (tx) => {
+    await lockMusicLibrary(tx, libraryId);
     await tx
       .update(musicAlbums)
       .set({
@@ -117,7 +131,8 @@ async function matchAlbum(
         matchedTrackCount: tracks.length,
       })
       .where(eq(musicAlbums.id, album.id));
-    if (release.artistId && sameArtist(album.artist, release.artist)) {
+    // Only when the credited artist IS this folder's artist ("Prince" is not "Prince and the Revolution"), so the id is never another act's.
+    if (release.artistId && sameArtistExactly(album.artist, release.artist)) {
       await tx.update(musicArtists).set({ mbid: release.artistId }).where(eq(musicArtists.id, album.artistId));
     }
     for (const t of tracks) {
@@ -127,6 +142,13 @@ async function matchAlbum(
         await tx.update(titles).set({ name: r.title, nameSource: "online" }).where(and(eq(titles.id, t.id), eq(titles.nameSource, "filename")));
       }
     }
-    if (cover) for (const t of needCover) await storeArtwork(tx, t.id, cover, "online");
+    if (cover) {
+      // Checked again now: a tag pass may have stored the song's own cover while we were waiting for the network.
+      const stillBare = await tx
+        .select({ id: titles.id })
+        .from(titles)
+        .where(and(eq(titles.albumId, album.id), inArray(titles.id, needCover.map((t) => t.id)), notExists(tx.select({ one: sql`1` }).from(titleArtwork).where(eq(titleArtwork.titleId, titles.id)))));
+      for (const t of stillBare) await storeArtwork(tx, t.id, cover, "online");
+    }
   });
 }
