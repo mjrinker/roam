@@ -505,8 +505,7 @@ export async function probeVideoLibrary(
   if (profile.readTags) incomplete = (await readTagsAndArtwork(provider, libraryId, deadline, errors, profile)) || incomplete;
 
   // Music libraries: tracks into artists and albums, from their folders (after the tags above, which can name a root-level track's artist).
-  if (profile.groupsIntoAlbums) await organizeMusicLibrary(libraryId);
-  
+  if (profile.groupsIntoAlbums) incomplete = !(await organizeMusicLibrary(libraryId, deadline)).complete || incomplete;
 
   // Photo libraries: when each picture was taken and how big it is, from the picture itself.
   if (profile.photoMeta) incomplete = (await readPhotoMetadata(provider, libraryId, deadline, errors)) || incomplete;

@@ -16,35 +16,47 @@ const tidy = (name: string) => name.trim().replace(/\s+/g, " ");
 export interface OrganizeResult {
   /** Tracks whose album, track number or disc was set or changed. */
   placed: number;
+  /** False if the time ran out first: the caller should run another pass (what was done is kept). */
+  complete: boolean;
 }
+
+/**
+ * Two passes grouping one library at once (or a prune sweeping while a pass fills an artist) could delete a group the other is
+ * about to use, so every write here first takes this library's lock for the length of its transaction.
+ */
+const lockLibrary = (tx: Pick<typeof db, "execute">, libraryId: string) => tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${"music:" + libraryId}))`);
 
 /** Removes albums with no tracks, then artists with no albums, in one library (after tracks leave Box or move). */
 export async function sweepEmptyMusicGroups(libraryId: string): Promise<void> {
-  await db
-    .delete(musicAlbums)
-    .where(
-      and(
-        eq(musicAlbums.libraryId, libraryId),
-        notExists(db.select({ one: sql`1` }).from(titles).where(eq(titles.albumId, musicAlbums.id)))
-      )
-    );
-  await db
-    .delete(musicArtists)
-    .where(
-      and(
-        eq(musicArtists.libraryId, libraryId),
-        notExists(db.select({ one: sql`1` }).from(musicAlbums).where(eq(musicAlbums.artistId, musicArtists.id)))
-      )
-    );
+  await db.transaction(async (tx) => {
+    await lockLibrary(tx, libraryId);
+    await tx
+      .delete(musicAlbums)
+      .where(
+        and(
+          eq(musicAlbums.libraryId, libraryId),
+          notExists(tx.select({ one: sql`1` }).from(titles).where(eq(titles.albumId, musicAlbums.id)))
+        )
+      );
+    await tx
+      .delete(musicArtists)
+      .where(
+        and(
+          eq(musicArtists.libraryId, libraryId),
+          notExists(tx.select({ one: sql`1` }).from(musicAlbums).where(eq(musicAlbums.artistId, musicArtists.id)))
+        )
+      );
+  });
 }
 
-export async function organizeMusicLibrary(libraryId: string): Promise<OrganizeResult> {
+export async function organizeMusicLibrary(libraryId: string, deadline = Infinity): Promise<OrganizeResult> {
   let after = "00000000-0000-0000-0000-000000000000";
   let placed = 0;
   const artistIds = new Map<string, string>(); // artist key -> id
   const albumIds = new Map<string, string>(); // artist key + "\0" + album key -> id
 
   while (true) {
+    if (Date.now() > deadline) return { placed, complete: false };
     const rows = await db
       .select({
         id: titles.id,
@@ -66,6 +78,10 @@ export async function organizeMusicLibrary(libraryId: string): Promise<OrganizeR
     const placements = rows.map((r) => ({ row: r, p: placeTrack({ folderPath: r.folderPath ?? "", fileName: r.fileName, tagArtist: r.tagArtist?.[0] ?? null }) }));
 
     placed += await db.transaction(async (tx) => {
+      await lockLibrary(tx, libraryId);
+      // Another pass may have removed groups we resolved in an earlier chunk (an empty-group sweep): start each chunk from the database.
+      artistIds.clear();
+      albumIds.clear();
       // Artists and albums this chunk needs that we haven't resolved yet. The no-op update makes RETURNING include rows that already existed.
       const newArtists = new Map<string, string>();
       for (const { p } of placements) {
@@ -119,5 +135,5 @@ export async function organizeMusicLibrary(libraryId: string): Promise<OrganizeR
     FROM (SELECT album_id, min(year) AS year FROM titles WHERE library_id = ${libraryId} AND album_id IS NOT NULL GROUP BY album_id) y
     WHERE a.id = y.album_id AND a.library_id = ${libraryId} AND a.year IS DISTINCT FROM y.year`);
   await sweepEmptyMusicGroups(libraryId);
-  return { placed };
+  return { placed, complete: true };
 }

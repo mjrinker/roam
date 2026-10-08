@@ -60,7 +60,7 @@ describe("organizeMusicLibrary", () => {
     await m.add("Chopin/Ballades", ["02 - Second.mp3", "01 - First.mp3"]);
     await m.add("Chopin/Waltzes", ["01 Grande.mp3"]);
     await m.add("Bach/Cello Suites", ["01. Prelude.m4a"]);
-    expect(await organizeMusicLibrary(m.lib.id)).toEqual({ placed: 4 });
+    expect(await organizeMusicLibrary(m.lib.id)).toEqual({ placed: 4, complete: true });
     const v = await m.view();
     expect(v.artists).toEqual(["Bach", "Chopin"]);
     expect(v.albums).toEqual(["Bach / Cello Suites", "Chopin / Ballades", "Chopin / Waltzes"]);
@@ -77,7 +77,7 @@ describe("organizeMusicLibrary", () => {
     await m.add("A/B", ["01 - x.mp3", "02 - y.mp3"]);
     await organizeMusicLibrary(m.lib.id);
     const before = await m.view();
-    expect(await organizeMusicLibrary(m.lib.id)).toEqual({ placed: 0 });
+    expect(await organizeMusicLibrary(m.lib.id)).toEqual({ placed: 0, complete: true });
     const after = await m.view();
     expect(after.raw.artists.map((a) => a.id)).toEqual(before.raw.artists.map((a) => a.id));
     expect(after.raw.albums.map((a) => a.id)).toEqual(before.raw.albums.map((a) => a.id));
@@ -157,11 +157,31 @@ describe("organizeMusicLibrary", () => {
     const m = await newLibrary();
     const names = Array.from({ length: 1100 }, (_, i) => `${String(i + 1).padStart(4, "0")} - Song ${i + 1}.mp3`);
     await m.add("Big/Album", names);
-    expect(await organizeMusicLibrary(m.lib.id)).toEqual({ placed: 1100 });
+    expect(await organizeMusicLibrary(m.lib.id)).toEqual({ placed: 1100, complete: true });
     const v = await m.view();
     expect(v.albums).toEqual(["Big / Album"]);
     expect(v.raw.tracks.every((t) => t.albumId === v.raw.albums[0].id)).toBe(true);
   }, 60_000);
+
+  it("stops when its time is up, reports it, and a later run finishes the job", async () => {
+    const m = await newLibrary();
+    await m.add("A/B", Array.from({ length: 700 }, (_, i) => `${String(i + 1).padStart(3, "0")} - s${i}.mp3`));
+    const early = await organizeMusicLibrary(m.lib.id, Date.now() - 1);
+    expect(early).toEqual({ placed: 0, complete: false });
+    expect((await m.view()).albums).toEqual([]);
+    expect(await organizeMusicLibrary(m.lib.id)).toEqual({ placed: 700, complete: true });
+  });
+
+  it("two passes at once end with one artist and one album, and a sweep running beside them takes nothing that has tracks", async () => {
+    const m = await newLibrary();
+    await m.add("Solo/Record", ["01 - a.mp3", "02 - b.mp3"]);
+    await Promise.all([organizeMusicLibrary(m.lib.id), organizeMusicLibrary(m.lib.id), sweepEmptyMusicGroups(m.lib.id)]);
+    await organizeMusicLibrary(m.lib.id);
+    const v = await m.view();
+    expect(v.artists).toEqual(["Solo"]);
+    expect(v.albums).toEqual(["Solo / Record"]);
+    expect(v.raw.tracks.every((t) => t.albumId === v.raw.albums[0].id)).toBe(true);
+  });
 
   it("sweeps only empty albums and artists, and only in the library asked", async () => {
     const a = await newLibrary();

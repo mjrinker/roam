@@ -23,10 +23,11 @@ export type FileTreeKind = (typeof FILE_TREE_KINDS)[number];
 
 /**
  * Libraries whose items appear in global search and the home page's "recently added" rows. A positive
- * list, so a kind added later stays out of them until someone decides: photo libraries are reached
+ * list, so a kind added later stays out of them until someone decides: music (one title per song) waits for an
+ * album-level view, and photo libraries are reached
  * through their own timeline, and would otherwise flood both with thousands of pictures.
  */
-export const GLOBALLY_LISTED_LIBRARY_KINDS: readonly LibraryKind[] = ["movies", "shows", "audiobooks", "video", "audio", "music"];
+export const GLOBALLY_LISTED_LIBRARY_KINDS: readonly LibraryKind[] = ["movies", "shows", "audiobooks", "video", "audio"];
 
 export const EXTERNAL_METADATA_KINDS = ["movies", "shows", "audiobooks"] as const satisfies readonly LibraryKind[];
 
