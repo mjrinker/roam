@@ -2,7 +2,7 @@ import Link from "next/link";
 import { and, asc, count, eq, inArray, isNotNull, ne, sum } from "drizzle-orm";
 import { notFound } from "next/navigation";
 import { z } from "zod";
-import { AudioLines, Clapperboard, Film, Headphones, Images, Tv } from "lucide-react";
+import { AudioLines, Clapperboard, Film, Headphones, Images, Music, Tv } from "lucide-react";
 import { db } from "@/lib/db/client";
 import { episodes, libraries, mediaFiles, seasons, titles, watchState } from "@/lib/db/schema";
 import { requireServerMember } from "@/lib/auth/guards";
@@ -25,8 +25,8 @@ import {
   type LibraryBrowserItem,
 } from "@/components/library/library-browser";
 
-const KIND_ICON = { movies: Film, shows: Tv, audiobooks: Headphones, video: Clapperboard, audio: AudioLines, photos: Images } as const;
-const KIND_LABEL = { movies: "Movies", shows: "TV Shows", audiobooks: "Audiobooks", video: "Videos", audio: "Audio", photos: "Photos" } as const;
+const KIND_ICON = { movies: Film, shows: Tv, audiobooks: Headphones, video: Clapperboard, audio: AudioLines, photos: Images, music: Music } as const;
+const KIND_LABEL = { movies: "Movies", shows: "TV Shows", audiobooks: "Audiobooks", video: "Videos", audio: "Audio", photos: "Photos", music: "Music" } as const;
 
 const folderCursorSchema = z.object({ key: z.string().max(1000).regex(/^[^\u0000]*$/), id: z.string().uuid() });
 
@@ -155,7 +155,7 @@ export default async function LibraryDetailPage({
           folders={page.folders}
           items={page.items}
           nextHref={page.nextCursor ? `${here}after=${encodeCursor(page.nextCursor)}` : null}
-          itemKind={photoView ? "photo" : library.kind === "audio" ? "audiobook" : "movie"}
+          itemKind={photoView ? "photo" : library.kind === "audio" || library.kind === "music" ? "audiobook" : "movie"}
           extraQuery={photoView ? "view=albums" : undefined}
         />
       </div>

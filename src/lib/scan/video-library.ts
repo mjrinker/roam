@@ -32,6 +32,7 @@ import {
   probeFiles,
   rollupTitleRuntime,
 } from "@/lib/scan/media-files";
+import { organizeMusicLibrary } from "@/lib/music/organize";
 import { readPhotoMetadata } from "@/lib/scan/photo-meta";
 import { readTagsAndArtwork } from "@/lib/scan/video-artwork";
 import { decodeSub, encodeSub, walkVideoTree } from "@/lib/scan/video-walk";
@@ -65,6 +66,14 @@ export function titleFromFileName(fileName: string): { name: string; year: numbe
     }
   }
   return { name: base || fileName, year };
+}
+
+/** The file name a title's name is taken from: a remux copy's original name, or a music file's name without its track number. */
+function profileFileName(profile: TreeProfile, fileName: string): string {
+  const base = profile.linkVariants ? stripVariantSuffix(fileName) : fileName;
+  if (!profile.nameFromFile) return base;
+  const dot = base.lastIndexOf(".");
+  return `${profile.nameFromFile(base)}${dot > 0 ? base.slice(dot) : ""}`;
 }
 
 /** A folder name made safe to store in a path: control characters and backslashes become "_", and "." / ".." can't be segments. */
@@ -159,7 +168,7 @@ export async function syncVideoDirectory(
         .values(
           chunk.map((f) => {
             // An orphaned remux copy is named after the original it stands in for ("Only.aac.mp4" -> "Only").
-            const { name, year } = titleFromFileName(profile.linkVariants ? stripVariantSuffix(f.name) : f.name);
+            const { name, year } = titleFromFileName(profileFileName(profile, f.name));
             return {
               libraryId,
               kind: profile.titleKindFor(f.name),
@@ -264,7 +273,7 @@ export async function syncVideoDirectory(
     const resetIds = resetFiles.map((f) => titleIdByKey.get(keyOf(f))!);
     await releaseArtwork(tx, resetIds);
     for (const f of resetFiles) {
-      const { name, year } = titleFromFileName(profile.linkVariants ? stripVariantSuffix(f.name) : f.name);
+      const { name, year } = titleFromFileName(profileFileName(profile, f.name));
       await tx
         .update(titles)
         .set({ name, year, nameSource: "filename", posterUrl: null, ...(profile.photoMeta ? { takenAt: boxTakenAt(f, scannedAt).at, takenAtSource: boxTakenAt(f, scannedAt).source } : {}) })
@@ -494,6 +503,10 @@ export async function probeVideoLibrary(
 
   // Names, years, descriptions and pictures read from the files themselves.
   if (profile.readTags) incomplete = (await readTagsAndArtwork(provider, libraryId, deadline, errors, profile)) || incomplete;
+
+  // Music libraries: tracks into artists and albums, from their folders (after the tags above, which can name a root-level track's artist).
+  if (profile.groupsIntoAlbums) await organizeMusicLibrary(libraryId);
+  
 
   // Photo libraries: when each picture was taken and how big it is, from the picture itself.
   if (profile.photoMeta) incomplete = (await readPhotoMetadata(provider, libraryId, deadline, errors)) || incomplete;

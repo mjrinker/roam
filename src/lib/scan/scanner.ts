@@ -241,6 +241,7 @@ export async function scanLibrary(
               break;
             }
             case "photos":
+            case "music":
             case "audio":
             case "video": {
               const res = await syncVideoTopFolder(provider, library.id, folder, {

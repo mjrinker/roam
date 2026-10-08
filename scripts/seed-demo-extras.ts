@@ -27,15 +27,27 @@ const serverId = flag("--server");
 const roots = { photos: flag("--photos"), music: flag("--music"), audiobooks: flag("--audiobooks") };
 const UA = { "user-agent": "RoamDemoSeeder/1.0 (portfolio project; https://github.com/mjrinker)" };
 
+/** fetch, trying again (after a pause) on a server error or a dropped connection: archive.org answers 5xx now and then. */
+async function fetchOk(url: string): Promise<Response> {
+  let lastError: unknown;
+  for (let attempt = 0; attempt < 4; attempt++) {
+    if (attempt > 0) await new Promise((r) => setTimeout(r, 2000 * attempt));
+    try {
+      const res = await fetch(url, { headers: UA });
+      if (res.ok) return res;
+      lastError = new Error(`${res.status} for ${url}`);
+      if (res.status < 500 && res.status !== 429) break;
+    } catch (err) {
+      lastError = err;
+    }
+  }
+  throw lastError;
+}
 async function getJson<T>(url: string): Promise<T> {
-  const res = await fetch(url, { headers: UA });
-  if (!res.ok) throw new Error(`${res.status} for ${url}`);
-  return (await res.json()) as T;
+  return (await (await fetchOk(url)).json()) as T;
 }
 async function download(url: string): Promise<Uint8Array> {
-  const res = await fetch(url, { headers: UA });
-  if (!res.ok) throw new Error(`${res.status} downloading ${url}`);
-  return new Uint8Array(await res.arrayBuffer());
+  return new Uint8Array(await (await fetchOk(url)).arrayBuffer());
 }
 
 interface Credit { library: string; name: string; author: string; licence: string; source: string }

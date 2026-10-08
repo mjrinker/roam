@@ -9,7 +9,7 @@ import { isVideoRating, ratingToAges } from "@/lib/libraries/video-rating";
 const bodySchema = z.object({
   serverId: z.string().uuid(),
   name: z.string().min(1),
-  kind: z.enum(["movies", "shows", "audiobooks", "video", "audio", "photos"]),
+  kind: z.enum(["movies", "shows", "audiobooks", "video", "audio", "photos", "music"]),
   boxFolderId: z.string().min(1),
   // Only for file-tree libraries (video, audio, photos), where it is required: the minimum age that may see it, or null = unrated.
   rating: z.number().int().nullable().optional(),

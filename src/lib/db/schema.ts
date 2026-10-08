@@ -30,7 +30,7 @@ const bytea = customType<{ data: Buffer; driverData: Buffer }>({
   },
 });
 
-export const libraryKindEnum = pgEnum("library_kind", ["movies", "shows", "audiobooks", "video", "audio", "photos"]);
+export const libraryKindEnum = pgEnum("library_kind", ["movies", "shows", "audiobooks", "video", "audio", "photos", "music"]);
 // Who may see a library: everyone on the server, or only server admins and the accounts listed in library_members.
 export const libraryAccessEnum = pgEnum("library_access", ["everyone", "restricted"]);
 export const titleKindEnum = pgEnum("title_kind", ["movie", "show", "audiobook", "photo"]);
@@ -348,6 +348,11 @@ export const titles = pgTable(
     // so a photo is never fed to a video tag parser.
     metaAttemptedAt: timestamp("meta_attempted_at", { withTimezone: true }),
     metaAttempts: integer("meta_attempts").notNull().default(0),
+    // Music libraries: which album a track is on, and where on it. Set by the scan from the folder layout
+    // (Artist / Album / track) and the file name; null for every other kind of title.
+    albumId: uuid("album_id").references((): AnyPgColumn => musicAlbums.id, { onDelete: "set null" }),
+    trackNumber: integer("track_number"),
+    discNumber: integer("disc_number"),
     // The scan cycle (libraries.scan_cycle_id) in which this video was last seen in Box.
     lastSeenCycle: uuid("last_seen_cycle"),
     // When a scan first found this video gone from Box (null while it is present). Cleanup waits a
@@ -424,8 +429,51 @@ export const titles = pgTable(
     index("titles_library_folder_idx").on(t.libraryId, t.folderPath.op("text_pattern_ops")),
     // The photo timeline: newest first within a library.
     index("titles_library_taken_idx").on(t.libraryId, t.takenAt.desc(), t.id.desc()),
+    // An album's tracks, in order.
+    index("titles_album_idx").on(t.albumId, t.discNumber, t.trackNumber),
   ]
 );
+
+// ── music_artists / music_albums ─────────────────────────────────────────
+// The Artist > Album grouping of a music library, derived from its folder layout (see lib/music). Tracks are
+// ordinary titles that point at their album. Names are matched by name_key (lowercase, single spaces) so
+// "Abbey Road" and "abbey  road" are one album. Rows are created and removed by the scan, never by hand.
+export const musicArtists = pgTable(
+  "music_artists",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    libraryId: uuid("library_id")
+      .notNull()
+      .references(() => libraries.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    nameKey: text("name_key").notNull(),
+    sortKey: text("sort_key").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex("music_artists_library_name_idx").on(t.libraryId, t.nameKey)]
+).enableRLS();
+
+export const musicAlbums = pgTable(
+  "music_albums",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    libraryId: uuid("library_id")
+      .notNull()
+      .references(() => libraries.id, { onDelete: "cascade" }),
+    artistId: uuid("artist_id")
+      .notNull()
+      .references(() => musicArtists.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    nameKey: text("name_key").notNull(),
+    // The earliest year any of its tracks' tags give; null when none does.
+    year: integer("year"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("music_albums_artist_name_idx").on(t.artistId, t.nameKey),
+    index("music_albums_library_idx").on(t.libraryId),
+  ]
+).enableRLS();
 
 // ── title_artwork ────────────────────────────────────────────────────────
 // Image bytes for a title whose artwork lives in Roam itself (video libraries): a cover embedded

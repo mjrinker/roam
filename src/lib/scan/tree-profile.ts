@@ -6,6 +6,7 @@
 import type { TitleKind } from "@/lib/db/schema";
 import type { FileTreeKind } from "@/lib/libraries/profile";
 import { isAudioFile, isImageFile, isVideoFile } from "@/lib/scan/conventions";
+import { parseTrackFileName } from "@/lib/music/placement";
 
 export interface TreeProfile {
   libraryKind: FileTreeKind;
@@ -38,6 +39,10 @@ export interface TreeProfile {
   thumbnails: boolean;
   /** A file's artist becomes its title's author, and its album the series (audio); video files have neither. */
   artistAsAuthor: boolean;
+  /** A music library: after tags are read, tracks are grouped into artists and albums from the folder layout (Artist / Album / track). */
+  groupsIntoAlbums: boolean;
+  /** The name and year a file gets before its tags are read; default is the file name tidied (see titleFromFileName). */
+  nameFromFile?(fileName: string): string;
   /** Carry a file's embedded chapters (m4b chapters, MP3 CHAP frames) onto its title, where the audio player reads them. */
   chapters: boolean;
 }
@@ -66,6 +71,7 @@ export const VIDEO_PROFILE: TreeProfile = {
   thumbnails: true,
   artistAsAuthor: false,
   chapters: false,
+  groupsIntoAlbums: false,
 };
 
 export const AUDIO_PROFILE: TreeProfile = {
@@ -84,6 +90,19 @@ export const AUDIO_PROFILE: TreeProfile = {
   thumbnails: false,
   artistAsAuthor: true,
   chapters: true,
+  groupsIntoAlbums: false,
+};
+
+/** Songs in Artist / Album folders. A track plays like a one-part audiobook, so playback, playlists and search work unchanged. */
+export const MUSIC_PROFILE: TreeProfile = {
+  ...AUDIO_PROFILE,
+  libraryKind: "music",
+  noun: { one: "song", many: "songs" },
+  groupsIntoAlbums: true,
+  // "01 - Intro.mp3" is called "Intro" until its tags say otherwise.
+  nameFromFile: (fileName) => parseTrackFileName(fileName).title,
+  // A song's chapters (if any) mean nothing to a listener.
+  chapters: false,
 };
 
 /** RAW camera files, TIFF, BMP, AVIF: pictures Roam can't show (Box makes no usable preview for most of them). */
@@ -106,6 +125,7 @@ export const PHOTOS_PROFILE: TreeProfile = {
   thumbnails: false,
   artistAsAuthor: false,
   chapters: false,
+  groupsIntoAlbums: false,
 };
 
 function assertNever(value: never): never {
@@ -120,6 +140,8 @@ export function treeProfileFor(kind: FileTreeKind): TreeProfile {
       return AUDIO_PROFILE;
     case "photos":
       return PHOTOS_PROFILE;
+    case "music":
+      return MUSIC_PROFILE;
     default:
       return assertNever(kind);
   }

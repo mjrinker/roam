@@ -16,6 +16,7 @@
 import { and, eq, inArray, sql } from "drizzle-orm";
 import { db } from "@/lib/db/client";
 import { libraries, mediaFiles, titles, watchState } from "@/lib/db/schema";
+import { sweepEmptyMusicGroups } from "@/lib/music/organize";
 import { releaseArtwork } from "@/lib/scan/artwork-store";
 import { BoxReauthRequiredError } from "@/lib/storage/box-token-storage";
 import type { StorageProvider } from "@/lib/storage/provider";
@@ -179,6 +180,7 @@ export async function pruneMissingVideos(
   if (due.length > 0 && tooManyToRemove(due.length, total)) return { ...result, skipped: "too_many", candidates: due.length };
 
   await removeTitles(libraryId, due.map((g) => g.id));
+  if (profile.groupsIntoAlbums) await sweepEmptyMusicGroups(libraryId); // an album with no songs left is gone too
   result.removed = due.length;
   return result;
 }

@@ -24,7 +24,7 @@ describe("library kind families", () => {
       expect(isFileTreeLibraryKind(kind)).toBe(true);
     }
     // Unknown, missing or future kinds are in neither family.
-    for (const kind of [null, undefined, "music", "ebooks"] as never[]) {
+    for (const kind of [null, undefined, "podcasts", "ebooks"] as never[]) {
       expect(libraryKindUsesExternalMetadata(kind), String(kind)).toBe(false);
       expect(isFileTreeLibraryKind(kind), String(kind)).toBe(false);
     }
