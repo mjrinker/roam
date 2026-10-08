@@ -58,7 +58,7 @@ export interface Cursor {
 }
 
 const PAGE = 120;
-const clampLimit = (n: number | undefined) => Math.min(Math.max(n ?? PAGE, 1), 300);
+const clampLimit = (n: number | undefined) => Math.min(Math.max(n ?? PAGE, 1), 500);
 
 /** SQL: a track in `albumCol`'s album that this viewer may see. */
 function visibleTrackOf(scope: Scope, albumId: SQL | typeof musicAlbums.id): SQL {
@@ -89,7 +89,7 @@ export async function listArtists(ex: Db, scope: Scope & { libraryId: string; li
       sortKey: musicArtists.sortKey,
       albumCount: sql<number>`(SELECT count(*)::int FROM music_albums al WHERE al.artist_id = music_artists.id AND EXISTS (${visibleTrackOf(scope, sql`al.id`)}))`,
       trackCount: sql<number>`(SELECT count(*)::int FROM titles vt JOIN music_albums al ON al.id = vt.album_id WHERE al.artist_id = music_artists.id AND vt.kind = 'audiobook' AND ${contentFilter(scope.viewer, sql`vt.rating_ages`) ?? sql`true`})`,
-      covers: sql<string[]>`COALESCE((SELECT json_agg(c.url) FROM (SELECT (SELECT vt.poster_url FROM titles vt WHERE vt.album_id = al.id AND vt.kind = 'audiobook' AND vt.poster_url IS NOT NULL AND ${contentFilter(scope.viewer, sql`vt.rating_ages`) ?? sql`true`} ORDER BY vt.disc_number NULLS LAST, vt.track_number NULLS LAST, vt.id LIMIT 1) AS url FROM music_albums al WHERE al.artist_id = music_artists.id ORDER BY al.year NULLS LAST, al.name_key LIMIT 4) c WHERE c.url IS NOT NULL), '[]'::json)`,
+      covers: sql<string[]>`COALESCE((SELECT json_agg(x.url ORDER BY x.year NULLS LAST, x.name_key) FROM (SELECT c.url, c.year, c.name_key FROM (SELECT (SELECT vt.poster_url FROM titles vt WHERE vt.album_id = al.id AND vt.kind = 'audiobook' AND vt.poster_url IS NOT NULL AND ${contentFilter(scope.viewer, sql`vt.rating_ages`) ?? sql`true`} ORDER BY vt.disc_number NULLS LAST, vt.track_number NULLS LAST, vt.id LIMIT 1) AS url, al.year AS year, al.name_key AS name_key FROM music_albums al WHERE al.artist_id = music_artists.id) c WHERE c.url IS NOT NULL ORDER BY c.year NULLS LAST, c.name_key LIMIT 4) x), '[]'::json)`,
     })
     .from(musicArtists)
     .where(and(eq(musicArtists.libraryId, scope.libraryId), after, sql`EXISTS (SELECT 1 FROM music_albums al WHERE al.artist_id = music_artists.id AND EXISTS (${visibleTrackOf(scope, sql`al.id`)}))`))
@@ -158,7 +158,7 @@ export async function getArtist(ex: Db, scope: Scope & { artistId: string }): Pr
     .innerJoin(libraries, eq(libraries.id, musicArtists.libraryId))
     .where(and(eq(musicArtists.id, scope.artistId), inMusicLibrary(ex, scope)));
   if (!row) return null;
-  const albums = await listAlbums(ex, { ...scope, libraryId: row.libraryId, artistId: row.id, limit: 300 });
+  const albums = await listAlbums(ex, { ...scope, libraryId: row.libraryId, artistId: row.id, limit: 500 });
   if (!albums || albums.items.length === 0) return null;
   return { artist: row, albums: albums.items };
 }

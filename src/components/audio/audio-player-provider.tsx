@@ -151,7 +151,8 @@ interface Engine {
   list: ListQueue | null;
 }
 
-function createPlayer(
+/** Exported for tests; the provider below is the only real caller. */
+export function createPlayer(
   setState: Dispatch<SetStateAction<AudioPlayerState>>,
   initialRate: number,
   viewerId: string
@@ -365,10 +366,35 @@ function createPlayer(
     patch({ sleep: e.sleep, sleepMinutesLeft: request === "chapter" ? null : request.minutes });
   }
 
+  /**
+   * Moves a song list to `index` and plays it. If that song can't be loaded (removed or hidden meanwhile, say), going
+   * forward carries on to the one after it; otherwise the list goes back to pointing at the song that is really loaded,
+   * so the position shown and what plays never disagree.
+   */
+  function goTo(q: ListQueue, index: number, direction: 1 | -1) {
+    q.index = index;
+    patch({ listPosition: { index, length: q.ids.length } });
+    void actions.load(q.ids[index], { autoplay: true, startAt: 0 }).then((res) => {
+      if (res.ok || e.list !== q || q.index !== index) return;
+      const further = direction === 1 ? nextIndex(q) : null;
+      if (further !== null) return goTo(q, further, 1);
+      const at = e.book ? q.ids.indexOf(e.book.titleId) : -1;
+      if (at >= 0) {
+        q.index = at;
+        patch({ listPosition: { index: at, length: q.ids.length } });
+      }
+    });
+  }
+
   const actions: AudioPlayerActions = {
     async load(titleId, opts = {}) {
       // A list queue belongs to the songs in it: starting anything outside it drops it.
       if (e.list && e.list.ids[e.list.index] !== titleId) {
+        e.list = null;
+        patch({ listPosition: null });
+      }
+      // A playlist queue and a song list never run together: the one just asked for wins.
+      if (opts.queue && e.list) {
         e.list = null;
         patch({ listPosition: null });
       }
@@ -384,18 +410,20 @@ function createPlayer(
       }
 
       saveProgress();
-      e.token++;
+      const token = ++e.token;
       audio()?.pause();
       clearSleep();
       patch({ status: "loading", error: null, buffering: true });
 
       try {
         const res = await fetch(`/api/audiobooks/${titleId}/manifest`);
+        if (e.token !== token) return { ok: true }; // a newer load took over while this one was fetching
         if (!res.ok) {
           const body = await res.json().catch(() => ({}));
           throw new Error(typeof body.error === "string" ? body.error : "Couldn't load this audiobook.");
         }
         const { urls, resumeSeconds, ...book } = (await res.json()) as AudiobookManifest;
+        if (e.token !== token) return { ok: true };
 
         e.book = book;
         e.hasPlayed = false;
@@ -430,19 +458,14 @@ function createPlayer(
     next() {
       const q = e.list;
       const index = q ? nextIndex(q) : null;
-      if (!q || index === null) return;
-      q.index = index;
-      patch({ listPosition: { index, length: q.ids.length } });
-      void actions.load(q.ids[index], { autoplay: true, startAt: 0 });
+      if (q && index !== null) goTo(q, index, 1);
     },
     previous() {
       const q = e.list;
       if (!q) return;
       const step = previousStep(q, e.position);
       if (step.restart) return seek(0);
-      q.index = step.index;
-      patch({ listPosition: { index: step.index, length: q.ids.length } });
-      void actions.load(q.ids[step.index], { autoplay: true, startAt: 0 });
+      goTo(q, step.index, -1);
     },
 
     play,

@@ -93,6 +93,14 @@ describe("artists", () => {
     expect(second!.next).toBeNull();
   });
 
+  it("fills an artist's tile with up to four covers, skipping albums that have none", async () => {
+    const w = await world();
+    for (let i = 0; i < 5; i++) await w.album(`Plain ${i}`, 1960 + i, [{ name: "t", track: 1 }]);
+    for (let i = 0; i < 5; i++) await w.album(`Covered ${i}`, 1980 + i, [{ name: "t", track: 1, poster: `/cover/${i}` }]);
+    const r = await listArtists(db, { actor: w.actor(w.member), viewer: adult, libraryId: w.library.id });
+    expect(r!.items[0].coverUrls).toEqual(["/cover/0", "/cover/1", "/cover/2", "/cover/3"]);
+  });
+
   it("returns an artist with their albums", async () => {
     const w = await world();
     await w.album("Abbey Road", 1969, [{ name: "Something", track: 1 }]);

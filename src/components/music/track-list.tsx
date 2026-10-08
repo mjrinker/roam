@@ -21,7 +21,8 @@ export interface TrackListItem {
 export function AlbumPlayButtons({ ids }: { ids: string[] }) {
   const p = useAudioPlayer();
   const current = p?.book?.titleId;
-  const inAlbum = !!current && ids.includes(current);
+  // Only "in the album" when it is being played as a list: a song opened on its own has no queue, so Play starts the whole album.
+  const inAlbum = !!current && !!p?.listPosition && ids.includes(current);
   const playing = inAlbum && p?.status === "playing";
 
   async function start(order: string[]) {
@@ -55,7 +56,7 @@ export function TrackList({ tracks }: { tracks: TrackListItem[] }) {
 
   async function playFrom(index: number) {
     if (!p) return;
-    if (p.book?.titleId === ids[index]) return p.toggle();
+    if (p.book?.titleId === ids[index] && p.listPosition) return p.toggle();
     const result = await p.playList(ids, index);
     if (!result.ok) toast.error(result.error ?? "Couldn't play this song.");
   }
