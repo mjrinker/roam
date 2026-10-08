@@ -1,206 +1,154 @@
-# Roam
+<p align="center">
+  <img src="public/roam-logo.svg" alt="Roam" width="360">
+</p>
 
-A private, cloud-native media server for sharing movies with family —
-modeled on Plex, but with media stored in Box instead of a local NAS, and a
-custom player that plays movies split into multiple files (e.g. "Part 1" /
-"Part 2") back-to-back as one seamless, continuous video.
+<p align="center">
+  <strong>A private, multi-tenant media server in the cloud.</strong><br>
+  Movies, TV, audiobooks, music-style audio, and a Google&nbsp;Photos-style library, streamed straight from your own Box storage.
+</p>
 
-See `/home/matt/.claude/plans/i-want-to-uh-generic-hejlsberg.md` (or ask
-Claude) for the full design rationale. The short version:
+<p align="center">
+  <img alt="Next.js 16" src="https://img.shields.io/badge/Next.js-16-black?logo=nextdotjs">
+  <img alt="React 19" src="https://img.shields.io/badge/React-19-149eca?logo=react&logoColor=white">
+  <img alt="TypeScript" src="https://img.shields.io/badge/TypeScript-strict-3178c6?logo=typescript&logoColor=white">
+  <img alt="Postgres + Drizzle" src="https://img.shields.io/badge/Postgres-Drizzle%20ORM-336791?logo=postgresql&logoColor=white">
+  <img alt="Vitest" src="https://img.shields.io/badge/tests-1%2C100%2B%20passing-6e9f18?logo=vitest&logoColor=white">
+  <img alt="Deployed on Vercel" src="https://img.shields.io/badge/deployed%20on-Vercel-black?logo=vercel">
+</p>
 
-- **Vercel** (Next.js) is a thin control plane — auth, metadata, and minting
-  short-lived signed Box download URLs. It never proxies video bytes.
-- **Box** stores the actual media. The browser streams directly from Box.
-- **Supabase** provides Postgres (via Drizzle) for metadata/auth state, and
-  Supabase Auth (magic link, Google, email+password) for sign-in.
-- **TMDB** supplies posters, overviews, and genres automatically.
+---
 
-## Prerequisites
+## What it is
 
-- Node.js 20.9+ (Next.js 16 requirement)
-- A [Supabase](https://supabase.com) project
-- A [Box](https://developer.box.com) Custom App with Client Credentials
-  Grant (CCG) enabled
-- A [TMDB](https://www.themoviedb.org/settings/api) API Read Access Token
-- A [Vercel](https://vercel.com) project, for deployment + Cron
+Roam is a Plex-style media server with two deliberate departures:
 
-## 1. Install
+1. **The storage is Box, not a NAS.** Each server connects its *own* Box account over OAuth, and the browser streams video **directly from Box** using short-lived, single-file download URLs. There are no media servers to run.
+2. **The app is a stateless control plane on Vercel's free tier.** It handles auth, metadata, access control, and URL minting, and it is built so that it never has to move video bytes or transcode.
+
+It is a real, working product used by my family, not a tutorial project: it has accounts, per-person profiles with age limits, shareable libraries, resumable playback, playlists, and photo browsing with a few-thousand-photo timeline. This README is written for people evaluating the engineering, so it leads with the interesting problems.
+
+> **Status:** private deployment, in daily use. The code is open for review; there is no public demo because every server is private by design (it holds someone's media).
+
+## Engineering highlights
+
+### Seamless multi-file playback
+Movies ripped as `Part 1` / `Part 2` (and combined multi-episode files) play as **one continuous video**. A custom dual-`<video>` player preloads the next segment on a second element and swaps at the boundary, tracks a single virtual timeline across files, handles trims for combined episodes, and refreshes expiring Box URLs mid-playback. Position is saved per profile.
+
+### Metadata and codecs without ffmpeg on the hot path
+Duration, codecs, chapters, and cover art are read with **hand-written, bounded parsers** that fetch only a few KB with HTTP range requests (MP4/MOV atoms, MP3 ID3v2.2–2.4 + ID3v1, EXIF/TIFF, HEIC/HEIF boxes, JPEG/PNG/GIF/WebP headers). A scan never downloads a whole file.
+Because these parse **untrusted files**, every read is range-checked, loops and allocations are capped, impossible dates and dimensions are rejected, and the parsers are covered by seeded fuzz tests that must never throw or hang.
+
+### Scanning that is safe to run against someone's library
+- **Time-budgeted and resumable.** Vercel Hobby caps functions at 60 s, so scans work in single-transaction slices with a resumable depth-first cursor, and pick up automatically on the next page load.
+- **Cleanup that can't wipe a library.** Files removed from Box are pruned only after a *clean* scan cycle, each candidate is verified against Box by id, a grace period applies, and a hard cap refuses to delete when the number looks like an outage or a wrong folder.
+- One scan engine drives video, audio, and photo libraries through a small "profile" object (what a file becomes, what is probed, what is read).
+
+### Multi-tenancy and access control
+- Anyone can sign up; they then create or join a **server**. One admin per server; invites are viewer-only.
+- **Per-library sharing**: a library is visible to everyone on the server or to chosen accounts only. A single choke point (`libraryVisible`) is used by every reader, and a test walks the source tree to enforce it.
+- **Profiles with age limits** (Netflix-style): content is filtered in SQL, before ordering and paging, so a hidden item can't leak through a count, a cursor, or a "next" button.
+- Every refusal (missing, hidden, age-blocked, wrong kind) is the **same 404**, so nothing confirms an item exists.
+- Box tokens are **AES-256-GCM encrypted at rest**; Postgres row-level security is deny-all (the app is the only client); sign-up and heavy routes are rate-limited in Postgres.
+
+### A photo library that scrolls like Google Photos
+- **The whole timeline is laid out up front.** Month counts give every block its exact pixel height, and blocks fill as they near the screen. Scrubbing to any month is just a scroll: nothing is inserted above you, no scroll-correction hacks.
+- A viewer that opens as an **overlay** (instant close, scroll position untouched), with pinch/double-tap zoom, swipe between items, swipe-down to close, and neighbours that slide in with the finger.
+- EXIF dates and HEIC support, a month scrubber that scrolls live, favorites per profile, search by name or date, and day/month/year zoom levels.
+- Thumbnails and previews are proxied through one access-checked gate with private caching; no image is stored in the database.
+
+### Honest handling of what browsers can't play
+Roam deliberately does no server-side transcoding. For files whose audio browsers can't decode (AC-3, E-AC-3, DTS) it detects the codec during the scan and offers a **remux** (video copied, audio to AAC) as a separate "browser-friendly" file linked to the original. For phone videos (HEVC) in photo libraries it uses **Box's own H.264 rendition**, handed to the browser behind a token scoped to a single file.
+
+## Architecture
+
+```mermaid
+flowchart LR
+  B[Browser / installed PWA] -- "pages, API (cookie session)" --> V[Next.js 16 on Vercel<br/>control plane]
+  V -- "Drizzle, parameterised SQL" --> P[(Supabase Postgres<br/>RLS deny-all)]
+  V -- "OAuth per server; downscoped,<br/>single-file tokens" --> X[Box]
+  V -- "metadata" --> T[TMDB · OMDb · Audible]
+  B == "video bytes: short-lived URL" ==> X
+```
+
+Video bytes never pass through Vercel. Photo thumbnails and previews do (small, cached, and gated by the same access check as everything else).
+
+## Tech stack
+
+| Area | Choice |
+|---|---|
+| Framework | Next.js 16 (App Router, Server Components, route handlers, `proxy.ts`), React 19, TypeScript |
+| Data | PostgreSQL on Supabase, **Drizzle ORM**, 30 migrations (enum changes split from their first use, additive-first) |
+| Auth | Supabase Auth (magic link, Google, email + password), custom roles, profiles |
+| Storage | Box (OAuth 2, downscoped tokens, byte-range reads, representations API) |
+| UI | Tailwind CSS 4, shadcn/Base UI, Lucide, installable PWA |
+| Metadata | TMDB, OMDb, Audible (all optional or fully offline for "generic" libraries) |
+| Tests | **Vitest** with in-memory Postgres (**PGlite**) replaying the real migrations; ~1,100 tests |
+| Hosting | Vercel (Fluid compute) with a Postgres-backed rate limiter and no extra services |
+
+## Quality and testing
+
+- Tests run against a **real Postgres engine in memory** with the production migrations, so constraints, locks, indexes, and cursor ordering are exercised, not mocked.
+- Security-relevant guards (library access, age filtering, uniform 404s, kind allow-lists, rate limits) each have a test that was checked to **fail when the guard is removed** (manual mutation testing).
+- Source-level enforcement tests fail the build if a new reader skips the access helper or a new code path special-cases a library kind with a string literal.
+- Every feature went through plan → independent review → small commits → independent review again; the commit history reflects that.
+
+## Libraries and features
+
+| Library type | What you get |
+|---|---|
+| **Movies / TV Shows** | TMDB posters and metadata, Plex-style naming (`{tmdb-123}`, `- pt1`, editions, extras), seasons and episodes, ratings from IMDb and Rotten Tomatoes |
+| **Audiobooks** | Audible matching, chapters, resume, a persistent mini-player |
+| **Generic video / audio** | Folder-mirrored browsing; names, artist, and cover read from the files' own tags; one library-wide age rating |
+| **Photos & videos** | Timeline + albums, favorites, search, scrubber, zoom levels, viewer |
+
+Also: playlists with sharing roles, per-profile watch history, global search, per-library sharing and age ratings, a resumable admin scan with live progress.
+
+## Getting started
+
+Prerequisites: Node.js 20.9+, a [Supabase](https://supabase.com) project, a [Box](https://developer.box.com) custom app (OAuth 2.0), and optionally a [TMDB](https://www.themoviedb.org/settings/api) token and an [OMDb](https://www.omdbapi.com/apikey.aspx) key.
 
 ```bash
 npm install
-cp .env.example .env.local
+cp .env.example .env.local     # fill in the values; each one is commented
+npm run db:migrate             # apply the Drizzle migrations
+psql "$POSTGRES_URL" -f supabase/rls.sql   # deny-all row-level security (read its header first)
+npm run dev                    # http://localhost:3000
+npm test                       # ~1,100 tests, no external services needed
 ```
 
-Fill in `.env.local` — see the comments in `.env.example` for where to find
-each value.
+1. In the Box developer console, create an **OAuth 2.0** custom app and register `/api/box/callback` (local and production) as a redirect URI.
+2. Generate `TOKEN_ENCRYPTION_KEY` with `openssl rand -base64 32` (it encrypts each server's Box tokens; rotating it requires reconnecting every server).
+3. Sign up, **create a server**, connect Box, then add a library by choosing a Box folder and a type. Scans can be started from the admin page.
 
-While you're setting up credentials, you can already sanity-check the parts
-of the app that don't need them — the Box folder/filename convention parser
-and the from-scratch MP4 duration prober both have a unit test suite:
+Deploying: import the repo into Vercel with the same environment variables (use the pooled `POSTGRES_URL`, port 6543). Note `vercel.json` must enable deployments for your production branch.
 
-```bash
-npm test
-```
-
-## 2. Set up Supabase
-
-1. Create a project. Copy the URL, anon key, and service-role key into
-   `.env.local`.
-2. Grab the **direct** connection string (Project Settings → Database →
-   Connection string → URI, port `5432`) for `POSTGRES_URL` while running
-   migrations. Switch to the **pooled** connection (port `6543`, "Transaction"
-   mode) for `POSTGRES_URL` in your actual deployment — serverless functions
-   need a pooler, not a direct connection.
-3. Enable the auth providers you want under Authentication → Providers:
-   Email (magic link is on by default; enable "Email + Password" too) and
-   Google (needs a Google OAuth client — see Supabase's Google guide).
-4. Set the Site URL and Redirect URLs (Authentication → URL Configuration)
-   to your app's URL plus `/auth/callback` (e.g.
-   `http://localhost:3000/auth/callback` locally,
-   `https://your-app.vercel.app/auth/callback` in production).
-
-## 3. Run database migrations
-
-```bash
-npm run db:migrate
-```
-
-This applies `drizzle/0000_*.sql` (generated from `src/lib/db/schema.ts`).
-If you change the schema later, run `npm run db:generate` to create a new
-migration, then `npm run db:migrate` again. `npm run db:studio` opens
-Drizzle Studio to browse the data.
-
-Then, in the Supabase SQL editor, run **`supabase/rls.sql`** once. Read the
-comment at the top of that file first — it explains that RLS here is
-defense-in-depth, not the app's primary security boundary (that's the
-`requireProfile()`/`requireAdmin()` checks in every route).
-
-## 4. Set up Box
-
-1. In the [Box Developer Console](https://app.box.com/developers/console),
-   create a **Custom App** → **Server Authentication (Client Credentials
-   Grant)**.
-2. Under Configuration, note the **Client ID** and **Client Secret**.
-3. Authorize the app for your enterprise (Admin Console → Apps → Custom Apps
-   Manager → Authorize the app), and note your **Enterprise ID**.
-4. In Box, create your media folder structure (see below) under an account
-   the service account can access, and copy each root folder's ID (the
-   trailing number in its URL) into `.env.local` /
-   the admin UI when creating a library.
-
-### Folder conventions the scanner expects
-
-```
-Movies/
-  The Matrix (1999)/
-    The Matrix (1999).mp4
-  The Lord of the Rings The Fellowship of the Ring (2001)/
-    part1.mp4
-    part2.mp4
-
-TV Shows/
-  Some Show (2015)/
-    Season 01/
-      S01E01 - Pilot.mp4
-      S01E02 - Episode Two.mp4
-```
-
-Pre-convert everything to browser-friendly **H.264/AAC MP4** before
-uploading — there's no server-side transcoding (see the plan for why).
-
-## 5. Set up TMDB
-
-Create an API key at themoviedb.org, then use the **API Read Access Token
-(v4 auth)** (not the v3 API key) as `TMDB_READ_ACCESS_TOKEN`.
-
-## 6. Run it
-
-```bash
-npm run dev
-```
-
-Visit `http://localhost:3000`. There are no users yet — see the next step.
-
-## 7. Create your first admin account
-
-Invites are created through the admin UI, but there's no admin yet to log
-in. Bootstrap one directly in Postgres (Supabase SQL editor or
-`db:studio`):
-
-```sql
-insert into invites (email, role, token, expires_at)
-values ('you@example.com', 'admin', 'bootstrap-' || gen_random_uuid(), now() + interval '7 days');
-```
-
-Then visit `/invite/<token>` (the value after `bootstrap-` won't matter —
-copy the full `token` column value) and sign in. From then on, use
-**Admin → Invite family members** for everyone else.
-
-## 8. Add a library and scan
-
-In **Admin**, add a library pointing at your Box root folder (Movies or TV
-Shows) and its Box folder ID, then click **Rescan**. This walks the folder,
-matches titles against TMDB, and probes each video file's duration (a small
-byte-range read of the MP4 `moov` atom — no ffmpeg, no full download).
-
-## Deploying to Vercel
-
-1. Import the repo into Vercel, add all the env vars from `.env.example`
-   (use the **pooled** `POSTGRES_URL`).
-2. Make sure `vercel.json`'s `git.deploymentEnabled` includes your
-   production branch (`master` here) set to `true`. If it's missing or
-   `false`, Vercel silently never deploys on push or even on a manual
-   "Deploy" click — no build error, nothing in the Deployments tab. This
-   bit us once already; it's a separate switch from the branch shown under
-   Project Settings → Git.
-3. There's currently no scheduled rescan — `vercel.json` had a daily Cron
-   job hitting `/api/cron/scan`, but it was dropped in favor of the manual
-   **Rescan** button in Admin. If you want automatic periodic rescanning
-   back, add a `crons` entry to `vercel.json` (Vercel's Hobby plan caps
-   cron jobs at once per day — a more frequent schedule fails deployment
-   outright with "Hobby accounts are limited to daily cron jobs").
-4. Update Supabase's Redirect URLs to include your production
-   `/auth/callback` URL.
+Folder naming for Movies/TV follows Plex conventions, e.g. `Movies/The Matrix (1999)/The Matrix (1999).mp4`, `Movie (2001)/part1.mp4`, `Show (2015)/Season 01/S01E01 - Pilot.mp4`. Pre-convert to H.264/AAC `.mp4`, `.m4v`, or `.mov`.
 
 ## Project structure
 
 ```
 src/
-  app/
-    (app)/            # authenticated shell: library, title, show, watch, admin
-    api/               # control-plane routes (play manifest, scan, invites, tmdb match…)
-    sign-in/, invite/[token]/, auth/callback/
-  components/
-    player/            # the seamless dual-video player
-    admin/, auth/, library/, nav/, ui/
+  app/            routes: (app)/s/[serverId]/…  library, title, show, book, photo, watch, admin
+                  api/                           control-plane routes (play, scan, photos, playlists, …)
+  components/     player/ (dual-video player), photos/ (timeline, viewer, scrubber), admin/, library/, ui/
   lib/
-    db/                # Drizzle schema + client
-    storage/           # StorageProvider interface + Box implementation
-    scan/               # folder-convention parser, MP4 duration probe, scanner
-    player/             # shared play-manifest builder + types (used by movies and episodes)
-    tmdb/               # TMDB client
-    auth/               # profile/role guards, invite handling
-    supabase/           # browser/server/service-role Supabase clients
-  proxy.ts              # Next.js 16's middleware.ts equivalent — refreshes auth session
+    scan/         scanner, file-tree engine, tag/EXIF/HEIF/MP4/ID3 parsers, prune
+    storage/      StorageProvider interface + Box implementation
+    content/      access rules: library visibility, age filtering
+    photos/       timeline queries, search, layout maths, favorites, gestures
+    player/       play manifest + timeline maths
+    remux/        audio remux pipeline (local runner, sandbox tier)
+    db/           Drizzle schema + client
+drizzle/          SQL migrations         supabase/rls.sql   deny-all RLS
 ```
 
-## Known limitations / next steps
+## Known limitations
 
-- **Box streaming spike not yet run against a real account.** The play
-  manifest mints downscoped, single-file Box download URLs and assumes they
-  support HTTP range requests (needed for seeking) with a workable TTL —
-  verify this against your actual Box plan before relying on it for long
-  movies. If TTLs are too short, the player already re-fetches the manifest
-  on a video `error` event and proactively before expiry, but this hasn't
-  been exercised against production Box.
-- **No open self-signup** — by design; everyone needs an admin-issued
-  invite.
-- **Box webhooks** (near-real-time re-scan on upload) aren't implemented;
-  only manual Rescan + the 6-hourly cron. `box-node-sdk`'s
-  `WebhooksManager.validateMessage()` (signature verification) is confirmed
-  available in the installed SDK version for when this gets built.
-- **Invites are copy/paste links**, not sent by email automatically — the
-  admin has to send the link themselves. Supabase Auth's admin API can send
-  its own invite emails (`auth.admin.inviteUserByEmail`), which would be a
-  cleaner flow, but wiring that in changes the auth handshake in ways worth
-  testing against a real Supabase project first rather than building blind.
+- Box is the only storage provider (the code sits behind a `StorageProvider` interface, so another is possible).
+- No general transcoding, by design: unsupported audio is remuxed on request, and everything else must already be browser-friendly.
+- Touch gestures in the photo viewer are covered by unit tests of their logic, but have been hand-tested on a small number of devices.
+- Music (artist/album) and eBook (EPUB/PDF/Markdown) libraries are planned, not built.
+
+## About
+
+Built by [Matt Rinker](https://github.com/mjrinker). Developed with AI pair-programming (Claude Code) under a plan-then-review workflow, with every change reviewed and tested before it shipped.
