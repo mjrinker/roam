@@ -14,7 +14,8 @@ import { Button } from "@/components/ui/button";
 import { Breadcrumbs } from "@/components/shell/breadcrumbs";
 import { VideoFolderView } from "@/components/library/video-folder-view";
 import { listFolder as listVideoFolder, normalizeFolderPath } from "@/lib/libraries/folder-browse";
-import { isFileTreeLibraryKind, isPhotoLibraryKind } from "@/lib/libraries/profile";
+import { isFileTreeLibraryKind, isMusicLibraryKind, isPhotoLibraryKind } from "@/lib/libraries/profile";
+import { MusicLibraryView, MusicViewTabs } from "@/components/music/music-library-view";
 import { parseSearch } from "@/lib/photos/search";
 import { listMonths, listTimeline } from "@/lib/photos/timeline";
 import { favoriteWords } from "@/lib/photos/favorite-word";
@@ -118,6 +119,15 @@ export default async function LibraryDetailPage({
     );
   }
 
+  // A music library opens to its artists (or albums); its Folders tab is the plain folder view below.
+  const musicView = isMusicLibraryKind(library.kind) ? (query.view === "albums" ? "albums" : query.view === "folders" ? "folders" : "artists") : null;
+  if (musicView === "artists" || musicView === "albums") {
+    const after = decodeCursor(typeof query.after === "string" ? query.after : null, folderCursorSchema);
+    const view = await MusicLibraryView({ serverId, libraryId, libraryName: library.name, view: musicView, actor: lib, viewer, after: after === "invalid" ? null : after });
+    if (!view) notFound();
+    return view;
+  }
+
   // A file-tree library (video, audio, and a photo library's albums) is browsed folder by folder (the folder and the page of files come from the URL).
   if (isFileTreeLibraryKind(library.kind)) {
     const path = normalizeFolderPath(typeof query.path === "string" ? query.path : null);
@@ -133,7 +143,7 @@ export default async function LibraryDetailPage({
       after: after === "invalid" ? null : after,
     });
     if (!page) notFound();
-    const here = `/s/${serverId}/library/${libraryId}?${photoView ? "view=albums&" : ""}${path ? `path=${encodeURIComponent(path)}&` : ""}`;
+    const here = `/s/${serverId}/library/${libraryId}?${photoView ? "view=albums&" : ""}${musicView ? "view=folders&" : ""}${path ? `path=${encodeURIComponent(path)}&` : ""}`;
     return (
       <div className="flex flex-col gap-6 px-4 py-8 sm:px-8">
         <Breadcrumbs serverId={serverId} trail={[{ label: library.name }]} className="-mb-2" />
@@ -147,6 +157,7 @@ export default async function LibraryDetailPage({
           <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">{library.name}</h1>
         </div>
         {photoView && <PhotoViewTabs serverId={serverId} libraryId={libraryId} active="albums" favoritesLabel={words.plural} />}
+        {musicView && <MusicViewTabs serverId={serverId} libraryId={libraryId} active="folders" />}
         <VideoFolderView
           serverId={serverId}
           libraryId={libraryId}
@@ -156,7 +167,7 @@ export default async function LibraryDetailPage({
           items={page.items}
           nextHref={page.nextCursor ? `${here}after=${encodeCursor(page.nextCursor)}` : null}
           itemKind={photoView ? "photo" : library.kind === "audio" || library.kind === "music" ? "audiobook" : "movie"}
-          extraQuery={photoView ? "view=albums" : undefined}
+          extraQuery={photoView ? "view=albums" : musicView ? "view=folders" : undefined}
         />
       </div>
     );

@@ -4,7 +4,7 @@ import { and, eq } from "drizzle-orm";
 import { db } from "@/lib/db/client";
 import { watchState } from "@/lib/db/schema";
 import { authorizeOwner } from "@/lib/auth/resolve-server";
-import { isPhotoLibraryKind } from "@/lib/libraries/profile";
+import { libraryRemembersProgress } from "@/lib/libraries/profile";
 
 const patchSchema = z.object({
   ownerKind: z.enum(["title", "episode"]),
@@ -33,8 +33,8 @@ export async function PATCH(request: Request) {
     return NextResponse.json({ error: auth.status === 403 ? "Forbidden" : "Not found" }, { status: auth.status });
   }
 
-  // Clips in a photo library never resume (they always start from the beginning), so nothing is recorded.
-  if (isPhotoLibraryKind(auth.libraryKind)) return NextResponse.json({ ok: true, recorded: false });
+  // Clips in a photo library and songs in a music library never resume (they always start from the beginning), so nothing is recorded.
+  if (!libraryRemembersProgress(auth.libraryKind)) return NextResponse.json({ ok: true, recorded: false });
 
   await db
     .insert(watchState)

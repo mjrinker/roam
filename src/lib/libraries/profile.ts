@@ -34,6 +34,19 @@ export const EXTERNAL_METADATA_KINDS = ["movies", "shows", "audiobooks"] as cons
 /** Libraries of pictures (and the videos beside them): browsed as a timeline and albums rather than folder by folder. */
 export const PHOTO_LIBRARY_KINDS = ["photos"] as const satisfies readonly LibraryKind[];
 
+/**
+ * Whether playing something in this library records a resume position. Clips in a photo library and songs in a
+ * music library always start from the beginning, so nothing is stored (and nothing shows up under "continue").
+ */
+export function libraryRemembersProgress(kind: LibraryKind | null | undefined): boolean {
+  return kind !== "photos" && kind !== "music";
+}
+
+/** Libraries of songs, browsed as artists, albums and songs. */
+export function isMusicLibraryKind(kind: LibraryKind | null | undefined): boolean {
+  return kind === "music";
+}
+
 export function isPhotoLibraryKind(kind: LibraryKind | null | undefined): boolean {
   return kind === "photos";
 }

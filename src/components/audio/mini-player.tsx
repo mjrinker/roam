@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { Artwork as Image } from "@/components/ui/artwork";
 import Link from "next/link";
-import { ChevronUp, Headphones, List, Loader2, Moon, Pause, Play, RotateCcw, RotateCw, X } from "lucide-react";
+import { ChevronUp, Headphones, List, Loader2, Moon, Pause, Play, RotateCcw, RotateCw, SkipBack, SkipForward, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { formatClock, PLAYBACK_RATES } from "@/lib/player/timeline";
 import { Slider } from "@/components/ui/slider";
@@ -70,7 +70,7 @@ export function MiniPlayer({ serverId }: { serverId: string }) {
   const busy = p.status === "loading" || (p.buffering && p.status !== "paused");
   const shown = drag ?? p.position;
   const chapter = p.chapterIndex >= 0 ? book.chapters[p.chapterIndex] : null;
-  const subtitle = [book.authors.join(", "), chapter?.title].filter(Boolean).join(" · ");
+  const subtitle = [book.authors.join(", "), chapter?.title, p.listPosition ? `${p.listPosition.index + 1} of ${p.listPosition.length}` : null].filter(Boolean).join(" · ");
   const sleep = sleepLabel(p.sleep, p.sleepMinutesLeft);
 
   return (
@@ -91,7 +91,7 @@ export function MiniPlayer({ serverId }: { serverId: string }) {
 
       <div className="flex items-center gap-3 px-3 py-2.5 sm:px-6">
         <Link
-          href={`/s/${serverId}/book/${book.titleId}`}
+          href={book.albumId ? `/s/${serverId}/album/${book.albumId}` : `/s/${serverId}/book/${book.titleId}`}
           className="group flex min-w-0 flex-1 items-center gap-3 outline-none"
         >
           <span className="relative size-12 shrink-0 overflow-hidden rounded-lg bg-muted ring-1 ring-white/10">
@@ -118,6 +118,11 @@ export function MiniPlayer({ serverId }: { serverId: string }) {
         </span>
 
         <div className="flex items-center gap-1">
+          {p.listPosition && (
+            <IconButton label="Previous song" onClick={p.previous}>
+              <SkipBack className="size-5" fill="currentColor" />
+            </IconButton>
+          )}
           <IconButton label={`Back ${SKIP_BACK_SECONDS} seconds`} onClick={() => p.skip(-SKIP_BACK_SECONDS)}>
             <RotateCcw className="size-5" />
           </IconButton>
@@ -138,6 +143,11 @@ export function MiniPlayer({ serverId }: { serverId: string }) {
           <IconButton label={`Forward ${SKIP_FORWARD_SECONDS} seconds`} onClick={() => p.skip(SKIP_FORWARD_SECONDS)}>
             <RotateCw className="size-5" />
           </IconButton>
+          {p.listPosition && (
+            <IconButton label="Next song" onClick={p.next} disabled={p.listPosition.index + 1 >= p.listPosition.length}>
+              <SkipForward className="size-5" fill="currentColor" />
+            </IconButton>
+          )}
         </div>
 
         <div className="hidden items-center gap-0.5 sm:flex">

@@ -107,6 +107,21 @@ describe("play, progress and audio routes refuse a photo", () => {
     expect(rows.filter((r) => r.ownerId === w.film.id)).toHaveLength(1);
   });
 
+  it("records no progress for a song in a music library, but still does for a track in an ordinary audio library", async () => {
+    const w = await world();
+    const music = await makeLibrary(db, w.server.id, "music", "everyone");
+    const audio = await makeLibrary(db, w.server.id, "audio", "everyone");
+    const song = await makeTitle(db, music.id, { kind: "audiobook", name: "Song", boxFolderId: `file:${Math.random()}` });
+    const episode = await makeTitle(db, audio.id, { kind: "audiobook", name: "Podcast", boxFolderId: `file:${Math.random()}` });
+    const patch = (id: string) => watchPatch(new Request("http://x", { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ ownerKind: "title", ownerId: id, positionSeconds: 5, durationSeconds: 100, finished: false }) }));
+    const res = await patch(song.id);
+    expect([res.status, (await res.json()).recorded]).toEqual([200, false]);
+    expect((await patch(episode.id)).status).toBe(200);
+    const rows = await db.query.watchState.findMany();
+    expect(rows.filter((r) => r.ownerId === song.id)).toHaveLength(0);
+    expect(rows.filter((r) => r.ownerId === episode.id)).toHaveLength(1);
+  });
+
   it("authorizeOwner takes an explicit list: a photo route can ask for photos, and nothing else changes", async () => {
     const w = await world();
     expect((await authorizeOwner("title", w.photo.id)).ok).toBe(false);

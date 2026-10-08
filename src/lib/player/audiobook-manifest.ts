@@ -83,6 +83,7 @@ export async function buildAudiobookManifest(
       seriesName: title.seriesName,
       seriesPosition: title.seriesPosition,
       coverUrl: title.posterUrl,
+      albumId: title.albumId,
       durationSeconds,
       segments,
       chapters: title.chapters ?? [],

@@ -53,6 +53,8 @@ export interface AudiobookManifest {
   seriesName: string | null;
   seriesPosition: string | null;
   coverUrl: string | null;
+  /** The album a song belongs to (music libraries); null for everything else. */
+  albumId: string | null;
   durationSeconds: number;
   segments: AudiobookSegment[];
   chapters: { title: string; startSeconds: number }[];

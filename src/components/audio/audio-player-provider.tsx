@@ -22,6 +22,7 @@ import {
 } from "@/lib/player/timeline";
 import type { AudiobookManifest, AudiobookSegmentUrl } from "@/lib/player/types";
 import { shouldContinueQueue, type BookQueue } from "@/components/audio/queue-handoff";
+import { nextIndex, previousStep, type ListQueue } from "@/lib/music/list-queue";
 
 // One <audio> element for the whole book, mounted above the pages so audio
 // keeps playing as you browse. A single element (rather than the video
@@ -61,6 +62,8 @@ export interface AudioPlayerState {
   sleepMinutesLeft: number | null;
   /** Index of the current chapter, or -1 if the book has none. */
   chapterIndex: number;
+  /** Where the playing song is in the list it was started from (an album), or null when it wasn't started from one. */
+  listPosition: { index: number; length: number } | null;
 }
 
 export interface AudioPlayerActions {
@@ -77,6 +80,11 @@ export interface AudioPlayerActions {
   jumpToChapter(index: number): void;
   setRate(rate: number): void;
   setSleep(request: SleepRequest): void;
+  /** Plays these titles one after another, starting at `startIndex`. */
+  playList(titleIds: string[], startIndex?: number): Promise<{ ok: boolean; error?: string }>;
+  /** Next / previous song in the list being played (previous restarts a song heard for a few seconds). */
+  next(): void;
+  previous(): void;
   /** Stops playback and unloads the book. */
   close(): void;
 }
@@ -139,6 +147,8 @@ interface Engine {
   playRequested: boolean;
   /** The playlist queue this book was started from, if any; cleared when a different book starts or the player closes. */
   queue: (BookQueue & { titleId: string }) | null;
+  /** The songs being played in order (an album), if any; dropped when something outside it starts. */
+  list: ListQueue | null;
 }
 
 function createPlayer(
@@ -162,6 +172,7 @@ function createPlayer(
     rateSaveTimeout: null,
     playRequested: false,
     queue: null,
+    list: null,
   };
 
   const patch = (p: Partial<AudioPlayerState>) => setState((s) => ({ ...s, ...p }));
@@ -356,6 +367,11 @@ function createPlayer(
 
   const actions: AudioPlayerActions = {
     async load(titleId, opts = {}) {
+      // A list queue belongs to the songs in it: starting anything outside it drops it.
+      if (e.list && e.list.ids[e.list.index] !== titleId) {
+        e.list = null;
+        patch({ listPosition: null });
+      }
       // A queue belongs to the book it started with: starting any other book drops it.
       if (opts.queue) e.queue = { ...opts.queue, titleId };
       else if (e.queue && e.queue.titleId !== titleId) e.queue = null;
@@ -404,6 +420,31 @@ function createPlayer(
       }
     },
 
+    async playList(titleIds, startIndex = 0) {
+      const index = Math.min(Math.max(startIndex, 0), titleIds.length - 1);
+      if (titleIds.length === 0 || index < 0) return { ok: false, error: "Nothing to play." };
+      e.list = { ids: [...titleIds], index };
+      patch({ listPosition: { index, length: titleIds.length } });
+      return actions.load(titleIds[index], { autoplay: true, startAt: 0 });
+    },
+    next() {
+      const q = e.list;
+      const index = q ? nextIndex(q) : null;
+      if (!q || index === null) return;
+      q.index = index;
+      patch({ listPosition: { index, length: q.ids.length } });
+      void actions.load(q.ids[index], { autoplay: true, startAt: 0 });
+    },
+    previous() {
+      const q = e.list;
+      if (!q) return;
+      const step = previousStep(q, e.position);
+      if (step.restart) return seek(0);
+      q.index = step.index;
+      patch({ listPosition: { index: step.index, length: q.ids.length } });
+      void actions.load(q.ids[step.index], { autoplay: true, startAt: 0 });
+    },
+
     play,
     pause,
     toggle() {
@@ -446,6 +487,7 @@ function createPlayer(
     close() {
       saveProgress();
       e.queue = null;
+      e.list = null;
       e.token++;
       e.playRequested = false;
       e.book = null;
@@ -457,7 +499,7 @@ function createPlayer(
         el.removeAttribute("src");
         el.load();
       }
-      patch({ book: null, status: "idle", error: null, buffering: false, position: 0, chapterIndex: -1, sleepMinutesLeft: null });
+      patch({ book: null, status: "idle", error: null, buffering: false, position: 0, chapterIndex: -1, sleepMinutesLeft: null, listPosition: null });
     },
   };
 
@@ -504,6 +546,7 @@ export function AudioPlayerProvider({
     sleep: null,
     sleepMinutesLeft: null,
     chapterIndex: -1,
+    listPosition: null,
   });
 
   const [{ actions, internals }] = useState(() => createPlayer(setState, startRate, viewerId));
@@ -601,6 +644,11 @@ export function AudioPlayerProvider({
         e.playRequested = false;
         patch({ status: "finished", position: book.durationSeconds, buffering: false });
         internals.saveProgress();
+        // Playing an album (or any list of songs): on to the next one.
+        if (e.list && nextIndex(e.list) !== null) {
+          actions.next();
+          return;
+        }
         // Started from a playlist: carry on with whatever comes next in it.
         const queue = e.queue;
         e.queue = null;
@@ -645,7 +693,7 @@ export function AudioPlayerProvider({
       if (e.sleepTimeout) clearTimeout(e.sleepTimeout);
       if (e.rateSaveTimeout) clearTimeout(e.rateSaveTimeout);
     };
-  }, [internals]);
+  }, [internals, actions]); // both are stable for the life of the provider
 
   // If the profile's speed isn't available, fall back to the last one used on this device.
   useEffect(() => {
@@ -660,6 +708,7 @@ export function AudioPlayerProvider({
 
   // Lock-screen / headset / notification controls.
   const book = state.book;
+  const hasList = state.listPosition !== null;
   useEffect(() => {
     if (!book || typeof navigator === "undefined" || !("mediaSession" in navigator)) return;
     const session = navigator.mediaSession;
@@ -676,6 +725,9 @@ export function AudioPlayerProvider({
       ["seekbackward", (d) => actions.skip(-(d.seekOffset ?? SKIP_BACK_SECONDS))],
       ["seekforward", (d) => actions.skip(d.seekOffset ?? SKIP_FORWARD_SECONDS)],
       ["seekto", (d) => typeof d.seekTime === "number" && actions.seek(d.seekTime)],
+      ...(hasList
+        ? ([["nexttrack", () => actions.next()], ["previoustrack", () => actions.previous()]] as [MediaSessionAction, MediaSessionActionHandler][])
+        : []),
     ];
     for (const [action, handler] of handlers) {
       try {
@@ -693,7 +745,7 @@ export function AudioPlayerProvider({
         }
       }
     };
-  }, [book, actions]);
+  }, [book, actions, hasList]);
 
   return (
     <ActionsContext.Provider value={actions}>
