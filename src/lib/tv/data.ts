@@ -253,11 +253,14 @@ export function gridCursorAt(takenAt: Date | null): string | null {
 }
 export const folderCursorParam = (c: { key: string; id: string }): string => `${c.key}~${c.id}`;
 
-/** One level of a video or audio library: its folders and one page of the files directly inside. Null when it isn't visible to this profile. */
-export async function folderLevel(ex: Db, scope: TvScope, libraryId: string, rawPath: string | null, after: { key: string; id: string } | null) {
+/**
+ * One level of a video or audio library: its folders and one page of the files directly inside. Null when it isn't visible to this profile.
+ * With style "timeline" the same walk shows a photo library's albums (its folders).
+ */
+export async function folderLevel(ex: Db, scope: TvScope, libraryId: string, rawPath: string | null, after: { key: string; id: string } | null, style: TvBrowseStyle = "folders") {
   const library = await tvLibrary(ex, scope, libraryId);
   const path = normalizeFolderPath(rawPath);
-  if (!library || path === null || library.style !== "folders") return null;
+  if (!library || path === null || library.style !== style) return null;
   const page: FolderPage | null = await listFolder(ex, { actor: scope.actor, viewer: scope.viewer, viewerId: scope.viewerId, libraryId, path, limit: TV_FOLDER_PAGE, after });
   return page ? { library, path, ...page } : null;
 }
@@ -267,17 +270,19 @@ export async function folderLevel(ex: Db, scope: TvScope, libraryId: string, raw
 export const TV_PHOTO_PAGE = 30;
 
 /** One page of a photo library, newest first. Null when the profile can't see such a library. */
-export async function photoPage(ex: Db, scope: TvScope, libraryId: string, after: TimelineCursor | null) {
+export async function photoPage(ex: Db, scope: TvScope, libraryId: string, after: TimelineCursor | null, favoritesOnly = false) {
   const library = await tvLibrary(ex, scope, libraryId);
   if (!library || library.style !== "timeline") return null;
-  const page = await listTimeline(ex, { actor: scope.actor, viewer: scope.viewer, viewerId: scope.viewerId, libraryId, after, limit: TV_PHOTO_PAGE });
+  const page = await listTimeline(ex, { actor: scope.actor, viewer: scope.viewer, viewerId: scope.viewerId, libraryId, after, limit: TV_PHOTO_PAGE, favoritesOnly });
   return page ? { library, ...page } : null;
 }
 
 /** A picture (or a clip) with the items either side of it, in the order the timeline shows them. Null when it isn't visible. */
-export async function photoView(ex: Db, scope: TvScope, id: string, scopeKind: NeighborScope) {
+export async function photoView(ex: Db, scope: TvScope, id: string, from: "timeline" | "favorites" | "album" = "timeline") {
   const photo = await loadPhoto(ex, { actor: scope.actor, viewer: scope.viewer, viewerId: scope.viewerId, id });
   if (!photo) return null;
+  // Where you came from decides what "next" means: the whole timeline, your favourites, or this picture's own album (folder).
+  const scopeKind: NeighborScope = from === "favorites" ? { kind: "favorites", viewerId: scope.viewerId } : from === "album" ? { kind: "folder", path: photo.folderPath } : { kind: "timeline" };
   const neighbors = await photoNeighbors(ex, { actor: scope.actor, viewer: scope.viewer, photo, scope: scopeKind });
   return { photo, ...neighbors };
 }

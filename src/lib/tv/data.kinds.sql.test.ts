@@ -5,6 +5,7 @@ import { musicAlbums, musicArtists, titles, watchState } from "@/lib/db/schema";
 import type { AccessProfile } from "@/lib/content/access";
 import type { LibraryActor } from "@/lib/content/library-access";
 import { createTestDb, joinServer, makeAccount, makeLibrary, makeServer, makeTitle, type TestDb } from "@/lib/playlists/test-db";
+import { photoFavorites } from "@/lib/db/schema";
 import { bookDetail, gridCursorAt, recentlyAdded, continueWatching, folderLevel, listenInfo, parseFolderCursor, photoPage, photoView, tvLibrary, watchInfo, TV_FOLDER_PAGE, type TvScope } from "./data";
 
 let db: TestDb;
@@ -117,12 +118,54 @@ describe("photos", () => {
     const w = await world();
     const lib = await w.lib("photos");
     const [a, b, c] = [await makeTitle(db, lib.id, { kind: "photo", name: "A", takenAt: at(1) }), await makeTitle(db, lib.id, { kind: "photo", name: "B", takenAt: at(2) }), await makeTitle(db, lib.id, { kind: "photo", name: "C", takenAt: at(3), ratingAges: { ANY: 17 } })];
-    const view = await photoView(db, w.scope(), b.id, { kind: "timeline" });
+    const view = await photoView(db, w.scope(), b.id, "timeline");
     expect([view!.prev?.id ?? null, view!.next?.id]).toEqual([c.id, a.id]);
-    const kidView = await photoView(db, w.scope(kid), b.id, { kind: "timeline" });
+    const kidView = await photoView(db, w.scope(kid), b.id, "timeline");
     expect(kidView).toBeNull(); // unrated, and this profile allows only rated
     const other = await world();
-    expect(await photoView(db, other.scope(), a.id, { kind: "timeline" })).toBeNull();
+    expect(await photoView(db, other.scope(), a.id, "timeline")).toBeNull();
+  });
+});
+
+describe("photo favourites and albums", () => {
+  const at = (day: number) => new Date(Date.UTC(2024, 4, day, 12));
+  it("lists only the pictures this profile hearted, and walks them in order", async () => {
+    const w = await world();
+    const lib = await w.lib("photos");
+    const a = await makeTitle(db, lib.id, { kind: "photo", name: "A", takenAt: at(1) });
+    const b = await makeTitle(db, lib.id, { kind: "photo", name: "B", takenAt: at(2) });
+    const c = await makeTitle(db, lib.id, { kind: "photo", name: "C", takenAt: at(3) });
+    await db.insert(photoFavorites).values([{ viewerId: w.member.viewer.id, titleId: a.id }, { viewerId: w.member.viewer.id, titleId: c.id }]);
+    const other = await makeAccount(db, "other");
+    await db.insert(photoFavorites).values({ viewerId: other.viewer.id, titleId: b.id }); // someone else's heart is theirs alone
+    const page = await photoPage(db, w.scope(), lib.id, null, true);
+    expect(page!.items.map((i) => i.name)).toEqual(["C", "A"]);
+    expect((await photoView(db, w.scope(), c.id, "favorites"))!.next?.id).toBe(a.id); // B is skipped: not a favourite
+    expect((await photoView(db, w.scope(), c.id, "timeline"))!.next?.id).toBe(b.id);
+  });
+  it("shows a photo library's folders as albums, with their pictures, and steps through one album only", async () => {
+    const w = await world();
+    const lib = await w.lib("photos");
+    const trip1 = await makeTitle(db, lib.id, { kind: "photo", name: "T1", takenAt: at(1), folderPath: "Trips/Paris", sortKey: "t1" });
+    const trip2 = await makeTitle(db, lib.id, { kind: "photo", name: "T2", takenAt: at(2), folderPath: "Trips/Paris", sortKey: "t2" });
+    await makeTitle(db, lib.id, { kind: "photo", name: "Elsewhere", takenAt: at(3), folderPath: "Pets", sortKey: "e" });
+    const root = await folderLevel(db, w.scope(), lib.id, null, null, "timeline");
+    expect(root!.folders).toEqual(["Pets", "Trips"]);
+    expect((await folderLevel(db, w.scope(), lib.id, "Trips/Paris", null, "timeline"))!.items.map((i) => i.name)).toEqual(["T1", "T2"]);
+    expect((await photoView(db, w.scope(), trip1.id, "album"))!.next?.id).toBe(trip2.id);
+    expect((await photoView(db, w.scope(), trip2.id, "album"))!.next).toBeNull(); // the album ends here, though the timeline goes on
+    expect(await folderLevel(db, w.scope(), lib.id, "Nope", null, "timeline")).toBeNull();
+    expect(await folderLevel(db, w.scope(), (await w.lib("video")).id, null, null, "timeline")).toBeNull(); // a video library has no albums
+    expect(await folderLevel(db, w.scope(), lib.id, null, null)).toBeNull(); // and a photo library isn't a plain folder library
+  });
+  it("keeps hidden pictures out of albums and favourites", async () => {
+    const w = await world();
+    const lib = await w.lib("photos");
+    const adultPic = await makeTitle(db, lib.id, { kind: "photo", name: "Adult", takenAt: at(1), folderPath: "Private", ratingAges: { ANY: 17 } });
+    await db.insert(photoFavorites).values({ viewerId: w.member.viewer.id, titleId: adultPic.id });
+    expect(await folderLevel(db, w.scope(kid), lib.id, "Private", null, "timeline")).toBeNull();
+    expect((await folderLevel(db, w.scope(kid), lib.id, null, null, "timeline"))!.folders).toEqual([]);
+    expect((await photoPage(db, w.scope(kid), lib.id, null, true))!.items).toEqual([]);
   });
 });
 

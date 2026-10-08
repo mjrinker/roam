@@ -92,6 +92,8 @@ export interface HomeData {
   continueWatching: Poster[];
   continueListening?: Poster[];
   recentlyAdded?: Poster[];
+  /** Whether this profile has any playlists to show. */
+  hasPlaylists?: boolean;
   libraries: { id: string; name: string; kind: string; count?: number | null }[];
   /** Libraries that exist but have no TV interface yet. */
   unsupported: number;
@@ -114,7 +116,7 @@ export function homePage(d: HomeData): string {
   const more = d.unsupported > 0 ? `<p class="note">${d.unsupported} more ${d.unsupported === 1 ? "library isn't" : "libraries aren't"} available on TV yet.</p>` : "";
   return tvDocument({
     title: d.serverName,
-    body: `<div class="page">${top(esc(d.profileName))}<h1>${esc(d.serverName)}</h1>${cont}${listening}${recent}${libs}${more}<div class="row" style="margin-top:2rem"><a class="btn" data-f href="${esc(d.base)}/search">Search</a><a class="btn" data-f href="/tv/profiles">Switch profile</a>${postButton("/tv/signout", "Sign out")}</div></div>`,
+    body: `<div class="page">${top(esc(d.profileName))}<h1>${esc(d.serverName)}</h1>${cont}${listening}${recent}${libs}${more}<div class="row" style="margin-top:2rem"><a class="btn" data-f href="${esc(d.base)}/search">Search</a>${d.hasPlaylists ? `<a class="btn" data-f href="${esc(d.base)}/playlists">Playlists</a>` : ""}<a class="btn" data-f href="/tv/profiles">Switch profile</a>${postButton("/tv/signout", "Sign out")}</div></div>`,
   });
 }
 
@@ -125,7 +127,7 @@ export interface ListData {
   backHref: string;
   items: Poster[];
   /** Subfolders to open before the items. */
-  folders?: { href: string; name: string }[];
+  folders?: { href: string; name: string; note?: string }[];
   /** Link to the next page, or null. */
   nextHref: string | null;
   prevHref: string | null;
@@ -134,7 +136,7 @@ export interface ListData {
 export function listPage(d: ListData): string {
   const body =
     `<div class="page">${top(`<a data-f data-back href="${esc(d.backHref)}" class="btn" style="margin:0">Back</a>`)}<h1>${esc(d.title)}</h1>${d.subtitle ? `<p class="sub">${esc(d.subtitle)}</p>` : ""}` +
-    (d.folders?.length ? `<div class="row">${d.folders.map((f, i) => `<a class="tile folder" data-f${i === 0 ? " data-autofocus" : ""} href="${esc(safeUrl(f.href) ?? "/tv")}">${esc(f.name)}<small>Folder</small></a>`).join("")}</div>` : "") +
+    (d.folders?.length ? `<div class="row">${d.folders.map((f, i) => `<a class="tile folder" data-f${i === 0 ? " data-autofocus" : ""} href="${esc(safeUrl(f.href) ?? "/tv")}">${esc(f.name)}<small>${esc(f.note ?? "Folder")}</small></a>`).join("")}</div>` : "") +
     (d.items.length ? `<div class="row">${d.items.map((c, i) => card(c, i === 0 && !d.folders?.length)).join("")}</div>` : d.folders?.length ? "" : `<p class="sub">Nothing here yet.</p>`) +
     `<div class="row">${d.prevHref ? `<a class="btn" data-f href="${esc(d.prevHref)}">Previous</a>` : ""}${d.nextHref ? `<a class="btn" data-f href="${esc(d.nextHref)}">More</a>` : ""}</div></div>`;
   return tvDocument({ title: d.title, body });
@@ -302,5 +304,17 @@ export function searchPage(d: SearchData): string {
       `<div class="page">${top(`<a data-f data-back href="${esc(d.base)}" class="btn" style="margin:0">Back</a>`)}<h1>Search</h1>` +
       `<div class="query">${d.query ? esc(d.query) : "&nbsp;"}</div>` +
       `<div class="searchbox"><div class="keys">${letters}${space}${del}${clear}</div><div class="hits">${results}</div></div></div>`,
+  });
+}
+
+// ── Playlists ─────────────────────────────────────────────────────────
+
+export function playlistsPage(d: { base: string; lists: { href: string; name: string; note: string }[] }): string {
+  const body = d.lists.length
+    ? `<div class="row">${d.lists.map((l, i) => `<a class="tile" data-f${i === 0 ? " data-autofocus" : ""} href="${esc(safeUrl(l.href) ?? "/tv")}">${esc(l.name)}<small>${esc(l.note)}</small></a>`).join("")}</div>`
+    : `<p class="sub">No playlists yet. Make them in Roam on a phone or computer and they show up here.</p>`;
+  return tvDocument({
+    title: "Playlists",
+    body: `<div class="page">${top(`<a data-f data-back href="${esc(d.base)}" class="btn" style="margin:0">Back</a>`)}<h1>Playlists</h1>${body}</div>`,
   });
 }

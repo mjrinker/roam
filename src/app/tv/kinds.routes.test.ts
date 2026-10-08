@@ -40,8 +40,8 @@ vi.mock("@/lib/auth/guards", async () => {
 });
 vi.mock("@/lib/supabase/server", () => ({ createSupabaseServerClient: async () => ({ auth: { signOut: async () => void h.signedOut++ } }) }));
 
-import { musicAlbums, musicArtists, profiles, viewers } from "@/lib/db/schema";
-import { joinServer, makeAccount, makeLibrary, makeServer, makeTitle, type TestDb } from "@/lib/playlists/test-db";
+import { musicAlbums, musicArtists, photoFavorites, profiles, viewers } from "@/lib/db/schema";
+import { addItem, joinServer, makeAccount, makeLibrary, makePlaylist, makeServer, makeTitle, type TestDb } from "@/lib/playlists/test-db";
 import { GET as home } from "./s/[serverId]/route";
 import { GET as library } from "./s/[serverId]/library/[id]/route";
 import { GET as book } from "./s/[serverId]/book/[id]/route";
@@ -52,6 +52,8 @@ import { GET as photo } from "./s/[serverId]/photo/[id]/route";
 import { GET as watch } from "./s/[serverId]/watch/[kind]/[id]/route";
 import { GET as title } from "./s/[serverId]/title/[id]/route";
 import { GET as search } from "./s/[serverId]/search/route";
+import { GET as playlists } from "./s/[serverId]/playlists/route";
+import { GET as playlist } from "./s/[serverId]/playlist/[id]/route";
 
 let db: TestDb;
 beforeAll(() => {
@@ -316,6 +318,83 @@ describe("search", () => {
     const hidden = await world("restricted");
     await makeTitle(db, (await hidden.lib("movies")).id, { kind: "movie", name: "Secret Film" });
     expect(await text(await search(req("/x?q=secret"), ctx(sid(hidden))))).toContain("Nothing found.");
+  });
+});
+
+describe("playlists", () => {
+  it("lists playlists, opens one, links each item to its page and pages with a cursor", async () => {
+    const w = await world();
+    const movies = await w.lib("movies");
+    const film = await makeTitle(db, movies.id, { kind: "movie", name: "Film <1>" });
+    const list = await makePlaylist(db, { serverId: w.server.id, ownerViewerId: w.member.viewer.id, name: "Friday <night>" });
+    await addItem(db, list.id, { titleId: film.id }, 1024);
+    for (let i = 0; i < 25; i++) await addItem(db, list.id, { titleId: (await makeTitle(db, movies.id, { kind: "movie", name: `Extra ${i}` })).id }, 2000 + i);
+    const home1 = await text(await home(req("/x"), ctx(sid(w))));
+    expect(home1).toContain(`href="/tv/s/${w.server.id}/playlists"`);
+    const lists = await text(await playlists(req("/x"), ctx(sid(w))));
+    expect(lists).toContain("Friday &lt;night&gt;");
+    expect(lists).toContain("26 items");
+    expect(lists).toContain(`href="/tv/s/${w.server.id}/playlist/${list.id}"`);
+    const page = await text(await playlist(req("/x"), ctx({ ...sid(w), id: list.id })));
+    expect(page).toContain("Film &lt;1&gt;");
+    expect(page).toContain(`href="/tv/s/${w.server.id}/title/${film.id}"`);
+    const more = /href="([^"]*playlist\/[^"]*after=[^"]+)"/.exec(page)![1].replace(/&amp;/g, "&");
+    expect(await text(await playlist(req(more), ctx({ ...sid(w), id: list.id })))).toContain("Extra 24");
+    expect((await playlist(req(`/x?after=bogus`), ctx({ ...sid(w), id: list.id }))).status).toBe(404);
+  });
+  it("hides the button with no playlists, and 404s a private playlist of someone else's and another server's", async () => {
+    const w = await world();
+    expect(await text(await home(req("/x"), ctx(sid(w))))).not.toContain("/playlists");
+    expect(await text(await playlists(req("/x"), ctx(sid(w))))).toContain("No playlists yet");
+    const friend = await makeAccount(db, "friend");
+    await joinServer(db, w.server.id, friend.accountId);
+    const priv = await makePlaylist(db, { serverId: w.server.id, ownerViewerId: friend.viewer.id, name: "Private" });
+    expect((await playlist(req("/x"), ctx({ ...sid(w), id: priv.id }))).status).toBe(404);
+    const other = await world();
+    const theirs = await makePlaylist(db, { serverId: other.server.id, ownerViewerId: other.member.viewer.id, name: "T", visibility: "server" });
+    await signIn(w.member);
+    expect((await playlist(req("/x"), ctx({ ...sid(w), id: theirs.id }))).status).toBe(404);
+  });
+});
+
+describe("photo albums and favourites", () => {
+  const day = (d: number) => new Date(Date.UTC(2024, 4, d, 12));
+  it("offers Albums and Favourites on the first screen only, and opens each", async () => {
+    const w = await world();
+    const lib = await w.lib("photos");
+    const a = await makeTitle(db, lib.id, { kind: "photo", name: "Paris 1", takenAt: day(1), folderPath: "Trips/Paris", sortKey: "p1" });
+    const b = await makeTitle(db, lib.id, { kind: "photo", name: "Paris 2", takenAt: day(2), folderPath: "Trips/Paris", sortKey: "p2" });
+    await db.insert(photoFavorites).values({ viewerId: w.member.viewer.id, titleId: b.id });
+    const grid = await text(await library(req("/x"), ctx({ ...sid(w), id: lib.id })));
+    expect(grid).toContain(`library/${lib.id}?view=albums"`);
+    expect(grid).toContain(`library/${lib.id}?view=favorites"`);
+    const after = await text(await library(req(`/x?after=${encodeURIComponent(`${Math.floor(day(2).getTime() / 1000) + 1}~ffffffff-ffff-4fff-bfff-ffffffffffff`)}`), ctx({ ...sid(w), id: lib.id })));
+    expect(after).not.toContain("view=albums");
+    const albums = await text(await library(req("/x?view=albums"), ctx({ ...sid(w), id: lib.id })));
+    expect(albums).toContain("Trips");
+    expect(albums).toContain(`view=albums&amp;path=Trips"`);
+    const deep = await text(await library(req(`/x?view=albums&path=${encodeURIComponent("Trips/Paris")}`), ctx({ ...sid(w), id: lib.id })));
+    expect(deep).toContain(`href="/tv/s/${w.server.id}/photo/${a.id}?from=album"`);
+    expect(deep).toContain(`data-back href="/tv/s/${w.server.id}/library/${lib.id}?view=albums&amp;path=Trips"`);
+    const favs = await text(await library(req("/x?view=favorites"), ctx({ ...sid(w), id: lib.id })));
+    expect(favs).toContain(`/photo/${b.id}?from=favorites`);
+    expect(favs).not.toContain(`/photo/${a.id}`);
+    expect((await library(req("/x?view=albums&path=Nope"), ctx({ ...sid(w), id: lib.id }))).status).toBe(404);
+  });
+  it("steps through one album and Back returns to it; favourites step through hearts and Back returns there", async () => {
+    const w = await world();
+    const lib = await w.lib("photos");
+    const a = await makeTitle(db, lib.id, { kind: "photo", name: "A", takenAt: day(1), folderPath: "X", sortKey: "a" });
+    const b = await makeTitle(db, lib.id, { kind: "photo", name: "B", takenAt: day(2), folderPath: "X", sortKey: "b" });
+    await makeTitle(db, lib.id, { kind: "photo", name: "C", takenAt: day(3), folderPath: "Y", sortKey: "c" });
+    const inAlbum = await text(await photo(req("/x?from=album"), ctx({ ...sid(w), id: a.id })));
+    expect(inAlbum).toContain(`"next":"/tv/s/${w.server.id}/photo/${b.id}?from=album"`);
+    expect(inAlbum).toContain(`"back":"/tv/s/${w.server.id}/library/${lib.id}?view=albums&path=X"`);
+    expect(await text(await photo(req("/x?from=album"), ctx({ ...sid(w), id: b.id })))).toContain('"next":null');
+    await db.insert(photoFavorites).values({ viewerId: w.member.viewer.id, titleId: a.id });
+    const fav = await text(await photo(req("/x?from=favorites"), ctx({ ...sid(w), id: a.id })));
+    expect(fav).toContain(`"back":"/tv/s/${w.server.id}/library/${lib.id}?view=favorites"`);
+    expect(fav).toContain('"next":null');
   });
 });
 

@@ -104,18 +104,46 @@ async function musicPage(access: Ok, here: string, url: URL, id: string) {
 }
 
 async function photosPage(access: Ok, here: string, url: URL, id: string) {
+  const view = url.searchParams.get("view");
+  if (view === "albums") return albumsPage(access, here, url, id);
+  const favorites = view === "favorites";
   const after = parsePhotoCursor(url.searchParams.get("after"));
   if (after === "bad") return notFoundPage();
-  const result = await photoPage(db, access.scope, id, after);
+  const result = await photoPage(db, access.scope, id, after, favorites);
   if (!result) return notFoundPage();
+  const from = favorites ? "?from=favorites" : "";
   return html(
     listPage({
       base: access.base,
-      title: result.library.name,
-      backHref: access.base,
-      items: result.items.map((p) => ({ href: p.kind === "movie" ? `${access.base}/watch/title/${p.id}` : `${access.base}/photo/${p.id}`, name: p.name, meta: p.takenAt ? p.takenAt.slice(0, 10) : null, posterUrl: p.posterUrl, square: true })),
+      title: favorites ? "Favourites" : result.library.name,
+      subtitle: favorites ? result.library.name : null,
+      backHref: favorites ? here : access.base,
+      // The first screen offers the other ways in: pictures by folder, and the ones hearted on the web.
+      folders: !after && !favorites ? [{ href: `${here}?view=albums`, name: "Albums", note: "Pictures by folder" }, { href: `${here}?view=favorites`, name: "Favourites", note: "Pictures you hearted" }] : undefined,
+      items: result.items.map((p) => ({ href: p.kind === "movie" ? `${access.base}/watch/title/${p.id}` : `${access.base}/photo/${p.id}${from}`, name: p.name, meta: p.takenAt ? p.takenAt.slice(0, 10) : null, posterUrl: p.posterUrl, square: true })),
       prevHref: null,
-      nextHref: result.next ? `${here}?after=${encodeURIComponent(timeParam(result.next))}` : null,
+      nextHref: result.next ? `${here}?${favorites ? "view=favorites&" : ""}after=${encodeURIComponent(timeParam(result.next))}` : null,
+    })
+  );
+}
+
+async function albumsPage(access: Ok, here: string, url: URL, id: string) {
+  const after = parseFolderCursor(url.searchParams.get("after"));
+  if (after === "bad") return notFoundPage();
+  const level = await folderLevel(db, access.scope, id, url.searchParams.get("path"), after, "timeline");
+  if (!level) return notFoundPage();
+  const albumUrl = (p: string) => `${here}?view=albums${p ? `&path=${encodeURIComponent(p)}` : ""}`;
+  const up = level.path === "" ? here : albumUrl(level.path.includes("/") ? level.path.slice(0, level.path.lastIndexOf("/")) : "");
+  return html(
+    listPage({
+      base: access.base,
+      title: level.path === "" ? "Albums" : level.path.slice(level.path.lastIndexOf("/") + 1),
+      subtitle: level.library.name,
+      backHref: up,
+      folders: level.folders.map((name) => ({ href: albumUrl(level.path === "" ? name : `${level.path}/${name}`), name, note: "Album" })),
+      items: level.items.map((p) => ({ href: p.kind === "movie" ? `${access.base}/watch/title/${p.id}` : `${access.base}/photo/${p.id}?from=album`, name: p.name, meta: null, posterUrl: p.posterUrl, square: true })),
+      prevHref: null,
+      nextHref: level.nextCursor ? `${albumUrl(level.path)}${level.path ? "&" : "?"}after=${encodeURIComponent(folderCursorParam(level.nextCursor))}` : null,
     })
   );
 }
