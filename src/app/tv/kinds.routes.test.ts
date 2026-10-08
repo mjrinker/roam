@@ -52,6 +52,7 @@ import { GET as photo } from "./s/[serverId]/photo/[id]/route";
 import { GET as watch } from "./s/[serverId]/watch/[kind]/[id]/route";
 import { GET as title } from "./s/[serverId]/title/[id]/route";
 import { GET as search } from "./s/[serverId]/search/route";
+import { GET as screensaver } from "./s/[serverId]/screensaver/route";
 import { GET as playlists } from "./s/[serverId]/playlists/route";
 import { GET as playlist } from "./s/[serverId]/playlist/[id]/route";
 
@@ -395,6 +396,46 @@ describe("photo albums and favourites", () => {
     const fav = await text(await photo(req("/x?from=favorites"), ctx({ ...sid(w), id: a.id })));
     expect(fav).toContain(`"back":"/tv/s/${w.server.id}/library/${lib.id}?view=favorites"`);
     expect(fav).toContain('"next":null');
+  });
+});
+
+describe("slideshow polish and the screensaver", () => {
+  const day = (d: number) => new Date(Date.UTC(2024, 4, d, 12));
+  it("tells the viewer which picture to fetch next, and marks a screensaver so it never ends", async () => {
+    const w = await world();
+    const lib = await w.lib("photos");
+    const a = await makeTitle(db, lib.id, { kind: "photo", name: "A", takenAt: day(1) });
+    const b = await makeTitle(db, lib.id, { kind: "photo", name: "B", takenAt: day(2) });
+    const normal = JSON.parse(/id="photo-config">(.*?)<\/script>/.exec(await text(await photo(req("/x"), ctx({ ...sid(w), id: b.id }))))![1]);
+    expect(normal).toMatchObject({ nextImage: `/api/photos/${a.id}/preview`, saver: false, next: `/tv/s/${w.server.id}/photo/${a.id}` });
+    const saver = JSON.parse(/id="photo-config">(.*?)<\/script>/.exec(await text(await photo(req("/x?saver=1"), ctx({ ...sid(w), id: b.id }))))![1]);
+    expect(saver).toMatchObject({ saver: true, back: `/tv/s/${w.server.id}`, next: `/tv/s/${w.server.id}/photo/${a.id}?saver=1` });
+    // the last picture of a screensaver starts over at a random one; an ordinary slideshow just ends
+    const last = JSON.parse(/id="photo-config">(.*?)<\/script>/.exec(await text(await photo(req("/x?saver=1"), ctx({ ...sid(w), id: a.id }))))![1]);
+    expect(last.next).toBe(`/tv/s/${w.server.id}/screensaver`);
+    expect(JSON.parse(/id="photo-config">(.*?)<\/script>/.exec(await text(await photo(req("/x"), ctx({ ...sid(w), id: a.id }))))![1]).next).toBeNull();
+  });
+  it("starts at a random picture, only from pictures this profile may see, and returns home when there are none", async () => {
+    const w = await world();
+    const home302 = await screensaver(req("/x"), ctx(sid(w)));
+    expect([home302.status, home302.headers.get("location")]).toEqual([302, `https://roam.example/tv/s/${w.server.id}`]);
+    const lib = await w.lib("photos");
+    const ok = await makeTitle(db, lib.id, { kind: "photo", name: "OK", takenAt: day(1) });
+    await makeTitle(db, lib.id, { kind: "movie", name: "A clip", takenAt: day(2) });
+    const r = await screensaver(req("/x"), ctx(sid(w)));
+    expect(r.headers.get("location")).toBe(`https://roam.example/tv/s/${w.server.id}/photo/${ok.id}?saver=1#slide`);
+    const other = await world();
+    await makeTitle(db, (await other.lib("photos")).id, { kind: "photo", name: "Theirs", takenAt: day(1) });
+    await signIn(w.member);
+    expect((await screensaver(req("/x"), ctx(sid(w)))).headers.get("location")).toContain(ok.id);
+    expect((await screensaver(req("/x"), ctx(sid(other)))).status).toBe(404);
+    expect((await screensaver(req("/x"), ctx({ serverId: "nope" }))).status).toBe(404);
+  });
+  it("offers the screensaver on the home screen only when there is a photo library", async () => {
+    const w = await world();
+    expect(await text(await home(req("/x"), ctx(sid(w))))).not.toContain("data-saver=");
+    await w.lib("photos");
+    expect(await text(await home(req("/x"), ctx(sid(w))))).toContain(`data-saver="/tv/s/${w.server.id}/screensaver" data-saver-after="300"`);
   });
 });
 

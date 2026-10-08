@@ -660,11 +660,14 @@ function startListening(cfg: ListenConfig) {
     recoveries = 0;
     say("");
     showHud();
+    keepAwake(true);
   });
   audio.addEventListener("waiting", () => say("Buffering…"));
   audio.addEventListener("pause", () => {
     showHud();
     save();
+    if (audio.ended) return; // the next song may be starting; keep the screen awake
+    keepAwake(false);
   });
   audio.addEventListener("ended", () => {
     if (!manifest || !part) return;
@@ -707,6 +710,8 @@ interface PhotoConfig {
   prev: string | null;
   next: string | null;
   back: string;
+  nextImage?: string | null;
+  saver?: boolean;
 }
 
 const SLIDE_MS = 6000;
@@ -715,7 +720,7 @@ function startPhotoViewer(cfg: PhotoConfig) {
   const img = doc.getElementById("pimg") as HTMLImageElement;
   const status = doc.getElementById("status") as HTMLElement;
   const hud = doc.getElementById("hud") as HTMLElement;
-  let slideshow = window.location.hash === "#slide";
+  let slideshow = window.location.hash === "#slide" || !!cfg.saver;
   let slideTimer: number | undefined;
   let hudTimer: number | undefined;
 
@@ -747,13 +752,20 @@ function startPhotoViewer(cfg: PhotoConfig) {
     else failed();
   }
   showHud();
+  keepAwake(slideshow);
+  if (MODERN && cfg.nextImage) {
+    // Fetch the next picture while this one is on screen, so the slideshow never waits for it.
+    const ahead = new Image();
+    ahead.src = cfg.nextImage;
+  }
 
   playerKeys = (action: Action | null, dirKey: string | null): boolean => {
-    if (action === "back" || action === "stop") return go(cfg.back, false), true;
+    if (action === "back" || action === "stop") return keepAwake(false), go(cfg.back, false), true;
     if (dirKey === "right" || action === "forward") return go(cfg.next, true), true;
     if (dirKey === "left" || action === "rewind") return go(cfg.prev, true), true;
     if (action === "enter" || action === "playpause" || action === "play" || action === "pause") {
       slideshow = action === "pause" ? false : action === "play" ? true : !slideshow;
+      keepAwake(slideshow);
       status.textContent = slideshow ? "Slideshow" : "Slideshow stopped";
       status.style.display = "block";
       window.setTimeout(() => {
@@ -794,6 +806,43 @@ function modernBrowser(): boolean {
 }
 const MODERN = modernBrowser();
 
+interface WakeLockSentinelLike {
+  release(): Promise<void>;
+}
+let wakeLock: WakeLockSentinelLike | null = null;
+
+/** Asks a newer browser not to dim the screen or sleep while music or a slideshow plays (video keeps the TV awake by itself). */
+function keepAwake(on: boolean) {
+  if (!MODERN) return;
+  const api = (navigator as unknown as { wakeLock?: { request(type: string): Promise<WakeLockSentinelLike> } }).wakeLock;
+  if (!api) return;
+  if (on) {
+    if (wakeLock) return;
+    api.request("screen").then(
+      (lock) => {
+        wakeLock = lock;
+      },
+      () => undefined
+    );
+  } else if (wakeLock) {
+    const lock = wakeLock;
+    wakeLock = null;
+    lock.release().then(undefined, () => undefined);
+  }
+}
+
+/** After a quiet spell on the home screen, a newer browser starts the picture screensaver (any key resets the wait). */
+let idleTimer: number | undefined;
+function armIdle() {
+  const el = doc.querySelector("[data-saver]");
+  if (!MODERN || !el) return;
+  window.clearTimeout(idleTimer);
+  const seconds = Number(el.getAttribute("data-saver-after")) || 300;
+  idleTimer = window.setTimeout(() => {
+    window.location.href = el.getAttribute("data-saver") || "/tv";
+  }, seconds * 1000);
+}
+
 /** Marks the page and loads the wide pictures that only newer browsers get (the basic page never downloads them). */
 function enhance() {
   if (!MODERN) return;
@@ -805,6 +854,7 @@ function enhance() {
 // ── Wiring ───────────────────────────────────────────────────────────────
 
 doc.addEventListener("keydown", (e: KeyboardEvent) => {
+  armIdle();
   const code = e.keyCode;
   const dir = directionOf(code);
   const action = actionOf(code);
@@ -829,6 +879,7 @@ doc.addEventListener("keydown", (e: KeyboardEvent) => {
 
 function init() {
   enhance();
+  armIdle();
   try {
     if (typeof tizen !== "undefined" && tizen && tizen.tvinputdevice) for (let i = 0; i < TIZEN_MEDIA_KEYS.length; i++) tizen.tvinputdevice.registerKey(TIZEN_MEDIA_KEYS[i]);
   } catch {

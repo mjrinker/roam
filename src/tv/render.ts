@@ -94,6 +94,8 @@ export interface HomeData {
   recentlyAdded?: Poster[];
   /** Whether this profile has any playlists to show. */
   hasPlaylists?: boolean;
+  /** A screensaver of the profile's pictures, started by a newer browser after a quiet spell on this page. */
+  screensaver?: { href: string; afterSeconds: number } | null;
   libraries: { id: string; name: string; kind: string; count?: number | null }[];
   /** Libraries that exist but have no TV interface yet. */
   unsupported: number;
@@ -116,7 +118,7 @@ export function homePage(d: HomeData): string {
   const more = d.unsupported > 0 ? `<p class="note">${d.unsupported} more ${d.unsupported === 1 ? "library isn't" : "libraries aren't"} available on TV yet.</p>` : "";
   return tvDocument({
     title: d.serverName,
-    body: `<div class="page">${top(esc(d.profileName))}<h1>${esc(d.serverName)}</h1>${cont}${listening}${recent}${libs}${more}<div class="row" style="margin-top:2rem"><a class="btn" data-f href="${esc(d.base)}/search">Search</a>${d.hasPlaylists ? `<a class="btn" data-f href="${esc(d.base)}/playlists">Playlists</a>` : ""}<a class="btn" data-f href="/tv/profiles">Switch profile</a>${postButton("/tv/signout", "Sign out")}</div></div>`,
+    body: `<div class="page"${d.screensaver ? ` data-saver="${esc(safeUrl(d.screensaver.href) ?? "")}" data-saver-after="${Math.max(1, Math.floor(d.screensaver.afterSeconds))}"` : ""}>${top(esc(d.profileName))}<h1>${esc(d.serverName)}</h1>${cont}${listening}${recent}${libs}${more}<div class="row" style="margin-top:2rem"><a class="btn" data-f href="${esc(d.base)}/search">Search</a>${d.hasPlaylists ? `<a class="btn" data-f href="${esc(d.base)}/playlists">Playlists</a>` : ""}<a class="btn" data-f href="/tv/profiles">Switch profile</a>${postButton("/tv/signout", "Sign out")}</div></div>`,
   });
 }
 
@@ -263,10 +265,14 @@ export interface PhotoViewData {
   next: string | null;
   back: string;
   position: string | null;
+  /** The next picture's address, so a newer browser can fetch it before it is needed. */
+  nextImage?: string | null;
+  /** Shown as a screensaver: the slideshow starts by itself. */
+  saver?: boolean;
 }
 
 export function photoViewPage(d: PhotoViewData): string {
-  const cfg = JSON.stringify({ prev: d.prev ? safeUrl(d.prev) : null, next: d.next ? safeUrl(d.next) : null, back: safeUrl(d.back) ?? "/tv" }).replace(/</g, "\\u003c");
+  const cfg = JSON.stringify({ prev: d.prev ? safeUrl(d.prev) : null, next: d.next ? safeUrl(d.next) : null, back: safeUrl(d.back) ?? "/tv", nextImage: d.nextImage ? safeUrl(d.nextImage) : null, saver: !!d.saver }).replace(/</g, "\\u003c");
   return tvDocument({
     title: d.title,
     bodyClass: "watch",

@@ -77,3 +77,5 @@ button.tile { margin: 0 1.5rem 1.5rem 0; }
 .upnext { position: absolute; right: 3.5rem; bottom: 9rem; width: 26rem; padding: 1.4rem 1.6rem; background: rgba(20, 20, 28, 0.94); border-radius: 0.8rem; border: 0.2rem solid #7fd8bd; font-size: 1.3rem; }
 .upnext b { display: block; font-size: 1.6rem; margin: 0.3rem 0 0.6rem 0; }
 .upnext small { display: block; color: #a8a8b4; font-size: 1.05rem; margin-top: 0.6rem; }
+@keyframes roamfade { from { opacity: 0; } to { opacity: 1; } }
+.modern .photo img { animation: roamfade 0.6s ease-in; }

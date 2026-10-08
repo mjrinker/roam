@@ -6,6 +6,7 @@ import type { AccessProfile } from "@/lib/content/access";
 import type { LibraryActor } from "@/lib/content/library-access";
 import { createTestDb, joinServer, makeAccount, makeLibrary, makeServer, makeTitle, type TestDb } from "@/lib/playlists/test-db";
 import { photoFavorites } from "@/lib/db/schema";
+import { randomPhotoId } from "./data";
 import { bookDetail, gridCursorAt, recentlyAdded, continueWatching, folderLevel, listenInfo, parseFolderCursor, photoPage, photoView, tvLibrary, watchInfo, TV_FOLDER_PAGE, type TvScope } from "./data";
 
 let db: TestDb;
@@ -166,6 +167,25 @@ describe("photo favourites and albums", () => {
     expect(await folderLevel(db, w.scope(kid), lib.id, "Private", null, "timeline")).toBeNull();
     expect((await folderLevel(db, w.scope(kid), lib.id, null, null, "timeline"))!.folders).toEqual([]);
     expect((await photoPage(db, w.scope(kid), lib.id, null, true))!.items).toEqual([]);
+  });
+});
+
+describe("randomPhotoId", () => {
+  it("picks only visible pictures: never a clip, an over-age picture, a hidden or another server's library", async () => {
+    const w = await world();
+    expect(await randomPhotoId(db, w.scope())).toBeNull();
+    const lib = await w.lib("photos");
+    await makeTitle(db, lib.id, { kind: "movie", name: "Clip", takenAt: new Date() });
+    await makeTitle(db, lib.id, { kind: "photo", name: "Adult", takenAt: new Date(), ratingAges: { ANY: 17 } });
+    expect(await randomPhotoId(db, w.scope(kid))).toBeNull();
+    const ok = await makeTitle(db, lib.id, { kind: "photo", name: "Fine", takenAt: new Date(), ratingAges: { ANY: 0 } });
+    for (let i = 0; i < 5; i++) expect(await randomPhotoId(db, w.scope(kid))).toBe(ok.id);
+    const hidden = await world("restricted");
+    await makeTitle(db, (await hidden.lib("photos")).id, { kind: "photo", name: "Secret", takenAt: new Date() });
+    expect(await randomPhotoId(db, hidden.scope())).toBeNull();
+    const other = await world();
+    await makeTitle(db, (await other.lib("photos")).id, { kind: "photo", name: "Theirs", takenAt: new Date() });
+    expect(await randomPhotoId(db, (await world()).scope())).toBeNull();
   });
 });
 

@@ -30,7 +30,8 @@ const pages: Record<string, string> = {
   "/tv/s/x/listen/1": listenPage({ title: "Intro", subtitle: "The Band", coverUrl: null, ownerId: "1", remembers: false, skip: 10, back: "/tv/s/x/album/1", next: "/tv/s/x/listen/2", queue: { items: [{ id: "1", title: "Intro", by: "The Band" }, { id: "2", title: "Second", by: "The Band" }], index: 0 } }),
   "/tv/s/x/listen/9": listenPage({ title: "A Book", subtitle: "Someone", coverUrl: null, ownerId: "9", remembers: true, skip: 30, back: "/tv/s/x/album/1", next: null }),
   "/tv/s/x/listen/2": listenPage({ title: "Second", subtitle: "The Band", coverUrl: null, ownerId: "2", remembers: false, skip: 10, back: "/tv/s/x/album/1", next: null, queue: { items: [{ id: "1", title: "Intro", by: "The Band" }, { id: "2", title: "Second", by: "The Band" }], index: 1 } }),
-  "/tv/s/x/photo/1": photoViewPage({ title: "Picture one", imageUrl: "/media/pic1.png", prev: null, next: "/tv/s/x/photo/2", back: "/tv/s/x/library/p", position: "2024-05-01" }),
+  "/tv/s/y": homePage({ serverName: "Saver Server", base: "/tv/s/x", profileName: "Matt", continueWatching: [], libraries: [{ id: "a", name: "Pictures", kind: "Photos" }], unsupported: 0, screensaver: { href: "/tv/s/x/photo/1#slide", afterSeconds: 2 } }),
+  "/tv/s/x/photo/1": photoViewPage({ title: "Picture one", imageUrl: "/media/pic1.png", prev: null, next: "/tv/s/x/photo/2", back: "/tv/s/x/library/p", position: "2024-05-01", nextImage: "/media/pic2.png" }),
   "/tv/s/x/photo/2": photoViewPage({ title: "Picture two", imageUrl: "/media/pic2.png", prev: "/tv/s/x/photo/1", next: "/tv/s/x/photo/3", back: "/tv/s/x/library/p", position: "2024-05-02" }),
   "/tv/s/x/photo/3": photoViewPage({ title: "Picture three", imageUrl: "/media/missing.png", prev: "/tv/s/x/photo/2", next: null, back: "/tv/s/x/library/p", position: null }),
   "/tv/s/x/watch/episode/1": watchPage({ title: "The Show", subtitle: "S1 · E1", ownerKind: "episode", ownerId: "1", back: "/tv/s/x/title/1", next: "/tv/s/x/watch/episode/2" }),
@@ -41,6 +42,7 @@ const pages: Record<string, string> = {
 const saves: { positionSeconds: number; finished: boolean }[] = [];
 let manifestRequests = 0;
 let failFirstManifestUrl = false;
+const mediaHits: Record<string, number> = {};
 let polls = 0;
 let audioManifests = 0;
 let failFirstAudioUrl = false;
@@ -96,6 +98,7 @@ const server = http.createServer((req, res) => {
     return;
   }
   if (url.pathname.startsWith("/media/")) {
+    mediaHits[path.basename(url.pathname)] = (mediaHits[path.basename(url.pathname)] || 0) + 1;
     const file = path.join(MEDIA, path.basename(url.pathname));
     if (!fs.existsSync(file)) return void res.writeHead(404).end();
     const size = fs.statSync(file).size;
@@ -141,6 +144,8 @@ const ready = (page: Page) => page.waitFor(`document.readyState === "complete"`)
 async function run(label: string, exe: string, m56: boolean) {
   const { page, close } = await launch(exe, nextPort++);
   if (m56) await page.addInitScript(M56_PRELUDE);
+  // A stand-in for the browser's screen wake lock (the real one is not in Chromium 69), counting what the page asks of it.
+  await page.addInitScript(`Object.defineProperty(navigator, "wakeLock", { configurable: true, value: { request: function () { window.__wl = (window.__wl || 0) + 1; return Promise.resolve({ release: function () { window.__wlr = (window.__wlr || 0) + 1; return Promise.resolve(); } }); } } });`);
   const L = (s: string) => `${label}${m56 ? "+m56" : ""}: ${s}`;
   const base = "http://localhost:8799";
 
@@ -333,6 +338,31 @@ async function run(label: string, exe: string, m56: boolean) {
   const raced = await page.evaluate<{ src: string; t: number }>(`({ src: ${A}.currentSrc.split("/").pop(), t: ${A}.currentTime })`);
   check(L("a quick second seek is not overridden by the first"), raced.src === "aud1.ogg" && raced.t < 4, JSON.stringify(raced));
 
+  // Music keeps the screen awake while it plays, and lets go when paused.
+  await page.goto(base + "/tv/s/x/listen/9");
+  await page.waitFor(`document.getElementById("pa").currentTime > 0.3 && !document.getElementById("pa").paused`, 15000);
+  check(L("playing audio asks the browser to keep the screen awake"), await page.waitFor(`window.__wl >= 1`, 3000));
+  await key(page, 19);
+  check(L("pausing lets the screen sleep again"), await page.waitFor(`window.__wlr >= 1`, 3000));
+
+  // The next picture is fetched ahead on a newer browser only; the home screen starts the screensaver after a quiet spell.
+  mediaHits["pic2.png"] = 0;
+  await page.goto(base + "/tv/s/x/photo/1?modern=0");
+  await new Promise((r) => setTimeout(r, 800));
+  check(L("the basic path does not fetch the next picture early"), (mediaHits["pic2.png"] || 0) === 0, String(mediaHits["pic2.png"]));
+  await page.goto(base + "/tv/s/x/photo/1?modern=1");
+  check(L("a newer browser fetches the next picture while this one is shown"), (await new Promise<boolean>((r) => { const t = Date.now(); const poll = () => ((mediaHits["pic2.png"] || 0) >= 1 ? r(true) : Date.now() - t > 4000 ? r(false) : setTimeout(poll, 100)); poll(); })));
+  await page.goto(base + "/tv/s/y?modern=0");
+  await new Promise((r) => setTimeout(r, 3500));
+  check(L("the basic path never starts the screensaver"), (await page.url()).endsWith("/tv/s/y?modern=0"), await page.url());
+  await page.goto(base + "/tv/s/y?modern=1");
+  check(L("after a quiet spell a newer browser starts the screensaver"), await page.waitFor(`location.pathname === "/tv/s/x/photo/1"`, 8000), await page.url());
+  await page.goto(base + "/tv/s/y");
+  await new Promise((r) => setTimeout(r, 1200));
+  await key(page, 40);
+  await new Promise((r) => setTimeout(r, 1200));
+  check(L("a key press restarts the wait"), (await page.url()).endsWith("/tv/s/y"), await page.url());
+
   // Pictures: right and left go to the neighbours, a slideshow advances by itself, and a picture that fails says so.
   await page.goto(base + "/tv/s/x/photo/2");
   await page.waitFor(`document.getElementById("pimg").complete`, 8000);
@@ -346,6 +376,7 @@ async function run(label: string, exe: string, m56: boolean) {
   check(L("right goes to the next picture"), await page.waitFor(`location.pathname === "/tv/s/x/photo/2"`));
   await settled(page);
   await key(page, 13);
+  check(L("a slideshow asks the browser to keep the screen awake"), await page.waitFor(`window.__wl >= 1`, 3000));
   check(L("OK starts a slideshow"), await page.evaluate<boolean>(`document.getElementById("status").textContent === "Slideshow"`));
   check(L("the slideshow moves on by itself and keeps going"), await page.waitFor(`location.pathname === "/tv/s/x/photo/3" && location.hash === "#slide"`, 15000), await page.url());
   check(L("a picture that fails to load says so"), await page.waitFor(`document.getElementById("status").textContent.indexOf("can't be shown") >= 0`, 8000));

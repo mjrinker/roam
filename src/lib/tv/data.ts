@@ -383,3 +383,19 @@ export async function recentlyAdded(ex: Db, scope: TvScope, limit = 12): Promise
     square: r.kind === "audiobook",
   }));
 }
+
+// ── Screensaver ──────────────────────────────────────────────────────────────────
+
+/** A random picture (not a clip) from the photo libraries this profile may see, within the age limit, or null when there are none. */
+export async function randomPhotoId(ex: Db, scope: TvScope): Promise<string | null> {
+  const all = await ex.select({ id: libraries.id, kind: libraries.kind }).from(libraries).where(libraryVisible(ex, scope.actor));
+  const ids = all.filter((l) => isPhotoLibraryKind(l.kind)).map((l) => l.id);
+  if (ids.length === 0) return null;
+  const [row] = await ex
+    .select({ id: titles.id })
+    .from(titles)
+    .where(and(inArray(titles.libraryId, ids), eq(titles.kind, "photo"), contentFilter(scope.viewer, titles.ratingAges)))
+    .orderBy(sql`random()`)
+    .limit(1);
+  return row?.id ?? null;
+}
