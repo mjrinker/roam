@@ -16,29 +16,30 @@ npx tsx scripts/package-tv.ts --url https://<your-roam> [--version 1.0.0]
 writes `dist/tv/tizen` and `dist/tv/webos`.
 
 ### Samsung (2018 and 2020 models: Tizen 4.0 and 5.5)
-You need a free Samsung developer account and [Tizen Studio](https://developer.tizen.org/development/tizen-studio) (the TV extensions and the Certificate Manager).
-1. On the TV: Apps, press `1 2 3 4 5`, switch **Developer mode** on and enter your computer's IP address, then restart the TV.
-2. In Tizen Studio's Certificate Manager create a **Samsung** certificate profile (author and distributor, for the TV's DUID).
-3. Sign and install:
+You need a free Samsung account and [Tizen Studio](https://developer.tizen.org/development/tizen-studio) (install the TV extensions from its Package Manager). Publishing to Samsung's TV store is a separate, optional process (Seller Office); installing on your own TVs needs neither.
+1. On the TV: Apps, press `1 2 3 4 5` on the remote, switch **Developer mode** on, enter your computer's IP address, and restart the TV.
+2. In Tizen Studio, open the Device Manager and add the TV (its IP address, port 26101) and connect.
+3. Open the Certificate Manager and create a **Samsung** certificate profile: a new author certificate, then a distributor certificate for TV, signing in with your Samsung account when asked and ticking the connected TV (its DUID). Do this for each TV (the 2018 and the 2020 one can share one profile).
+4. Sign and install:
    ```
-   cd dist/tv/tizen
-   tizen package -t wgt -s <your-profile> -- .
-   sdb connect <tv-ip>
+   tizen package -t wgt -s <your-profile> -- dist/tv/tizen
    tizen install -n Roam.wgt -t <tv-name>
    ```
-The same package works on both TV years. Developer-mode apps stay installed; the certificate must be renewed when it expires.
+The same package works on both TV years. Samsung's tooling changes between versions; if a menu differs, Samsung's [TV developer guide](https://developer.samsung.com/smarttv/develop) is the reference. Developer-mode apps stay installed; renew the certificate when it expires.
 
 ### LG (2022 models: webOS 22)
-Install the [webOS TV CLI](https://webostv.developer.lge.com/develop/tools/cli-installation) and the *Developer Mode* app on the TV (sign in with an LG developer account, switch Dev Mode on, note the passphrase).
-```
-cd dist/tv
-ares-setup-device            # add the TV once (host, port 9922, user prisoner)
-ares-novacom --device <tv> --getkey
-ares-package webos
-ares-install --device <tv> com.roam.tv_1.0.0_all.ipk
-ares-launch --device <tv> com.roam.tv
-```
-Developer Mode apps are removed when the Dev Mode session lapses (renew it in the Developer Mode app about every 50 hours).
+You need a free account at [webostv.developer.lge.com](https://webostv.developer.lge.com) and the [webOS TV CLI](https://webostv.developer.lge.com/develop/tools/cli-installation) (needs Node.js).
+1. On the TV, open the LG Content Store (signed in), install the **Developer Mode** app, open it, sign in with your LG developer account, switch **Dev Mode** on (the TV restarts), then open it again and switch **Key Server** on. It shows a passphrase and a countdown for how long Developer Mode lasts; extend it from the app when it runs low.
+2. On your computer:
+   ```
+   ares-setup-device            # add the TV once (its IP, port 9922, user prisoner)
+   ares-novacom --device <tv> --getkey     # enter the passphrase shown on the TV
+   cd dist/tv
+   ares-package webos
+   ares-install --device <tv> com.roam.tv_1.0.0_all.ipk
+   ares-launch --device <tv> com.roam.tv
+   ```
+Developer Mode apps stop working when Developer Mode lapses; switching it back on in the Developer Mode app restores them.
 
 ### Amazon Fire TV
 Amazon stopped accepting web apps in its Appstore (October 2024). Use the Silk browser: open `https://<your-roam>/tv` and bookmark it. A native wrapper app can be added later.
