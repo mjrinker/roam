@@ -29,6 +29,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { BoxApiError } from "box-node-sdk";
 import { DEMO_SOURCES, planDemoMedia, type DemoSource } from "@/lib/demo/catalog";
+import { clipEncodeArgs } from "@/lib/demo/encode";
 import { createBoxProviderForServer } from "@/lib/storage/box";
 import { withBoxClient } from "@/lib/storage/box-token-storage";
 import { uploadFile } from "@/lib/remux/remux-core.mjs";
@@ -73,10 +74,8 @@ async function findSource(files: string[], source: DemoSource): Promise<string |
 }
 
 function encodeClip(ffmpeg: string, input: string, output: string, start: number, seconds: number): Promise<void> {
-  // 720p H.264 + AAC, index at the front: plays everywhere, and a 45-second clip is ~5-8 MB.
-  const a = ["-hide_banner", "-loglevel", "error", "-y", "-ss", String(start), "-t", String(seconds), "-i", input, "-vf", "scale=-2:720", "-c:v", "libx264", "-preset", "veryfast", "-crf", "26", "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "96k", "-ac", "2", "-movflags", "+faststart", output];
   return new Promise((resolve, reject) => {
-    const child = spawn(ffmpeg, a, { stdio: ["ignore", "ignore", "pipe"] });
+    const child = spawn(ffmpeg, clipEncodeArgs(input, output, start, seconds), { stdio: ["ignore", "ignore", "pipe"] });
     let err = "";
     child.stderr.on("data", (d) => (err = (err + d.toString()).slice(-2000)));
     child.on("error", reject);

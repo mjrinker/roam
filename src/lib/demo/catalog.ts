@@ -34,7 +34,7 @@ export const DEMO_SOURCES: DemoSource[] = [
     license: "Creative Commons Attribution 3.0",
     licenseUrl: "https://creativecommons.org/licenses/by/3.0/",
     filePattern: "big.?buck.?bunny|(^|[^a-z])bbb([^a-z]|$)",
-    durationSeconds: 596,
+    durationSeconds: 634,
   },
   {
     id: "sintel",
