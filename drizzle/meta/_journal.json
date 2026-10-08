@@ -232,6 +232,13 @@
       "when": 1791438156427,
       "tag": "0032_music_matching",
       "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "7",
+      "when": 1791443118906,
+      "tag": "0033_ebooks_library",
+      "breakpoints": true
     }
   ]
 }

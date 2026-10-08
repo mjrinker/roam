@@ -26,7 +26,7 @@ export function VideoFolderView({
   /** Link to the next page of videos, or null. */
   nextHref: string | null;
   /** What each item is: a video plays like a movie (poster card, /title), an audio file like an audiobook (square card, /book). */
-  itemKind?: "movie" | "audiobook" | "photo";
+  itemKind?: "movie" | "audiobook" | "photo" | "ebook";
   /** Kept on every link (a photo library's `view=albums`). */
   extraQuery?: string;
 }) {

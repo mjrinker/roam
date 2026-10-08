@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Artwork as Image } from "@/components/ui/artwork";
 import { useRouter } from "next/navigation";
-import { Film, Headphones, Loader2, Search, Tv } from "lucide-react";
+import { BookOpen, Film, Headphones, Loader2, Search, Tv } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { SearchResultDto } from "@/app/api/search/route";
 
@@ -80,7 +80,9 @@ export function SearchBox({ serverId }: { serverId: string }) {
         ? `/s/${serverId}/show/${result.id}`
         : result.kind === "audiobook"
           ? `/s/${serverId}/book/${result.id}`
-          : `/s/${serverId}/title/${result.id}`
+          : result.kind === "ebook"
+            ? `/s/${serverId}/ebook/${result.id}`
+            : `/s/${serverId}/title/${result.id}`
     );
   }
 
@@ -156,6 +158,8 @@ export function SearchBox({ serverId }: { serverId: string }) {
                             <Tv className="size-4" />
                           ) : r.kind === "audiobook" ? (
                             <Headphones className="size-4" />
+                          ) : r.kind === "ebook" ? (
+                            <BookOpen className="size-4" />
                           ) : (
                             <Film className="size-4" />
                           )}
@@ -165,7 +169,7 @@ export function SearchBox({ serverId }: { serverId: string }) {
                     <span className="min-w-0 flex-1">
                       <span className="block truncate text-sm font-medium">{r.name}</span>
                       <span className="block text-xs text-muted-foreground">
-                        {r.kind === "show" ? "TV Show" : r.kind === "audiobook" ? "Audiobook" : "Movie"}
+                        {r.kind === "show" ? "TV Show" : r.kind === "audiobook" ? "Audiobook" : r.kind === "ebook" ? "Book" : "Movie"}
                         {r.subtitle ? ` · ${r.subtitle}` : r.year ? ` · ${r.year}` : ""}
                       </span>
                     </span>

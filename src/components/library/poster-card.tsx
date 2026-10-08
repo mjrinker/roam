@@ -1,6 +1,6 @@
 import { Artwork as Image } from "@/components/ui/artwork";
 import Link from "next/link";
-import { Check, Film, Headphones, Play, Tv } from "lucide-react";
+import { BookOpen, Check, Film, Headphones, Play, Tv } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { TitleKind } from "@/lib/db/schema";
 
@@ -20,7 +20,7 @@ export interface PosterCardData {
 }
 
 export function PosterFallback({ name, kind }: { name: string; kind: TitleKind }) {
-  const Icon = kind === "show" ? Tv : kind === "audiobook" ? Headphones : Film;
+  const Icon = kind === "show" ? Tv : kind === "audiobook" ? Headphones : kind === "ebook" ? BookOpen : Film;
   return (
     <div className="flex h-full flex-col items-center justify-center gap-3 bg-gradient-to-br from-secondary via-muted to-background p-4 text-center">
       <Icon className="size-7 text-muted-foreground/60" />
@@ -43,7 +43,9 @@ export function PosterCard({
       ? `/s/${serverId}/show/${title.id}`
       : title.kind === "audiobook"
         ? `/s/${serverId}/book/${title.id}`
-        : `/s/${serverId}/title/${title.id}`;
+        : title.kind === "ebook"
+          ? `/s/${serverId}/ebook/${title.id}`
+          : `/s/${serverId}/title/${title.id}`;
   const progress =
     typeof title.progressFraction === "number" && title.progressFraction > 0
       ? Math.min(1, title.progressFraction)

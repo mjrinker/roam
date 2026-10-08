@@ -30,10 +30,10 @@ const bytea = customType<{ data: Buffer; driverData: Buffer }>({
   },
 });
 
-export const libraryKindEnum = pgEnum("library_kind", ["movies", "shows", "audiobooks", "video", "audio", "photos", "music"]);
+export const libraryKindEnum = pgEnum("library_kind", ["movies", "shows", "audiobooks", "video", "audio", "photos", "music", "ebooks"]);
 // Who may see a library: everyone on the server, or only server admins and the accounts listed in library_members.
 export const libraryAccessEnum = pgEnum("library_access", ["everyone", "restricted"]);
-export const titleKindEnum = pgEnum("title_kind", ["movie", "show", "audiobook", "photo"]);
+export const titleKindEnum = pgEnum("title_kind", ["movie", "show", "audiobook", "photo", "ebook"]);
 export type LibraryAccess = (typeof libraryAccessEnum.enumValues)[number];
 export type LibraryKind = (typeof libraryKindEnum.enumValues)[number];
 export type TitleKind = (typeof titleKindEnum.enumValues)[number];

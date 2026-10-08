@@ -433,12 +433,15 @@ export function LibraryManager({
                   <option value="audiobooks">Audiobooks</option>
                   <option value="video">Other videos</option>
                   <option value="music">Music</option>
+                  <option value="ebooks">eBooks</option>
                   <option value="audio">Other audio</option>
                   <option value="photos">Photos and videos</option>
                 </select>
                 {isFileTreeLibraryKind(kind) && (
                   <p className="text-xs text-muted-foreground">
-                    {kind === "music"
+                    {kind === "ebooks"
+                      ? "EPUB and PDF books in folders, named and described from the books themselves (title, author, series, cover), with no online lookups."
+                      : kind === "music"
                       ? "Songs in Artist / Album folders (Artist/Album/01 - Song.mp3), grouped from the folders and tagged from the files' own tags. Albums are looked up on MusicBrainz (artist and album names only) for titles, years and cover art. Plays .mp3, .m4a and .m4b."
                       : kind === "audio"
                       ? "Any audio files in folders (podcasts, recordings, lectures), named from the files themselves with no online lookups. Plays .mp3, .m4a and .m4b."

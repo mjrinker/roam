@@ -128,6 +128,30 @@ export const PHOTOS_PROFILE: TreeProfile = {
   groupsIntoAlbums: false,
 };
 
+const EBOOK_EXTENSIONS = new Set([".epub", ".pdf"]);
+const UNSUPPORTED_EBOOK = new Set([".mobi", ".azw", ".azw3", ".kfx", ".fb2", ".djvu", ".cbz", ".cbr", ".lit", ".txt", ".rtf", ".doc", ".docx"]);
+
+/** EPUB and PDF books. A book has no duration to probe and nothing to play; its metadata and cover come from the file. */
+export const EBOOKS_PROFILE: TreeProfile = {
+  libraryKind: "ebooks",
+  titleKindFor: () => "ebook",
+  titleKinds: ["ebook"],
+  needsProbe: () => false,
+  photoMeta: false,
+  readTags: true,
+  noun: { one: "book", many: "books" },
+  supportedHint: "Roam shows .epub and .pdf books",
+  isMedia: (name) => hasExtension(EBOOK_EXTENSIONS, name),
+  isUnsupported: (name) => hasExtension(UNSUPPORTED_EBOOK, name),
+  linkVariants: false,
+  probeCodecs: false,
+  // A PDF's first page comes from Box; an EPUB's cover comes from the book itself.
+  thumbnails: true,
+  artistAsAuthor: true,
+  chapters: false,
+  groupsIntoAlbums: false,
+};
+
 function assertNever(value: never): never {
   throw new Error(`Unhandled library kind: ${String(value)}`);
 }
@@ -142,6 +166,8 @@ export function treeProfileFor(kind: FileTreeKind): TreeProfile {
       return PHOTOS_PROFILE;
     case "music":
       return MUSIC_PROFILE;
+    case "ebooks":
+      return EBOOKS_PROFILE;
     default:
       return assertNever(kind);
   }

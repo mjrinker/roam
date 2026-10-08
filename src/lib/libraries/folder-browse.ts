@@ -54,7 +54,7 @@ const collator = new Intl.Collator("en", { numeric: true, sensitivity: "base" })
 export interface FolderItem {
   id: string;
   /** A photo library holds pictures and videos together; every other file-tree library is all one kind. */
-  kind: "movie" | "audiobook" | "photo";
+  kind: "movie" | "audiobook" | "photo" | "ebook";
   name: string;
   year: number | null;
   posterUrl: string | null;
@@ -167,7 +167,7 @@ export async function listFolder(
     folders,
     items: page.map((r) => ({
       id: r.id,
-      kind: r.kind === "photo" ? "photo" : r.kind === "audiobook" ? "audiobook" : "movie",
+      kind: r.kind === "photo" ? "photo" : r.kind === "audiobook" ? "audiobook" : r.kind === "ebook" ? "ebook" : "movie",
       name: r.name,
       year: r.year,
       posterUrl: r.posterUrl,

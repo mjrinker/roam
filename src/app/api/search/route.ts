@@ -77,7 +77,7 @@ export async function GET(request: Request) {
   const results: SearchResultDto[] = rows.map(({ authors, folderAuthor, ...row }) => ({
     ...row,
     subtitle:
-      row.kind === "audiobook"
+      row.kind === "audiobook" || row.kind === "ebook"
         ? ((authors?.length ? authors : [folderAuthor]).filter(Boolean).join(", ") || null)
         : null,
   }));

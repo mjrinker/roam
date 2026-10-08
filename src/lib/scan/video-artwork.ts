@@ -11,6 +11,7 @@ import { db } from "@/lib/db/client";
 import { mediaFiles, titles } from "@/lib/db/schema";
 import { BoxReauthRequiredError } from "@/lib/storage/box-token-storage";
 import type { StorageProvider } from "@/lib/storage/provider";
+import { probeEpubTags } from "@/lib/ebooks/epub";
 import { probeMp3Tags } from "@/lib/scan/id3-tags";
 import { probeMp4Tags } from "@/lib/scan/mp4-duration";
 import { storeArtwork } from "@/lib/scan/artwork-store";
@@ -40,6 +41,10 @@ interface FileTags {
   album: string | null;
   year: number | null;
   description: string | null;
+  /** Every author, when the file names several (the first is `artist`). */
+  authors?: string[];
+  /** Where the book sits in its series ("2"). */
+  seriesPosition?: string | null;
   cover: { contentType: "image/jpeg" | "image/png"; bytes: Uint8Array } | null;
 }
 
@@ -50,8 +55,15 @@ async function readFileTags(
 ): Promise<FileTags> {
   const fetchRange = (s: number, e: number) => provider.fetchByteRange(file.fileId, s, e);
   const size = file.size as number;
+  const container = (file.container ?? "").toLowerCase();
+  if (container === "epub") {
+    const book = await probeEpubTags(fetchRange, size);
+    return { title: book.title, artist: book.authors[0] ?? null, authors: book.authors, album: book.series, seriesPosition: book.seriesPosition, year: book.year, description: book.description, cover: book.cover };
+  }
+  // A PDF's picture comes from Box's own thumbnail (the pass below); its name stays the file's.
+  if (container === "pdf") return { title: null, artist: null, album: null, year: null, description: null, cover: null };
   // An MP3 can only be in an audio library (video libraries don't accept the extension), so the file type decides.
-  if ((file.container ?? "").toLowerCase() === "mp3") {
+  if (container === "mp3") {
     return { ...(await probeMp3Tags(fetchRange, size)), description: null };
   }
   return probeMp4Tags(fetchRange, size);
@@ -72,7 +84,8 @@ function titleColumns(tags: FileTags, profile: TreeProfile, currentName: string)
   if (!profile.artistAsAuthor) return base;
   const effectiveTitle = (tags.title ?? currentName).trim().toLowerCase();
   const album = tags.album && tags.album.trim().toLowerCase() !== effectiveTitle ? tags.album : null;
-  return { ...base, authors: tags.artist ? [tags.artist.toWellFormed()] : null, seriesName: album?.toWellFormed() ?? null };
+  const authors = tags.authors?.length ? tags.authors.map((a) => a.toWellFormed()) : tags.artist ? [tags.artist.toWellFormed()] : null;
+  return { ...base, authors, seriesName: album?.toWellFormed() ?? null, ...(tags.seriesPosition ? { seriesPosition: tags.seriesPosition } : {}) };
 }
 
 /** Returns true when work remains (batch cap or deadline hit), so the scan stays incomplete and another pass follows. */

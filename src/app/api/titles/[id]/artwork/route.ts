@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { eq } from "drizzle-orm";
 import { authorizeOwner } from "@/lib/auth/resolve-server";
+import { PLAYABLE_TITLE_KINDS } from "@/lib/libraries/profile";
 import { db } from "@/lib/db/client";
 import { artworkImages, titleArtwork } from "@/lib/db/schema";
 import { checkRateLimit } from "@/lib/rate-limit";
@@ -21,7 +22,8 @@ export async function GET(request: Request, ctx: RouteContext<"/api/titles/[id]/
   const { id } = await ctx.params;
   if (!z.string().uuid().safeParse(id).success) return notFound();
 
-  const auth = await authorizeOwner("title", id);
+  // A book is not something that plays, but it has a cover like the rest.
+  const auth = await authorizeOwner("title", id, { titleKinds: [...PLAYABLE_TITLE_KINDS, "ebook"] });
   if (!auth.ok) return notFound();
   if (!(await checkRateLimit(auth.member.profile.id, "title_artwork", 1200, 60))) {
     return NextResponse.json({ error: "Too many requests" }, { status: 429 });

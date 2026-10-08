@@ -242,6 +242,7 @@ export async function scanLibrary(
             }
             case "photos":
             case "music":
+            case "ebooks":
             case "audio":
             case "video": {
               const res = await syncVideoTopFolder(provider, library.id, folder, {
@@ -1060,7 +1061,8 @@ export async function syncSingleTitle(titleId: string): Promise<{ errors: string
         await syncSingleAudiobook(provider, library.id, folderInfo);
         break;
       case "photo":
-        // Photos live in file-tree libraries, which are refused above; nothing to resync by folder.
+      case "ebook":
+        // Photos and books live in file-tree libraries, which are refused above; nothing to resync by folder.
         break;
       default:
         assertNever(title.kind);

@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { AudioLines, Clapperboard, Images, Film, Headphones, House, ListVideo, Music, Settings, Tv, X } from "lucide-react";
+import { AudioLines, Clapperboard, Images, Film, Headphones, House, BookOpen, ListVideo, Music, Settings, Tv, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { ServerSwitcher } from "@/components/nav/server-switcher";
 import { BrandLogo } from "@/components/shell/brand";
@@ -18,6 +18,7 @@ const LIBRARY_ICONS: Record<LibraryKind, React.ComponentType<{ className?: strin
   audio: AudioLines,
   photos: Images,
   music: Music,
+  ebooks: BookOpen,
 };
 
 export interface SidebarLibrary {

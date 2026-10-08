@@ -43,6 +43,7 @@ export default async function TitleDetailPage({
   // Photos have their own viewer, and an audiobook its book page; this page is for things that play as a movie.
   if (title.kind === "photo") notFound();
   if (title.kind === "audiobook") redirect(`/s/${serverId}/book/${id}`);
+  if (title.kind === "ebook") redirect(`/s/${serverId}/ebook/${id}`);
 
   const segments = await db
     .select()
