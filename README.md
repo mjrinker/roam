@@ -106,6 +106,15 @@ How it's built (the interesting part, for reviewers): a server's admin can switc
 - Source-level enforcement tests fail the build if a new reader skips the access helper or a new code path special-cases a library kind with a string literal.
 - Every feature went through plan → independent review → small commits → independent review again; the commit history reflects that.
 
+### Turning on the CAPTCHA
+
+Sign-in has Cloudflare Turnstile support that stays off until you configure it, so nothing changes for anyone until then. Order matters, because once Supabase requires a token a build without the widget cannot sign anyone in:
+
+1. Create a Turnstile widget in the Cloudflare dashboard for your domain.
+2. Set `NEXT_PUBLIC_TURNSTILE_SITE_KEY` (the public site key) in Vercel and redeploy.
+3. In Supabase, Authentication > Attack Protection, turn on CAPTCHA, choose Turnstile and paste the **secret** key.
+4. Run `npx tsx --env-file=.env.local scripts/check-captcha.ts` to confirm Supabase now refuses a sign-in without a token.
+
 ## Libraries and features
 
 | Library type | What you get |
