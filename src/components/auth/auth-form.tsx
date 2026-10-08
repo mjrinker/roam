@@ -75,6 +75,7 @@ export function AuthForm({ mode, initialEmail = "", inviteToken, joinToken }: Au
 
   async function handleMagicLink(e: React.FormEvent) {
     e.preventDefault();
+    if (!captcha.ready) return;
     setLoading("magic-link");
     const { error } = await requestMagicLink(supabase.auth, { email, redirectTo: redirectTarget(), captcha: captcha.options() });
     captcha.reset(); // a token works once
@@ -98,6 +99,7 @@ export function AuthForm({ mode, initialEmail = "", inviteToken, joinToken }: Au
 
   async function handlePassword(e: React.FormEvent) {
     e.preventDefault();
+    if (!captcha.ready) return;
     setLoading("password");
 
     if (creatingAccount) {

@@ -31,6 +31,7 @@ describe("CaptchaProvider", () => {
     expect(html).toContain('data-ready="true"');
     expect(html).not.toContain("mb-5 flex flex-col"); // no widget container
     expect((html.match(/<button[^>]*>/g) ?? []).some(isDisabled)).toBe(false);
+    expect(html).not.toContain("Waiting for the security check");
   });
 
   it("with a site key: the widget's place is there and the guest and sign-in buttons wait for a token", () => {
@@ -45,6 +46,7 @@ describe("CaptchaProvider", () => {
     expect(html).toContain('data-required="true"');
     expect(html).toContain('data-ready="false"');
     expect(html).toContain("mb-5 flex flex-col");
+    expect(html).toContain("Waiting for the security check");
     // Continue as a guest, Send me a sign-in link: disabled. Google is not gated.
     const buttons = html.match(/<button[^>]*>[^<]*(?:<[^b][^>]*>[^<]*)*<\/button>/g) ?? [];
     const disabledLabels = buttons.filter(isDisabled).map((b) => b.replace(/<[^>]+>/g, ""));

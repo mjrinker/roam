@@ -16,6 +16,7 @@ export function GuestButton({ joinToken }: { joinToken: string }) {
   const captcha = useCaptcha();
 
   async function enter() {
+    if (!captcha.ready) return;
     setLoading(true);
     const supabase = createSupabaseBrowserClient();
     const { error } = await signInAsGuest(supabase.auth, { captcha: captcha.options() });

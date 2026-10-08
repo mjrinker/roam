@@ -65,10 +65,18 @@ export function CaptchaProvider({ children }: { children: React.ReactNode }) {
         if (cancelled) return;
         widget.current = api.render(el, {
           sitekey: siteKey,
-          theme: "dark",
-          callback: (t: string) => setToken(t),
+          theme: "auto",
+          callback: (t: string) => {
+            setFailed(false);
+            setToken(t);
+          },
           "expired-callback": () => setToken(null),
-          "error-callback": () => setToken(null),
+          // The check itself failed (blocked iframe, a domain the key doesn't allow, Cloudflare down): say so instead of leaving dead buttons.
+          "error-callback": () => {
+            setToken(null);
+            setFailed(true);
+          },
+          "timeout-callback": () => widget.current && window.turnstile?.reset(widget.current),
         });
       })
       .catch(() => !cancelled && setFailed(true));
@@ -94,7 +102,17 @@ export function CaptchaProvider({ children }: { children: React.ReactNode }) {
       {siteKey && (
         <div className="mb-5 flex flex-col items-center gap-2">
           <div ref={box} />
-          {failed && <p className="text-center text-xs text-destructive">The security check couldn&apos;t load. Reload the page and try again.</p>}
+          {failed ? (
+            <p role="alert" className="text-center text-xs text-destructive">
+              The security check didn&apos;t work. Reload the page and try again, or turn off any content blocker for this site.
+            </p>
+          ) : (
+            !token && (
+              <p role="status" className="text-center text-xs text-muted-foreground">
+                Waiting for the security check…
+              </p>
+            )
+          )}
         </div>
       )}
       {children}
