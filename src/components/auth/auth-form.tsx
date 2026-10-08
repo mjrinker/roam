@@ -8,6 +8,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { useCaptcha } from "@/components/auth/captcha";
+import { createAccount, requestMagicLink, signInWithPassword } from "@/lib/auth/sign-in-calls";
 
 interface AuthFormProps {
   /** "invite" locks the email field to the invited address; "sign-in" is the general entry point (open sign-up). */
@@ -61,6 +63,7 @@ export function AuthForm({ mode, initialEmail = "", inviteToken, joinToken }: Au
   const [creatingAccount, setCreatingAccount] = useState(mode === "invite");
 
   const supabase = createSupabaseBrowserClient();
+  const captcha = useCaptcha();
   // Built from the page's own origin when used (never at render: this also renders on the
   // server, and preview deployments change domain on every deploy and have no APP_URL).
   function redirectTarget() {
@@ -73,10 +76,8 @@ export function AuthForm({ mode, initialEmail = "", inviteToken, joinToken }: Au
   async function handleMagicLink(e: React.FormEvent) {
     e.preventDefault();
     setLoading("magic-link");
-    const { error } = await supabase.auth.signInWithOtp({
-      email,
-      options: { emailRedirectTo: redirectTarget() },
-    });
+    const { error } = await requestMagicLink(supabase.auth, { email, redirectTo: redirectTarget(), captcha: captcha.options() });
+    captcha.reset(); // a token works once
     setLoading(null);
     if (error) toast.error(error.message);
     else toast.success("Check your email for a sign-in link.");
@@ -100,7 +101,8 @@ export function AuthForm({ mode, initialEmail = "", inviteToken, joinToken }: Au
     setLoading("password");
 
     if (creatingAccount) {
-      const { data, error } = await supabase.auth.signUp({ email, password });
+      const { data, error } = await createAccount(supabase.auth, { email, password, captcha: captcha.options() });
+      captcha.reset();
       if (error) {
         setLoading(null);
         toast.error(error.message);
@@ -113,7 +115,8 @@ export function AuthForm({ mode, initialEmail = "", inviteToken, joinToken }: Au
       }
       await completeSignIn(router, inviteToken, joinToken);
     } else {
-      const { error } = await supabase.auth.signInWithPassword({ email, password });
+      const { error } = await signInWithPassword(supabase.auth, { email, password, captcha: captcha.options() });
+      captcha.reset();
       if (error) {
         setLoading(null);
         toast.error(error.message);
@@ -175,7 +178,7 @@ export function AuthForm({ mode, initialEmail = "", inviteToken, joinToken }: Au
                 className={inputClass}
               />
             </div>
-            <Button type="submit" disabled={loading === "magic-link"} className={submitClass}>
+            <Button type="submit" disabled={loading === "magic-link" || !captcha.ready} className={submitClass}>
               {loading === "magic-link" ? "Sending…" : "Send me a sign-in link"}
             </Button>
             <p className="text-center text-xs text-muted-foreground">
@@ -212,7 +215,7 @@ export function AuthForm({ mode, initialEmail = "", inviteToken, joinToken }: Au
                 className={inputClass}
               />
             </div>
-            <Button type="submit" disabled={loading === "password"} className={submitClass}>
+            <Button type="submit" disabled={loading === "password" || !captcha.ready} className={submitClass}>
               {loading === "password"
                 ? "Please wait…"
                 : creatingAccount

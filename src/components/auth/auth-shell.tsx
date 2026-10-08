@@ -1,5 +1,6 @@
 import { BrandLogo } from "@/components/shell/brand";
 import { TmdbAttribution } from "@/components/shell/tmdb-attribution";
+import { CaptchaProvider } from "@/components/auth/captcha";
 
 /** Cinematic full-screen backdrop + centered glass card shared by sign-in and invite pages. */
 export function AuthShell({
@@ -39,7 +40,7 @@ export function AuthShell({
               {notice}
             </p>
           )}
-          {children}
+          <CaptchaProvider>{children}</CaptchaProvider>
         </div>
 
         <p className="text-xs text-muted-foreground/70">

@@ -112,6 +112,7 @@ How it's built (the interesting part, for reviewers): a server's admin can switc
 |---|---|
 | **Movies / TV Shows** | TMDB posters and metadata, Plex-style naming (`{tmdb-123}`, `- pt1`, editions, extras), seasons and episodes, ratings from IMDb and Rotten Tomatoes |
 | **Audiobooks** | Audible matching, chapters, resume, a persistent mini-player |
+| **Music** | Artist > Album > Song from the folder layout; albums matched on MusicBrainz for names, years, track titles and cover art (clear matches only, switchable per library); album pages with play, shuffle and a queue |
 | **Generic video / audio** | Folder-mirrored browsing; names, artist, and cover read from the files' own tags; one library-wide age rating |
 | **Photos & videos** | Timeline + albums, favorites, search, scrubber, zoom levels, viewer |
 
