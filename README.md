@@ -125,7 +125,7 @@ Sign-in has Cloudflare Turnstile support that stays off until you configure it, 
 | **Generic video / audio** | Folder-mirrored browsing; names, artist, and cover read from the files' own tags; one library-wide age rating |
 | **Photos & videos** | Timeline + albums, favorites, search, scrubber, zoom levels, viewer |
 
-Also: playlists with sharing roles, per-profile watch history, global search, per-library sharing and age ratings, a resumable admin scan with live progress.
+Also: a **TV interface** (`/tv`: server-rendered pages plus one script built for Chromium 56, so it runs on a 2018 Samsung; sign-in by a code approved from a phone; Samsung/LG packages in [`tv/`](tv/README.md)), playlists with sharing roles, per-profile watch history, global search, per-library sharing and age ratings, a resumable admin scan with live progress.
 
 ## Getting started
 
