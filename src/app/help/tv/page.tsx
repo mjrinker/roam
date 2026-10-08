@@ -61,8 +61,13 @@ export default async function TvHelpPage() {
       </section>
 
       <section className="flex flex-col gap-3">
-        <h2 className="text-xl font-medium">4. Save the page</h2>
-        <p>Choose who is watching, then add the page to the browser&apos;s bookmarks (look for a star or a bookmark button) so you can open it next time without typing.</p>
+        <h2 className="text-xl font-medium">4. Make it one click next time</h2>
+        <p>Choose who is watching. You stay signed in, so you will not need a code again.</p>
+        <ul className="list-disc space-y-1 pl-5 text-sm text-muted-foreground">
+          <li>Add the page to the browser&apos;s bookmarks (look for a star or a bookmark button).</li>
+          <li>Better: in the browser&apos;s settings, set its <strong>home page</strong> (or start page) to the same address, so opening the browser opens Roam.</li>
+          <li>On the TV&apos;s home screen, move the browser app to the front of the row of apps so it is the first thing you reach.</li>
+        </ul>
       </section>
 
       <p className="text-sm text-muted-foreground">Right now the TV shows movies and TV shows. Use the arrow keys to move, OK to choose and Back to go back.</p>

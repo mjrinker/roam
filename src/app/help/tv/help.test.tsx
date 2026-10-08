@@ -20,6 +20,12 @@ describe("the TV help page", () => {
     expect(html).toContain("main.example/link");
     expect(html).not.toContain("roam.example/");
   });
+  it("tells people how to avoid typing the address again", async () => {
+    const html = renderToStaticMarkup(await TvHelpPage());
+    expect(html).toContain("home page");
+    expect(html).toContain("bookmarks");
+    expect(html).toContain("will not need a code again");
+  });
   it("covers each kind of TV, and says plainly that Vizio has no browser", async () => {
     const html = renderToStaticMarkup(await TvHelpPage());
     for (const word of ["Samsung", "LG", "Fire TV", "Vizio", "QR code"]) expect(html).toContain(word);
