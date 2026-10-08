@@ -7,9 +7,9 @@ import { Button } from "@/components/ui/button";
 type Step = { name: "enter" } | { name: "confirm"; deviceLabel: string; location: string | null } | { name: "done"; deviceLabel: string };
 
 /** Approve the code a TV is showing: type it, check which TV it is, confirm. */
-export function LinkTvForm({ email }: { email: string }) {
-  const [step, setStep] = useState<Step>({ name: "enter" });
-  const [code, setCode] = useState("");
+export function LinkTvForm({ email, initial }: { email: string; initial?: { code: string; deviceLabel: string; location: string | null } }) {
+  const [step, setStep] = useState<Step>(initial ? { name: "confirm", deviceLabel: initial.deviceLabel, location: initial.location } : { name: "enter" });
+  const [code, setCode] = useState(initial?.code ?? "");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 

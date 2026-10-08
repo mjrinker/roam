@@ -42,13 +42,15 @@ const top = (right = "") => `<div class="top"><span class="brand">ROAM</span><sp
 
 // ── Pairing ──────────────────────────────────────────────────────────────
 
-export function pairPage(args: { userCode: string; linkUrl: string; pollUrl: string; expiredUrl: string }): string {
+export function pairPage(args: { userCode: string; linkUrl: string; pollUrl: string; expiredUrl: string; qr?: string }): string {
   return tvDocument({
     title: "Sign in",
     body:
       `<div class="page" data-poll="${esc(args.pollUrl)}" data-done="/tv" data-expired="${esc(args.expiredUrl)}">${top()}` +
-      `<h1>Sign in to Roam</h1><p class="sub">On your phone or computer, open</p><p class="sub" style="color:#ececf1;font-size:1.8rem">${esc(args.linkUrl)}</p>` +
-      `<p class="sub">and enter this code:</p><div class="code">${esc(args.userCode)}</div>` +
+      `<h1>Sign in to Roam</h1>` +
+      `<div class="pair">${args.qr ? `<div class="qrbox">${args.qr}<p class="note" style="text-align:center;margin-top:0.6rem">Scan with your phone</p></div>` : ""}<div>` +
+      `<p class="sub">Or on your phone or computer, open</p><p class="sub" style="color:#ececf1;font-size:1.8rem">${esc(args.linkUrl)}</p>` +
+      `<p class="sub">and enter this code:</p><div class="code">${esc(args.userCode)}</div></div></div>` +
       `<p class="note">This screen continues by itself once you approve it. The code works for ten minutes.</p></div>`,
   });
 }

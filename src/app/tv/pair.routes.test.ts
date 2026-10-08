@@ -55,6 +55,9 @@ describe("GET /tv/pair", () => {
     expect(res.status).toBe(200);
     expect(code(body)).toMatch(/^[A-Z2-9]{4}-[A-Z2-9]{4}$/);
     expect(body).toContain("roam.example/link");
+    expect(body).toMatch(/<svg class="qr"/); // a QR code the phone's camera can scan
+    expect(body).not.toContain("width=\""); // sized by CSS, not fixed pixels
+    expect(body).toContain("Scan with your phone");
     expect(body).toContain('data-poll="/tv/pair/poll"');
     expect(res.headers.get("cache-control")).toBe("private, no-store");
     expect(h.jar.get(TV_PAIR_COOKIE)).toBeTruthy();

@@ -2,6 +2,7 @@ import { cookies } from "next/headers";
 import { db } from "@/lib/db/client";
 import { getCurrentViewer } from "@/lib/auth/viewer";
 import { formatUserCode, locationHint, openCodeForSecret, PAIRING_TTL_MS, startPairing } from "@/lib/tv/pairing";
+import { linkUrl, qrSvg } from "@/lib/tv/qr";
 import { clientAddress, html, redirectTo, TV_PAIR_COOKIE } from "@/lib/tv/http";
 import { messagePage, pairPage } from "@/tv/render";
 
@@ -18,6 +19,6 @@ export async function GET(request: Request) {
     store.set(TV_PAIR_COOKIE, started.secret, { httpOnly: true, secure: process.env.NODE_ENV === "production", sameSite: "lax", path: "/tv", maxAge: Math.floor(PAIRING_TTL_MS / 1000) });
     userCode = started.userCode;
   }
-  const host = new URL(request.url).host;
-  return html(pairPage({ userCode: formatUserCode(userCode), linkUrl: `${host}/link`, pollUrl: "/tv/pair/poll", expiredUrl: "/tv/pair" }));
+  const url = new URL(request.url);
+  return html(pairPage({ userCode: formatUserCode(userCode), linkUrl: `${url.host}/link`, pollUrl: "/tv/pair/poll", expiredUrl: "/tv/pair", qr: await qrSvg(linkUrl(url.origin, userCode)) }));
 }

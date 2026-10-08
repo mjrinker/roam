@@ -43,3 +43,6 @@ button.tile { margin: 0 1.5rem 1.5rem 0; }
 .track b { display: block; height: 0.5rem; width: 0; background: #7fd8bd; border-radius: 0.3rem; }
 .clock { margin-top: 0.7rem; font-size: 1.2rem; color: #c8c8d2; }
 .status { display: none; position: absolute; top: 45%; left: 0; width: 100%; text-align: center; font-size: 1.8rem; text-shadow: 0 0 0.5rem #000; }
+.pair { display: flex; align-items: center; }
+.qrbox { width: 15rem; margin-right: 4rem; flex-shrink: 0; }
+.qr { display: block; width: 15rem; height: 15rem; background: #fff; border-radius: 0.6rem; }
