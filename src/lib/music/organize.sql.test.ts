@@ -14,6 +14,8 @@ vi.mock("@/lib/scan/media-files", async (importOriginal) => {
   return { ...original, probeFiles: vi.fn(async () => false), probeCodecsForPending: vi.fn(async () => undefined) };
 });
 
+vi.mock("@/lib/music/enrich", () => ({ enrichMusicLibrary: vi.fn(async () => false) }));
+
 import { libraries, mediaFiles, musicAlbums, musicArtists, titles } from "@/lib/db/schema";
 import { makeAccount, makeLibrary, makeServer, type TestDb } from "@/lib/playlists/test-db";
 import { MUSIC_PROFILE } from "@/lib/scan/tree-profile";

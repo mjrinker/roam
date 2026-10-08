@@ -32,6 +32,7 @@ import {
   probeFiles,
   rollupTitleRuntime,
 } from "@/lib/scan/media-files";
+import { enrichMusicLibrary } from "@/lib/music/enrich";
 import { organizeMusicLibrary } from "@/lib/music/organize";
 import { readPhotoMetadata } from "@/lib/scan/photo-meta";
 import { readTagsAndArtwork } from "@/lib/scan/video-artwork";
@@ -191,10 +192,10 @@ export async function syncVideoDirectory(
           // Box folders must not rewrite each other's rows, least of all their age rating).
           setWhere: sql`${titles.libraryId} = excluded.library_id`,
           set: {
-            // A name/year read from the file's own tags is never overwritten by the filename.
-            name: sql`CASE WHEN ${titles.nameSource} = 'embedded' THEN ${titles.name} ELSE excluded.name END`,
+            // A name/year read from the file's own tags (or matched online) is never overwritten by the filename.
+            name: sql`CASE WHEN ${titles.nameSource} IN ('embedded', 'online') THEN ${titles.name} ELSE excluded.name END`,
             // A year in the file's tags survives a rescan: a filename without one never wipes it.
-            year: sql`CASE WHEN ${titles.nameSource} = 'embedded' THEN ${titles.year} ELSE COALESCE(excluded.year, ${titles.year}) END`,
+            year: sql`CASE WHEN ${titles.nameSource} IN ('embedded', 'online') THEN ${titles.year} ELSE COALESCE(excluded.year, ${titles.year}) END`,
             folderPath,
             parentFolderId,
             sortKey: sql`excluded.sort_key`,
@@ -505,7 +506,11 @@ export async function probeVideoLibrary(
   if (profile.readTags) incomplete = (await readTagsAndArtwork(provider, libraryId, deadline, errors, profile)) || incomplete;
 
   // Music libraries: tracks into artists and albums, from their folders (after the tags above, which can name a root-level track's artist).
-  if (profile.groupsIntoAlbums) incomplete = !(await organizeMusicLibrary(libraryId, deadline)).complete || incomplete;
+  if (profile.groupsIntoAlbums) {
+    incomplete = !(await organizeMusicLibrary(libraryId, deadline)).complete || incomplete;
+    // ...then names, years, track titles and covers from MusicBrainz for the albums found.
+    incomplete = (await enrichMusicLibrary(libraryId, deadline, errors)) || incomplete;
+  }
 
   // Photo libraries: when each picture was taken and how big it is, from the picture itself.
   if (profile.photoMeta) incomplete = (await readPhotoMetadata(provider, libraryId, deadline, errors)) || incomplete;

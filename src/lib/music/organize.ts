@@ -133,7 +133,7 @@ export async function organizeMusicLibrary(libraryId: string, deadline = Infinit
   await db.execute(sql`
     UPDATE music_albums a SET year = y.year
     FROM (SELECT album_id, min(year) AS year FROM titles WHERE library_id = ${libraryId} AND album_id IS NOT NULL GROUP BY album_id) y
-    WHERE a.id = y.album_id AND a.library_id = ${libraryId} AND a.year IS DISTINCT FROM y.year`);
+    WHERE a.id = y.album_id AND a.library_id = ${libraryId} AND a.match_status <> 'matched' AND a.year IS DISTINCT FROM y.year`);
   await sweepEmptyMusicGroups(libraryId);
   return { placed, complete: true };
 }

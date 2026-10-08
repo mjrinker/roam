@@ -334,7 +334,7 @@ export const titles = pgTable(
     // to the lowercased name.
     sortKey: text("sort_key"),
     parentFolderId: text("parent_folder_id"),
-    nameSource: text("name_source").$type<"filename" | "embedded">(),
+    nameSource: text("name_source").$type<"filename" | "embedded" | "online">(),
     tagsAttemptedAt: timestamp("tags_attempted_at", { withTimezone: true }),
     // Photo libraries. takenAt is a WALL-CLOCK time stored as if it were UTC (an EXIF time has no zone, so
     // it is never converted: a photo taken at 23:50 stays in that day whatever the viewer's zone); it is
@@ -448,6 +448,8 @@ export const musicArtists = pgTable(
     name: text("name").notNull(),
     nameKey: text("name_key").notNull(),
     sortKey: text("sort_key").notNull(),
+    // MusicBrainz id, once an album of theirs was matched.
+    mbid: text("mbid"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [uniqueIndex("music_artists_library_name_idx").on(t.libraryId, t.nameKey)]
@@ -465,8 +467,16 @@ export const musicAlbums = pgTable(
       .references(() => musicArtists.id, { onDelete: "cascade" }),
     name: text("name").notNull(),
     nameKey: text("name_key").notNull(),
-    // The earliest year any of its tracks' tags give; null when none does.
+    // The earliest year any of its tracks' tags give (or, once matched, the release's); null when none does.
     year: integer("year"),
+    // Matching against MusicBrainz: 'pending' until tried, then 'matched' (name, year, track titles and cover came from the
+    // release; mbid says which) or 'unmatched' (no clear match after a few tries; the folder names stand).
+    mbid: text("mbid"),
+    matchStatus: text("match_status").$type<"pending" | "matched" | "unmatched">().notNull().default("pending"),
+    matchAttempts: integer("match_attempts").notNull().default(0),
+    matchAttemptedAt: timestamp("match_attempted_at", { withTimezone: true }),
+    // How many tracks the album had when it was matched; a different count later means files were added or removed, so it is matched again.
+    matchedTrackCount: integer("matched_track_count"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
@@ -489,7 +499,7 @@ export const titleArtwork = pgTable(
     imageHash: text("image_hash")
       .notNull()
       .references(() => artworkImages.hash),
-    source: text("source").notNull().$type<"embedded" | "box">(),
+    source: text("source").notNull().$type<"embedded" | "box" | "online">(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [index("title_artwork_image_idx").on(t.imageHash)]

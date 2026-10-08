@@ -31,7 +31,7 @@ export async function storeArtwork(
   ex: Db,
   titleId: string,
   image: { contentType: "image/jpeg" | "image/png"; bytes: Uint8Array },
-  source: "embedded" | "box"
+  source: "embedded" | "box" | "online"
 ): Promise<void> {
   const now = new Date();
   const bytes = Buffer.from(image.bytes);

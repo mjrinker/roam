@@ -410,7 +410,7 @@ export function LibraryManager({
                 {isFileTreeLibraryKind(kind) && (
                   <p className="text-xs text-muted-foreground">
                     {kind === "music"
-                      ? "Songs in Artist / Album folders (Artist/Album/01 - Song.mp3), named and grouped from the folders and the files' own tags, with no online lookups. Plays .mp3, .m4a and .m4b."
+                      ? "Songs in Artist / Album folders (Artist/Album/01 - Song.mp3), grouped from the folders and tagged from the files' own tags. Albums are looked up on MusicBrainz (artist and album names only) for titles, years and cover art. Plays .mp3, .m4a and .m4b."
                       : kind === "audio"
                       ? "Any audio files in folders (podcasts, recordings, lectures), named from the files themselves with no online lookups. Plays .mp3, .m4a and .m4b."
                       : kind === "photos"
