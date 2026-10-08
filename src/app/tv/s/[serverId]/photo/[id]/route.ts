@@ -1,7 +1,7 @@
 import { db } from "@/lib/db/client";
 import { asUuid, notFoundPage, tvAccess } from "@/lib/tv/context";
 import { html } from "@/lib/tv/http";
-import { photoView } from "@/lib/tv/data";
+import { gridCursorAt, photoView } from "@/lib/tv/data";
 import { photoPreviewUrl } from "@/lib/photos/urls";
 import { redirectTo } from "@/lib/tv/http";
 import { photoViewPage } from "@/tv/render";
@@ -19,7 +19,7 @@ export async function GET(request: Request, ctx: RouteContext<"/tv/s/[serverId]/
   if (view.photo.kind === "movie") return redirectTo(request, `${access.base}/watch/title/${id}`);
   const hrefOf = (n: { id: string; kind: "photo" | "movie" } | null) => (n ? (n.kind === "movie" ? `${access.base}/watch/title/${n.id}` : `${access.base}/photo/${n.id}`) : null);
   // Back reopens the grid at this picture (the page that starts at its second), not the top of a long library.
-  const at = view.photo.takenAt ? Math.floor(view.photo.takenAt.getTime() / 1000) + 1 : null;
-  const back = `${access.base}/library/${view.photo.libraryId}${at !== null ? `?after=${encodeURIComponent(`${at}~ffffffff-ffff-4fff-bfff-ffffffffffff`)}` : ""}`;
+  const after = gridCursorAt(view.photo.takenAt);
+  const back = `${access.base}/library/${view.photo.libraryId}${after ? `?after=${encodeURIComponent(after)}` : ""}`;
   return html(photoViewPage({ title: view.photo.name, imageUrl: photoPreviewUrl(id), prev: hrefOf(view.prev), next: hrefOf(view.next), back, position: view.photo.takenAt ? view.photo.takenAt.toISOString().slice(0, 10) : null }));
 }

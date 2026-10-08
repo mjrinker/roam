@@ -50,6 +50,7 @@ import { GET as artist } from "./s/[serverId]/artist/[id]/route";
 import { GET as album } from "./s/[serverId]/album/[id]/route";
 import { GET as photo } from "./s/[serverId]/photo/[id]/route";
 import { GET as watch } from "./s/[serverId]/watch/[kind]/[id]/route";
+import { GET as title } from "./s/[serverId]/title/[id]/route";
 
 let db: TestDb;
 beforeAll(() => {
@@ -115,10 +116,26 @@ describe("video and audio folders", () => {
     const lib = await w.lib("video");
     await makeTitle(db, lib.id, { kind: "movie", name: "X", folderPath: "A" });
     const statuses = [];
-    for (const q of ["?path=..%2Fx", "?path=A%2F%2FB", "?after=garbage", "?path=Missing"]) statuses.push((await library(req(`/x${q}`), ctx({ ...sid(w), id: lib.id }))).status);
-    expect(statuses).toEqual([404, 404, 404, 404]);
+    const dashes = `?after=x~${"-".repeat(36)}`;
+    for (const q of ["?path=..%2Fx", "?path=A%2F%2FB", "?after=garbage", "?path=Missing", dashes, "?after=k%00x~0f8fad5b-d9cb-469f-a165-70867728950e"]) statuses.push((await library(req(`/x${q}`), ctx({ ...sid(w), id: lib.id }))).status);
+    expect(statuses).toEqual([404, 404, 404, 404, 404, 404]);
     const hidden = await world("restricted");
     expect((await library(req("/x"), ctx({ ...sid(hidden), id: (await hidden.lib("video")).id }))).status).toBe(404);
+    // an artist grid takes the same cursor, and refuses a malformed one the same way
+    const music = await w.lib("music");
+    expect((await library(req(`/x${dashes}`), ctx({ ...sid(w), id: music.id }))).status).toBe(404);
+  });
+});
+
+describe("a video in a nested folder", () => {
+  it("sends Back from its page to that folder", async () => {
+    const w = await world();
+    const lib = await w.lib("video");
+    const clip = await makeTitle(db, lib.id, { kind: "movie", name: "Deep", folderPath: "A/B" });
+    const page = await text(await title(req("/x"), ctx({ ...sid(w), id: clip.id })));
+    expect(page).toContain(`data-back href="/tv/s/${w.server.id}/library/${lib.id}?path=A%2FB"`);
+    const movie = await makeTitle(db, (await w.lib("movies")).id, { kind: "movie", name: "Plain" });
+    expect(await text(await title(req("/x"), ctx({ ...sid(w), id: movie.id })))).toContain(`data-back href="/tv/s/${w.server.id}/library/${movie.libraryId}"`);
   });
 });
 
@@ -226,6 +243,13 @@ describe("photos", () => {
     const moved = await photo(req("/x"), ctx({ ...sid(w), id: clip.id }));
     expect([moved.status, moved.headers.get("location")]).toEqual([302, `https://roam.example/tv/s/${w.server.id}/watch/title/${clip.id}`]);
     expect((await library(req("/x?after=junk"), ctx({ ...sid(w), id: lib.id }))).status).toBe(404);
+    // Back from the clip's watch page opens the grid at the clip (not the same clip again)
+    const watching = await text(await watch(req("/x"), ctx({ ...sid(w), kind: "title", id: clip.id })));
+    const back = /"back":"([^"]+)"/.exec(watching)![1];
+    expect(back).toContain(`/library/${lib.id}?after=`);
+    const grid = await library(req(back), ctx({ ...sid(w), id: lib.id }));
+    expect(grid.status).toBe(200);
+    expect(await text(grid)).toContain("Clip");
     expect((await library(req("/x?after=5~notanid"), ctx({ ...sid(w), id: lib.id }))).status).toBe(404);
     const other = await world();
     const theirs = await makeTitle(db, (await other.lib("photos")).id, { kind: "photo", name: "Theirs", takenAt: day(1) });

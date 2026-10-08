@@ -189,7 +189,7 @@ export interface WatchInfo {
   title: string;
   subtitle: string | null;
   /** Where Back goes, relative to the TV's base path. */
-  back: { kind: "title"; id: string } | { kind: "show"; id: string; season: number } | { kind: "folder"; libraryId: string; path: string } | { kind: "photo"; id: string };
+  back: { kind: "title"; id: string } | { kind: "show"; id: string; season: number } | { kind: "folder"; libraryId: string; path: string } | { kind: "photos"; libraryId: string; after: string | null };
   next: { kind: "episode"; id: string } | null;
 }
 
@@ -198,8 +198,8 @@ export async function watchInfo(ex: Db, scope: TvScope, ownerKind: "title" | "ep
   if (ownerKind === "title") {
     const row = await visibleTitle(ex, scope, id, "movie");
     if (!row) return null;
-    // A clip in a photo library goes back to the picture viewer, one in a video library to its folder; a movie to its page.
-    const back: WatchInfo["back"] = isPhotoLibraryKind(row.libraryKind) ? { kind: "photo", id } : tvBrowseStyle(row.libraryKind) === "folders" ? { kind: "folder", libraryId: row.libraryId, path: row.title.folderPath ?? "" } : { kind: "title", id };
+    // A clip in a photo library goes back to the grid at that clip, one in a video library to its folder; a movie to its page.
+    const back: WatchInfo["back"] = isPhotoLibraryKind(row.libraryKind) ? { kind: "photos", libraryId: row.libraryId, after: gridCursorAt(row.title.takenAt) } : tvBrowseStyle(row.libraryKind) === "folders" ? { kind: "folder", libraryId: row.libraryId, path: row.title.folderPath ?? "" } : { kind: "title", id };
     return { ownerKind, ownerId: id, title: row.title.name, subtitle: row.title.year ? String(row.title.year) : null, back, next: null };
   }
   const [row] = await ex
@@ -242,7 +242,14 @@ export function parseFolderCursor(raw: string | null): { key: string; id: string
   const sep = raw.lastIndexOf("~");
   const key = sep > 0 ? raw.slice(0, sep) : "";
   const id = sep > 0 ? raw.slice(sep + 1) : "";
-  return /^[0-9a-f-]{36}$/i.test(id) && key.length <= 600 ? { key, id } : "bad";
+  // The id is compared with a uuid column and the key with text: anything Postgres would refuse is "bad" here, so the page is a 404, not an error.
+  const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  return uuid.test(id) && key.length <= 600 && !/[\u0000-\u001f\u007f]/.test(key) ? { key, id } : "bad";
+}
+
+/** The photo grid's cursor that makes a page start at the item taken at `takenAt` (the grid is newest first), or null for an undated item. */
+export function gridCursorAt(takenAt: Date | null): string | null {
+  return takenAt ? `${Math.floor(takenAt.getTime() / 1000) + 1}~ffffffff-ffff-4fff-bfff-ffffffffffff` : null;
 }
 export const folderCursorParam = (c: { key: string; id: string }): string => `${c.key}~${c.id}`;
 

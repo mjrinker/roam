@@ -5,7 +5,7 @@ import { musicAlbums, musicArtists, titles, watchState } from "@/lib/db/schema";
 import type { AccessProfile } from "@/lib/content/access";
 import type { LibraryActor } from "@/lib/content/library-access";
 import { createTestDb, joinServer, makeAccount, makeLibrary, makeServer, makeTitle, type TestDb } from "@/lib/playlists/test-db";
-import { bookDetail, continueWatching, folderLevel, listenInfo, parseFolderCursor, photoPage, photoView, tvLibrary, watchInfo, TV_FOLDER_PAGE, type TvScope } from "./data";
+import { bookDetail, gridCursorAt, continueWatching, folderLevel, listenInfo, parseFolderCursor, photoPage, photoView, tvLibrary, watchInfo, TV_FOLDER_PAGE, type TvScope } from "./data";
 
 let db: TestDb;
 let close: () => Promise<void>;
@@ -88,7 +88,8 @@ describe("folderLevel (video and audio libraries)", () => {
     const id = "0f8fad5b-d9cb-469f-a165-70867728950e";
     expect(parseFolderCursor(null)).toBeNull();
     expect(parseFolderCursor(`clip 0000000002~${id}`)).toEqual({ key: "clip 0000000002", id });
-    for (const bad of ["x", `~${id}`, "key~notanid", `key~${id}x`, `${"k".repeat(700)}~${id}`]) expect(parseFolderCursor(bad), bad).toBe("bad");
+    const bads = ["x", `~${id}`, "key~notanid", `key~${id}x`, `${"k".repeat(700)}~${id}`, `k~${"-".repeat(36)}`, `k~${"a".repeat(36)}`, `k\u0000x~${id}`];
+    for (const bad of bads) expect(parseFolderCursor(bad), bad).toBe("bad");
   });
 });
 
@@ -207,7 +208,8 @@ describe("continue listening and where Back goes from a clip", () => {
     const clip = await makeTitle(db, video.id, { kind: "movie", name: "Clip", folderPath: "Trips/Paris" });
     expect((await watchInfo(db, w.scope(), "title", clip.id))!.back).toEqual({ kind: "folder", libraryId: video.id, path: "Trips/Paris" });
     const photoClip = await makeTitle(db, (await w.lib("photos")).id, { kind: "movie", name: "Photo clip", takenAt: new Date() });
-    expect((await watchInfo(db, w.scope(), "title", photoClip.id))!.back).toEqual({ kind: "photo", id: photoClip.id });
+    const photoLib = photoClip.libraryId;
+    expect((await watchInfo(db, w.scope(), "title", photoClip.id))!.back).toEqual({ kind: "photos", libraryId: photoLib, after: gridCursorAt(photoClip.takenAt) });
     const film = await makeTitle(db, (await w.lib("movies")).id, { kind: "movie", name: "Film" });
     expect((await watchInfo(db, w.scope(), "title", film.id))!.back).toEqual({ kind: "title", id: film.id });
   });

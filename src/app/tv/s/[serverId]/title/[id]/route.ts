@@ -1,4 +1,5 @@
 import { db } from "@/lib/db/client";
+import { tvBrowseStyle } from "@/lib/libraries/profile";
 import { formatRemaining, formatRuntime } from "@/lib/format";
 import { asUuid, notFoundPage, tvAccess } from "@/lib/tv/context";
 import { movieDetail } from "@/lib/tv/data";
@@ -17,6 +18,8 @@ export async function GET(request: Request, ctx: RouteContext<"/tv/s/[serverId]/
   if (!movie) return notFoundPage();
   const t = movie.title;
   const watch = `${access.base}/watch/title/${id}`;
+  // From a video library's folder, Back returns to that folder, not the top of the library.
+  const library = `${access.base}/library/${movie.libraryId}${tvBrowseStyle(movie.libraryKind) === "folders" && t.folderPath ? `?path=${encodeURIComponent(t.folderPath)}` : ""}`;
   const remaining = movie.resume?.durationSeconds ? formatRemaining(movie.resume.durationSeconds, movie.resume.positionSeconds) : null;
   return html(
     detailPage({
@@ -24,8 +27,8 @@ export async function GET(request: Request, ctx: RouteContext<"/tv/s/[serverId]/
       meta: [t.year, formatRuntime(t.runtimeSeconds)].filter(Boolean).join(" · "),
       overview: t.overview,
       posterUrl: t.posterUrl,
-      backHref: `${access.base}/library/${movie.libraryId}`,
-      actions: [{ href: watch, label: movie.resume ? `Resume${remaining ? ` (${remaining})` : ""}` : "Play", primary: true }, { href: `${access.base}/library/${movie.libraryId}`, label: "Back to library" }],
+      backHref: library,
+      actions: [{ href: watch, label: movie.resume ? `Resume${remaining ? ` (${remaining})` : ""}` : "Play", primary: true }, { href: library, label: "Back to library" }],
     })
   );
 }

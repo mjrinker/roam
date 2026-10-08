@@ -162,17 +162,22 @@ function startPlayer(cfg: PlayConfig) {
     });
   }
 
+  let pendingMeta: (() => void) | null = null;
   function openPart(seg: Segment, fileTime: number, autoplay: boolean) {
     part = seg;
     video.src = seg.url;
+    // A part still loading when another is chosen must not act on the new one's metadata.
+    if (pendingMeta) video.removeEventListener("loadedmetadata", pendingMeta);
     const onMeta = () => {
       video.removeEventListener("loadedmetadata", onMeta);
-      if (fileTime > 0) video.currentTime = fileTime;
+      if (pendingMeta === onMeta) pendingMeta = null;
+      video.currentTime = fileTime;
       if (autoplay) {
         const played = video.play();
         if (played && played.catch) played.catch(() => say("Press OK to play"));
       }
     };
+    pendingMeta = onMeta;
     video.addEventListener("loadedmetadata", onMeta);
     video.load();
   }
@@ -354,20 +359,29 @@ function startListening(cfg: ListenConfig) {
       .then((j: { url: string }) => j.url);
   }
 
+  let opening = 0;
+  let pendingMeta: (() => void) | null = null;
   function openPart(seg: AudioPart, fileTime: number, autoplay: boolean) {
-    part = seg;
+    const ticket = ++opening;
+    // A part still loading when another is chosen must not act on the new one's metadata.
+    if (pendingMeta) audio.removeEventListener("loadedmetadata", pendingMeta);
+    pendingMeta = null;
     urlFor(seg.index)
       .then((url) => {
-        if (part !== seg) return; // another part was chosen while this link was being fetched
+        if (ticket !== opening) return; // another part was chosen while this link was being fetched
+        // Only now does this part replace the one that is playing, so a save in the meantime still reports the old, true position.
+        part = seg;
         audio.src = url;
         const onMeta = () => {
           audio.removeEventListener("loadedmetadata", onMeta);
-          if (fileTime > 0) audio.currentTime = fileTime;
+          if (pendingMeta === onMeta) pendingMeta = null;
+          audio.currentTime = fileTime;
           if (autoplay) {
             const played = audio.play();
             if (played && played.catch) played.catch(() => say("Press OK to play"));
           }
         };
+        pendingMeta = onMeta;
         audio.addEventListener("loadedmetadata", onMeta);
         audio.load();
       })

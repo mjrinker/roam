@@ -257,6 +257,15 @@ async function run(label: string, exe: string, m56: boolean) {
   check(L("a failed audio link is replaced by a fresh one"), audioManifests >= 2, `requests=${audioManifests}`);
   failFirstAudioUrl = false;
 
+  // Two quick seeks across parts: the second one wins and the audio starts where it said, not where the first said.
+  await page.goto(base + "/tv/s/x/listen/1");
+  await page.waitFor(`${A} && ${A}.currentTime > 0.3 && !${A}.paused`, 15000);
+  await key(page, 417); // fast-forward: into part two
+  await key(page, 412); // rewind straight away: back to the very start of part one
+  await new Promise((r) => setTimeout(r, 1500));
+  const raced = await page.evaluate<{ src: string; t: number }>(`({ src: ${A}.currentSrc.split("/").pop(), t: ${A}.currentTime })`);
+  check(L("a quick second seek is not overridden by the first"), raced.src === "aud1.ogg" && raced.t < 4, JSON.stringify(raced));
+
   // Pictures: right and left go to the neighbours, a slideshow advances by itself, and a picture that fails says so.
   await page.goto(base + "/tv/s/x/photo/2");
   await page.waitFor(`document.getElementById("pimg").complete`, 8000);
