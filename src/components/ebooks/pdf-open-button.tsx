@@ -17,6 +17,11 @@ export function PdfOpenButton({ titleId, sizeBytes }: { titleId: string; sizeByt
     if (sizeBytes !== null && sizeBytes > MAX_READER_BYTES) return toast.error("This PDF is too large to open here. Use Download.");
     setBusy(true);
     const tab = window.open("", "_blank");
+    if (!tab) {
+      // Blocked: don't navigate this page away to the file; ask for the pop-up instead.
+      setBusy(false);
+      return toast.error("Allow pop-ups for this site to open the PDF, or use Download.");
+    }
     try {
       const urlRes = await fetch(`/api/ebooks/${titleId}/url`, { cache: "no-store" });
       if (!urlRes.ok) throw new Error("This PDF isn't available.");
@@ -25,11 +30,10 @@ export function PdfOpenButton({ titleId, sizeBytes }: { titleId: string; sizeByt
       if (!file.ok) throw new Error("Couldn't load the PDF from Box.");
       const blob = new Blob([await file.arrayBuffer()], { type: "application/pdf" });
       const href = URL.createObjectURL(blob);
-      if (tab) tab.location.href = href;
-      else window.location.href = href;
-      setTimeout(() => URL.revokeObjectURL(href), 10 * 60_000);
+      tab.location.href = href;
+      setTimeout(() => URL.revokeObjectURL(href), 60 * 60_000);
     } catch (err) {
-      tab?.close();
+      tab.close();
       toast.error(err instanceof Error ? err.message : "Couldn't open this PDF.");
     } finally {
       setBusy(false);

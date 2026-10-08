@@ -5,7 +5,7 @@ import Link from "next/link";
 import { ChevronLeft, ChevronRight, Download, Loader2, Minus, Plus } from "lucide-react";
 import type { Book, NavItem, Rendition } from "epubjs";
 import { Button } from "@/components/ui/button";
-import { DEFAULT_FONT_INDEX, FONT_KEY, FONT_SIZES, MAX_READER_BYTES, clampFontIndex, placeKey, validCfi } from "@/lib/ebooks/reader";
+import { DEFAULT_FONT_INDEX, FONT_KEY, FONT_SIZES, MAX_READER_BYTES, clampFontIndex, keyBelongsToControl, placeKey, validCfi, withBookCsp } from "@/lib/ebooks/reader";
 
 interface TocEntry {
   label: string;
@@ -59,20 +59,31 @@ export function EpubReader({ titleId, viewerId, title, backHref, downloadHref, s
     if (tooLarge) return;
     let cancelled = false;
     let book: Book | null = null;
+    const abort = new AbortController();
     (async () => {
       try {
-        const urlRes = await fetch(`/api/ebooks/${titleId}/url`, { cache: "no-store" });
+        const urlRes = await fetch(`/api/ebooks/${titleId}/url`, { cache: "no-store", signal: abort.signal });
         if (!urlRes.ok) throw new Error(urlRes.status === 424 ? "This server's Box connection needs to be reconnected by an admin." : "This book isn't available.");
         const { url } = (await urlRes.json()) as { url: string };
-        const file = await fetch(url);
+        const file = await fetch(url, { signal: abort.signal });
         if (!file.ok) throw new Error("Couldn't load the book from Box.");
         const bytes = await file.arrayBuffer();
         if (cancelled || !box.current) return;
 
         const { default: ePub } = await import("epubjs");
+        if (cancelled || !box.current) return; // left the page while the reader code was loading
         book = ePub(bytes);
+        // The book may not fetch anything from the internet (see BOOK_CSP): each page gets the policy before it is drawn. Registered once
+        // the book is open so it runs AFTER epub.js's own step that swaps in the book's pictures and styles (each step rewrites the page
+        // from what the previous one left in section.output, and the last one wins).
+        await book.opened;
+        if (cancelled) return;
+        book.spine.hooks.serialize.register((_html: string, section: { output: string }) => {
+          section.output = withBookCsp(section.output);
+        });
         const r = book.renderTo(box.current, { width: "100%", height: "100%", flow: "paginated", spread: "none", allowScriptedContent: false });
         rendition.current = r;
+        r.on("rendered", () => box.current?.querySelectorAll("iframe").forEach((f) => f.setAttribute("title", "Book text")));
         r.themes.register("roam", { body: { color: "#e7e7ea !important", background: "#0f1014 !important", "line-height": "1.6 !important" }, "a, a:link": { color: "#7fd8bd !important" }, img: { "max-width": "100% !important" } });
         r.themes.select("roam");
         r.themes.fontSize(`${FONT_SIZES[clampFontIndex(Number(read(FONT_KEY) ?? DEFAULT_FONT_INDEX))]}%`);
@@ -94,7 +105,13 @@ export function EpubReader({ titleId, viewerId, title, backHref, downloadHref, s
         });
 
         const saved = read(placeKey(viewerId, titleId));
-        await r.display(validCfi(saved) ? saved : undefined);
+        try {
+          await r.display(validCfi(saved) ? saved : undefined);
+        } catch {
+          // A remembered place that no longer exists in the book (it was replaced): forget it and open at the start.
+          write(placeKey(viewerId, titleId), "");
+          await r.display();
+        }
         const nav = await book.loaded.navigation;
         if (cancelled) return;
         setToc(flatten(nav.toc));
@@ -107,6 +124,7 @@ export function EpubReader({ titleId, viewerId, title, backHref, downloadHref, s
     })();
     return () => {
       cancelled = true;
+      abort.abort();
       rendition.current?.destroy();
       rendition.current = null;
       book?.destroy();
@@ -125,6 +143,7 @@ export function EpubReader({ titleId, viewerId, title, backHref, downloadHref, s
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      if (keyBelongsToControl(e.target as HTMLElement | null)) return;
       if (e.key === "ArrowRight") void rendition.current?.next();
       if (e.key === "ArrowLeft") void rendition.current?.prev();
     };
@@ -183,17 +202,16 @@ export function EpubReader({ titleId, viewerId, title, backHref, downloadHref, s
             </a>
           </div>
         )}
-        {status === "ready" && (
-          <>
-            <button type="button" aria-label="Previous page" onClick={() => void rendition.current?.prev()} className="absolute inset-y-0 left-0 hidden w-12 items-center justify-center text-muted-foreground/60 hover:bg-white/[0.04] hover:text-foreground md:flex">
-              <ChevronLeft className="size-6" />
-            </button>
-            <button type="button" aria-label="Next page" onClick={() => void rendition.current?.next()} className="absolute inset-y-0 right-0 hidden w-12 items-center justify-center text-muted-foreground/60 hover:bg-white/[0.04] hover:text-foreground md:flex">
-              <ChevronRight className="size-6" />
-            </button>
-          </>
-        )}
       </div>
+
+      <footer className="flex items-center justify-between border-t border-white/10 px-3 py-2 sm:px-5">
+        <Button variant="ghost" size="sm" className="gap-1" disabled={status !== "ready"} onClick={() => void rendition.current?.prev()}>
+          <ChevronLeft className="size-4" /> Previous
+        </Button>
+        <Button variant="ghost" size="sm" className="gap-1" disabled={status !== "ready"} onClick={() => void rendition.current?.next()}>
+          Next <ChevronRight className="size-4" />
+        </Button>
+      </footer>
     </div>
   );
 }

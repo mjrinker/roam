@@ -170,14 +170,16 @@ describe("guest accounts", () => {
 
   it("is recorded as seen at most once an hour", async () => {
     const { profile } = await ensureProfileWithStatus(uuid(), null, { guest: true });
-    const t0 = new Date("2026-10-01T10:00:00Z");
+    // Relative to the real clock: a fixed date here would one day be "a week ago" and make the cleanup test below delete this guest too.
+    const t0 = new Date();
+    const at = (minutes: number) => new Date(t0.getTime() + minutes * 60_000);
     await touchGuest(profile, t0);
     const seen = async () => (await db.select().from(profiles).where(eq(profiles.id, profile.id)))[0].lastSeenAt;
     expect(await seen()).toEqual(t0);
-    await touchGuest({ ...profile, lastSeenAt: t0 }, new Date("2026-10-01T10:30:00Z"));
+    await touchGuest({ ...profile, lastSeenAt: t0 }, at(30));
     expect(await seen()).toEqual(t0); // too soon
-    await touchGuest({ ...profile, lastSeenAt: t0 }, new Date("2026-10-01T11:01:00Z"));
-    expect(await seen()).toEqual(new Date("2026-10-01T11:01:00Z"));
+    await touchGuest({ ...profile, lastSeenAt: t0 }, at(61));
+    expect(await seen()).toEqual(at(61));
     const member = await makeAccount(db, "member");
     const real = (await db.select().from(profiles).where(eq(profiles.id, member.accountId)))[0];
     await touchGuest(real, t0); // not a guest: never written
