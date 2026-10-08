@@ -25,9 +25,9 @@ Roam is a Plex-style media server with two deliberate departures:
 1. **The storage is Box, not a NAS.** Each server connects its *own* Box account over OAuth, and the browser streams video **directly from Box** using short-lived, single-file download URLs. There are no media servers to run.
 2. **The app is a stateless control plane on Vercel's free tier.** It handles auth, metadata, access control, and URL minting, and it is built so that it never has to move video bytes or transcode.
 
-It is a real, working product used by my family, not a tutorial project: it has accounts, per-person profiles with age limits, shareable libraries, resumable playback, playlists, and photo browsing with a few-thousand-photo timeline. This README is written for people evaluating the engineering, so it leads with the interesting problems.
+It is a real, working product, not a tutorial project: it has accounts, per-person profiles with age limits, shareable libraries, resumable playback, playlists, and photo browsing with a few-thousand-photo timeline. This README is written for people evaluating the engineering, so it leads with the interesting problems.
 
-> **Status:** private deployment, in daily use. The code is open for review; there is no public demo because every server is private by design (it holds someone's media).
+> **Status:** in daily use by a small group of people. The code is open for review, and a [public demo server](#public-demo) lets you try it without an account or any setup.
 
 ## Engineering highlights
 
@@ -71,6 +71,20 @@ flowchart LR
 ```
 
 Video bytes never pass through Vercel. Photo thumbnails and previews do (small, cached, and gated by the same access check as everything else).
+
+## Public demo
+
+You can try Roam as a guest, with no email or password: open the demo link, press **Continue as a guest**, and you're browsing a demo server.
+
+**Demo link:** _add the join link here once the demo server is live._
+
+What to know before you click:
+
+- **The footage is placeholder.** The demo's movies and shows have real, familiar names, and their posters, descriptions and ratings come from TMDB, but every video is a short clip cut from an openly licensed film (Blender Foundation's open movies, Creative Commons Attribution). None of it is the film or show named. A banner says so on every page, and the credits page lists each clip, its author and its licence.
+- **You're a viewer, and invisible.** A guest can watch and make their own playlists and favorites; they can't change anything, can't create servers, and other visitors can't see them. Guest accounts are deleted after about a week without a visit.
+- **It has a daily play limit.** The videos stream from a real Box account, so the demo allows a fixed number of plays per day across all visitors. If it's "resting", come back tomorrow.
+
+How it's built (the interesting part, for reviewers): a server's admin can switch on an **open join link** that only ever adds a *viewer* (a database rule makes a second admin impossible, and joining never changes an existing member's role). Guests are real accounts created with Supabase's anonymous sign-in, flagged as guests, hidden from other members from the first moment, refused anything that spends the owner's API quota, and cleaned up by a routine that deletes in dependency order and re-checks inactivity inside the transaction. Per-account limits are meaningless when accounts are free, so the real cost cap is a daily total for the whole demo, recorded against the server's owner.
 
 ## Tech stack
 
@@ -146,8 +160,14 @@ drizzle/          SQL migrations         supabase/rls.sql   deny-all RLS
 
 - Box is the only storage provider (the code sits behind a `StorageProvider` interface, so another is possible).
 - No general transcoding, by design: unsupported audio is remuxed on request, and everything else must already be browser-friendly.
+- TMDB's terms ask that its data be refreshed at least every six months; Roam does not yet refresh stored metadata on a schedule.
 - Touch gestures in the photo viewer are covered by unit tests of their logic, but have been hand-tested on a small number of devices.
 - Music (artist/album) and eBook (EPUB/PDF/Markdown) libraries are planned, not built.
+
+## Credits and attribution
+
+- Movie and TV metadata and images: [TMDB](https://www.themoviedb.org). *This product uses the TMDB API but is not endorsed or certified by TMDB.*
+- Demo footage: clips of Big Buck Bunny, Sintel, Tears of Steel (© Blender Foundation, CC BY 3.0) and Elephants Dream (© Blender Foundation / Netherlands Media Art Institute, CC BY 2.5), cut and re-encoded. See `src/lib/demo/catalog.ts` and the demo's credits page.
 
 ## About
 
