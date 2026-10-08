@@ -7,7 +7,7 @@ export function DemoBanner({ serverId }: { serverId: string }) {
       <strong className="font-semibold">Demo server.</strong> Titles, posters and descriptions come from TMDB, but every video is{" "}
       <strong className="font-semibold">placeholder footage</strong> (public-domain or openly licensed clips), not the film or show named.{" "}
       <Link href={`/s/${serverId}/credits`} className="underline underline-offset-2 hover:text-amber-50">
-        Footage credits
+        Credits
       </Link>
     </div>
   );

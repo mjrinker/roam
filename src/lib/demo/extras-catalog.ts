@@ -129,3 +129,40 @@ export function chapterFileName(index: number, archiveTitle: string | null | und
   const cleaned = safeFileName((archiveTitle ?? "").replace(/^\s*\d+\s*[-–.:]?\s*/, "")) || safeFileName(fallback);
   return `${String(index + 1).padStart(2, "0")} - ${cleaned}.mp3`;
 }
+
+// ── eBooks (Project Gutenberg EPUBs, public domain in the United States) ──
+
+export interface EbookSpec {
+  /** The book's number at gutenberg.org. */
+  id: number;
+  author: string;
+  title: string;
+}
+
+export const EBOOKS: EbookSpec[] = [
+  { id: 1342, author: "Jane Austen", title: "Pride and Prejudice" },
+  { id: 11, author: "Lewis Carroll", title: "Alice's Adventures in Wonderland" },
+  { id: 84, author: "Mary Shelley", title: "Frankenstein" },
+  { id: 345, author: "Bram Stoker", title: "Dracula" },
+  { id: 1661, author: "Arthur Conan Doyle", title: "The Adventures of Sherlock Holmes" },
+  { id: 2701, author: "Herman Melville", title: "Moby Dick" },
+  { id: 64317, author: "F. Scott Fitzgerald", title: "The Great Gatsby" },
+  { id: 98, author: "Charles Dickens", title: "A Tale of Two Cities" },
+  { id: 174, author: "Oscar Wilde", title: "The Picture of Dorian Gray" },
+  { id: 120, author: "Robert Louis Stevenson", title: "Treasure Island" },
+  { id: 35, author: "H. G. Wells", title: "The Time Machine" },
+  { id: 36, author: "H. G. Wells", title: "The War of the Worlds" },
+  { id: 16, author: "J. M. Barrie", title: "Peter Pan" },
+  { id: 1184, author: "Alexandre Dumas", title: "The Count of Monte Cristo" },
+];
+
+/** The two EPUB files Gutenberg offers for a book: with its pictures (and cover), and without. The smaller is used when the first is large. */
+export const ebookUrls = (id: number) => ({
+  withImages: `https://www.gutenberg.org/cache/epub/${id}/pg${id}-images.epub`,
+  plain: `https://www.gutenberg.org/cache/epub/${id}/pg${id}.epub`,
+});
+export const EBOOK_MAX_WITH_IMAGES_BYTES = 3 * 1024 * 1024;
+export const EBOOK_MAX_BYTES = 8 * 1024 * 1024;
+
+/** "Author / Title.epub" in the layout Roam scans for books. */
+export const ebookPath = (b: EbookSpec): { folders: string[]; fileName: string } => ({ folders: [safeFileName(b.author)], fileName: `${safeFileName(b.title)}.epub` });

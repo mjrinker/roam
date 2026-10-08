@@ -107,6 +107,11 @@ describe("parseContainer / parseOpf", () => {
   it("reads an EPUB 3 package: collection series, group position, cover-image property", () => {
     expect(parseOpf(OPF3, "content.opf")).toMatchObject({ title: "Modern Book", authors: ["Sam Writer"], year: 1999, series: "The Third Series", seriesPosition: "7", coverPath: "img/c.png" });
   });
+  it("ignores the date of a Project Gutenberg edition, which is when the EPUB was made, not when the book was written", () => {
+    const opf = (publisher: string) => `<package><metadata><dc:title>T</dc:title><dc:publisher>${publisher}</dc:publisher><dc:date>1998-06-01</dc:date></metadata></package>`;
+    expect(parseOpf(opf("Project Gutenberg"), "c.opf").year).toBeNull();
+    expect(parseOpf(opf("Pub House"), "c.opf").year).toBe(1998);
+  });
   it("copes with a package that says almost nothing", () => {
     expect(parseOpf("<package><metadata/></package>", "c.opf")).toEqual({ title: null, authors: [], publisher: null, language: null, description: null, year: null, series: null, seriesPosition: null, coverPath: null });
     expect(parseOpf("", "c.opf").title).toBeNull();

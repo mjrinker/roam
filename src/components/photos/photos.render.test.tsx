@@ -129,7 +129,7 @@ describe("timeline zoom and search copy", () => {
 describe("footage credits link", () => {
   it("the attribution footer links to the credits only when asked (a demo server)", () => {
     const plain = renderToStaticMarkup(<TmdbAttribution />);
-    expect(plain).not.toContain("Footage credits");
+    expect(plain).not.toContain("Credits");
     expect(renderToStaticMarkup(<TmdbAttribution creditsHref="/s/srv/credits" />)).toContain('href="/s/srv/credits"');
   });
 });

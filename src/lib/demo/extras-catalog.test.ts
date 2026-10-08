@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { isAudioFile } from "@/lib/scan/conventions";
-import { AUDIOBOOKS, MUSIC_ALBUMS, PHOTO_ALBUMS, audiobookFolders, chapterFileName, planMusic } from "./extras-catalog";
+import { AUDIOBOOKS, EBOOKS, EBOOK_MAX_BYTES, EBOOK_MAX_WITH_IMAGES_BYTES, MUSIC_ALBUMS, PHOTO_ALBUMS, audiobookFolders, chapterFileName, ebookPath, ebookUrls, planMusic } from "./extras-catalog";
 
 describe("planMusic", () => {
   const plan = planMusic();
@@ -55,5 +55,22 @@ describe("photo albums", () => {
     expect(total).toBeGreaterThanOrEqual(150);
     expect(total).toBeLessThanOrEqual(250);
     expect(new Set(PHOTO_ALBUMS.map((a) => a.album)).size).toBe(PHOTO_ALBUMS.length);
+  });
+});
+
+describe("ebooks", () => {
+  it("are distinct Gutenberg books, laid out Author / Title.epub with names safe for Box", () => {
+    expect(new Set(EBOOKS.map((b) => b.id)).size).toBe(EBOOKS.length);
+    const paths = EBOOKS.map((b) => ebookPath(b)).map((p) => [...p.folders, p.fileName].join("/"));
+    expect(new Set(paths).size).toBe(EBOOKS.length);
+    expect(ebookPath(EBOOKS[1])).toEqual({ folders: ["Lewis Carroll"], fileName: "Alice's Adventures in Wonderland.epub" });
+    for (const p of paths) expect(p).not.toMatch(/[\\:*?"<>|]/);
+  });
+  it("download only from gutenberg.org, over https, by number", () => {
+    for (const b of EBOOKS) for (const u of Object.values(ebookUrls(b.id))) expect(u).toMatch(new RegExp(`^https://www\\.gutenberg\\.org/cache/epub/${b.id}/pg${b.id}(-images)?\\.epub$`));
+  });
+  it("keep the size limits sane", () => {
+    expect(EBOOK_MAX_WITH_IMAGES_BYTES).toBeLessThan(EBOOK_MAX_BYTES);
+    expect(EBOOK_MAX_BYTES).toBeLessThanOrEqual(10 * 1024 * 1024);
   });
 });

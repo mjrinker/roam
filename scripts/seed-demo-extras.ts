@@ -1,11 +1,11 @@
 /**
- * Fills the public demo's Photos, Music and Audiobooks libraries in Box with openly licensed material (see
+ * Fills the public demo's Photos, Music, Audiobooks and eBooks libraries in Box with openly licensed material (see
  * src/lib/demo/extras-catalog.ts): Wikimedia Commons CC0 photos (dated with their real capture dates), Musopen's
- * CC0 Chopin recordings, and LibriVox public-domain audiobook chapters. Each item is checked against the source's
+ * CC0 Chopin recordings, LibriVox public-domain audiobook chapters, and Project Gutenberg EPUBs. Each item is checked against the source's
  * own licence data and skipped if it isn't CC0 / public domain. Run from the repo root (reads .env.local; never writes it):
  *
  *   npx tsx --env-file=.env.local scripts/seed-demo-extras.ts --dry-run
- *   npx tsx --env-file=.env.local scripts/seed-demo-extras.ts --server <id> --photos <folderId> --music <folderId> --audiobooks <folderId>
+ *   npx tsx --env-file=.env.local scripts/seed-demo-extras.ts --server <id> --photos <folderId> --music <folderId> --audiobooks <folderId> --ebooks <folderId>
  *
  * Leave out a folder flag to skip that library. Writes new folders and files to the server's Box only; existing files are left alone.
  * Credits for what was added are written to demo-credits.json in the current directory.
@@ -14,7 +14,7 @@ import { mkdir, rm, writeFile, readFile } from "node:fs/promises";
 import { spawn } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { AUDIOBOOKS, MUSIC_ITEM, PHOTO_ALBUMS, audiobookFolders, chapterFileName, planMusic } from "@/lib/demo/extras-catalog";
+import { AUDIOBOOKS, EBOOKS, EBOOK_MAX_BYTES, EBOOK_MAX_WITH_IMAGES_BYTES, MUSIC_ITEM, PHOTO_ALBUMS, audiobookFolders, chapterFileName, ebookPath, ebookUrls, planMusic } from "@/lib/demo/extras-catalog";
 import { ensurePath, fileExists, uploadIfNew } from "@/lib/demo/box-seed";
 import { injectExifDate } from "@/lib/demo/exif-inject";
 import { isOpenArchiveLicence, parseCommonsDate, photoTitle, pickPhotos, plainText, safeFileName, type PhotoCandidate } from "@/lib/demo/open-sources";
@@ -24,7 +24,7 @@ const args = process.argv.slice(2);
 const flag = (n: string) => (args.includes(n) ? args[args.indexOf(n) + 1] : undefined);
 const dryRun = args.includes("--dry-run");
 const serverId = flag("--server");
-const roots = { photos: flag("--photos"), music: flag("--music"), audiobooks: flag("--audiobooks") };
+const roots = { photos: flag("--photos"), music: flag("--music"), audiobooks: flag("--audiobooks"), ebooks: flag("--ebooks") };
 const UA = { "user-agent": "RoamDemoSeeder/1.0 (portfolio project; https://github.com/mjrinker)" };
 
 /** fetch, trying again (after a pause) on a server error or a dropped connection: archive.org answers 5xx now and then. */
@@ -157,10 +157,35 @@ async function seedAudiobooks(folders: Map<string, string>) {
   }
 }
 
+async function seedEbooks(folders: Map<string, string>) {
+  console.log("\nBooks (Project Gutenberg, public domain in the United States)");
+  const get = async (url: string) => {
+    const res = await fetch(url, { method: "HEAD", headers: UA });
+    return res.ok ? Number(res.headers.get("content-length") ?? 0) : 0;
+  };
+  for (const book of EBOOKS) {
+    const urls = ebookUrls(book.id);
+    const withImages = await get(urls.withImages);
+    const url = withImages > 0 && withImages <= EBOOK_MAX_WITH_IMAGES_BYTES ? urls.withImages : urls.plain;
+    const { folders: path, fileName } = ebookPath(book);
+    console.log(`  ${[...path, fileName].join("/")}   <- ${url.split("/").pop()}`);
+    credits.push({ library: "eBooks", name: `${book.author} - ${book.title}`, author: book.author, licence: "Public domain (USA); Project Gutenberg", source: `https://www.gutenberg.org/ebooks/${book.id}` });
+    if (dryRun || !roots.ebooks) continue;
+    const folder = await ensurePath(serverId!, roots.ebooks, path, folders);
+    if (await fileExists(serverId!, folder, fileName)) { console.log("    already there"); continue; }
+    const bytes = await download(url);
+    // Fail closed: it must be a ZIP (an EPUB is one) of a sane size, not an error page.
+    if (bytes.length > EBOOK_MAX_BYTES || bytes[0] !== 0x50 || bytes[1] !== 0x4b) throw new Error(`${url} is not a usable EPUB (${bytes.length} bytes)`);
+    const file = join(work, "book.epub");
+    await writeFile(file, bytes);
+    console.log(`    ${await uploadIfNew(serverId!, folder, fileName, file)}`);
+  }
+}
+
 const work = join(tmpdir(), `roam-demo-extras-${process.pid}`);
 
 async function main() {
-  if (!dryRun && (!serverId || !(roots.photos || roots.music || roots.audiobooks))) throw new Error("Pass --server and at least one of --photos, --music, --audiobooks (or --dry-run).");
+  if (!dryRun && (!serverId || !(roots.photos || roots.music || roots.audiobooks || roots.ebooks))) throw new Error("Pass --server and at least one of --photos, --music, --audiobooks, --ebooks (or --dry-run).");
   await mkdir(work, { recursive: true });
   const folders = new Map<string, string>();
   const ffmpeg = await ensureFfmpeg();
@@ -168,6 +193,7 @@ async function main() {
     if (dryRun || roots.photos) await seedPhotos(folders);
     if (dryRun || roots.music) await seedMusic(folders, ffmpeg);
     if (dryRun || roots.audiobooks) await seedAudiobooks(folders);
+    if (dryRun || roots.ebooks) await seedEbooks(folders);
   } finally {
     await rm(work, { recursive: true, force: true });
   }

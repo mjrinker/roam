@@ -136,13 +136,17 @@ export function parseOpf(xml: string, opfPath: string): EpubMetadata {
     items.find((i) => isImage(i) && /(^|[\W_])cover([\W_]|$)/i.test(`${i.attrs.id ?? ""} ${i.attrs.href ?? ""}`));
   const coverPath = coverItem?.attrs.href ? resolveInBook(opfPath, coverItem.attrs.href) : null;
 
+  const publisher = capped(first("publisher"));
+  // Project Gutenberg's dc:date is when its own EPUB was made (1998 for Pride and Prejudice), not when the book was written.
+  const year = publisher && /project gutenberg/i.test(publisher) ? null : dateYear;
+
   return {
     title: capped(first("title")),
     authors: [...new Set(creators)].slice(0, 20),
-    publisher: capped(first("publisher")),
+    publisher,
     language: capped(first("language")),
     description,
-    year: dateYear,
+    year,
     series,
     seriesPosition,
     coverPath,

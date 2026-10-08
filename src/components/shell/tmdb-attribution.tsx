@@ -11,7 +11,7 @@ export function TmdbAttribution({ className = "", creditsHref }: { className?: s
       <p className="max-w-xs">This product uses the TMDB API but is not endorsed or certified by TMDB.</p>
       {creditsHref && (
         <a href={creditsHref} className="underline underline-offset-2 hover:text-foreground">
-          Footage credits
+          Credits
         </a>
       )}
     </div>
