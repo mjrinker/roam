@@ -20,11 +20,16 @@ export interface PhotoAlbum {
 
 const cc0 = 'incategory:"CC-Zero" filetype:bitmap';
 export const PHOTO_ALBUMS: PhotoAlbum[] = [
-  { album: "Mountains", search: `${cc0} mountain landscape`, take: 7 },
-  { album: "Lakes and Sunsets", search: `${cc0} lake sunset`, take: 7 },
-  { album: "City", search: `${cc0} city street architecture`, take: 6 },
-  { album: "Wildlife", search: `${cc0} wildlife`, take: 6 },
-  { album: "Flowers", search: `${cc0} flower garden`, take: 5 },
+  { album: "Mountains", search: `${cc0} mountain`, take: 20 },
+  { album: "Lakes and Sunsets", search: `${cc0} sunset lake`, take: 20 },
+  { album: "City", search: `${cc0} city street`, take: 20 },
+  { album: "Wildlife", search: `${cc0} wildlife`, take: 20 },
+  { album: "Flowers", search: `${cc0} flower garden`, take: 20 },
+  { album: "Beaches", search: `${cc0} beach sea`, take: 20 },
+  { album: "Forests", search: `${cc0} forest trees`, take: 20 },
+  { album: "Bridges and Buildings", search: `${cc0} bridge building`, take: 20 },
+  { album: "Winter", search: `${cc0} snow winter`, take: 20 },
+  { album: "Night", search: `${cc0} night lights`, take: 20 },
 ];
 
 // ── Music (Musopen's Chopin collection on the Internet Archive, CC0) ──────

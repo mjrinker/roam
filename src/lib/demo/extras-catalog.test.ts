@@ -46,14 +46,14 @@ describe("audiobooks", () => {
 });
 
 describe("photo albums", () => {
-  it("each searches only CC0 files and asks for a few, to about thirty in all", () => {
+  it("each searches only CC0 files and asks for a few, to about two hundred in all", () => {
     for (const a of PHOTO_ALBUMS) {
       expect(a.search).toContain('incategory:"CC-Zero"');
       expect(a.take).toBeGreaterThan(0);
     }
     const total = PHOTO_ALBUMS.reduce((n, a) => n + a.take, 0);
-    expect(total).toBeGreaterThanOrEqual(25);
-    expect(total).toBeLessThanOrEqual(40);
+    expect(total).toBeGreaterThanOrEqual(150);
+    expect(total).toBeLessThanOrEqual(250);
     expect(new Set(PHOTO_ALBUMS.map((a) => a.album)).size).toBe(PHOTO_ALBUMS.length);
   });
 });

@@ -76,7 +76,7 @@ Video bytes never pass through Vercel. Photo thumbnails and previews do (small, 
 
 You can try Roam as a guest, with no email or password: open the demo link, press **Continue as a guest**, and you're browsing a demo server.
 
-**Demo link:** _add the join link here once the demo server is live._
+**Demo link:** <https://roam-mjrinker.vercel.app/join/9XZLaau-Tl9bxfQLQ7Ggy2qdRESKx_UQ>
 
 What to know before you click:
 

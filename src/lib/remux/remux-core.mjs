@@ -170,7 +170,9 @@ async function uploadSimple({ getToken, folderId, name, filePath, replaceFileId,
     const form = new FormData();
     // "attributes" must precede the file part.
     // A new file can carry the date it was "made" (content_created_at), which photo libraries use for the timeline when a file has no EXIF date.
-    const dates = !replaceFileId && contentCreatedAt ? { content_created_at: contentCreatedAt, content_modified_at: contentCreatedAt } : {};
+    // Box wants RFC 3339 without fractional seconds.
+    const stamp = contentCreatedAt?.replace(/\.\d+(?=Z|[+-]\d\d:\d\d$)/, "");
+    const dates = !replaceFileId && stamp ? { content_created_at: stamp, content_modified_at: stamp } : {};
     form.append("attributes", JSON.stringify(replaceFileId ? { name } : { name, parent: { id: folderId }, ...dates }));
     form.append("file", new Blob([data]), name);
     return { method: "POST", headers: { authorization: `Bearer ${token}` }, body: form };

@@ -45,7 +45,12 @@ const credits: Credit[] = [];
 interface CommonsPage { title: string; imageinfo?: { thumburl?: string; thumbwidth?: number; width: number; height: number; mime: string; descriptionurl: string; extmetadata?: Record<string, { value?: string }> }[] }
 
 async function commonsCandidates(search: string): Promise<PhotoCandidate[]> {
-  const q = new URLSearchParams({
+  const pages = await Promise.all([0, 50, 100].map((offset) => commonsPage(search, offset)));
+  return pages.flat();
+}
+
+async function commonsPage(search: string, offset: number): Promise<PhotoCandidate[]> {
+  const q = new URLSearchParams({ gsroffset: String(offset),
     action: "query", format: "json", generator: "search", gsrnamespace: "6", gsrsearch: search, gsrlimit: "50",
     prop: "imageinfo", iiprop: "url|size|mime|extmetadata", iiurlwidth: "2048", origin: "*",
   });

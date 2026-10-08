@@ -107,7 +107,7 @@ describe("uploadFile", () => {
     fetchMock.mockResolvedValueOnce(json({ entries: [{ id: "12", name: "photo.jpg", size: 64 }] }, 201));
     await uploadFile({ getToken, folderId: "f1", name: "photo.jpg", filePath, contentCreatedAt: "2019-05-06T07:08:09.000Z" });
     const attrs = JSON.parse((fetchMock.mock.calls[0][1].body as FormData).get("attributes") as string);
-    expect(attrs).toEqual({ name: "photo.jpg", parent: { id: "f1" }, content_created_at: "2019-05-06T07:08:09.000Z", content_modified_at: "2019-05-06T07:08:09.000Z" });
+    expect(attrs).toEqual({ name: "photo.jpg", parent: { id: "f1" }, content_created_at: "2019-05-06T07:08:09Z", content_modified_at: "2019-05-06T07:08:09Z" });
     fetchMock.mockResolvedValueOnce(json({ entries: [{ id: "12", name: "photo.jpg", size: 64 }] }, 201));
     await uploadFile({ getToken, folderId: "f1", name: "photo.jpg", filePath, replaceFileId: "12", contentCreatedAt: "2019-05-06T07:08:09.000Z" });
     expect(JSON.parse((fetchMock.mock.calls[1][1].body as FormData).get("attributes") as string)).toEqual({ name: "photo.jpg" });
