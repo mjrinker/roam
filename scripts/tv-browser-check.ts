@@ -11,7 +11,7 @@ import http from "node:http";
 import fs from "node:fs";
 import path from "node:path";
 import { launch, type Page } from "./lib-cdp";
-import { detailPage, homePage, listPage, watchPage } from "../src/tv/render";
+import { detailPage, homePage, listPage, messagePage, pairPage, watchPage } from "../src/tv/render";
 
 const MEDIA = process.env.TV_MEDIA_DIR ?? "/tmp/tvsite/media";
 const browsers = (process.env.TV_BROWSERS ?? "").split(",").filter(Boolean).map((s) => s.split("=") as [string, string]);
@@ -19,6 +19,8 @@ if (browsers.length === 0) throw new Error("Set TV_BROWSERS=name=/path/to/chrome
 
 const poster = (n: number) => ({ href: `/tv/s/x/title/${n}`, name: `Movie ${n}`, meta: "2020", posterUrl: null });
 const pages: Record<string, string> = {
+  "/tv": messagePage("Signed in", "Welcome."),
+  "/tv/pair": pairPage({ userCode: "ABCD-EFGH", linkUrl: "roam.example/link", pollUrl: "/tv/pair/poll", expiredUrl: "/tv/pair" }),
   "/tv/s/x": homePage({ serverName: "Test Server", base: "/tv/s/x", profileName: "Matt", continueWatching: [poster(1), poster(2)], libraries: [{ id: "a", name: "Movies", kind: "Movies" }, { id: "b", name: "Shows", kind: "TV Shows" }], unsupported: 1 }),
   "/tv/s/x/library/a": listPage({ base: "/tv/s/x", title: "Movies", backHref: "/tv/s/x", items: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].map(poster), prevHref: null, nextHref: "/tv/s/x/library/a?page=2" }),
   "/tv/s/x/title/1": detailPage({ title: "Movie 1", meta: "2020", overview: "About it.", posterUrl: null, backHref: "/tv/s/x/library/a", actions: [{ href: "/tv/s/x/watch/title/1", label: "Play", primary: true }, { href: "/tv/s/x", label: "Home" }] }),
@@ -28,12 +30,17 @@ const pages: Record<string, string> = {
 const saves: { positionSeconds: number; finished: boolean }[] = [];
 let manifestRequests = 0;
 let failFirstManifestUrl = false;
+let polls = 0;
 
 const server = http.createServer((req, res) => {
   const url = new URL(req.url!, "http://x");
   if (pages[url.pathname]) return void res.writeHead(200, { "content-type": "text/html" }).end(pages[url.pathname]);
   if (url.pathname === "/tv/tv.css") return void res.writeHead(200, { "content-type": "text/css" }).end(fs.readFileSync("public/tv/tv.css"));
   if (url.pathname === "/tv/tv.js") return void res.writeHead(200, { "content-type": "text/javascript" }).end(fs.readFileSync("public/tv/tv.js"));
+  if (url.pathname === "/tv/pair/poll") {
+    polls++;
+    return void res.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify({ status: polls < 3 ? "pending" : "approved" }));
+  }
   if (url.pathname.startsWith("/api/play/")) {
     manifestRequests++;
     const bad = failFirstManifestUrl && manifestRequests === 1;
@@ -93,6 +100,12 @@ async function run(label: string, exe: string, m56: boolean) {
   if (m56) await page.addInitScript(M56_PRELUDE);
   const L = (s: string) => `${label}${m56 ? "+m56" : ""}: ${s}`;
   const base = "http://localhost:8799";
+
+  // The pairing screen asks again every few seconds and moves on by itself once the code is approved.
+  polls = 0;
+  await page.goto(base + "/tv/pair");
+  check(L("the pairing screen shows the code"), (await page.evaluate<string>(`document.querySelector(".code").textContent`)) === "ABCD-EFGH");
+  check(L("the pairing screen moves on once approved"), await page.waitFor(`location.pathname === "/tv"`, 20000), `polls=${polls}`);
 
   // Home: the first continue-watching card has focus; arrows move; OK opens a library.
   await page.goto(base + "/tv/s/x");

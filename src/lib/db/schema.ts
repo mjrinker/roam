@@ -943,3 +943,29 @@ export const scanRunsRelations = relations(scanRuns, ({ one }) => ({
     references: [libraries.id],
   }),
 }));
+
+// ── tv_pairings ──────────────────────────────────────────────────────────
+// Signing a TV in without a keyboard: the TV asks for a short code and shows it; the person approves the code on a phone or
+// computer where they are already signed in; the TV, which holds a secret only it knows (kept here as a hash), then receives
+// a normal session for that account. A row is single-use and short-lived. The IP is kept only as a keyed hash, to bound how
+// many codes one address can request.
+export const tvPairings = pgTable(
+  "tv_pairings",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userCode: text("user_code").notNull(),
+    deviceHash: text("device_hash").notNull(),
+    status: text("status").$type<"pending" | "approved" | "consumed">().notNull().default("pending"),
+    accountId: uuid("account_id").references(() => profiles.id, { onDelete: "cascade" }),
+    deviceLabel: text("device_label").notNull().default("TV"),
+    ipHash: text("ip_hash").notNull(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("tv_pairings_user_code_idx").on(t.userCode),
+    uniqueIndex("tv_pairings_device_hash_idx").on(t.deviceHash),
+    index("tv_pairings_ip_idx").on(t.ipHash, t.createdAt),
+    index("tv_pairings_account_idx").on(t.accountId),
+  ]
+).enableRLS();

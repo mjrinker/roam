@@ -27,6 +27,7 @@ const ALLOWLIST: Record<string, string> = {
   "api/titles/[id]/match/route.ts": "admin-only (getCurrentServerAdmin)",
   "api/titles/[id]/match-audible/route.ts": "admin-only (getCurrentServerAdmin)",
   "api/titles/[id]/sync/route.ts": "admin-only (getCurrentServerAdmin)",
+  "tv/s/[serverId]/show/[id]/route.ts": "reads only through showDetail in lib/tv/data, which applies library visibility and the age filter (data.sql.test.ts and browse.routes.test.ts)",
 };
 
 const OWNER_TABLE_RE = /\btitles\b|\bepisodes\b|\bwatchState\b/;

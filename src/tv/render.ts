@@ -94,7 +94,7 @@ export function homePage(d: HomeData): string {
   const more = d.unsupported > 0 ? `<p class="note">${d.unsupported} more ${d.unsupported === 1 ? "library isn't" : "libraries aren't"} available on TV yet.</p>` : "";
   return tvDocument({
     title: d.serverName,
-    body: `<div class="page">${top(esc(d.profileName))}<h1>${esc(d.serverName)}</h1>${cont}${libs}${more}<div class="row" style="margin-top:2rem"><a class="btn" data-f href="/tv/profiles">Switch profile</a></div></div>`,
+    body: `<div class="page">${top(esc(d.profileName))}<h1>${esc(d.serverName)}</h1>${cont}${libs}${more}<div class="row" style="margin-top:2rem"><a class="btn" data-f href="/tv/profiles">Switch profile</a><a class="btn" data-f href="/tv/signout">Sign out</a></div></div>`,
   });
 }
 
@@ -172,5 +172,12 @@ export function profilesPage(args: { profiles: { id: string; name: string }[]; s
       `<div class="page">${top()}<h1>Who's watching?</h1><div class="row">` +
       args.profiles.map((p, i) => `<a class="tile" data-f${i === 0 ? " data-autofocus" : ""} href="${esc(args.selectUrl)}?viewer=${esc(p.id)}">${esc(p.name)}</a>`).join("") +
       `</div></div>`,
+  });
+}
+
+export function serversPage(list: { id: string; name: string }[]): string {
+  return tvDocument({
+    title: "Choose a server",
+    body: `<div class="page">${top()}<h1>Choose a server</h1><div class="row">${list.map((s, i) => `<a class="tile" data-f${i === 0 ? " data-autofocus" : ""} href="/tv/s/${esc(s.id)}">${esc(s.name)}</a>`).join("")}</div></div>`,
   });
 }
