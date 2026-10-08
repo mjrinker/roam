@@ -45,7 +45,7 @@ export function deviceLabel(userAgent: string | null | undefined): string {
 
 export type StartResult = { ok: true; userCode: string; secret: string; expiresAt: Date } | { ok: false; reason: "too_many" | "busy" };
 
-export async function startPairing(ex: Db, args: { ip: string; userAgent: string | null; location?: string | null; now?: Date }): Promise<StartResult> {
+export async function startPairing(ex: Db, args: { ip: string; userAgent: string | null; location?: string | null; now?: Date; /** For tests: the random source for the code. */ rand?: (max: number) => number }): Promise<StartResult> {
   const now = args.now ?? new Date();
   const ipHash = addressKey(args.ip);
   // Old rows are not worth keeping: an hour past their life they go.
@@ -59,7 +59,7 @@ export async function startPairing(ex: Db, args: { ip: string; userAgent: string
   const expiresAt = new Date(now.getTime() + PAIRING_TTL_MS);
   const secret = newDeviceSecret();
   for (let attempt = 0; attempt < 5; attempt++) {
-    const userCode = generateUserCode();
+    const userCode = generateUserCode(args.rand);
     const inserted = await ex
       .insert(tvPairings)
       .values({ userCode, deviceHash: hashSecret(secret), deviceLabel: deviceLabel(args.userAgent), locationHint: args.location?.slice(0, 80) || null, ipHash, expiresAt, createdAt: now })
@@ -69,6 +69,11 @@ export async function startPairing(ex: Db, args: { ip: string; userAgent: string
   }
   return { ok: false, reason: "busy" };
 }
+
+/**
+ * Codes are recycled: one is only taken while its row exists, and a row is deleted an hour after its code has expired (the sweep at the top
+ * of startPairing), after which the same code can be handed out again. A random pick that lands on a code still held is simply re-drawn.
+ */
 
 /** A still-open pairing for a typed code (so the approver can be shown what they are approving), or null. */
 export async function findOpenPairing(ex: Db, userCode: string, now = new Date()) {

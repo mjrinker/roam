@@ -121,6 +121,32 @@ describe("pairing", () => {
     expect((await startPairing(db, { ip: busy, userAgent: null, now: nextHour })).ok).toBe(true);
   });
 
+  it("recycles a code once its row has been swept, and re-draws when a pick lands on a code still held", async () => {
+    // A rigged random source that always spells the same code: "ABCDE" (the first five symbols of the alphabet).
+    const rigged = () => { let i = 0; return (_max: number) => i++ % 5; };
+
+    // First TV gets ABCDE, three hours ago.
+    const t0 = new Date(Date.now() - 3 * 60 * 60 * 1000);
+    const first = await startPairing(db, { ip: ip(), userAgent: null, now: t0, rand: rigged() });
+    expect(first.ok && first.userCode).toBe("ABCDE");
+
+    // Today the old row is long dead, so the very same code is handed out again.
+    const again = await startPairing(db, { ip: ip(), userAgent: null, rand: rigged() });
+    expect(again.ok && again.userCode).toBe("ABCDE");
+    expect(await db.select().from(tvPairings).where(eq(tvPairings.userCode, "ABCDE"))).toHaveLength(1);
+
+    // While that one is live, a draw that lands on it is refused and re-drawn, so a new TV gets a different code...
+    let calls = 0;
+    const collideThenFree = (_max: number) => (calls++ < 5 ? calls - 1 : 20 + (calls % 5)); // first five draws spell ABCDE, then something else
+    const other = await startPairing(db, { ip: ip(), userAgent: null, rand: collideThenFree });
+    expect(other.ok).toBe(true);
+    expect(other.ok && other.userCode).not.toBe("ABCDE");
+
+    // ...and if every draw collides, it gives up politely instead of looping.
+    const stuck = await startPairing(db, { ip: ip(), userAgent: null, rand: rigged() });
+    expect(stuck).toEqual({ ok: false, reason: "busy" });
+  });
+
   it("stores the address only as a keyed hash", async () => {
     const address = "203.0.113.77";
     await start({ ip: address });
