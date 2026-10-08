@@ -5,7 +5,7 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import fs from "node:fs";
 
-type Pending = { resolve: (v: unknown) => void; reject: (e: Error) => void };
+type Pending = { resolve: (v: any) => void; reject: (e: Error) => void }; // eslint-disable-line @typescript-eslint/no-explicit-any -- devtools replies are free-form
 
 export class Page {
   private id = 0;
@@ -41,7 +41,7 @@ export class Page {
     return page;
   }
 
-  send(method: string, params: object = {}): Promise<any> {
+  send(method: string, params: object = {}): Promise<Record<string, any>> { // eslint-disable-line @typescript-eslint/no-explicit-any -- devtools replies are free-form
     const id = ++this.id;
     return new Promise((resolve, reject) => {
       this.pending.set(id, { resolve, reject });

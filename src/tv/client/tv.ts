@@ -107,7 +107,7 @@ function unsupportedCodecsQuery(): string {
 }
 
 function startPlayer(cfg: PlayConfig) {
-  const video = doc.getElementById("video") as HTMLVideoElement;
+  const video = doc.getElementById("pv") as HTMLVideoElement;
   const bar = doc.getElementById("bar") as HTMLElement;
   const fill = doc.getElementById("fill") as HTMLElement;
   const clock = doc.getElementById("clock") as HTMLElement;
@@ -151,7 +151,7 @@ function startPlayer(cfg: PlayConfig) {
     // whatever its type) and a normal fetch does the rest.
     try {
       if (leaving && navigator.sendBeacon && navigator.sendBeacon("/api/watch-state", new Blob([body], { type: "text/plain" }))) return;
-    } catch (e) {
+    } catch {
       /* fall through to a normal request */
     }
     fetch("/api/watch-state", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: body, credentials: "same-origin" }).catch(function () {
@@ -293,7 +293,7 @@ doc.addEventListener("keydown", (e: KeyboardEvent) => {
 function init() {
   try {
     if (typeof tizen !== "undefined" && tizen && tizen.tvinputdevice) for (let i = 0; i < TIZEN_MEDIA_KEYS.length; i++) tizen.tvinputdevice.registerKey(TIZEN_MEDIA_KEYS[i]);
-  } catch (e) {
+  } catch {
     /* not on a Samsung TV, or the app lacks the privilege */
   }
   const cfgEl = doc.getElementById("play-config");

@@ -85,7 +85,7 @@ async function key(page: Page, code: number) {
   await page.evaluate(`(() => { const e = new KeyboardEvent("keydown", { bubbles: true, cancelable: true }); Object.defineProperty(e, "keyCode", { get: () => ${code} }); document.dispatchEvent(e); })()`);
 }
 const focusedText = (page: Page) => page.evaluate<string>(`(document.activeElement && document.activeElement.textContent || "(none)").trim().slice(0, 30)`);
-const V = `document.getElementById("video")`;
+const V = `document.getElementById("pv")`;
 const ready = (page: Page) => page.waitFor(`document.readyState === "complete"`);
 
 async function run(label: string, exe: string, m56: boolean) {
@@ -93,7 +93,6 @@ async function run(label: string, exe: string, m56: boolean) {
   if (m56) await page.addInitScript(M56_PRELUDE);
   const L = (s: string) => `${label}${m56 ? "+m56" : ""}: ${s}`;
   const base = "http://localhost:8799";
-  const at = async (suffix: string) => (await page.url()).endsWith(suffix);
 
   // Home: the first continue-watching card has focus; arrows move; OK opens a library.
   await page.goto(base + "/tv/s/x");

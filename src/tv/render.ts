@@ -159,7 +159,7 @@ export function watchPage(d: WatchData): string {
     title: d.title,
     bodyClass: "watch",
     body:
-      `<div class="player"><video id="video" playsinline></video><div id="status" class="status"></div>` +
+      `<div class="player"><video id="pv" playsinline></video><div id="status" class="status"></div>` +
       `<div id="hud" class="hud on"><div class="t">${esc(d.title)}${d.subtitle ? ` · ${esc(d.subtitle)}` : ""}</div><div id="bar" class="track" style="display:none"><b id="fill"></b></div><div id="clock" class="clock"></div></div></div>` +
       `<script type="application/json" id="play-config">${cfg}</script>`,
   });
