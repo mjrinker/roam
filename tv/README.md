@@ -53,3 +53,9 @@ npm test                     # includes the Chromium 56 compatibility scans
 TV_BROWSERS="m69=/path/to/chrome69,m86=/path/to/chrome86" npx tsx scripts/tv-browser-check.ts
 ```
 The second drives the real pages with remote-control key presses in old Chromium builds (download them from the Chromium snapshot bucket) and also runs each with the post-Chromium-56 APIs removed.
+
+## Newer TVs get extras
+
+The basic pages are what a 2018 Samsung (Chromium 56) needs, and every TV gets them. The script adds a `modern` class, and loads a few extras, only where the browser passes feature checks (CSS grid and IntersectionObserver present): a wide backdrop picture behind movie and show pages, softer focus changes, and songs that move on to the next song without loading a page (the next song's details are fetched in its last 30 seconds). Old browsers never download the backdrop and keep loading one page per song.
+
+If one TV misbehaves with the extras, open any TV page with `?modern=0` on that TV (it is remembered; `?modern=1` turns it back on). To turn the extras off for everyone, set `TV_BASIC_ONLY=1` in the environment and redeploy.

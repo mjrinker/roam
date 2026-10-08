@@ -158,6 +158,11 @@ describe("listenInfo", () => {
     expect(one).toMatchObject({ libraryKind: "music", remembers: false, back: `/album/${al.id}`, next: `/listen/${songs[1].id}`, subtitle: "Band" });
     expect((await listenInfo(db, w.scope(), songs[1].id))!.next).toBe(`/listen/${songs[2].id}`);
     expect((await listenInfo(db, w.scope(), songs[2].id))!.next).toBeNull();
+    // the whole album in order, so a newer TV can play on without loading pages
+    const q = (await listenInfo(db, w.scope(), songs[1].id))!.queue!;
+    expect(q.items.map((i) => i.title)).toEqual(["One", "Two", "Three"]);
+    expect([q.index, q.items[0].id]).toEqual([1, songs[0].id]);
+    expect(q.items[0].by).toBe("Band");
   });
   it("skips songs the age limit hides when choosing the next one", async () => {
     const w = await world();
@@ -167,11 +172,13 @@ describe("listenInfo", () => {
     expect((await listenInfo(db, w.scope(), songs[0].id))!.next).toBe(`/listen/${songs[1].id}`); // an adult hears all three in order
     expect((await listenInfo(db, w.scope(kid), songs[0].id))!.next).toBe(`/listen/${songs[2].id}`); // a child's profile goes straight to the third
     expect(await listenInfo(db, w.scope(kid), songs[1].id)).toBeNull(); // and cannot open the hidden one
+    // the queue never carries a song the profile may not see
+    expect((await listenInfo(db, w.scope(kid), songs[0].id))!.queue!.items.map((i) => i.title)).toEqual(["One", "Three"]);
   });
   it("remembers the place for audiobooks and audio files, and sends Back to the book or the folder", async () => {
     const w = await world();
     const book = await makeTitle(db, (await w.lib("audiobooks")).id, { kind: "audiobook", name: "Book" });
-    expect(await listenInfo(db, w.scope(), book.id)).toMatchObject({ libraryKind: "audiobooks", remembers: true, back: `/book/${book.id}`, next: null });
+    expect(await listenInfo(db, w.scope(), book.id)).toMatchObject({ libraryKind: "audiobooks", remembers: true, back: `/book/${book.id}`, next: null, queue: null });
     const audio = await w.lib("audio");
     const file = await makeTitle(db, audio.id, { kind: "audiobook", name: "Talk", folderPath: "Talks/2024" });
     expect(await listenInfo(db, w.scope(), file.id)).toMatchObject({ libraryKind: "audio", remembers: true, back: `/library/${audio.id}?path=Talks%2F2024` });

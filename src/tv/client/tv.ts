@@ -286,6 +286,8 @@ interface ListenConfig {
   skip: number;
   back: string;
   next: string | null;
+  /** An album's songs and this one's place: newer browsers play on to the next song in the same page. */
+  queue?: { items: { id: string; title: string; by: string | null }[]; index: number } | null;
 }
 interface AudioPart {
   index: number;
@@ -312,6 +314,11 @@ function startListening(cfg: ListenConfig) {
   let wantPlaying = true;
   let recoveries = 0;
   let hudTimer: number | undefined;
+  // The song being played. A newer browser keeps going through the album in this page; an older one loads each song's page.
+  let id = cfg.ownerId;
+  let qi = cfg.queue && MODERN ? cfg.queue.index : -1;
+  let prefetched: { id: string; manifest: Promise<AudioManifest> } | null = null;
+  const queue = cfg.queue && MODERN ? cfg.queue.items : null;
 
   const position = () => (manifest && part ? part.startSeconds + audio.currentTime : 0);
   const say = (text: string) => {
@@ -335,7 +342,7 @@ function startListening(cfg: ListenConfig) {
     if (!cfg.remembers || !manifest) return;
     const p = Math.floor(position());
     lastSave = Date.now();
-    const body = JSON.stringify({ ownerKind: cfg.ownerKind, ownerId: cfg.ownerId, positionSeconds: p, durationSeconds: Math.floor(manifest.durationSeconds), finished: finished === undefined ? isFinished(p, manifest.durationSeconds) : finished });
+    const body = JSON.stringify({ ownerKind: cfg.ownerKind, ownerId: id, positionSeconds: p, durationSeconds: Math.floor(manifest.durationSeconds), finished: finished === undefined ? isFinished(p, manifest.durationSeconds) : finished });
     try {
       // text/plain: Chromium 69 refuses a JSON beacon (see the video player)
       if (leaving && navigator.sendBeacon && navigator.sendBeacon("/api/watch-state", new Blob([body], { type: "text/plain" }))) return;
@@ -351,7 +358,7 @@ function startListening(cfg: ListenConfig) {
   function urlFor(index: number): Promise<string> {
     const known = manifest && manifest.urls.filter((u) => u.index === index && Date.parse(u.expiresAt) - Date.now() > 60000)[0];
     if (known) return Promise.resolve(known.url);
-    return fetch("/api/audiobooks/" + cfg.ownerId + "/segments/" + index, { credentials: "same-origin" })
+    return fetch("/api/audiobooks/" + id + "/segments/" + index, { credentials: "same-origin" })
       .then((r) => {
         if (!r.ok) throw new Error("This can't be played right now.");
         return r.json();
@@ -415,19 +422,25 @@ function startListening(cfg: ListenConfig) {
     showHud();
   }
 
+  function fetchManifest(trackId: string): Promise<AudioManifest> {
+    return fetch("/api/audiobooks/" + trackId + "/manifest", { credentials: "same-origin" }).then((res) => {
+      if (res.status === 401 || res.status === 403) {
+        window.location.href = "/tv";
+        throw new Error("Signed out.");
+      }
+      if (res.status === 429) throw new Error("The demo has reached today's play limit. Try again tomorrow.");
+      if (res.status === 409) throw new Error("This isn't ready to play yet. Try again in a few minutes.");
+      if (!res.ok) throw new Error("This can't be played right now.");
+      return res.json();
+    });
+  }
+
   function load(resumeFrom?: number, autoplay?: boolean) {
     say("Loading…");
-    fetch("/api/audiobooks/" + cfg.ownerId + "/manifest", { credentials: "same-origin" })
-      .then((res) => {
-        if (res.status === 401 || res.status === 403) {
-          window.location.href = "/tv";
-          throw new Error("Signed out.");
-        }
-        if (res.status === 429) throw new Error("The demo has reached today's play limit. Try again tomorrow.");
-        if (res.status === 409) throw new Error("This isn't ready to play yet. Try again in a few minutes.");
-        if (!res.ok) throw new Error("This can't be played right now.");
-        return res.json();
-      })
+    // The next song's details are fetched ahead of time, so moving on waits for the audio only, not for a round trip first.
+    const ahead = prefetched && prefetched.id === id ? prefetched.manifest : null;
+    prefetched = null;
+    (ahead || fetchManifest(id))
       .then((m: AudioManifest) => {
         manifest = m;
         const resume = cfg.remembers && m.resumeSeconds > 0 && m.resumeSeconds < m.durationSeconds - 30 ? m.resumeSeconds : 0;
@@ -438,8 +451,40 @@ function startListening(cfg: ListenConfig) {
       .catch((e: Error) => say(e.message || "This can't be played right now."));
   }
 
+  /** Moves on to song `i` of the album without loading a page, and keeps the address and the screen in step. */
+  function goToSong(i: number) {
+    if (!queue) return;
+    const item = queue[i];
+    qi = i;
+    id = item.id;
+    manifest = null;
+    part = null;
+    recoveries = 0;
+    const ttl = doc.getElementById("ttl");
+    const by = doc.getElementById("by");
+    if (ttl) ttl.textContent = item.title;
+    if (by) by.textContent = item.by || "";
+    doc.title = item.title + " · Roam";
+    const base = window.location.pathname.replace(/\/listen\/[^/]+$/, "");
+    try {
+      window.history.replaceState(null, "", base + "/listen/" + item.id);
+    } catch {
+      /* the address is only cosmetic */
+    }
+    cfg.next = i + 1 < queue.length ? base + "/listen/" + queue[i + 1].id : null;
+    load(undefined, true);
+  }
+
   audio.addEventListener("timeupdate", () => {
     paint();
+    if (queue && manifest && !prefetched && qi + 1 < queue.length && manifest.durationSeconds - position() < 30) {
+      const nextId = queue[qi + 1].id;
+      const ahead = fetchManifest(nextId);
+      prefetched = { id: nextId, manifest: ahead };
+      ahead.catch(() => {
+        if (prefetched && prefetched.manifest === ahead) prefetched = null; // fetched again when the song comes up
+      });
+    }
     if (Date.now() - lastSave > SAVE_EVERY_MS && !audio.paused) save();
   });
   audio.addEventListener("playing", () => {
@@ -457,6 +502,7 @@ function startListening(cfg: ListenConfig) {
     const nextPart = manifest.segments[part.index + 1];
     if (nextPart) return openPart(nextPart, 0, true);
     save(true, true);
+    if (queue && qi + 1 < queue.length) return goToSong(qi + 1);
     window.location.href = cfg.next || cfg.back;
   });
   audio.addEventListener("error", () => {
@@ -555,6 +601,38 @@ function startPhotoViewer(cfg: PhotoConfig) {
 
 let playerKeys: ((action: Action | null, dirKey: string | null) => boolean) | null = null;
 
+// ── Newer browsers ────────────────────────────────────────────────────────
+
+/**
+ * Whether to add the extras that older TV browsers can't do well (backdrop pictures, softer focus, songs that move on without
+ * loading a page). Asks the browser what it can do rather than trusting its name. Off when the server says so (TV_BASIC_ONLY=1),
+ * and for one TV when its address carries ?modern=0 (?modern=1 turns it back on): the owner's way to rescue a TV that misbehaves.
+ */
+function modernBrowser(): boolean {
+  try {
+    const set = /[?&]modern=([01])(?:&|$)/.exec(window.location.search);
+    if (set) window.localStorage.setItem("roamTvModern", set[1]);
+  } catch {
+    /* storage may be unavailable; the page still works */
+  }
+  if (doc.documentElement.getAttribute("data-basic")) return false;
+  try {
+    if (window.localStorage.getItem("roamTvModern") === "0") return false;
+  } catch {
+    /* ignore */
+  }
+  return !!(window.CSS && window.CSS.supports && window.CSS.supports("display", "grid") && typeof IntersectionObserver !== "undefined");
+}
+const MODERN = modernBrowser();
+
+/** Marks the page and loads the wide pictures that only newer browsers get (the basic page never downloads them). */
+function enhance() {
+  if (!MODERN) return;
+  doc.documentElement.className += " modern";
+  const imgs = doc.querySelectorAll(".backdrop img[data-src]");
+  for (let i = 0; i < imgs.length; i++) imgs[i].setAttribute("src", imgs[i].getAttribute("data-src") || "");
+}
+
 // ── Wiring ───────────────────────────────────────────────────────────────
 
 doc.addEventListener("keydown", (e: KeyboardEvent) => {
@@ -581,6 +659,7 @@ doc.addEventListener("keydown", (e: KeyboardEvent) => {
 });
 
 function init() {
+  enhance();
   try {
     if (typeof tizen !== "undefined" && tizen && tizen.tvinputdevice) for (let i = 0; i < TIZEN_MEDIA_KEYS.length; i++) tizen.tvinputdevice.registerKey(TIZEN_MEDIA_KEYS[i]);
   } catch {

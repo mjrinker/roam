@@ -23,6 +23,7 @@ export async function GET(request: Request, ctx: RouteContext<"/tv/s/[serverId]/
       meta: [t.year, show.seasons.length ? `${show.seasons.length} ${show.seasons.length === 1 ? "season" : "seasons"}` : null].filter(Boolean).join(" · "),
       overview: t.overview,
       posterUrl: t.posterUrl,
+      backdropUrl: t.backdropUrl,
       backHref: `${access.base}/library/${show.libraryId}`,
       actions: show.episodes.length ? [{ href: `${access.base}/watch/episode/${(show.episodes.find((e) => e.inProgress) ?? show.episodes.find((e) => !e.watched) ?? show.episodes[0]).id}`, label: show.episodes.some((e) => e.inProgress) ? "Resume" : "Play", primary: true }] : [],
       seasons: show.seasons.length > 1 ? show.seasons.map((n) => ({ href: `${here}?season=${n}`, label: `Season ${n}`, current: n === show.currentSeason })) : [],

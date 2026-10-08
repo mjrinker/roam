@@ -310,6 +310,8 @@ export interface ListenInfo {
   back: string;
   /** The next song of an album, relative to the TV's base path. */
   next: string | null;
+  /** All the songs of the album this one is on (those this profile may see) and this one's place among them. */
+  queue: { items: { id: string; title: string; by: string | null }[]; index: number } | null;
 }
 
 /** What a listening page needs: the names, where Back goes and the next song, only for something this profile may see. */
@@ -326,6 +328,7 @@ export async function listenInfo(ex: Db, scope: TvScope, id: string): Promise<Li
   const by = (t.authors ?? []).join(", ") || t.folderAuthor || null;
   let back = `/library/${row.libraryId}`;
   let next: string | null = null;
+  let queue: ListenInfo["queue"] = null;
   if (tvBrowseStyle(libraryKind) === "grid") back = `/book/${t.id}`;
   else if (tvBrowseStyle(libraryKind) === "folders") back = `/library/${row.libraryId}${t.folderPath ? `?path=${encodeURIComponent(t.folderPath)}` : ""}`;
   else if (t.albumId) {
@@ -334,6 +337,7 @@ export async function listenInfo(ex: Db, scope: TvScope, id: string): Promise<Li
     const at = album ? album.tracks.findIndex((x) => x.id === t.id) : -1;
     const following = album && at >= 0 ? album.tracks[at + 1] : undefined;
     if (following) next = `/listen/${following.id}`;
+    if (album && at >= 0) queue = { items: album.tracks.map((x) => ({ id: x.id, title: x.name, by: x.artist ?? album.album.artistName })), index: at };
   }
-  return { id: t.id, name: t.name, subtitle: by, coverUrl: t.posterUrl, libraryKind, remembers: libraryRemembersProgress(libraryKind), back, next };
+  return { id: t.id, name: t.name, subtitle: by, coverUrl: t.posterUrl, libraryKind, remembers: libraryRemembersProgress(libraryKind), back, next, queue };
 }

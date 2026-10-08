@@ -57,3 +57,10 @@ button.tile { margin: 0 1.5rem 1.5rem 0; }
 .listen .now .t { font-size: 2.2rem; font-weight: 700; }
 .listen .now .by { font-size: 1.5rem; color: #a8a8b4; margin-top: 0.4rem; }
 .photo img { position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: contain; background: #000; }
+
+/* Extras for newer TV browsers: the script adds the "modern" class only where the browser passes its feature checks. */
+.backdrop { display: none; }
+.modern .backdrop { display: block; position: fixed; top: 0; left: 0; width: 100%; height: 100%; z-index: -1; background: #0b0b10; }
+.modern .backdrop img { width: 100%; height: 100%; object-fit: cover; opacity: 0.32; display: block; }
+.modern .backdrop:after { content: ""; position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: linear-gradient(to right, rgba(11, 11, 16, 0.92), rgba(11, 11, 16, 0.35)); }
+.modern [data-f] { transition: transform 0.12s ease-out, background-color 0.12s, border-color 0.12s; }

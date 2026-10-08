@@ -139,6 +139,25 @@ describe("a video in a nested folder", () => {
   });
 });
 
+describe("backdrops and the basic-only switch", () => {
+  it("puts a movie's wide picture in a data attribute (so a basic page never downloads it), and the switch marks every page", async () => {
+    const w = await world();
+    const movie = await makeTitle(db, (await w.lib("movies")).id, { kind: "movie", name: "Film", backdropUrl: "https://img.example/wide.jpg" });
+    const page = await text(await title(req("/x"), ctx({ ...sid(w), id: movie.id })));
+    expect(page).toContain('<img data-src="https://img.example/wide.jpg"');
+    expect(page).not.toContain(' src="https://img.example/wide.jpg"');
+    expect(page).toContain("<html lang=\"en\">");
+    vi.stubEnv("TV_BASIC_ONLY", "1");
+    try {
+      expect(await text(await title(req("/x"), ctx({ ...sid(w), id: movie.id })))).toContain('<html lang="en" data-basic="1">');
+    } finally {
+      vi.stubEnv("TV_BASIC_ONLY", "");
+    }
+    const bad = await makeTitle(db, (await w.lib("movies")).id, { kind: "movie", name: "Bad", backdropUrl: "javascript:alert(1)" });
+    expect(await text(await title(req("/x"), ctx({ ...sid(w), id: bad.id })))).not.toContain("javascript:");
+  });
+});
+
 describe("audiobooks", () => {
   it("lists books, shows one with Resume, and plays it", async () => {
     const w = await world();
@@ -193,6 +212,9 @@ describe("music", () => {
     expect(first).toContain('"remembers":false'); // songs never remember a place
     expect(first).toContain(`"next":"/tv/s/${w.server.id}/listen/${songs[1].id}"`);
     expect(first).toContain(`"back":"/tv/s/${w.server.id}/album/${al.id}"`);
+    const cfg = JSON.parse(/id="listen-config">(.*?)<\/script>/.exec(first)![1]);
+    expect(cfg.queue).toEqual({ items: [{ id: songs[0].id, title: "Intro", by: "The Band" }, { id: songs[1].id, title: "Song <2>", by: "The Band" }], index: 0 });
+    expect(first).not.toContain("Song <2>"); // a song's name inside the page data is escaped
     expect(await text(await listen(req("/x"), ctx({ ...sid(w), id: songs[1].id })))).toContain('"next":null');
   });
   it("404s an artist or album from another server or a hidden library", async () => {

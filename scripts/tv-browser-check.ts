@@ -23,11 +23,12 @@ const pages: Record<string, string> = {
   "/tv/pair": pairPage({ userCode: "ABCDE", linkUrl: "roam.example/link", pollUrl: "/tv/pair/poll", expiredUrl: "/tv/pair" }),
   "/tv/s/x": homePage({ serverName: "Test Server", base: "/tv/s/x", profileName: "Matt", continueWatching: [poster(1), poster(2)], libraries: [{ id: "a", name: "Movies", kind: "Movies" }, { id: "b", name: "Shows", kind: "TV Shows" }], unsupported: 1 }),
   "/tv/s/x/library/a": listPage({ base: "/tv/s/x", title: "Movies", backHref: "/tv/s/x", items: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].map(poster), prevHref: null, nextHref: "/tv/s/x/library/a?page=2" }),
-  "/tv/s/x/title/1": detailPage({ title: "Movie 1", meta: "2020", overview: "About it.", posterUrl: null, backHref: "/tv/s/x/library/a", actions: [{ href: "/tv/s/x/watch/title/1", label: "Play", primary: true }, { href: "/tv/s/x", label: "Home" }] }),
+  "/tv/s/x/title/1": detailPage({ title: "Movie 1", meta: "2020", overview: "About it.", posterUrl: null, backdropUrl: "/media/pic2.png", backHref: "/tv/s/x/library/a", actions: [{ href: "/tv/s/x/watch/title/1", label: "Play", primary: true }, { href: "/tv/s/x", label: "Home" }] }),
   "/tv/s/x/library/f": listPage({ base: "/tv/s/x", title: "Videos", backHref: "/tv/s/x", folders: [{ href: "/tv/s/x/library/f?path=Trips", name: "Trips" }, { href: "/tv/s/x/library/f?path=Pets", name: "Pets" }], items: [1, 2, 3].map(poster), prevHref: null, nextHref: null }),
   "/tv/s/x/album/1": detailPage({ title: "First Record", meta: "The Band · 1999 · 2 songs", overview: null, posterUrl: null, square: true, backHref: "/tv/s/x/library/m", actions: [{ href: "/tv/s/x/listen/1", label: "Play album", primary: true }], listHeading: "Songs", episodes: [{ href: "/tv/s/x/listen/1", label: "1. Intro", sub: "0:12" }, { href: "/tv/s/x/listen/2", label: "2. Second", sub: "0:12" }] }),
-  "/tv/s/x/listen/1": listenPage({ title: "Intro", subtitle: "The Band", coverUrl: null, ownerId: "1", remembers: true, skip: 10, back: "/tv/s/x/album/1", next: "/tv/s/x/listen/2" }),
-  "/tv/s/x/listen/2": listenPage({ title: "Second", subtitle: "The Band", coverUrl: null, ownerId: "2", remembers: false, skip: 10, back: "/tv/s/x/album/1", next: null }),
+  "/tv/s/x/listen/1": listenPage({ title: "Intro", subtitle: "The Band", coverUrl: null, ownerId: "1", remembers: false, skip: 10, back: "/tv/s/x/album/1", next: "/tv/s/x/listen/2", queue: { items: [{ id: "1", title: "Intro", by: "The Band" }, { id: "2", title: "Second", by: "The Band" }], index: 0 } }),
+  "/tv/s/x/listen/9": listenPage({ title: "A Book", subtitle: "Someone", coverUrl: null, ownerId: "9", remembers: true, skip: 30, back: "/tv/s/x/album/1", next: null }),
+  "/tv/s/x/listen/2": listenPage({ title: "Second", subtitle: "The Band", coverUrl: null, ownerId: "2", remembers: false, skip: 10, back: "/tv/s/x/album/1", next: null, queue: { items: [{ id: "1", title: "Intro", by: "The Band" }, { id: "2", title: "Second", by: "The Band" }], index: 1 } }),
   "/tv/s/x/photo/1": photoViewPage({ title: "Picture one", imageUrl: "/media/pic1.png", prev: null, next: "/tv/s/x/photo/2", back: "/tv/s/x/library/p", position: "2024-05-01" }),
   "/tv/s/x/photo/2": photoViewPage({ title: "Picture two", imageUrl: "/media/pic2.png", prev: "/tv/s/x/photo/1", next: "/tv/s/x/photo/3", back: "/tv/s/x/library/p", position: "2024-05-02" }),
   "/tv/s/x/photo/3": photoViewPage({ title: "Picture three", imageUrl: "/media/missing.png", prev: "/tv/s/x/photo/2", next: null, back: "/tv/s/x/library/p", position: null }),
@@ -236,9 +237,22 @@ async function run(label: string, exe: string, m56: boolean) {
   check(L("the clock shows the whole length"), (await page.evaluate<string>(`document.getElementById("clock").textContent`)).endsWith("/ 0:24"), await page.evaluate<string>(`document.getElementById("clock").textContent`));
   await key(page, 417);
   check(L("fast-forward moves the audio into part two"), await page.waitFor(`${A}.currentSrc.endsWith("aud2.ogg")`, 8000));
+  await page.evaluate(`window.__sameDocument = 1`);
   check(L("finishing goes on to the next song"), await page.waitFor(`location.pathname === "/tv/s/x/listen/2"`, 25000), await page.url());
+  check(L("on a newer browser the next song starts in the same page (no reload)"), (await page.evaluate<number>(`window.__sameDocument || 0`)) === 1);
+  check(L("and the screen shows the new song"), (await page.evaluate<string>(`document.getElementById("ttl").textContent`)) === "Second");
+  await page.waitFor(`document.getElementById("pa").currentTime > 0.2`, 15000);
+  check(L("a song at the end of an album never saves anything"), saves.length === 0, JSON.stringify(saves));
+
+  // A book (or audio file) does save: its end is stored as finished, then Back's page opens.
+  saves.length = 0;
+  await page.goto(base + "/tv/s/x/listen/9");
+  await page.waitFor(`document.getElementById("pa").currentTime > 0.3 && !document.getElementById("pa").paused`, 15000);
+  await key(page, 417);
+  check(L("a finished book returns to its page"), await page.waitFor(`location.pathname === "/tv/s/x/album/1"`, 25000), await page.url());
   for (let i = 0; i < 30 && !saves.some((s) => s.finished); i++) await new Promise((r) => setTimeout(r, 100));
   check(L("a book or file's end is saved as finished"), saves.some((s) => s.finished), JSON.stringify(saves));
+  await page.goto(base + "/tv/s/x/listen/2");
 
   // A song never saves a place, and Back leaves for the album.
   saves.length = 0;
@@ -248,6 +262,19 @@ async function run(label: string, exe: string, m56: boolean) {
   check(L("a song never saves a place"), saves.length === 0, JSON.stringify(saves));
   await key(page, 10009);
   check(L("Back leaves a song for its album"), await page.waitFor(`location.pathname === "/tv/s/x/album/1"`));
+
+  // The basic path: with ?modern=0 a song's end loads the next song's page, and the wide picture is never downloaded.
+  await page.goto(base + "/tv/s/x/title/1");
+  check(L("a newer browser gets the backdrop picture and the modern class"), await page.waitFor(`document.documentElement.className.indexOf("modern") >= 0 && document.querySelector(".backdrop img").getAttribute("src") === "/media/pic2.png"`, 5000));
+  await page.goto(base + "/tv/s/x/title/1?modern=0");
+  check(L("?modern=0 gives the basic page: no modern class and the backdrop is never fetched"), await page.evaluate<boolean>(`document.documentElement.className.indexOf("modern") < 0 && !document.querySelector(".backdrop img").getAttribute("src")`));
+  await page.goto(base + "/tv/s/x/listen/1");
+  await page.waitFor(`document.getElementById("pa").currentTime > 0.3 && !document.getElementById("pa").paused`, 15000);
+  await page.evaluate(`window.__sameDocument = 1`);
+  await key(page, 417);
+  check(L("on the basic path the next song is a new page"), await page.waitFor(`location.pathname === "/tv/s/x/listen/2" && !window.__sameDocument`, 25000), await page.url());
+  await page.goto(base + "/tv/s/x/title/1?modern=1");
+  check(L("?modern=1 turns the extras back on"), await page.waitFor(`document.documentElement.className.indexOf("modern") >= 0`, 5000));
 
   // A bad audio link is replaced by asking again.
   audioManifests = 0;

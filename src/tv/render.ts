@@ -25,7 +25,7 @@ export const ASSET_VERSION = (process.env.VERCEL_GIT_COMMIT_SHA ?? "dev").slice(
 
 export function tvDocument(opts: { title: string; body: string; script?: boolean; bodyClass?: string }): string {
   return (
-    `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>${esc(opts.title)} · Roam</title>` +
+    `<!doctype html><html lang="en"${process.env.TV_BASIC_ONLY === "1" ? ' data-basic="1"' : ""}><head><meta charset="utf-8"><title>${esc(opts.title)} · Roam</title>` +
     `<meta name="viewport" content="width=device-width, initial-scale=1"><link rel="stylesheet" href="/tv/tv.css?v=${ASSET_VERSION}"></head>` +
     `<body${opts.bodyClass ? ` class="${esc(opts.bodyClass)}"` : ""}>${opts.body}` +
     (opts.script === false ? "" : `<script src="/tv/tv.js?v=${ASSET_VERSION}"></script>`) +
@@ -149,18 +149,22 @@ export interface DetailData {
   listHeading?: string;
   /** A square cover, not a tall poster. */
   square?: boolean;
+  /** A wide picture behind the page, shown only on browsers new enough to do it well (the basic page never downloads it). */
+  backdropUrl?: string | null;
   seasons?: { href: string; label: string; current: boolean }[];
 }
 
 export function detailPage(d: DetailData): string {
   const img = safeUrl(d.posterUrl);
+  const back = safeUrl(d.backdropUrl);
+  const backdrop = back ? `<div class="backdrop"><img data-src="${esc(back)}" alt=""></div>` : "";
   const actions = d.actions.map((a, i) => `<a class="btn${a.primary ? " primary" : ""}" data-f${i === 0 ? " data-autofocus" : ""} href="${esc(safeUrl(a.href) ?? "/tv")}">${esc(a.label)}</a>`).join("");
   const seasons = d.seasons?.length ? `<div class="row">${d.seasons.map((s) => `<a class="btn${s.current ? " primary" : ""}" data-f href="${esc(safeUrl(s.href) ?? "/tv")}">${esc(s.label)}</a>`).join("")}</div>` : "";
   const eps = d.episodes?.length ? `<h2>${esc(d.listHeading ?? "Episodes")}</h2>${d.episodes.map((e) => `<a class="ep" data-f href="${esc(safeUrl(e.href) ?? "/tv")}">${esc(e.label)}${e.sub ? `<small>${esc(e.sub)}</small>` : ""}</a>`).join("")}` : "";
   return tvDocument({
     title: d.title,
     body:
-      `<div class="page">${top(`<a data-f data-back href="${esc(d.backHref)}" class="btn" style="margin:0">Back</a>`)}` +
+      `${backdrop}<div class="page">${top(`<a data-f data-back href="${esc(d.backHref)}" class="btn" style="margin:0">Back</a>`)}` +
       `<div class="detail"><span class="poster${d.square ? " sq" : ""}">${img ? `<img src="${esc(img)}" alt="">` : ""}</span><div class="text"><h1>${esc(d.title)}</h1><p class="sub">${esc(d.meta)}</p>` +
       (d.overview ? `<p class="overview">${esc(d.overview)}</p>` : "") +
       `<div>${actions}</div>${seasons}</div></div>${eps}</div>`,
@@ -219,17 +223,19 @@ export interface ListenData {
   skip: number;
   back: string;
   next: string | null;
+  /** An album's songs in order and which one this is, so newer browsers can move on to the next song without loading a new page. */
+  queue?: { items: { id: string; title: string; by: string | null }[]; index: number } | null;
 }
 
 export function listenPage(d: ListenData): string {
-  const cfg = JSON.stringify({ ownerKind: "title", ownerId: d.ownerId, remembers: d.remembers, skip: d.skip, back: safeUrl(d.back) ?? "/tv", next: d.next ? safeUrl(d.next) : null }).replace(/</g, "\\u003c");
+  const cfg = JSON.stringify({ ownerKind: "title", ownerId: d.ownerId, remembers: d.remembers, skip: d.skip, back: safeUrl(d.back) ?? "/tv", next: d.next ? safeUrl(d.next) : null, queue: d.queue ?? null }).replace(/</g, "\\u003c");
   const img = safeUrl(d.coverUrl);
   return tvDocument({
     title: d.title,
     bodyClass: "watch",
     body:
       `<div class="player listen"><audio id="pa"></audio><div class="cover">${img ? `<img src="${esc(img)}" alt="">` : ""}</div>` +
-      `<div class="now"><div class="t">${esc(d.title)}</div>${d.subtitle ? `<div class="by">${esc(d.subtitle)}</div>` : ""}</div><div id="status" class="status"></div>` +
+      `<div class="now"><div class="t" id="ttl">${esc(d.title)}</div><div class="by" id="by">${d.subtitle ? esc(d.subtitle) : ""}</div></div><div id="status" class="status"></div>` +
       `<div id="hud" class="hud on"><div id="bar" class="track" style="display:none"><b id="fill"></b></div><div id="clock" class="clock"></div></div></div>` +
       `<script type="application/json" id="listen-config">${cfg}</script>`,
   });

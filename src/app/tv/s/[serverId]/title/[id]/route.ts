@@ -27,6 +27,7 @@ export async function GET(request: Request, ctx: RouteContext<"/tv/s/[serverId]/
       meta: [t.year, formatRuntime(t.runtimeSeconds)].filter(Boolean).join(" · "),
       overview: t.overview,
       posterUrl: t.posterUrl,
+      backdropUrl: t.backdropUrl,
       backHref: library,
       actions: [{ href: watch, label: movie.resume ? `Resume${remaining ? ` (${remaining})` : ""}` : "Play", primary: true }, { href: library, label: "Back to library" }],
     })

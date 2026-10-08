@@ -23,6 +23,7 @@ export async function GET(request: Request, ctx: RouteContext<"/tv/s/[serverId]/
       skip: info.libraryKind === "audiobooks" ? 30 : 10,
       back: `${access.base}${info.back}`,
       next: info.next ? `${access.base}${info.next}` : null,
+      queue: info.queue,
     })
   );
 }
