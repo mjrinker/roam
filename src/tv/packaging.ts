@@ -4,21 +4,9 @@
  * so the generated files are tested; scripts/package-tv.ts writes them out.
  */
 import { xmlEscape } from "@/lib/demo/placeholder-epub";
+import { siteOrigin } from "@/lib/tv/origin";
 
-/** The site's origin from what someone typed, or null: it must be https (http only for localhost), with no login details, path or query. */
-export function siteOrigin(input: string | null | undefined): string | null {
-  let url: URL;
-  try {
-    url = new URL((input ?? "").trim());
-  } catch {
-    return null;
-  }
-  const local = url.hostname === "localhost" || url.hostname === "127.0.0.1";
-  if (url.protocol !== "https:" && !(local && url.protocol === "http:")) return null;
-  if (url.username || url.password) return null;
-  if (!/^[a-z0-9.-]+$/i.test(url.hostname)) return null;
-  return url.origin;
-}
+export { siteOrigin };
 
 export const TIZEN_PACKAGE_ID = "RoamTv0001";
 export const TIZEN_APP_ID = `${TIZEN_PACKAGE_ID}.Roam`;

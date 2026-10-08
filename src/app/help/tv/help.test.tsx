@@ -11,6 +11,15 @@ describe("the TV help page", () => {
     expect(html).toContain("roam.example/t");
     expect(html).toContain("roam.example/link");
   });
+  it("shows the short TV address when there is one, and still sends phones to the main address", async () => {
+    vi.stubEnv("NEXT_PUBLIC_TV_HOST", "roamtv.vercel.app");
+    vi.stubEnv("NEXT_PUBLIC_APP_URL", "https://main.example");
+    const html = renderToStaticMarkup(await TvHelpPage());
+    vi.unstubAllEnvs();
+    expect(html).toContain("roamtv.vercel.app/t");
+    expect(html).toContain("main.example/link");
+    expect(html).not.toContain("roam.example/");
+  });
   it("covers each kind of TV, and says plainly that Vizio has no browser", async () => {
     const html = renderToStaticMarkup(await TvHelpPage());
     for (const word of ["Samsung", "LG", "Fire TV", "Vizio", "QR code"]) expect(html).toContain(word);

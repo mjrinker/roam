@@ -78,6 +78,15 @@ describe("GET /tv/pair", () => {
     }
     expect(last).toBe(429);
   });
+  it("points the phone's link at the main site even when the TV came in through another address, and decodes to the code", async () => {
+    vi.stubEnv("NEXT_PUBLIC_APP_URL", "https://main.example");
+    const res = await GET(new Request("https://short.example/tv/pair", { headers: { "x-vercel-forwarded-for": "198.51.100.231", "user-agent": "Tizen" } }));
+    vi.unstubAllEnvs();
+    vi.stubEnv("TOKEN_ENCRYPTION_KEY", Buffer.alloc(32, 7).toString("base64"));
+    const body = await res.text();
+    expect(body).toContain("main.example/link");
+    expect(body).not.toContain("short.example");
+  });
   it("keeps the same code when the screen is reloaded, instead of spending another", async () => {
     const first = code(await (await getPage()).text());
     const again = code(await (await getPage()).text());

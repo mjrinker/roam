@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { headers } from "next/headers";
 import { BrandLogo } from "@/components/shell/brand";
+import { canonicalOrigin, tvHost } from "@/lib/tv/origin";
 
 export const metadata: Metadata = { title: "Watch Roam on your TV" };
 
@@ -12,7 +13,11 @@ const BRANDS: { name: string; steps: string[] }[] = [
 
 /** A page to send to a relative: how to open Roam on their TV, step by step. Public (no sign-in), and written for a phone screen. */
 export default async function TvHelpPage() {
-  const host = (await headers()).get("host") ?? "your Roam address";
+  const h = await headers();
+  const here = h.get("host") ?? "your Roam address";
+  // The short address to type on a TV (if one is set up), and the main address where a phone approves it.
+  const host = tvHost() ?? here;
+  const linkHost = new URL(canonicalOrigin(`https://${here}/`)).host;
   return (
     <main className="mx-auto flex w-full max-w-2xl flex-col gap-8 px-5 py-10">
       <BrandLogo variant="gradient" className="h-10 self-start" />
@@ -51,7 +56,7 @@ export default async function TvHelpPage() {
 
       <section className="flex flex-col gap-3">
         <h2 className="text-xl font-medium">3. Sign in with your phone</h2>
-        <p>The TV shows a square code (a QR code) and a short code. Open your phone&apos;s camera and point it at the square, then tap the link. Or open <strong>{host}/link</strong> on your phone and type the short code.</p>
+        <p>The TV shows a square code (a QR code) and a short code. Open your phone&apos;s camera and point it at the square, then tap the link. Or open <strong>{linkHost}/link</strong> on your phone and type the short code.</p>
         <p>Check that the TV it names is yours, then tap <strong>Yes, sign in this TV</strong>. The TV continues on its own.</p>
       </section>
 

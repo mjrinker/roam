@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { findAll, parseXml } from "@/lib/ebooks/xml";
+import { canonicalOrigin, tvHost } from "@/lib/tv/origin";
 import { TIZEN_APP_ID, TIZEN_PACKAGE_ID, siteOrigin, tizenConfig, validVersion, webosAppInfo, webosIndexHtml } from "./packaging";
 
 describe("siteOrigin", () => {
@@ -50,5 +51,17 @@ describe("webOS files", () => {
   it("accepts only dotted version numbers", () => {
     for (const ok of ["1.0", "1.0.0", "12.34.56"]) expect(validVersion(ok)).toBe(true);
     for (const bad of ["", "1", "1.0.0.0", "v1.0", "1.0-beta", "1..0"]) expect(validVersion(bad), bad).toBe(false);
+  });
+});
+
+describe("canonicalOrigin / tvHost", () => {
+  it("prefers the configured main site over the address a request came in on, and falls back to the request", () => {
+    expect(canonicalOrigin("https://short.example/tv/pair", "https://main.example")).toBe("https://main.example");
+    expect(canonicalOrigin("https://short.example/tv/pair", "https://main.example/some/path")).toBe("https://main.example");
+    for (const bad of [undefined, "", "javascript:alert(1)", "http://insecure.example", "main.example"]) expect(canonicalOrigin("https://short.example/x", bad), String(bad)).toBe("https://short.example");
+  });
+  it("accepts only a plain hostname as the TV's short address", () => {
+    expect(tvHost("RoamTV.vercel.app")).toBe("roamtv.vercel.app");
+    for (const bad of [undefined, "", "localhost", "a b.example", "https://x.example", "x.example/path", "x.example:8080", "-x.example", "<x>.example"]) expect(tvHost(bad), String(bad)).toBeNull();
   });
 });
