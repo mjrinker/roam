@@ -53,8 +53,11 @@ export default async function CreditsPage({ params }: PageProps<"/s/[serverId]/c
       <section className="flex flex-col gap-3">
         <h2 className="text-lg font-semibold tracking-tight">Photos, music, audiobooks and books</h2>
         <p className="text-sm leading-relaxed text-muted-foreground">
-          These are the real thing, not stand-ins: public-domain or CC0 photographs from Wikimedia Commons, Musopen&apos;s CC0 recordings of Chopin,
-          LibriVox&apos;s public-domain audiobook readings, and Project Gutenberg&apos;s public-domain books.
+          Public-domain or CC0 photographs from Wikimedia Commons, Musopen&apos;s CC0 recordings of Chopin, LibriVox&apos;s public-domain audiobook readings
+          and Project Gutenberg&apos;s public-domain books are shown as what they are. The albums by famous artists and the Tolkien books are stand-ins: their
+          names, track lists and years are the real ones (album details and covers come from MusicBrainz and the Cover Art Archive), but the songs are 40-second clips of
+          the CC0 Chopin recordings and the books hold public-domain text by William Morris, with a plain cover drawn for the demo. Those books are still in
+          copyright, so none of their text is included.
         </p>
         {groupedCredits().map((group) => (
           <details key={group.library} className="rounded-xl bg-white/[0.04] ring-1 ring-white/[0.08]">

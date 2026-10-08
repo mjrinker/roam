@@ -67,9 +67,12 @@ describe("/join/[token]", () => {
 });
 
 describe("demo notices", () => {
-  it("the banner says the footage is a stand-in and links to the credits", () => {
+  it("the banner says the videos, famous-artist albums and Tolkien books are stand-ins and links to the credits", () => {
     const html = renderToStaticMarkup(<DemoBanner serverId="srv" />);
-    expect(html).toContain("placeholder footage");
+    expect(html).toContain("placeholder files");
+    expect(html).toContain("videos");
+    expect(html).toContain("albums by famous");
+    expect(html).toContain("Tolkien books");
     expect(html).toContain('href="/s/srv/credits"');
   });
   it("TMDB's logo and its required non-endorsement notice are shown together", () => {

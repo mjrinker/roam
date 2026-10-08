@@ -84,6 +84,111 @@
   "source": "https://archive.org/details/adventures_holmes"
  },
  {
+  "library": "eBooks",
+  "name": "Alexandre Dumas - The Count of Monte Cristo",
+  "author": "Alexandre Dumas",
+  "licence": "Public domain (USA); Project Gutenberg",
+  "source": "https://www.gutenberg.org/ebooks/1184"
+ },
+ {
+  "library": "eBooks",
+  "name": "Arthur Conan Doyle - The Adventures of Sherlock Holmes",
+  "author": "Arthur Conan Doyle",
+  "licence": "Public domain (USA); Project Gutenberg",
+  "source": "https://www.gutenberg.org/ebooks/1661"
+ },
+ {
+  "library": "eBooks",
+  "name": "Bram Stoker - Dracula",
+  "author": "Bram Stoker",
+  "licence": "Public domain (USA); Project Gutenberg",
+  "source": "https://www.gutenberg.org/ebooks/345"
+ },
+ {
+  "library": "eBooks",
+  "name": "Charles Dickens - A Tale of Two Cities",
+  "author": "Charles Dickens",
+  "licence": "Public domain (USA); Project Gutenberg",
+  "source": "https://www.gutenberg.org/ebooks/98"
+ },
+ {
+  "library": "eBooks",
+  "name": "F. Scott Fitzgerald - The Great Gatsby",
+  "author": "F. Scott Fitzgerald",
+  "licence": "Public domain (USA); Project Gutenberg",
+  "source": "https://www.gutenberg.org/ebooks/64317"
+ },
+ {
+  "library": "eBooks",
+  "name": "H. G. Wells - The Time Machine",
+  "author": "H. G. Wells",
+  "licence": "Public domain (USA); Project Gutenberg",
+  "source": "https://www.gutenberg.org/ebooks/35"
+ },
+ {
+  "library": "eBooks",
+  "name": "H. G. Wells - The War of the Worlds",
+  "author": "H. G. Wells",
+  "licence": "Public domain (USA); Project Gutenberg",
+  "source": "https://www.gutenberg.org/ebooks/36"
+ },
+ {
+  "library": "eBooks",
+  "name": "Herman Melville - Moby Dick",
+  "author": "Herman Melville",
+  "licence": "Public domain (USA); Project Gutenberg",
+  "source": "https://www.gutenberg.org/ebooks/2701"
+ },
+ {
+  "library": "eBooks",
+  "name": "J. M. Barrie - Peter Pan",
+  "author": "J. M. Barrie",
+  "licence": "Public domain (USA); Project Gutenberg",
+  "source": "https://www.gutenberg.org/ebooks/16"
+ },
+ {
+  "library": "eBooks",
+  "name": "Jane Austen - Pride and Prejudice",
+  "author": "Jane Austen",
+  "licence": "Public domain (USA); Project Gutenberg",
+  "source": "https://www.gutenberg.org/ebooks/1342"
+ },
+ {
+  "library": "eBooks",
+  "name": "Lewis Carroll - Alice's Adventures in Wonderland",
+  "author": "Lewis Carroll",
+  "licence": "Public domain (USA); Project Gutenberg",
+  "source": "https://www.gutenberg.org/ebooks/11"
+ },
+ {
+  "library": "eBooks",
+  "name": "Mary Shelley - Frankenstein",
+  "author": "Mary Shelley",
+  "licence": "Public domain (USA); Project Gutenberg",
+  "source": "https://www.gutenberg.org/ebooks/84"
+ },
+ {
+  "library": "eBooks",
+  "name": "Oscar Wilde - The Picture of Dorian Gray",
+  "author": "Oscar Wilde",
+  "licence": "Public domain (USA); Project Gutenberg",
+  "source": "https://www.gutenberg.org/ebooks/174"
+ },
+ {
+  "library": "eBooks",
+  "name": "Robert Louis Stevenson - Treasure Island",
+  "author": "Robert Louis Stevenson",
+  "licence": "Public domain (USA); Project Gutenberg",
+  "source": "https://www.gutenberg.org/ebooks/120"
+ },
+ {
+  "library": "eBooks",
+  "name": "Stand-in text for the J.R.R. Tolkien titles (The Well at the World's End)",
+  "author": "William Morris",
+  "licence": "Public domain (USA); Project Gutenberg",
+  "source": "https://www.gutenberg.org/ebooks/169"
+ },
+ {
   "library": "Music",
   "name": "01 - Ballade No. 1 in G minor, Op. 23.mp3",
   "author": "Aaron Dunn (Musopen)",
@@ -163,6 +268,13 @@
  {
   "library": "Music",
   "name": "04 - Fantaisie-Impromptu in C-sharp minor, Op. 66.mp3",
+  "author": "Aaron Dunn (Musopen)",
+  "licence": "CC0 1.0",
+  "source": "https://archive.org/details/musopen-chopin"
+ },
+ {
+  "library": "Music",
+  "name": "Stand-in audio for the albums by famous artists (Chopin recordings)",
   "author": "Aaron Dunn (Musopen)",
   "licence": "CC0 1.0",
   "source": "https://archive.org/details/musopen-chopin"
@@ -505,6 +617,13 @@
  },
  {
   "library": "Photos",
+  "name": "Cox's bazar sea beach from hill.jpg",
+  "author": "Neel banick",
+  "licence": "CC0",
+  "source": "https://commons.wikimedia.org/wiki/File:Cox%27s_bazar_sea_beach_from_hill.jpg"
+ },
+ {
+  "library": "Photos",
   "name": "Cox's Bazar Sea Beach in 2024.05.jpg",
   "author": "CAPTAIN RAJU",
   "licence": "CC0",
@@ -572,13 +691,6 @@
   "author": "CAPTAIN RAJU",
   "licence": "CC0",
   "source": "https://commons.wikimedia.org/wiki/File:Cox%27s_Bazar_Sea_Beach_in_2025.07.jpg"
- },
- {
-  "library": "Photos",
-  "name": "Cox's bazar sea beach from hill.jpg",
-  "author": "Neel banick",
-  "licence": "CC0",
-  "source": "https://commons.wikimedia.org/wiki/File:Cox%27s_bazar_sea_beach_from_hill.jpg"
  },
  {
   "library": "Photos",
@@ -981,6 +1093,13 @@
  },
  {
   "library": "Photos",
+  "name": "Mountain in sual.jpg",
+  "author": "Hynsly Jade Delos Santos Tormis",
+  "licence": "CC0",
+  "source": "https://commons.wikimedia.org/wiki/File:Mountain_in_sual.jpg"
+ },
+ {
+  "library": "Photos",
   "name": "Mountain Lake Landscape.jpg",
   "author": "Afham Hamsyari",
   "licence": "CC0",
@@ -992,13 +1111,6 @@
   "author": "Frawiki90",
   "licence": "CC0",
   "source": "https://commons.wikimedia.org/wiki/File:Mountain_Without_Men.jpg"
- },
- {
-  "library": "Photos",
-  "name": "Mountain in sual.jpg",
-  "author": "Hynsly Jade Delos Santos Tormis",
-  "licence": "CC0",
-  "source": "https://commons.wikimedia.org/wiki/File:Mountain_in_sual.jpg"
  },
  {
   "library": "Photos",
@@ -1114,13 +1226,6 @@
  },
  {
   "library": "Photos",
-  "name": "RHS No Adults Allowed Garden - Chelsea Flower Show 2024 - DSC02137.jpg",
-  "author": "Daderot",
-  "licence": "CC0",
-  "source": "https://commons.wikimedia.org/wiki/File:RHS_No_Adults_Allowed_Garden_-_Chelsea_Flower_Show_2024_-_DSC02137.jpg"
- },
- {
-  "library": "Photos",
   "name": "Rara lake beauty.jpg",
   "author": "scvishnu7, phuchche,",
   "licence": "CC0",
@@ -1132,6 +1237,13 @@
   "author": "kordi_vahle (Pixabay user)",
   "licence": "CC0",
   "source": "https://commons.wikimedia.org/wiki/File:Red-sunset-over-blue-lake.jpg"
+ },
+ {
+  "library": "Photos",
+  "name": "RHS No Adults Allowed Garden - Chelsea Flower Show 2024 - DSC02137.jpg",
+  "author": "Daderot",
+  "licence": "CC0",
+  "source": "https://commons.wikimedia.org/wiki/File:RHS_No_Adults_Allowed_Garden_-_Chelsea_Flower_Show_2024_-_DSC02137.jpg"
  },
  {
   "library": "Photos",
@@ -1167,13 +1279,6 @@
   "author": "Jasper Shide",
   "licence": "CC0",
   "source": "https://commons.wikimedia.org/wiki/File:Rydell_National_Wildlife_Refuge_11.jpg"
- },
- {
-  "library": "Photos",
-  "name": "SZ 深圳 Shenzhen 南山區 Nanshan 深南大道 Shennan Blvd OCT forest trees July 2024 R12S 02.jpg",
-  "author": "LaouZEI bOENFUOO",
-  "licence": "CC0",
-  "source": "https://commons.wikimedia.org/wiki/File:SZ_%E6%B7%B1%E5%9C%B3_Shenzhen_%E5%8D%97%E5%B1%B1%E5%8D%80_Nanshan_%E6%B7%B1%E5%8D%97%E5%A4%A7%E9%81%93_Shennan_Blvd_OCT_forest_trees_July_2024_R12S_02.jpg"
  },
  {
   "library": "Photos",
@@ -1289,17 +1394,17 @@
  },
  {
   "library": "Photos",
-  "name": "Sunset Church Lake Tekapo. NZ.jpg",
-  "author": "Bernard Spragg. NZ from Christchurch, New Zealand",
-  "licence": "CC0",
-  "source": "https://commons.wikimedia.org/wiki/File:Sunset_Church_Lake_Tekapo._NZ_(9995066593).jpg"
- },
- {
-  "library": "Photos",
   "name": "Sunset at Lake Meridian Park (2025) - 0011.jpg",
   "author": "Roc0ast3r",
   "licence": "CC0",
   "source": "https://commons.wikimedia.org/wiki/File:Sunset_at_Lake_Meridian_Park_(2025)_-_0011.jpg"
+ },
+ {
+  "library": "Photos",
+  "name": "Sunset Church Lake Tekapo. NZ.jpg",
+  "author": "Bernard Spragg. NZ from Christchurch, New Zealand",
+  "licence": "CC0",
+  "source": "https://commons.wikimedia.org/wiki/File:Sunset_Church_Lake_Tekapo._NZ_(9995066593).jpg"
  },
  {
   "library": "Photos",
@@ -1321,6 +1426,13 @@
   "author": "Oursana",
   "licence": "CC0",
   "source": "https://commons.wikimedia.org/wiki/File:Sunsets_at_Lake_Como_2016_3.jpg"
+ },
+ {
+  "library": "Photos",
+  "name": "SZ 深圳 Shenzhen 南山區 Nanshan 深南大道 Shennan Blvd OCT forest trees July 2024 R12S 02.jpg",
+  "author": "LaouZEI bOENFUOO",
+  "licence": "CC0",
+  "source": "https://commons.wikimedia.org/wiki/File:SZ_%E6%B7%B1%E5%9C%B3_Shenzhen_%E5%8D%97%E5%B1%B1%E5%8D%80_Nanshan_%E6%B7%B1%E5%8D%97%E5%A4%A7%E9%81%93_Shennan_Blvd_OCT_forest_trees_July_2024_R12S_02.jpg"
  },
  {
   "library": "Photos",
@@ -1566,103 +1678,5 @@
   "author": "Ank Kumar",
   "licence": "CC0",
   "source": "https://commons.wikimedia.org/wiki/File:Zurich_Lake_(Ank_Kumar_Infosys_Limited)_40.jpg"
- },
- {
-  "library": "eBooks",
-  "name": "Alexandre Dumas - The Count of Monte Cristo",
-  "author": "Alexandre Dumas",
-  "licence": "Public domain (USA); Project Gutenberg",
-  "source": "https://www.gutenberg.org/ebooks/1184"
- },
- {
-  "library": "eBooks",
-  "name": "Arthur Conan Doyle - The Adventures of Sherlock Holmes",
-  "author": "Arthur Conan Doyle",
-  "licence": "Public domain (USA); Project Gutenberg",
-  "source": "https://www.gutenberg.org/ebooks/1661"
- },
- {
-  "library": "eBooks",
-  "name": "Bram Stoker - Dracula",
-  "author": "Bram Stoker",
-  "licence": "Public domain (USA); Project Gutenberg",
-  "source": "https://www.gutenberg.org/ebooks/345"
- },
- {
-  "library": "eBooks",
-  "name": "Charles Dickens - A Tale of Two Cities",
-  "author": "Charles Dickens",
-  "licence": "Public domain (USA); Project Gutenberg",
-  "source": "https://www.gutenberg.org/ebooks/98"
- },
- {
-  "library": "eBooks",
-  "name": "F. Scott Fitzgerald - The Great Gatsby",
-  "author": "F. Scott Fitzgerald",
-  "licence": "Public domain (USA); Project Gutenberg",
-  "source": "https://www.gutenberg.org/ebooks/64317"
- },
- {
-  "library": "eBooks",
-  "name": "H. G. Wells - The Time Machine",
-  "author": "H. G. Wells",
-  "licence": "Public domain (USA); Project Gutenberg",
-  "source": "https://www.gutenberg.org/ebooks/35"
- },
- {
-  "library": "eBooks",
-  "name": "H. G. Wells - The War of the Worlds",
-  "author": "H. G. Wells",
-  "licence": "Public domain (USA); Project Gutenberg",
-  "source": "https://www.gutenberg.org/ebooks/36"
- },
- {
-  "library": "eBooks",
-  "name": "Herman Melville - Moby Dick",
-  "author": "Herman Melville",
-  "licence": "Public domain (USA); Project Gutenberg",
-  "source": "https://www.gutenberg.org/ebooks/2701"
- },
- {
-  "library": "eBooks",
-  "name": "J. M. Barrie - Peter Pan",
-  "author": "J. M. Barrie",
-  "licence": "Public domain (USA); Project Gutenberg",
-  "source": "https://www.gutenberg.org/ebooks/16"
- },
- {
-  "library": "eBooks",
-  "name": "Jane Austen - Pride and Prejudice",
-  "author": "Jane Austen",
-  "licence": "Public domain (USA); Project Gutenberg",
-  "source": "https://www.gutenberg.org/ebooks/1342"
- },
- {
-  "library": "eBooks",
-  "name": "Lewis Carroll - Alice's Adventures in Wonderland",
-  "author": "Lewis Carroll",
-  "licence": "Public domain (USA); Project Gutenberg",
-  "source": "https://www.gutenberg.org/ebooks/11"
- },
- {
-  "library": "eBooks",
-  "name": "Mary Shelley - Frankenstein",
-  "author": "Mary Shelley",
-  "licence": "Public domain (USA); Project Gutenberg",
-  "source": "https://www.gutenberg.org/ebooks/84"
- },
- {
-  "library": "eBooks",
-  "name": "Oscar Wilde - The Picture of Dorian Gray",
-  "author": "Oscar Wilde",
-  "licence": "Public domain (USA); Project Gutenberg",
-  "source": "https://www.gutenberg.org/ebooks/174"
- },
- {
-  "library": "eBooks",
-  "name": "Robert Louis Stevenson - Treasure Island",
-  "author": "Robert Louis Stevenson",
-  "licence": "Public domain (USA); Project Gutenberg",
-  "source": "https://www.gutenberg.org/ebooks/120"
  }
 ]
