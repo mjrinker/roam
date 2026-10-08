@@ -1,0 +1,43 @@
+/* Roam's TV interface. Written for Chromium 56 (Samsung 2018): flexbox only, no grid/gap/aspect-ratio/inset/min()/max()/clamp(). */
+html { font-size: 1.25vw; }
+body { margin: 0; background: #0b0b10; color: #ececf1; font-family: Arial, Helvetica, sans-serif; line-height: 1.35; overflow-x: hidden; }
+a { color: inherit; text-decoration: none; }
+.page { padding: 2.6rem 3.5rem 3rem 3.5rem; }
+h1 { font-size: 2.6rem; margin: 0 0 0.4rem 0; font-weight: 700; }
+h2 { font-size: 1.7rem; margin: 2rem 0 0.9rem 0; font-weight: 600; color: #cfcfd8; }
+.sub { font-size: 1.2rem; color: #9a9aa6; margin: 0 0 1.2rem 0; }
+.top { display: flex; align-items: center; justify-content: space-between; margin-bottom: 1.4rem; }
+.brand { font-size: 1.6rem; font-weight: 700; color: #7fd8bd; letter-spacing: 0.05rem; }
+.row { display: flex; flex-wrap: wrap; }
+.card { display: block; width: 11rem; margin: 0 1.3rem 1.8rem 0; padding: 0.3rem; border-radius: 0.6rem; border: 0.25rem solid transparent; box-sizing: content-box; }
+.card .poster { display: block; width: 11rem; height: 16.5rem; background: #1c1c26; border-radius: 0.4rem; overflow: hidden; }
+.card .poster img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.card .name { display: block; margin-top: 0.5rem; font-size: 1.1rem; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.card .meta { display: block; font-size: 0.95rem; color: #8d8d99; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.card .bar { display: block; height: 0.35rem; background: #2a2a36; margin-top: 0.4rem; border-radius: 0.2rem; }
+.card .bar b { display: block; height: 0.35rem; background: #7fd8bd; border-radius: 0.2rem; }
+.tile { display: block; width: 24rem; margin: 0 1.5rem 1.5rem 0; padding: 1.4rem 1.6rem; border-radius: 0.8rem; background: #17171f; border: 0.25rem solid transparent; font-size: 1.5rem; }
+.tile small { display: block; margin-top: 0.3rem; font-size: 1rem; color: #8d8d99; }
+.btn { display: inline-block; margin: 0 1rem 1rem 0; padding: 0.9rem 2.2rem; border-radius: 0.6rem; background: #23232e; font-size: 1.4rem; border: 0.25rem solid transparent; }
+.btn.primary { background: #7fd8bd; color: #08110e; font-weight: 700; }
+.ep { display: block; padding: 0.9rem 1.2rem; margin-bottom: 0.5rem; border-radius: 0.5rem; background: #14141c; font-size: 1.25rem; border: 0.25rem solid transparent; }
+.ep small { color: #8d8d99; font-size: 1rem; margin-left: 0.8rem; }
+.detail { display: flex; }
+.detail .poster { width: 17rem; height: 25.5rem; flex-shrink: 0; background: #1c1c26; border-radius: 0.6rem; overflow: hidden; margin-right: 3rem; }
+.detail .poster img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.detail .text { flex: 1; min-width: 0; }
+.overview { font-size: 1.2rem; color: #b8b8c4; max-width: 52rem; margin: 0 0 1.6rem 0; }
+.code { font-size: 5rem; font-weight: 700; letter-spacing: 0.5rem; color: #7fd8bd; margin: 1.5rem 0; }
+.note { font-size: 1.15rem; color: #9a9aa6; max-width: 46rem; }
+.msg { font-size: 1.4rem; color: #e0b3a8; }
+[data-f]:focus { outline: none; border-color: #7fd8bd; background-color: #262634; transform: scale(1.04); }
+.btn.primary:focus { background-color: #a5ecd5; }
+.player { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: #000; }
+.player video { position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: #000; }
+.hud { position: absolute; left: 0; bottom: 0; width: 100%; padding: 2rem 3.5rem 2.2rem 3.5rem; box-sizing: border-box; background: rgba(0, 0, 0, 0.72); opacity: 0; transition: opacity 0.2s; }
+.hud.on { opacity: 1; }
+.hud .t { font-size: 1.6rem; font-weight: 700; margin-bottom: 0.8rem; }
+.track { height: 0.5rem; background: #3a3a46; border-radius: 0.3rem; }
+.track b { display: block; height: 0.5rem; width: 0; background: #7fd8bd; border-radius: 0.3rem; }
+.clock { margin-top: 0.7rem; font-size: 1.2rem; color: #c8c8d2; }
+.status { display: none; position: absolute; top: 45%; left: 0; width: 100%; text-align: center; font-size: 1.8rem; text-shadow: 0 0 0.5rem #000; }

@@ -3,15 +3,16 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev",
-    "build": "next build",
+    "dev": "tsx scripts/build-tv.ts && next dev",
+    "build": "tsx scripts/build-tv.ts && next build",
     "start": "next start",
     "lint": "eslint",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
     "db:push": "drizzle-kit push",
     "db:studio": "drizzle-kit studio",
-    "test": "vitest run"
+    "test": "vitest run",
+    "build:tv": "tsx scripts/build-tv.ts"
   },
   "dependencies": {
     "@base-ui/react": "^1.8.0",
@@ -43,6 +44,7 @@
     "@types/react-dom": "^19",
     "dotenv": "^18.0.3",
     "drizzle-kit": "^0.31.11",
+    "esbuild": "^0.28.2",
     "eslint": "^9",
     "eslint-config-next": "16.3.6",
     "tailwindcss": "^4",
