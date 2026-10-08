@@ -11,7 +11,7 @@ vi.mock("@/lib/db/client", async () => {
 import { makeAccount, makeServer } from "@/lib/playlists/test-db";
 import { servers } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
-import { checkDemoPlay, DEMO_RESTING_MESSAGE } from "./demo-limits";
+import { checkDemoPlay, DEMO_RESTING_MESSAGE, secondsUntilWindowRenews } from "./demo-limits";
 
 let db: import("@/lib/playlists/test-db").TestDb;
 beforeAll(() => {
@@ -24,6 +24,14 @@ async function world(demo: boolean) {
   if (demo) await db.update(servers).set({ isDemo: true }).where(eq(servers.id, server.id));
   return { owner, server };
 }
+
+describe("secondsUntilWindowRenews", () => {
+  it("counts down to the next UTC midnight, which is when the daily window starts over", () => {
+    expect(secondsUntilWindowRenews(new Date("2026-10-07T00:00:00Z"))).toBe(86_400);
+    expect(secondsUntilWindowRenews(new Date("2026-10-07T23:59:59Z"))).toBe(1);
+    expect(secondsUntilWindowRenews(new Date("2026-10-07T12:00:00Z"))).toBe(43_200);
+  });
+});
 
 describe("checkDemoPlay", () => {
   it("never limits, or even counts, a server that isn't a demo", async () => {

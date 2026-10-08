@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { checkDemoPlay } from "@/lib/auth/demo-limits";
+import { checkDemoPlay, secondsUntilWindowRenews } from "@/lib/auth/demo-limits";
 import { authorizeOwner } from "@/lib/auth/resolve-server";
 import { buildPlayManifest } from "@/lib/player/manifest";
 import { isPhotoLibraryKind } from "@/lib/libraries/profile";
@@ -24,7 +24,7 @@ export async function GET(
 
   // A public demo spends the owner's Box quota on every play, so it has a daily limit of its own.
   const demo = await checkDemoPlay(auth.serverId, auth.member.profile.id);
-  if (!demo.ok) return NextResponse.json({ error: demo.error }, { status: 429, headers: { "Cache-Control": "no-store", "Retry-After": "3600" } });
+  if (!demo.ok) return NextResponse.json({ error: demo.error }, { status: 429, headers: { "Cache-Control": "no-store", "Retry-After": String(secondsUntilWindowRenews()) } });
 
   const unsupportedCodecs = parseUnsupportedCodecs(new URL(request.url).searchParams.get("unsupportedCodecs"));
   const result = await buildPlayManifest(ownerKind, ownerId, auth.member.viewer.id, auth.serverId, unsupportedCodecs, isPhotoLibraryKind(auth.libraryKind));

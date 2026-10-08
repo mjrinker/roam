@@ -32,7 +32,7 @@ export const DEMO_SOURCES: DemoSource[] = [
     sourceUrl: "https://peach.blender.org/",
     license: "Creative Commons Attribution 3.0",
     licenseUrl: "https://creativecommons.org/licenses/by/3.0/",
-    filePattern: "big.?buck.?bunny|bbb",
+    filePattern: "big.?buck.?bunny|(^|[^a-z])bbb([^a-z]|$)",
     durationSeconds: 596,
   },
   {
@@ -52,7 +52,7 @@ export const DEMO_SOURCES: DemoSource[] = [
     sourceUrl: "https://mango.blender.org/",
     license: "Creative Commons Attribution 3.0",
     licenseUrl: "https://creativecommons.org/licenses/by/3.0/",
-    filePattern: "tears.?of.?steel|tos",
+    filePattern: "tears.?of.?steel|(^|[^a-z])tos([^a-z]|$)",
     durationSeconds: 734,
   },
   {

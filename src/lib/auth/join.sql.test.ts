@@ -112,6 +112,16 @@ describe("joining", () => {
     expect((await viewersOf(other.accountId)).every((v) => v.visibleOnServer)).toBe(true);
   });
 
+  it("lets a guest in only through a demo's link: a family server's open link needs a real sign-in", async () => {
+    const demo = await demoServer(true);
+    const family = await demoServer(false);
+    const g = await makeAccount(db, "g");
+    expect(await acceptJoin(family.token, { id: g.accountId }, { guest: true })).toEqual({ ok: false, reason: "not_found" });
+    expect(await roleOf(family.server.id, g.accountId)).toBeNull();
+    expect(await acceptJoin(demo.token, { id: g.accountId }, { guest: true })).toMatchObject({ ok: true });
+    expect(await acceptJoin(family.token, { id: g.accountId })).toMatchObject({ ok: true }); // a real sign-in is fine
+  });
+
   it("is limited per account, and a limited join adds nothing", async () => {
     const { server, token } = await demoServer();
     const a = await makeAccount(db, "a");

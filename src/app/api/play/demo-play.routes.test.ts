@@ -55,6 +55,9 @@ describe("GET /api/play on a demo server", () => {
     expect(h.built).toBe(2); // no manifest (no Box calls) was built for the refused plays
     const refused = await GET(new Request("http://x"), ctx(film.id));
     expect([refused.headers.get("cache-control"), (await refused.json()).error]).toEqual(["no-store", expect.stringContaining("resting")]);
+    const wait = Number(refused.headers.get("retry-after"));
+    expect(wait).toBeGreaterThan(0);
+    expect(wait).toBeLessThanOrEqual(86_400); // until the daily window renews, not a fixed hour
   });
 
   it("does not limit an ordinary server at all", async () => {

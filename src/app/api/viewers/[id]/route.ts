@@ -70,6 +70,8 @@ export async function PATCH(request: Request, ctx: RouteContext<"/api/viewers/[i
   }
 
   const { pin, ...rest } = changes;
+  // A guest can never make a profile visible to other visitors.
+  if (resolved.account.isGuest && rest.visibleOnServer !== undefined) rest.visibleOnServer = false;
   // Hiding a profile from the server also removes its access to playlists
   // other accounts shared with it, in the same transaction as the change.
   await retryOnContention(() =>

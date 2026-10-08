@@ -15,6 +15,11 @@ export const DEMO_PLAYS_PER_ACCOUNT_PER_HOUR = 30;
 
 export const DEMO_RESTING_MESSAGE = "The demo is resting for now: it has a daily limit on how much can be played. Come back tomorrow, or create your own server.";
 
+/** Seconds until the demo's daily window renews (the limiter's windows are whole UTC days). */
+export function secondsUntilWindowRenews(now = new Date()): number {
+  return 86_400 - (Math.floor(now.getTime() / 1000) % 86_400);
+}
+
 export type DemoPlayCheck = { ok: true } | { ok: false; error: string };
 
 /** Spends one play from the demo's budgets. Anything that isn't a demo server is always allowed and costs nothing. */

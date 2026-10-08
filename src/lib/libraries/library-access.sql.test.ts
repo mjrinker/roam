@@ -212,3 +212,21 @@ describe("database guarantees", () => {
     expect(lib.access).toBe("restricted");
   });
 });
+
+describe("the people list names a guest 'Guest', never its placeholder address", () => {
+  it("shows guests by that name and real people as before", async () => {
+    const { profiles, serverMembers } = await import("@/lib/db/schema");
+    const { eq } = await import("drizzle-orm");
+    const { getLibraryAccess } = await import("./access-service");
+    const admin = await makeAccount(db, "admin");
+    const server = await makeServer(db, admin.accountId);
+    const lib = await makeLibrary(db, server.id, "photos", "restricted");
+    const guest = await makeAccount(db, "g");
+    await db.update(profiles).set({ isGuest: true, email: `guest-${guest.accountId}@guest.invalid`, displayName: null }).where(eq(profiles.id, guest.accountId));
+    await db.insert(serverMembers).values({ serverId: server.id, profileId: guest.accountId, role: "viewer" });
+    const view = await getLibraryAccess(db, lib.id);
+    const names = view!.people.map((p) => p.name);
+    expect(names).toContain("Guest");
+    expect(names.some((n) => n.includes("guest.invalid"))).toBe(false);
+  });
+});

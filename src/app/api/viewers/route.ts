@@ -46,7 +46,8 @@ export async function POST(request: Request) {
         locale: parsed.data.locale ?? DEFAULT_LOCALE,
         maxAge: parsed.data.maxAge ?? null,
         allowUnrated: parsed.data.allowUnrated ?? false,
-        visibleOnServer: parsed.data.visibleOnServer ?? true,
+        // A guest is invisible to other visitors, whatever profiles it adds.
+        visibleOnServer: account.isGuest ? false : (parsed.data.visibleOnServer ?? true),
         pinHash: parsed.data.pin ? hashPin(parsed.data.pin) : null,
         sortOrder: nextOrder,
       })

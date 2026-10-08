@@ -10,7 +10,7 @@ import { Card, CardContent } from "@/components/ui/card";
  * or replaced. For a public demo: guests can enter with one click, and everyone who joins this way is hidden
  * from the other members.
  */
-export function JoinLinkManager({ serverId, initialToken, initialDemo }: { serverId: string; initialToken: string | null; initialDemo: boolean }) {
+export function JoinLinkManager({ serverId, initialToken, initialDemo, visibleProfileNames }: { serverId: string; initialToken: string | null; initialDemo: boolean; visibleProfileNames: string[] }) {
   const [token, setToken] = useState(initialToken);
   const [demo, setDemo] = useState(initialDemo);
   const [busy, setBusy] = useState(false);
@@ -73,6 +73,12 @@ export function JoinLinkManager({ serverId, initialToken, initialDemo }: { serve
                 Create an open join link
               </Button>
             </div>
+          )}
+          {(token || demo) && visibleProfileNames.length > 0 && (
+            <p className="rounded-lg bg-amber-400/10 px-3 py-2 text-xs text-amber-100/90 ring-1 ring-amber-400/20">
+              Visitors can see your profile{visibleProfileNames.length > 1 ? "s" : ""} named <strong>{visibleProfileNames.join(", ")}</strong> (for example when sharing a playlist). A profile is named from your email address
+              by default, so rename it or hide it from the server in Profiles before sharing the link publicly.
+            </p>
           )}
           <label className="flex items-start gap-3 text-sm">
             <input

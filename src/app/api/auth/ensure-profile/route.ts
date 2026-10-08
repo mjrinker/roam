@@ -35,7 +35,7 @@ export async function POST(request: Request) {
 
   if (joinToken) {
     // Always lands in the server's library (never on a path taken from the request).
-    const result = await acceptJoin(joinToken, profile, { hide: guest || created });
+    const result = await acceptJoin(joinToken, profile, { hide: guest || created, guest });
     if (result.ok) {
       scheduleGuestCleanup();
       return NextResponse.json({ redirectTo: `/s/${result.serverId}/library` });

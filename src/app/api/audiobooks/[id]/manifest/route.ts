@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { checkDemoPlay } from "@/lib/auth/demo-limits";
+import { checkDemoPlay, secondsUntilWindowRenews } from "@/lib/auth/demo-limits";
 import { authorizeOwner } from "@/lib/auth/resolve-server";
 import { buildAudiobookManifest } from "@/lib/player/audiobook-manifest";
 
@@ -14,7 +14,7 @@ export async function GET(_request: Request, ctx: RouteContext<"/api/audiobooks/
   }
 
   const demo = await checkDemoPlay(auth.serverId, auth.member.profile.id);
-  if (!demo.ok) return NextResponse.json({ error: demo.error }, { status: 429, headers: { "Cache-Control": "no-store", "Retry-After": "3600" } });
+  if (!demo.ok) return NextResponse.json({ error: demo.error }, { status: 429, headers: { "Cache-Control": "no-store", "Retry-After": String(secondsUntilWindowRenews()) } });
 
   const result = await buildAudiobookManifest(id, auth.member.viewer.id, auth.serverId);
   if (!result.ok) return NextResponse.json({ error: result.error }, { status: result.status });

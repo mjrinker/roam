@@ -54,7 +54,7 @@ export default async function BrowseLayout({
           />
           <main className="flex-1">{children}</main>
           <footer className="px-4 py-8">
-            <TmdbAttribution />
+            <TmdbAttribution creditsHref={serverRow?.isDemo ? `/s/${serverId}/credits` : undefined} />
           </footer>
           <PlayerErrorBoundary>
             <MiniPlayer serverId={serverId} />

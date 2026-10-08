@@ -30,6 +30,7 @@ export async function getLibraryAccess(ex: Db, libraryId: string): Promise<Libra
     .select({
       accountId: serverMembers.profileId,
       email: profiles.email,
+      isGuest: profiles.isGuest,
       displayName: profiles.displayName,
       role: serverMembers.role,
       granted: libraryMembers.accountId,
@@ -44,7 +45,7 @@ export async function getLibraryAccess(ex: Db, libraryId: string): Promise<Libra
     access: library.access,
     people: rows.map((r) => ({
       accountId: r.accountId,
-      name: r.displayName?.trim() || r.email,
+      name: r.isGuest ? "Guest" : r.displayName?.trim() || r.email,
       isAdmin: r.role === "admin",
       granted: r.granted !== null,
     })),

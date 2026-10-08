@@ -3,6 +3,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push: () => undefined }) }));
 
+import { TmdbAttribution } from "@/components/shell/tmdb-attribution";
 import { FavoriteButton } from "./favorite-button";
 import { PhotoTile, photoHref } from "./photo-tile";
 import { PhotoTimeline } from "./photo-timeline";
@@ -122,6 +123,14 @@ describe("timeline zoom and search copy", () => {
     expect(html).toContain("Nothing matches");
     expect(html).toContain("zzz");
     expect(html).not.toContain("No photos yet");
+  });
+});
+
+describe("footage credits link", () => {
+  it("the attribution footer links to the credits only when asked (a demo server)", () => {
+    const plain = renderToStaticMarkup(<TmdbAttribution />);
+    expect(plain).not.toContain("Footage credits");
+    expect(renderToStaticMarkup(<TmdbAttribution creditsHref="/s/srv/credits" />)).toContain('href="/s/srv/credits"');
   });
 });
 

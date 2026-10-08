@@ -134,7 +134,7 @@ async function main() {
   }
 
   const ffmpeg = await ensureFfmpeg();
-  const work = join(args.includes("--tmp") ? flag("--tmp")! : tmpdir(), `roam-demo-${process.pid}`);
+  const work = join(flag("--tmp") ?? tmpdir(), `roam-demo-${process.pid}`);
   await mkdir(work, { recursive: true });
   const folderIds = new Map<string, string>([["", root!]]);
   const created: string[] = [];
@@ -147,6 +147,10 @@ async function main() {
         key = `${key}/${part}`;
         if (!folderIds.has(key)) folderIds.set(key, await ensureFolder(serverId!, parent, part));
         parent = folderIds.get(key)!;
+      }
+      if ((await createBoxProviderForServer(serverId!).listFolder(parent)).some((e) => e.kind === "file" && e.name === file.fileName)) {
+        console.log("  already in Box, skipped");
+        continue;
       }
       const out = join(work, `${i}.mp4`);
       await encodeClip(ffmpeg, sourceFile.get(file.sourceId)!, out, file.startSeconds, file.durationSeconds);

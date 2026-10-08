@@ -38,18 +38,20 @@ export type JoinResult = { ok: true; serverId: string; isDemo: boolean } | { ok:
  * invisible to other members from the first moment (only used on demo servers, and only for accounts that
  * were just created, so nobody's existing visibility is changed).
  */
-export async function acceptJoin(token: string, account: { id: string }, opts: { hide?: boolean } = {}): Promise<JoinResult> {
+export async function acceptJoin(token: string, account: { id: string }, opts: { hide?: boolean; guest?: boolean } = {}): Promise<JoinResult> {
   // Limited per account; a fresh guest has a fresh budget, so the demo's own daily limits are what bound the cost.
   if (!(await checkRateLimit(account.id, "join_server", 20, 3600))) return { ok: false, reason: "rate_limited" };
   const target = await getJoinTarget(token);
   if (!target) return { ok: false, reason: "not_found" };
+  // One-click guest entry exists for public demos only; a family server's open link needs a real sign-in.
+  if (opts.guest && !target.isDemo) return { ok: false, reason: "not_found" };
 
+  // Hidden first, so a newcomer is never a visible member, even for a moment (or for good if this step failed).
+  if (opts.hide && target.isDemo) await db.update(viewers).set({ visibleOnServer: false }).where(eq(viewers.accountId, account.id));
   await db
     .insert(serverMembers)
     .values({ serverId: target.serverId, profileId: account.id, role: "viewer" })
     .onConflictDoNothing({ target: [serverMembers.serverId, serverMembers.profileId] });
-
-  if (opts.hide && target.isDemo) await db.update(viewers).set({ visibleOnServer: false }).where(eq(viewers.accountId, account.id));
   return { ok: true, serverId: target.serverId, isDemo: target.isDemo };
 }
 

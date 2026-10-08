@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { and, desc, eq, inArray } from "drizzle-orm";
 import { db } from "@/lib/db/client";
-import { invites, libraries, scanRuns, servers, titles } from "@/lib/db/schema";
+import { invites, libraries, scanRuns, servers, titles, viewers } from "@/lib/db/schema";
 import { requireServerAdmin } from "@/lib/auth/guards";
 import { LibraryManager } from "@/components/admin/library-manager";
 import { InviteManager } from "@/components/admin/invite-manager";
@@ -22,12 +22,15 @@ export default async function AdminPage({
   searchParams,
 }: PageProps<"/s/[serverId]/admin">) {
   const { serverId } = await params;
-  await requireServerAdmin(serverId);
+  const { profile: adminAccount } = await requireServerAdmin(serverId);
   const query = await searchParams;
   const errorParam = typeof query.error === "string" ? query.error : null;
 
   const [server] = await db.select().from(servers).where(eq(servers.id, serverId)).limit(1);
   const boxConnected = server?.boxAuthStatus === "connected";
+
+  // The names visitors will be able to see for the admin's own profiles (a profile is named from its email address by default).
+  const visibleProfileNames = (await db.select({ name: viewers.name }).from(viewers).where(and(eq(viewers.accountId, adminAccount.id), eq(viewers.visibleOnServer, true)))).map((v) => v.name);
 
   const allLibraries = await db
     .select()
@@ -157,7 +160,7 @@ export default async function AdminPage({
           metadataStatus: t.metadataStatus as "pending" | "not_found",
         }))}
       />
-      <JoinLinkManager serverId={serverId} initialToken={server?.joinToken ?? null} initialDemo={server?.isDemo ?? false} />
+      <JoinLinkManager serverId={serverId} initialToken={server?.joinToken ?? null} initialDemo={server?.isDemo ?? false} visibleProfileNames={visibleProfileNames} />
 
       <InviteManager
         serverId={serverId}
