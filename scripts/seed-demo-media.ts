@@ -1,5 +1,5 @@
 /**
- * Builds the public demo server's media in Box: ~18 short clips cut from openly licensed films (see
+ * Builds the public demo server's media in Box: 18 short clips (45 seconds) cut from two openly licensed films (see
  * src/lib/demo/catalog.ts), named as familiar movies and shows so Roam matches them to TMDB, in the folders Roam
  * scans. It works through the demo server's own stored Box connection, so connect Box to that server in Roam first.
  *
@@ -43,7 +43,7 @@ const has = (name: string) => args.includes(name);
 const VIDEO_EXT = /\.(mp4|m4v|mov|mkv|webm|avi)$/i;
 
 function listSources() {
-  console.log("Source films (all openly licensed; download one file of each, any resolution at or above 720p):\n");
+  console.log("Source films (all openly licensed; download one file of each, 720p or better; unzip them first):\n");
   for (const s of DEMO_SOURCES) {
     console.log(`  ${s.title}\n    ${s.credit}\n    ${s.license}  ${s.licenseUrl}\n    page: ${s.sourceUrl}\n    file name should match: /${s.filePattern}/i\n`);
   }
@@ -73,7 +73,7 @@ async function findSource(files: string[], source: DemoSource): Promise<string |
 }
 
 function encodeClip(ffmpeg: string, input: string, output: string, start: number, seconds: number): Promise<void> {
-  // 720p H.264 + AAC, index at the front: plays everywhere, and a 90-second clip is ~10-15 MB.
+  // 720p H.264 + AAC, index at the front: plays everywhere, and a 45-second clip is ~5-8 MB.
   const a = ["-hide_banner", "-loglevel", "error", "-y", "-ss", String(start), "-t", String(seconds), "-i", input, "-vf", "scale=-2:720", "-c:v", "libx264", "-preset", "veryfast", "-crf", "26", "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "96k", "-ac", "2", "-movflags", "+faststart", output];
   return new Promise((resolve, reject) => {
     const child = spawn(ffmpeg, a, { stdio: ["ignore", "ignore", "pipe"] });

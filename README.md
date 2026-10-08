@@ -80,7 +80,7 @@ You can try Roam as a guest, with no email or password: open the demo link, pres
 
 What to know before you click:
 
-- **The footage is placeholder.** The demo's movies and shows have real, familiar names, and their posters, descriptions and ratings come from TMDB, but every video is a short clip cut from an openly licensed film (Blender Foundation's open movies, Creative Commons Attribution). None of it is the film or show named. A banner says so on every page, and the credits page lists each clip, its author and its licence.
+- **The footage is placeholder.** The demo's movies and shows have real, familiar names, and their posters, descriptions and ratings come from TMDB, but every video is a 45-second clip cut from one of two openly licensed films (Big Buck Bunny and Sintel, Creative Commons Attribution 3.0). None of it is the film or show named. A banner says so on every page, and the credits page lists each clip, its author and its licence.
 - **You're a viewer, and invisible.** A guest can watch and make their own playlists and favorites; they can't change anything, can't create servers, and other visitors can't see them. Guest accounts are deleted after about a week without a visit.
 - **It has a daily play limit.** The videos stream from a real Box account, so the demo allows a fixed number of plays per day across all visitors. If it's "resting", come back tomorrow.
 
@@ -167,7 +167,7 @@ drizzle/          SQL migrations         supabase/rls.sql   deny-all RLS
 ## Credits and attribution
 
 - Movie and TV metadata and images: [TMDB](https://www.themoviedb.org). *This product uses the TMDB API but is not endorsed or certified by TMDB.*
-- Demo footage: clips of Big Buck Bunny, Sintel, Tears of Steel (© Blender Foundation, CC BY 3.0) and Elephants Dream (© Blender Foundation / Netherlands Media Art Institute, CC BY 2.5), cut and re-encoded. See `src/lib/demo/catalog.ts` and the demo's credits page.
+- Demo footage: clips cut and re-encoded from Big Buck Bunny (© copyright 2008, Blender Foundation / www.bigbuckbunny.org) and Sintel (© copyright Blender Foundation | durian.blender.org), both CC BY 3.0. See `src/lib/demo/catalog.ts` and the demo's credits page.
 
 ## About
 

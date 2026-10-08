@@ -1,12 +1,13 @@
 /**
  * What the public demo server holds. Its movies and shows carry real, TMDB-matchable names (so posters,
  * descriptions and ratings come from TMDB as on any server), but every file is placeholder footage cut from a
- * few openly licensed short films. This module is the single source of truth for that: which clips exist, how
+ * two openly licensed short films (Big Buck Bunny and Sintel, Creative Commons Attribution 3.0, confirmed on the films' own pages). This module is the single source of truth for that: which clips exist, how
  * they are credited, and which file plays which clip. The seeding script (scripts/seed-demo-media.ts) builds the
  * media from it, and the credits page lists it. Pure data and planning, so it can be tested.
  *
- * Licences below are the ones the Blender Foundation publishes for these films; check each film's own page
- * (sourceUrl) before publishing a demo.
+ * Tears of Steel and Elephants Dream are deliberately NOT used: Tears of Steel's soundtrack is published under a
+ * NoDerivs licence, which cutting and re-encoding could conflict with, and Elephants Dream's full film isn't on the mirror
+ * used to fetch the sources.
  */
 export interface DemoSource {
   id: string;
@@ -28,7 +29,7 @@ export const DEMO_SOURCES: DemoSource[] = [
   {
     id: "bbb",
     title: "Big Buck Bunny",
-    credit: "© Blender Foundation | peach.blender.org",
+    credit: "© copyright 2008, Blender Foundation / www.bigbuckbunny.org",
     sourceUrl: "https://peach.blender.org/",
     license: "Creative Commons Attribution 3.0",
     licenseUrl: "https://creativecommons.org/licenses/by/3.0/",
@@ -38,36 +39,16 @@ export const DEMO_SOURCES: DemoSource[] = [
   {
     id: "sintel",
     title: "Sintel",
-    credit: "© Blender Foundation | durian.blender.org",
+    credit: "© copyright Blender Foundation | durian.blender.org",
     sourceUrl: "https://durian.blender.org/",
     license: "Creative Commons Attribution 3.0",
     licenseUrl: "https://creativecommons.org/licenses/by/3.0/",
     filePattern: "sintel",
     durationSeconds: 888,
   },
-  {
-    id: "tos",
-    title: "Tears of Steel",
-    credit: "(CC) Blender Foundation | mango.blender.org",
-    sourceUrl: "https://mango.blender.org/",
-    license: "Creative Commons Attribution 3.0",
-    licenseUrl: "https://creativecommons.org/licenses/by/3.0/",
-    filePattern: "tears.?of.?steel|(^|[^a-z])tos([^a-z]|$)",
-    durationSeconds: 734,
-  },
-  {
-    id: "ed",
-    title: "Elephants Dream",
-    credit: "© Blender Foundation / Netherlands Media Art Institute | orange.blender.org",
-    sourceUrl: "https://orange.blender.org/",
-    license: "Creative Commons Attribution 2.5",
-    licenseUrl: "https://creativecommons.org/licenses/by/2.5/",
-    filePattern: "elephants.?dream",
-    durationSeconds: 653,
-  },
 ];
 
-export const CLIP_SECONDS = 90;
+export const CLIP_SECONDS = 45;
 /** Leave the opening and the closing credits of each film alone. */
 const CLIP_START_MARGIN = 20;
 
@@ -123,7 +104,7 @@ export const safeName = (s: string) => s.replace(/[\\/:*?"<>|]/g, "").replace(/\
 
 /**
  * Lays out every demo file in the Plex-style names Roam scans, assigning each a clip: the sources in turn, each
- * source cut into non-overlapping 90-second pieces, so no two files show the same footage.
+ * source cut into non-overlapping 45-second pieces, so no two files show the same footage.
  */
 export function planDemoMedia(sources: DemoSource[] = DEMO_SOURCES): PlannedFile[] {
   const cursor = new Map<string, number>(sources.map((s) => [s.id, CLIP_START_MARGIN]));

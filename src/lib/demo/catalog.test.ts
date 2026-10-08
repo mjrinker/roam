@@ -59,8 +59,8 @@ describe("demoCredits", () => {
     const credits = demoCredits();
     expect(credits.length).toBeGreaterThan(0);
     for (const c of credits) {
-      expect(c.credit).toMatch(/Blender/);
-      expect(c.license).toMatch(/Creative Commons/);
+      expect(c.credit).toMatch(/Blender Foundation/);
+      expect(c.license).toBe("Creative Commons Attribution 3.0");
       expect(c.sourceUrl).toMatch(/^https:\/\//);
       expect(c.licenseUrl).toMatch(/^https:\/\/creativecommons\.org\//);
       expect(c.usedFor.length).toBeGreaterThan(0);
