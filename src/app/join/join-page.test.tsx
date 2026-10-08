@@ -72,7 +72,8 @@ describe("demo notices", () => {
     expect(html).toContain("placeholder files");
     expect(html).toContain("videos");
     expect(html).toContain("albums by famous");
-    expect(html).toContain("Tolkien books");
+    expect(html).toContain("some eBooks");
+    expect(html).not.toContain("Tolkien");
     expect(html).toContain('href="/s/srv/credits"');
   });
   it("TMDB's logo and its required non-endorsement notice are shown together", () => {
