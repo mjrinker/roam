@@ -31,45 +31,107 @@ export function decodeEntities(s: string): string {
 
 const local = (qname: string) => qname.slice(qname.indexOf(":") + 1).toLowerCase();
 
-const TOKEN = /<!--[\s\S]*?-->|<!\[CDATA\[([\s\S]*?)\]\]>|<[?!][^>]*>|<\/([^\s>]+)\s*>|<([^\s/>!?][^\s/>]*)((?:\s+[^\s=/>]+\s*=\s*(?:"[^"]*"|'[^']*'))*)\s*(\/?)>/g;
-const ATTR = /([^\s=/>]+)\s*=\s*(?:"([^"]*)"|'([^']*)')/g;
+const CONTROL = /[\u0000-\u0008\u000b\u000c\u000e-\u001f]/g;
+/** Control characters (a NUL most of all) can't be stored as text; they mean nothing in a title, a description or a name. */
+const clean = (t: string) => t.replace(CONTROL, "");
+
+const isSpace = (c: string) => c === " " || c === "\t" || c === "\n" || c === "\r";
+
+/**
+ * Reads one start tag whose "<" is at `from`: its name, attributes and whether it is self-closing. Linear in the
+ * length of the tag; returns null for anything that is not a well-formed tag (the caller then skips the "<").
+ */
+function readStartTag(xml: string, from: number): { name: string; attrs: Record<string, string>; selfClosing: boolean; end: number } | null {
+  let i = from + 1;
+  const nameStart = i;
+  // A name never contains "<": stopping there keeps a run of them from being re-read by every tag that starts inside it.
+  while (i < xml.length && !isSpace(xml[i]) && xml[i] !== ">" && xml[i] !== "/" && xml[i] !== "<") i++;
+  if (i === nameStart || xml[i] === "<") return null;
+  const name = local(xml.slice(nameStart, i));
+  const attrs: Record<string, string> = {};
+  while (i < xml.length) {
+    while (i < xml.length && isSpace(xml[i])) i++;
+    if (xml[i] === ">") return { name, attrs, selfClosing: false, end: i + 1 };
+    if (xml[i] === "/") {
+      if (xml[i + 1] === ">") return { name, attrs, selfClosing: true, end: i + 2 };
+      return null;
+    }
+    const keyStart = i;
+    while (i < xml.length && !isSpace(xml[i]) && xml[i] !== "=" && xml[i] !== ">" && xml[i] !== "/" && xml[i] !== "<") i++;
+    const key = xml.slice(keyStart, i);
+    while (i < xml.length && isSpace(xml[i])) i++;
+    if (!key || xml[i] !== "=") return null;
+    i++;
+    while (i < xml.length && isSpace(xml[i])) i++;
+    const quote = xml[i];
+    if (quote !== '"' && quote !== "'") return null;
+    const close = xml.indexOf(quote, i + 1);
+    if (close < 0) return null;
+    attrs[local(key)] = clean(decodeEntities(xml.slice(i + 1, close)));
+    i = close + 1;
+  }
+  return null;
+}
 
 export function parseXml(source: string): XmlNode {
   const xml = source.length > MAX_XML_CHARS ? source.slice(0, MAX_XML_CHARS) : source;
   const root: XmlNode = { name: "#root", attrs: {}, children: [], text: "" };
   const stack: XmlNode[] = [root];
   let nodes = 0;
-  let last = 0;
-  TOKEN.lastIndex = 0;
   const addText = (t: string) => {
-    // Control characters (a NUL most of all) can't be stored as text; they mean nothing in a title or a description.
-    const clean = t.replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f]/g, "");
-    if (clean) stack[stack.length - 1].text += clean;
+    const text = clean(t);
+    if (text) stack[stack.length - 1].text += text;
   };
-  for (let m = TOKEN.exec(xml); m; m = TOKEN.exec(xml)) {
-    addText(decodeEntities(xml.slice(last, m.index)));
-    last = TOKEN.lastIndex;
-    if (m[1] !== undefined) addText(m[1]); // CDATA: taken literally
-    else if (m[2] !== undefined) {
-      // closing tag: pop to the matching open element (ignoring stray closers)
-      const name = local(m[2]);
-      for (let i = stack.length - 1; i > 0; i--) {
-        if (stack[i].name === name) {
-          stack.length = i;
+
+  // One pass, each step moving forward by at least one character, every search for a terminator done with indexOf (so
+  // an unterminated comment or CDATA section ends the document instead of being rescanned).
+  let i = 0;
+  while (i < xml.length) {
+    const lt = xml.indexOf("<", i);
+    if (lt < 0) {
+      addText(decodeEntities(xml.slice(i)));
+      break;
+    }
+    addText(decodeEntities(xml.slice(i, lt)));
+    if (xml.startsWith("<!--", lt)) {
+      const end = xml.indexOf("-->", lt + 4);
+      if (end < 0) break;
+      i = end + 3;
+    } else if (xml.startsWith("<![CDATA[", lt)) {
+      const end = xml.indexOf("]]>", lt + 9);
+      if (end < 0) break;
+      addText(xml.slice(lt + 9, end));
+      i = end + 3;
+    } else if (xml[lt + 1] === "?" || xml[lt + 1] === "!") {
+      const end = xml.indexOf(">", lt + 2);
+      if (end < 0) break;
+      i = end + 1;
+    } else if (xml[lt + 1] === "/") {
+      const end = xml.indexOf(">", lt + 2);
+      if (end < 0) break;
+      const name = local(xml.slice(lt + 2, end).trim());
+      // pop to the matching open element (ignoring stray closers)
+      for (let d = stack.length - 1; d > 0; d--) {
+        if (stack[d].name === name) {
+          stack.length = d;
           break;
         }
       }
-    } else if (m[3] !== undefined) {
+      i = end + 1;
+    } else {
+      const tag = readStartTag(xml, lt);
+      if (!tag) {
+        addText("<"); // not a tag: a literal "<"
+        i = lt + 1;
+        continue;
+      }
       if (++nodes > MAX_NODES || stack.length > MAX_DEPTH) break;
-      const attrs: Record<string, string> = {};
-      ATTR.lastIndex = 0;
-      for (let a = ATTR.exec(m[4] ?? ""); a; a = ATTR.exec(m[4] ?? "")) attrs[local(a[1])] = decodeEntities(a[2] ?? a[3] ?? "");
-      const node: XmlNode = { name: local(m[3]), attrs, children: [], text: "" };
+      const node: XmlNode = { name: tag.name, attrs: tag.attrs, children: [], text: "" };
       stack[stack.length - 1].children.push(node);
-      if (!m[5]) stack.push(node);
+      if (!tag.selfClosing) stack.push(node);
+      i = tag.end;
     }
   }
-  addText(decodeEntities(xml.slice(last)));
   return root;
 }
 

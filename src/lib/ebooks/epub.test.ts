@@ -30,6 +30,44 @@ describe("xml reader", () => {
   });
 });
 
+describe("hostile input", () => {
+  const time = (fn: () => void) => {
+    const t = Date.now();
+    fn();
+    return Date.now() - t;
+  };
+  it("reads adversarial documents of the maximum size in linear time (no construct is re-scanned)", () => {
+    for (const piece of ["<!--", "<![CDATA[", "<?x ", "<a ", "</", "<a b='", "<a b=", "<a/", "<", "&amp;", "<a b='&amp;"]) {
+      expect(time(() => parseXml(piece.repeat(Math.floor(2_000_000 / piece.length)))), piece).toBeLessThan(4000);
+    }
+  }, 60_000);
+  it("keeps what came before an unterminated construct", () => {
+    expect(textOf(findAll(parseXml("<a>kept<!-- never closed"), "a")[0])).toBe("kept");
+    expect(textOf(findAll(parseXml("<a>x</a><b>y<![CDATA[ open"), "b")[0])).toBe("y");
+  });
+  it("reads a package whose description is a huge run of '<' without a '>' in linear time, and caps it", () => {
+    const opf = `<package><metadata><dc:title>T</dc:title><dc:description>${"&lt;".repeat(500_000)}</dc:description></metadata></package>`;
+    let meta!: ReturnType<typeof parseOpf>;
+    expect(time(() => (meta = parseOpf(opf, "c.opf")))).toBeLessThan(4000);
+    expect(meta.description!.length).toBeLessThanOrEqual(4000);
+    expect(meta.title).toBe("T");
+  });
+  it("strips tags from a description without touching a lone '<'", () => {
+    expect(parseOpf("<package><metadata><dc:description>a &lt;b&gt;bold&lt;/b&gt; c &lt; d</dc:description></metadata></package>", "c.opf").description).toBe("a bold c < d");
+  });
+  it("removes control characters from attribute values too, and caps title, author and series lengths", () => {
+    const opf = `<package><metadata><dc:title>${"T".repeat(5000)}</dc:title><dc:creator>${"A".repeat(5000)}</dc:creator><meta name="calibre:series" content="Se\u0000ries\u0001"/></metadata></package>`;
+    const meta = parseOpf(opf, "c.opf");
+    expect(meta.series).toBe("Series");
+    expect(meta.title).toHaveLength(500);
+    expect(meta.authors[0]).toHaveLength(500);
+  });
+  it("keeps at most twenty authors", () => {
+    const creators = Array.from({ length: 60 }, (_, i) => `<dc:creator>Person ${i}</dc:creator>`).join("");
+    expect(parseOpf(`<package><metadata>${creators}</metadata></package>`, "c.opf").authors).toHaveLength(20);
+  });
+});
+
 describe("resolveInBook", () => {
   it("joins to the package's folder, decodes, drops fragments, and refuses to climb out of the book", () => {
     expect(resolveInBook("OEBPS/content.opf", "images/cover.jpg")).toBe("OEBPS/images/cover.jpg");

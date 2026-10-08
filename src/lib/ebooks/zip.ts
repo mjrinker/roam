@@ -88,6 +88,10 @@ export async function readZipDirectory(fetchRange: RangeFetcher, fileSize: numbe
 /** One entry's bytes, decompressed. `maxBytes` caps what it may expand to (and so what is read). */
 export async function readZipEntry(fetchRange: RangeFetcher, entry: ZipEntry, fileSize: number, maxBytes = MAX_ENTRY_BYTES): Promise<Uint8Array> {
   if (entry.size > maxBytes) throw new ZipError("That ZIP entry is too large.");
+  // The directory's claims are checked BEFORE anything is fetched: a stored entry is exactly its size, and deflated data can
+  // only be slightly bigger than what it holds, so a huge compressed size next to a small size is a lie (or a bomb).
+  const slack = entry.size + Math.ceil(entry.size / 1000) + 1024;
+  if (entry.method === 0 ? entry.compressedSize !== entry.size : entry.compressedSize > slack) throw new ZipError("The ZIP entry is damaged.");
   const head = bytes(await fetchRange(entry.localHeaderOffset, Math.min(entry.localHeaderOffset + 29, fileSize - 1)));
   if (head.length < 30) throw new ZipError("The ZIP entry is damaged.");
   const hv = new DataView(head.buffer, head.byteOffset, head.byteLength);

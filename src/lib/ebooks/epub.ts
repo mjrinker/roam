@@ -59,7 +59,31 @@ export function parseContainer(xml: string): string | null {
   return path ? normalize(path) : null;
 }
 
-const plain = (html: string) => html.replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim();
+/** Text without tags, linear in the input however many "<" it has without a ">" (a regex here would rescan on every one). */
+function plain(html: string): string {
+  let out = "";
+  let i = 0;
+  while (i < html.length) {
+    const lt = html.indexOf("<", i);
+    if (lt < 0) {
+      out += html.slice(i);
+      break;
+    }
+    out += html.slice(i, lt);
+    const gt = html.indexOf(">", lt + 1);
+    if (gt < 0) {
+      out += html.slice(lt); // a lone "<" with no tag after it: kept as text
+      break;
+    }
+    out += " ";
+    i = gt + 1;
+  }
+  return out.replace(/\s+/g, " ").trim();
+}
+
+const MAX_FIELD = 500;
+const MAX_RAW_DESCRIPTION = 40_000;
+const capped = (s: string | null): string | null => (s ? s.slice(0, MAX_FIELD) : s);
 
 export function parseOpf(xml: string, opfPath: string): EpubMetadata {
   const doc = parseXml(xml);
@@ -68,10 +92,10 @@ export function parseOpf(xml: string, opfPath: string): EpubMetadata {
 
   const creators = (metadata ? findAll(metadata, "creator") : [])
     .filter((c) => !c.attrs.role || /^aut$/i.test(c.attrs.role))
-    .map((c) => textOf(c))
+    .map((c) => textOf(c).slice(0, MAX_FIELD))
     .filter(Boolean);
   const description = (() => {
-    const raw = textOf(metadata ? findAll(metadata, "description")[0] : undefined);
+    const raw = textOf(metadata ? findAll(metadata, "description")[0] : undefined).slice(0, MAX_RAW_DESCRIPTION);
     const text = plain(raw);
     return text ? text.slice(0, MAX_TEXT) : null;
   })();
@@ -83,7 +107,7 @@ export function parseOpf(xml: string, opfPath: string): EpubMetadata {
 
   const metas = metadata ? findAll(metadata, "meta") : [];
   const metaContent = (name: string) => metas.find((m) => m.attrs.name === name)?.attrs.content?.trim() || null;
-  let series = metaContent("calibre:series");
+  let series = capped(metaContent("calibre:series"));
   let seriesPosition = metaContent("calibre:series_index");
   if (!series) {
     // EPUB 3: <meta property="belongs-to-collection" id="c1">Name</meta> refined by collection-type=series and group-position.
@@ -92,7 +116,7 @@ export function parseOpf(xml: string, opfPath: string): EpubMetadata {
       const refines = (prop: string) => metas.find((m) => m.attrs.refines === `#${coll.attrs.id}` && m.attrs.property === prop);
       const type = textOf(refines("collection-type"));
       if (!type || type === "series") {
-        series = textOf(coll) || null;
+        series = capped(textOf(coll) || null);
         seriesPosition = textOf(refines("group-position")) || seriesPosition;
       }
     }
@@ -113,10 +137,10 @@ export function parseOpf(xml: string, opfPath: string): EpubMetadata {
   const coverPath = coverItem?.attrs.href ? resolveInBook(opfPath, coverItem.attrs.href) : null;
 
   return {
-    title: first("title"),
-    authors: [...new Set(creators)],
-    publisher: first("publisher"),
-    language: first("language"),
+    title: capped(first("title")),
+    authors: [...new Set(creators)].slice(0, 20),
+    publisher: capped(first("publisher")),
+    language: capped(first("language")),
     description,
     year: dateYear,
     series,

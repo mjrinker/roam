@@ -74,6 +74,16 @@ describe("readZipDirectory / readZipEntry", () => {
     await expect(readZipEntry(rangeOfBytes(zip), { ...entry, size: 10 }, zip.length)).rejects.toThrow(ZipError);
   });
 
+  it("refuses an entry whose compressed size is out of proportion, without fetching any of it", async () => {
+    const zip = buildZip([{ name: "a.txt", data: "a".repeat(1000) }, { name: "s.txt", data: "hello", method: 0 }]);
+    const dir = await readZipDirectory(rangeOfBytes(zip), zip.length);
+    const calls: [number, number][] = [];
+    const spy = async (s: number, e: number) => (calls.push([s, e]), rangeOfBytes(zip)(s, e));
+    await expect(readZipEntry(spy, { ...dir.get("a.txt")!, size: 10, compressedSize: 3_000_000_000 }, 4_000_000_000)).rejects.toThrow(ZipError);
+    await expect(readZipEntry(spy, { ...dir.get("s.txt")!, compressedSize: 4 }, zip.length)).rejects.toThrow(ZipError); // stored: must equal its size
+    expect(calls).toEqual([]);
+  });
+
   it("refuses a damaged directory, a bad local header, and offsets outside the file", async () => {
     const zip = buildZip([{ name: "a.txt", data: "hello" }]);
     const cut = zip.slice(0, zip.length - 30);
