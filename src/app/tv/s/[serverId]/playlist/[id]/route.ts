@@ -24,7 +24,7 @@ export async function GET(request: Request, ctx: RouteContext<"/tv/s/[serverId]/
       subtitle: [result.playlist.ownerName, result.playlist.description].filter(Boolean).join(" · ") || null,
       backHref: `${access.base}/playlists`,
       // Play all starts at the top (a following page of a long playlist is reached with More).
-      folders: after || !(await tvQueueStart(db, access.scope, id)) ? undefined : [{ href: `${here}/play`, name: "Play all", note: "One after another" }],
+      actions: after || !(await tvQueueStart(db, access.scope, id)) ? undefined : [{ href: `${here}/play`, name: "Play all", note: "One after another" }],
       items: result.items.flatMap((item) => {
         const href = playlistItemHref(item, id);
         const label = playlistItemLabel(item);

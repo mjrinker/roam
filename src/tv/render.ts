@@ -38,6 +38,20 @@ export const postButton = (action: string, label: string, opts: { autofocus?: bo
   `<form method="post" action="${esc(action)}" style="display:inline">${Object.entries(opts.fields ?? {}).map(([k, v]) => `<input type="hidden" name="${esc(k)}" value="${esc(v)}">`).join("")}` +
   `<button type="submit" class="${esc(opts.className ?? "btn")}" data-f${opts.autofocus ? " data-autofocus" : ""}>${esc(label)}</button></form>`;
 
+/** The most action buttons shown at once; any beyond this sit behind a More button. */
+export const MAX_ACTIONS = 2;
+
+/**
+ * A row of action buttons: the first MAX_ACTIONS as they are, the rest hidden behind a "More" button that shows them in place
+ * (the script toggles it; hidden things can't be reached with the arrows). `items` are already-rendered buttons and links.
+ */
+export function actionRow(items: string[]): string {
+  const shown = items.slice(0, MAX_ACTIONS).join("");
+  const rest = items.slice(MAX_ACTIONS);
+  if (rest.length === 0) return shown;
+  return `${shown}<span class="morewrap"><button type="button" class="btn" data-f data-more-toggle>More</button>${rest.map((x) => `<span class="more-item">${x}</span>`).join("")}</span>`;
+}
+
 const top = (right = "") => `<div class="top"><span class="brand">ROAM</span><span class="sub" style="margin:0">${right}</span></div>`;
 
 // ── Pairing ──────────────────────────────────────────────────────────────
@@ -118,7 +132,7 @@ export function homePage(d: HomeData): string {
   const more = d.unsupported > 0 ? `<p class="note">${d.unsupported} more ${d.unsupported === 1 ? "library isn't" : "libraries aren't"} available on TV yet.</p>` : "";
   return tvDocument({
     title: d.serverName,
-    body: `<div class="page"${d.screensaver ? ` data-saver="${esc(safeUrl(d.screensaver.href) ?? "")}" data-saver-after="${Math.max(1, Math.floor(d.screensaver.afterSeconds))}"` : ""}>${top(esc(d.profileName))}<h1>${esc(d.serverName)}</h1>${cont}${listening}${recent}${libs}${more}<div class="row" style="margin-top:2rem"><a class="btn" data-f href="${esc(d.base)}/search">Search</a>${d.hasPlaylists ? `<a class="btn" data-f href="${esc(d.base)}/playlists">Playlists</a>` : ""}<a class="btn" data-f href="/tv/profiles">Switch profile</a>${postButton("/tv/signout", "Sign out")}</div></div>`,
+    body: `<div class="page"${d.screensaver ? ` data-saver="${esc(safeUrl(d.screensaver.href) ?? "")}" data-saver-after="${Math.max(1, Math.floor(d.screensaver.afterSeconds))}"` : ""}>${top(esc(d.profileName))}<h1>${esc(d.serverName)}</h1>${cont}${listening}${recent}${libs}${more}<div class="row" style="margin-top:2rem">${actionRow([`<a class="btn" data-f href="${esc(d.base)}/search">Search</a>`, ...(d.hasPlaylists ? [`<a class="btn" data-f href="${esc(d.base)}/playlists">Playlists</a>`] : []), `<a class="btn" data-f href="/tv/profiles">Switch profile</a>`, postButton("/tv/signout", "Sign out")])}</div></div>`,
   });
 }
 
@@ -128,6 +142,8 @@ export interface ListData {
   subtitle?: string | null;
   backHref: string;
   items: Poster[];
+  /** Buttons at the top of the page (Play all, Shuffle...): two show, the rest sit behind More. */
+  actions?: { href: string; name: string; note?: string }[];
   /** Subfolders to open before the items. */
   folders?: { href: string; name: string; note?: string }[];
   /** Link to the next page, or null. */
@@ -138,8 +154,9 @@ export interface ListData {
 export function listPage(d: ListData): string {
   const body =
     `<div class="page">${top(`<a data-f data-back href="${esc(d.backHref)}" class="btn" style="margin:0">Back</a>`)}<h1>${esc(d.title)}</h1>${d.subtitle ? `<p class="sub">${esc(d.subtitle)}</p>` : ""}` +
-    (d.folders?.length ? `<div class="row">${d.folders.map((f, i) => `<a class="tile folder" data-f${i === 0 ? " data-autofocus" : ""} href="${esc(safeUrl(f.href) ?? "/tv")}">${esc(f.name)}<small>${esc(f.note ?? "Folder")}</small></a>`).join("")}</div>` : "") +
-    (d.items.length ? `<div class="row" data-cards>${d.items.map((c, i) => card(c, i === 0 && !d.folders?.length)).join("")}</div>` : d.folders?.length ? "" : `<p class="sub">Nothing here yet.</p>`) +
+    (d.actions?.length ? `<div class="row">${actionRow(d.actions.map((f, i) => `<a class="tile folder" data-f${i === 0 ? " data-autofocus" : ""} href="${esc(safeUrl(f.href) ?? "/tv")}">${esc(f.name)}<small>${esc(f.note ?? "")}</small></a>`))}</div>` : "") +
+    (d.folders?.length ? `<div class="row">${d.folders.map((f, i) => `<a class="tile folder" data-f${i === 0 && !d.actions?.length ? " data-autofocus" : ""} href="${esc(safeUrl(f.href) ?? "/tv")}">${esc(f.name)}<small>${esc(f.note ?? "Folder")}</small></a>`).join("")}</div>` : "") +
+    (d.items.length ? `<div class="row" data-cards>${d.items.map((c, i) => card(c, i === 0 && !d.folders?.length && !d.actions?.length)).join("")}</div>` : d.folders?.length || d.actions?.length ? "" : `<p class="sub">Nothing here yet.</p>`) +
     `<div class="row">${d.prevHref ? `<a class="btn" data-f href="${esc(d.prevHref)}">Previous</a>` : ""}${d.nextHref ? `<a class="btn" data-f data-more href="${esc(d.nextHref)}">More</a>` : ""}</div></div>`;
   return tvDocument({ title: d.title, body });
 }
@@ -168,9 +185,10 @@ export function detailPage(d: DetailData): string {
   const img = safeUrl(d.posterUrl);
   const back = safeUrl(d.backdropUrl);
   const backdrop = back ? `<div class="backdrop"><img data-src="${esc(back)}" alt=""></div>` : "";
-  const actions =
-    d.actions.map((a, i) => `<a class="btn${a.primary ? " primary" : ""}" data-f${i === 0 ? " data-autofocus" : ""} href="${esc(safeUrl(a.href) ?? "/tv")}">${esc(a.label)}</a>`).join("") +
-    (d.posts ?? []).map((p, i) => postButton(p.action, p.label, { fields: p.fields, autofocus: d.actions.length === 0 && i === 0 })).join("");
+  const actions = actionRow([
+    ...d.actions.map((a, i) => `<a class="btn${a.primary ? " primary" : ""}" data-f${i === 0 ? " data-autofocus" : ""} href="${esc(safeUrl(a.href) ?? "/tv")}">${esc(a.label)}</a>`),
+    ...(d.posts ?? []).map((p, i) => postButton(p.action, p.label, { fields: p.fields, autofocus: d.actions.length === 0 && i === 0 })),
+  ]);
   const seasons = d.seasons?.length ? `<div class="row">${d.seasons.map((s) => `<a class="btn${s.current ? " primary" : ""}" data-f href="${esc(safeUrl(s.href) ?? "/tv")}">${esc(s.label)}</a>`).join("")}</div>` : "";
   const eps = d.episodes?.length ? `<h2>${esc(d.listHeading ?? "Episodes")}</h2>${d.episodes.map((e) => `<a class="ep" data-f href="${esc(safeUrl(e.href) ?? "/tv")}">${esc(e.label)}${e.sub ? `<small>${esc(e.sub)}</small>` : ""}</a>`).join("")}` : "";
   return tvDocument({

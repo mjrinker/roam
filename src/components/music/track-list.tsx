@@ -21,7 +21,7 @@ export interface TrackListItem {
 }
 
 /** Play and Shuffle for an album: queues every song so it carries on to the next one. */
-export function AlbumPlayButtons({ ids }: { ids: string[] }) {
+export function AlbumPlayButtons({ ids, children }: { ids: string[]; children?: React.ReactNode }) {
   const p = useAudioPlayer();
   const current = p?.book?.titleId;
   // Only "in the album" when it is being played as a list: a song opened on its own has no queue, so Play starts the whole album.
@@ -47,6 +47,7 @@ export function AlbumPlayButtons({ ids }: { ids: string[] }) {
       <Button variant="secondary" disabled={!p || ids.length === 0} onClick={() => start(shuffled(ids))} className="h-12 gap-2 rounded-xl px-5">
         <Shuffle className="size-4" /> Shuffle
       </Button>
+      {children}
     </div>
   );
 }

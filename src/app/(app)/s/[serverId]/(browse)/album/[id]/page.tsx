@@ -12,6 +12,7 @@ import { and, eq, inArray } from "drizzle-orm";
 import { watchState } from "@/lib/db/schema";
 import { AddSongsToPlaylistMenu } from "@/components/playlists/add-songs-to-playlist-menu";
 import { MarkDoneButton } from "@/components/library/mark-done-button";
+import { MoreMenu } from "@/components/shell/more-menu";
 import { Breadcrumbs } from "@/components/shell/breadcrumbs";
 import { AlbumPlayButtons, TrackList } from "@/components/music/track-list";
 import { AlbumRematchButton } from "@/components/admin/album-rematch-button";
@@ -61,12 +62,13 @@ export default async function AlbumPage({ params }: PageProps<"/s/[serverId]/alb
             </Link>
             {[album.year, `${album.trackCount} ${album.trackCount === 1 ? "song" : "songs"}`, runtime].filter(Boolean).map((part) => ` · ${part}`)}
           </p>
-          <AlbumPlayButtons ids={tracks.map((t) => t.id)} />
-          <div className="flex flex-wrap items-center gap-3">
-            <AddSongsToPlaylistMenu serverId={serverId} target={{ albumId: album.id }} label="Add album to playlist" />
-            <MarkDoneButton kind="album" id={album.id} done={albumDone} media="listen" scope="album" compact />
-          </div>
-          {role === "admin" && viewer.role !== "limited" && <AlbumRematchButton albumId={album.id} matched={album.matched} />}
+          <AlbumPlayButtons ids={tracks.map((t) => t.id)}>
+            <MoreMenu>
+              <AddSongsToPlaylistMenu serverId={serverId} target={{ albumId: album.id }} label="Add album to playlist" />
+              <MarkDoneButton kind="album" id={album.id} done={albumDone} media="listen" scope="album" />
+              {role === "admin" && viewer.role !== "limited" && <AlbumRematchButton albumId={album.id} matched={album.matched} />}
+            </MoreMenu>
+          </AlbumPlayButtons>
         </div>
       </header>
       <TrackList tracks={tracks} serverId={serverId} />

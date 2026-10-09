@@ -10,6 +10,7 @@ import { ConfirmDialog } from "@/components/playlists/confirm-dialog";
 import { NameDialog } from "@/components/playlists/name-dialog";
 import { playlistApi } from "@/components/playlists/playlist-api";
 import { ShareDialog } from "@/components/playlists/share-dialog";
+import { MoreMenu } from "@/components/shell/more-menu";
 import { showShareButton, type ShareCaps } from "@/components/playlists/sharing";
 
 export interface PlaylistActionFlags {
@@ -62,6 +63,54 @@ export function PlaylistActions({
     router.push(`${listHref}/${res.data.id}`);
   }
 
+  // Play all and one more button; the rest go under More. Sharing comes first because it is what a playlist's owner reaches for.
+  const extra: { key: string; node: React.ReactNode }[] = [];
+  if (showShareButton(shareCaps))
+    extra.push({
+      key: "share",
+      node: (
+        <Button key="share" variant="secondary" className={secondary} onClick={() => setSharing(true)}>
+          <Share2 className="size-4" /> Share
+        </Button>
+      ),
+    });
+  if (can.copy)
+    extra.push({
+      key: "copy",
+      node: (
+        <Button key="copy" variant="secondary" className={secondary} disabled={copying} onClick={copy} title="Make your own copy">
+          <Copy className="size-4" /> {copying ? "Copying…" : "Copy"}
+        </Button>
+      ),
+    });
+  if (can.rename)
+    extra.push({
+      key: "rename",
+      node: (
+        <Button key="rename" variant="secondary" className={secondary} onClick={() => setRenaming(true)}>
+          <Pencil className="size-4" /> Rename
+        </Button>
+      ),
+    });
+  if (can.leave)
+    extra.push({
+      key: "leave",
+      node: (
+        <Button key="leave" variant="secondary" className={secondary} onClick={() => setLeaving(true)}>
+          <LogOut className="size-4" /> Leave
+        </Button>
+      ),
+    });
+  if (can.delete)
+    extra.push({
+      key: "delete",
+      node: (
+        <Button key="delete" variant="secondary" className={secondary} onClick={() => setDeleting(true)}>
+          <Trash2 className="size-4" /> Delete
+        </Button>
+      ),
+    });
+
   return (
     <>
       <div className="flex flex-wrap items-center gap-2.5">
@@ -77,31 +126,8 @@ export function PlaylistActions({
             <Play className="size-5" fill="currentColor" /> Play all
           </Button>
         )}
-        {can.copy && (
-          <Button variant="secondary" className={secondary} disabled={copying} onClick={copy} title="Make your own copy">
-            <Copy className="size-4" /> {copying ? "Copying…" : "Copy"}
-          </Button>
-        )}
-        {showShareButton(shareCaps) && (
-          <Button variant="secondary" className={secondary} onClick={() => setSharing(true)}>
-            <Share2 className="size-4" /> Share
-          </Button>
-        )}
-        {can.rename && (
-          <Button variant="secondary" className={secondary} onClick={() => setRenaming(true)}>
-            <Pencil className="size-4" /> Rename
-          </Button>
-        )}
-        {can.leave && (
-          <Button variant="secondary" className={secondary} onClick={() => setLeaving(true)}>
-            <LogOut className="size-4" /> Leave
-          </Button>
-        )}
-        {can.delete && (
-          <Button variant="secondary" className={secondary} onClick={() => setDeleting(true)}>
-            <Trash2 className="size-4" /> Delete
-          </Button>
-        )}
+        {extra[0]?.node}
+        <MoreMenu>{extra.slice(1).map((x) => x.node)}</MoreMenu>
       </div>
 
       {sharing && (

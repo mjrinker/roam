@@ -33,7 +33,7 @@ export async function GET(request: Request, ctx: RouteContext<"/tv/s/[serverId]/
       posts: libraryHasDoneState(movie.libraryKind)
         ? [{ action: `${access.base}/mark`, label: movie.finished ? doneWords("watch").markUndone : doneWords("watch").markDone, fields: { kind: "title", id, done: movie.finished ? "0" : "1", back: `${access.base}/title/${id}` } }]
         : [],
-      actions: [{ href: watch, label: movie.resume ? `Resume${remaining ? ` (${remaining})` : ""}` : "Play", primary: true }, { href: library, label: "Back to library" }, { href: `${access.base}/add?title=${id}&back=${encodeURIComponent(`${access.base}/title/${id}`)}`, label: "Add to playlist" }],
+      actions: [{ href: watch, label: movie.resume ? `Resume${remaining ? ` (${remaining})` : ""}` : "Play", primary: true }, { href: `${access.base}/add?title=${id}&back=${encodeURIComponent(`${access.base}/title/${id}`)}`, label: "Add to playlist" }],
     })
   );
 }

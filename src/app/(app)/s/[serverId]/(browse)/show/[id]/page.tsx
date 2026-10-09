@@ -16,6 +16,7 @@ import { FixAudioButton } from "@/components/admin/fix-audio-button";
 import { needsAudioFix } from "@/lib/scan/codec-support";
 import { DetailHero } from "@/components/library/detail-hero";
 import { MarkDoneButton } from "@/components/library/mark-done-button";
+import { MoreMenu } from "@/components/shell/more-menu";
 import { AddToPlaylistMenu } from "@/components/playlists/add-to-playlist-menu";
 import { Breadcrumbs } from "@/components/shell/breadcrumbs";
 import { SeasonEpisodes, type EpisodeRowData } from "@/components/library/season-episodes";
@@ -173,10 +174,12 @@ export default async function ShowDetailPage({
           </Button>
         )}
         <AddToPlaylistMenu serverId={serverId} target={{ titleId: show.id }} />
-        {rows.length > 0 && <MarkDoneButton kind="show" id={show.id} done={rows.some((r) => r.ready) && rows.filter((r) => r.ready).every((r) => r.watched)} media="watch" scope="show" />}
-        {role === "admin" && <TitleResyncButton titleId={show.id} titleName={show.name} />}
-        {role === "admin" && <TmdbMatchButton titleId={show.id} titleName={show.name} kind="show" />}
-        {role === "admin" && needsAudioFix(segments) && <FixAudioButton titleId={show.id} titleName={show.name} />}
+        <MoreMenu>
+          {rows.length > 0 && <MarkDoneButton kind="show" id={show.id} done={rows.some((r) => r.ready) && rows.filter((r) => r.ready).every((r) => r.watched)} media="watch" scope="show" />}
+          {role === "admin" && <TitleResyncButton titleId={show.id} titleName={show.name} />}
+          {role === "admin" && <TmdbMatchButton titleId={show.id} titleName={show.name} kind="show" />}
+          {role === "admin" && needsAudioFix(segments) && <FixAudioButton titleId={show.id} titleName={show.name} />}
+        </MoreMenu>
       </DetailHero>
 
       <SeasonEpisodes

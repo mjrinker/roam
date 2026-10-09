@@ -119,7 +119,7 @@ async function photosPage(access: Ok, here: string, url: URL, id: string) {
       subtitle: favorites ? result.library.name : null,
       backHref: favorites ? here : access.base,
       // The first screen offers the other ways in: pictures by folder, and the ones hearted on the web.
-      folders: !after && !favorites ? [{ href: `${here}?view=albums`, name: "Albums", note: "Pictures by folder" }, { href: `${here}?view=favorites`, name: "Favourites", note: "Pictures you hearted" }] : undefined,
+      actions: !after && !favorites ? [{ href: `${here}?view=albums`, name: "Albums", note: "Pictures by folder" }, { href: `${here}?view=favorites`, name: "Favourites", note: "Pictures you hearted" }] : undefined,
       items: result.items.map((p) => ({ href: p.kind === "movie" ? `${access.base}/watch/title/${p.id}${from}` : `${access.base}/photo/${p.id}${from}`, name: p.name, meta: p.takenAt ? p.takenAt.slice(0, 10) : null, posterUrl: p.posterUrl, square: true })),
       prevHref: null,
       nextHref: result.next ? `${here}?${favorites ? "view=favorites&" : ""}after=${encodeURIComponent(timeParam(result.next))}` : null,

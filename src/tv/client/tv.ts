@@ -977,6 +977,22 @@ function enhance() {
   for (let i = 0; i < imgs.length; i++) imgs[i].setAttribute("src", imgs[i].getAttribute("data-src") || "");
 }
 
+// ── "More" buttons ───────────────────────────────────────────────────────
+
+/** A More button shows or hides the actions behind it, in place (hidden ones can't be reached with the arrows). */
+doc.addEventListener("click", (e: MouseEvent) => {
+  const target = e.target as Element | null;
+  const toggle = target && target.closest ? target.closest("[data-more-toggle]") : null;
+  if (!toggle || !toggle.parentNode) return;
+  const wrap = toggle.parentNode as HTMLElement;
+  const opening = wrap.className.indexOf(" open") < 0;
+  wrap.className = opening ? wrap.className + " open" : wrap.className.replace(" open", "");
+  if (opening) {
+    const first = wrap.querySelector(".more-item [data-f]") as HTMLElement | null;
+    if (first) focusEl(first);
+  }
+});
+
 // ── Wiring ───────────────────────────────────────────────────────────────
 
 // A pointer remote (moving or clicking) counts as activity too, not only the arrow keys.

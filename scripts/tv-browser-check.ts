@@ -36,6 +36,7 @@ const pages: Record<string, string> = {
   "/tv/s/x/photo/3": photoViewPage({ title: "Picture three", imageUrl: "/media/missing.png", prev: "/tv/s/x/photo/2", next: null, back: "/tv/s/x/library/p", position: null }),
   "/tv/s/x/watch/episode/1": watchPage({ title: "The Show", subtitle: "S1 · E1", ownerKind: "episode", ownerId: "1", back: "/tv/s/x/title/1", next: "/tv/s/x/watch/episode/2" }),
   "/tv/s/x/watch/episode/2": watchPage({ title: "The Show", subtitle: "S1 · E2", ownerKind: "episode", ownerId: "2", back: "/tv/s/x/title/1", next: null }),
+  "/tv/s/x/title/9": detailPage({ title: "Many actions", meta: "2020", overview: null, posterUrl: null, backHref: "/tv/s/x/library/a", actions: [{ href: "/tv/s/x/watch/title/1", label: "Play", primary: true }, { href: "/tv/s/x/title/1", label: "Add" }, { href: "/tv/s/x/title/2", label: "Third" }], posts: [{ action: "/tv/s/x/mark", label: "Fourth", fields: { kind: "title", id: "1" } }] }),
   "/tv/s/x/watch/title/1": watchPage({ title: "Movie 1", subtitle: null, ownerKind: "title", ownerId: "1", back: "/tv/s/x/title/1", next: null }),
 };
 
@@ -204,7 +205,12 @@ async function run(label: string, exe: string, m56: boolean) {
   // A POST button (Sign out) works with the remote's OK key, and only then.
   await page.goto(base + "/tv/s/x");
   signouts = 0;
-  for (let i = 0; i < 12 && (await focusedText(page)) !== "Sign out"; i++) await key(page, i < 4 ? 40 : 39);
+  // Sign out sits behind More on the home screen: reach More, open it, and move on to Sign out.
+  const inButtonRow = async () => ["Search", "Switch profile"].includes(await focusedText(page));
+  for (let i = 0; i < 10 && !(await inButtonRow()); i++) await key(page, 40);
+  for (let i = 0; i < 4 && (await focusedText(page)) !== "More"; i++) await key(page, 39);
+  await key(page, 13);
+  for (let i = 0; i < 4 && (await focusedText(page)) !== "Sign out"; i++) await key(page, 39); // the revealed actions follow More
   check(L("the Sign out button can be reached with the arrows"), (await focusedText(page)) === "Sign out", await focusedText(page));
   await key(page, 13);
   check(L("OK on Sign out sends a POST and follows its redirect"), (await page.waitFor(`location.pathname === "/tv/pair"`)) && signouts === 1, `signouts=${signouts}`);
@@ -259,6 +265,23 @@ async function run(label: string, exe: string, m56: boolean) {
   check(L("down moves along the keyboard rows"), (await focusedText(page)) !== "A", await focusedText(page));
   for (let i = 0; i < 12 && !(await focusedText(page)).startsWith("Movie"); i++) await key(page, 39);
   check(L("right crosses from the keys to the results"), (await focusedText(page)).startsWith("Movie"), await focusedText(page));
+
+  // More: two actions show, the rest sit behind a More button that reveals them in place.
+  await page.goto(base + "/tv/s/x/title/9");
+  const shownButtons = `Array.prototype.filter.call(document.querySelectorAll(".detail .text [data-f]"), function (e) { return e.getBoundingClientRect().width > 0; }).map(function (e) { return e.textContent.trim(); }).join("|")`;
+  check(L("only two actions and More are shown at first"), (await page.evaluate<string>(shownButtons)) === "Play|Add|More", await page.evaluate<string>(shownButtons));
+  await key(page, 39);
+  await key(page, 39);
+  check(L("the arrows reach More"), (await focusedText(page)) === "More", await focusedText(page));
+  await key(page, 13);
+  check(L("OK on More shows the rest and moves onto the first of them"), (await page.evaluate<string>(shownButtons)) === "Play|Add|More|Third|Fourth" && (await focusedText(page)) === "Third", `${await page.evaluate<string>(shownButtons)} / ${await focusedText(page)}`);
+  await key(page, 39);
+  check(L("the arrows move through the revealed actions"), (await focusedText(page)) === "Fourth", await focusedText(page));
+  await key(page, 37);
+  await key(page, 37);
+  check(L("and back to More"), (await focusedText(page)) === "More", await focusedText(page));
+  await key(page, 13);
+  check(L("OK on More again hides them"), (await page.evaluate<string>(shownButtons)) === "Play|Add|More", await page.evaluate<string>(shownButtons));
 
   // A folder page: folders come first and take focus, and arrows reach the files below.
   await page.goto(base + "/tv/s/x/library/f");

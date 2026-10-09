@@ -13,6 +13,7 @@ import { AudibleMatchButton } from "@/components/admin/audible-match-dialog";
 import { TitleResyncButton } from "@/components/admin/title-resync-button";
 import { AddToPlaylistMenu } from "@/components/playlists/add-to-playlist-menu";
 import { MarkDoneButton } from "@/components/library/mark-done-button";
+import { MoreMenu } from "@/components/shell/more-menu";
 import { libraryHasDoneState } from "@/lib/libraries/profile";
 import { BookChapters, BookPlayButton, BookQueueAutoStart } from "@/components/audio/book-controls";
 import { isUuid } from "@/lib/playlists/http";
@@ -187,14 +188,12 @@ export default async function BookDetailPage({ params, searchParams }: PageProps
             )}
             <div className="flex flex-wrap justify-center gap-2 md:justify-start">
               <AddToPlaylistMenu serverId={serverId} target={{ titleId: book.id }} />
-              {libraryHasDoneState(row.libraryKind) && <MarkDoneButton kind="title" id={book.id} done={!!state?.finished} media="listen" />}
+              <MoreMenu>
+                {libraryHasDoneState(row.libraryKind) && <MarkDoneButton kind="title" id={book.id} done={!!state?.finished} media="listen" />}
+                {role === "admin" && libraryKindUsesExternalMetadata(row.libraryKind) && <AudibleMatchButton titleId={book.id} titleName={book.name} author={book.folderAuthor} />}
+                {role === "admin" && libraryKindUsesExternalMetadata(row.libraryKind) && <TitleResyncButton titleId={book.id} titleName={book.name} />}
+              </MoreMenu>
             </div>
-            {role === "admin" && libraryKindUsesExternalMetadata(row.libraryKind) && (
-              <div className="flex flex-wrap justify-center gap-2 md:justify-start">
-                <AudibleMatchButton titleId={book.id} titleName={book.name} author={book.folderAuthor} />
-                <TitleResyncButton titleId={book.id} titleName={book.name} />
-              </div>
-            )}
           </div>
         </div>
       </section>

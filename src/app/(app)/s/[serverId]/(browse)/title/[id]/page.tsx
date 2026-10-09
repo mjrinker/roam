@@ -17,6 +17,7 @@ import { needsAudioFix } from "@/lib/scan/codec-support";
 import { DetailHero } from "@/components/library/detail-hero";
 import { AddToPlaylistMenu } from "@/components/playlists/add-to-playlist-menu";
 import { MarkDoneButton } from "@/components/library/mark-done-button";
+import { MoreMenu } from "@/components/shell/more-menu";
 import { libraryHasDoneState } from "@/lib/libraries/profile";
 import { Breadcrumbs } from "@/components/shell/breadcrumbs";
 import { isFileTreeLibraryKind } from "@/lib/libraries/profile";
@@ -131,10 +132,12 @@ export default async function TitleDetailPage({
         </div>
       )}
       <AddToPlaylistMenu serverId={serverId} target={{ titleId: title.id }} />
-      {libraryHasDoneState(row.libraryKind) && <MarkDoneButton kind="title" id={title.id} done={!!state?.finished} media="watch" />}
-      {role === "admin" && !isGeneric && <TitleResyncButton titleId={title.id} titleName={title.name} />}
-      {role === "admin" && !isGeneric && <TmdbMatchButton titleId={title.id} titleName={title.name} kind="movie" />}
-      {role === "admin" && !isGeneric && needsAudioFix(segments) && <FixAudioButton titleId={title.id} titleName={title.name} />}
+      <MoreMenu>
+        {libraryHasDoneState(row.libraryKind) && <MarkDoneButton kind="title" id={title.id} done={!!state?.finished} media="watch" />}
+        {role === "admin" && !isGeneric && <TitleResyncButton titleId={title.id} titleName={title.name} />}
+        {role === "admin" && !isGeneric && <TmdbMatchButton titleId={title.id} titleName={title.name} kind="movie" />}
+        {role === "admin" && !isGeneric && needsAudioFix(segments) && <FixAudioButton titleId={title.id} titleName={title.name} />}
+      </MoreMenu>
     </DetailHero>
   );
 }
