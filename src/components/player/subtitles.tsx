@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Captions, Loader2 } from "lucide-react";
+import { Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { activeCues, parseSubtitleBytes, MAX_SUBTITLE_BYTES, type Cue } from "@/lib/subtitles/cues";
 import { SUBTITLE_LANGUAGES } from "@/lib/subtitles/languages";
@@ -144,81 +144,47 @@ function SubtitleFinder({ ownerKind, ownerId, onLoaded, onDone }: { ownerKind: s
   );
 }
 
-/** The captions button and its menu: off, what has been loaded for this viewing, a delay control, and a way to load more. Drawn inside the player so it works in fullscreen. */
-export function SubtitleMenu({ ownerKind, ownerId, tracks, activeId, onSelect, onLoaded, offset, onOffset }: { ownerKind: string; ownerId: string; tracks: readonly LoadedTrack[]; activeId: string | null; onSelect: (id: string | null) => void; onLoaded: (t: LoadedTrack) => void; offset: number; onOffset: (seconds: number) => void }) {
-  const [open, setOpen] = useState(false);
+/** The subtitle choices as a panel (the player's settings menu hosts it): off, what has been loaded for this viewing, a delay control, and a way to load more. */
+export function SubtitlePanel({ ownerKind, ownerId, tracks, activeId, onSelect, onLoaded, offset, onOffset, onDone }: { ownerKind: string; ownerId: string; tracks: readonly LoadedTrack[]; activeId: string | null; onSelect: (id: string | null) => void; onLoaded: (t: LoadedTrack) => void; offset: number; onOffset: (seconds: number) => void; onDone: () => void }) {
   const [finding, setFinding] = useState(false);
-  const box = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    if (!open) return;
-    const away = (e: PointerEvent) => !box.current?.contains(e.target as Node) && setOpen(false);
-    const key = (e: KeyboardEvent) => e.key === "Escape" && (e.stopPropagation(), setOpen(false));
-    document.addEventListener("pointerdown", away);
-    document.addEventListener("keydown", key, true);
-    return () => {
-      document.removeEventListener("pointerdown", away);
-      document.removeEventListener("keydown", key, true);
-    };
-  }, [open]);
-
   const item = "flex w-full items-center justify-between rounded-lg px-3 py-1.5 text-left text-sm outline-none hover:bg-white/15 focus-visible:bg-white/15";
+  if (finding) return <SubtitleFinder ownerKind={ownerKind} ownerId={ownerId} onLoaded={onLoaded} onDone={() => (setFinding(false), onDone())} />;
   return (
-    <div ref={box} className="relative">
-      <button
-        type="button"
-        aria-haspopup="menu"
-        aria-expanded={open}
-        aria-label={activeId ? "Subtitles, on" : "Subtitles, off"}
-        title="Subtitles"
-        onClick={() => (setOpen((o) => !o), setFinding(false))}
-        className={cn("flex size-10 items-center justify-center rounded-full outline-none hover:bg-white/15 focus-visible:ring-2 focus-visible:ring-ring", open && "bg-white/15", activeId && "text-primary")}
-      >
-        <Captions className="size-5" />
-      </button>
-      {open && (
-        <div role="menu" aria-label="Subtitles" className="absolute right-0 bottom-full z-10 mb-2 w-72 rounded-xl bg-black/90 p-1.5 text-white shadow-xl ring-1 ring-white/15 backdrop-blur">
-          {finding ? (
-            <SubtitleFinder ownerKind={ownerKind} ownerId={ownerId} onLoaded={onLoaded} onDone={() => (setFinding(false), setOpen(false))} />
-          ) : (
-            <>
-              <ul className="max-h-60 overflow-y-auto">
-                <li>
-                  <button type="button" role="menuitemradio" aria-checked={activeId === null} onClick={() => (onSelect(null), setOpen(false))} className={cn(item, activeId === null && "font-semibold text-primary")}>
-                    Off {activeId === null && <span aria-hidden>✓</span>}
-                  </button>
-                </li>
-                {tracks.map((t) => (
-                  <li key={t.id}>
-                    <button type="button" role="menuitemradio" aria-checked={activeId === t.id} onClick={() => (onSelect(t.id), setOpen(false))} className={cn(item, activeId === t.id && "font-semibold text-primary")}>
-                      <span className="truncate">{t.label}</span>
-                      {activeId === t.id && <span aria-hidden>✓</span>}
-                    </button>
-                  </li>
-                ))}
-              </ul>
-              {activeId && (
-                <div className="mt-1 flex items-center justify-between gap-2 border-t border-white/15 px-3 pt-2 pb-1 text-sm">
-                  <span className="text-white/70">Delay</span>
-                  <span className="flex items-center gap-1">
-                    <button type="button" aria-label="Subtitles earlier" onClick={() => onOffset(Math.round((offset - DELAY_STEP) * 10) / 10)} className="size-7 rounded-md bg-white/15 hover:bg-white/25">
-                      −
-                    </button>
-                    <span className="w-14 text-center tabular-nums">{offset > 0 ? "+" : ""}{offset.toFixed(1)}s</span>
-                    <button type="button" aria-label="Subtitles later" onClick={() => onOffset(Math.round((offset + DELAY_STEP) * 10) / 10)} className="size-7 rounded-md bg-white/15 hover:bg-white/25">
-                      +
-                    </button>
-                  </span>
-                </div>
-              )}
-              <div className="mt-1 border-t border-white/15 pt-1">
-                <button type="button" onClick={() => setFinding(true)} className={item}>
-                  Find or load subtitles…
-                </button>
-              </div>
-            </>
-          )}
+    <div role="menu" aria-label="Subtitles">
+      <ul className="max-h-60 overflow-y-auto">
+        <li>
+          <button type="button" role="menuitemradio" aria-checked={activeId === null} onClick={() => (onSelect(null), onDone())} className={cn(item, activeId === null && "font-semibold text-primary")}>
+            Off {activeId === null && <span aria-hidden>✓</span>}
+          </button>
+        </li>
+        {tracks.map((t) => (
+          <li key={t.id}>
+            <button type="button" role="menuitemradio" aria-checked={activeId === t.id} onClick={() => (onSelect(t.id), onDone())} className={cn(item, activeId === t.id && "font-semibold text-primary")}>
+              <span className="truncate">{t.label}</span>
+              {activeId === t.id && <span aria-hidden>✓</span>}
+            </button>
+          </li>
+        ))}
+      </ul>
+      {activeId && (
+        <div className="mt-1 flex items-center justify-between gap-2 border-t border-white/15 px-3 pt-2 pb-1 text-sm">
+          <span className="text-white/70">Delay</span>
+          <span className="flex items-center gap-1">
+            <button type="button" aria-label="Subtitles earlier" onClick={() => onOffset(Math.round((offset - DELAY_STEP) * 10) / 10)} className="size-7 rounded-md bg-white/15 hover:bg-white/25">
+              −
+            </button>
+            <span className="w-14 text-center tabular-nums">{offset > 0 ? "+" : ""}{offset.toFixed(1)}s</span>
+            <button type="button" aria-label="Subtitles later" onClick={() => onOffset(Math.round((offset + DELAY_STEP) * 10) / 10)} className="size-7 rounded-md bg-white/15 hover:bg-white/25">
+              +
+            </button>
+          </span>
         </div>
       )}
+      <div className="mt-1 border-t border-white/15 pt-1">
+        <button type="button" onClick={() => setFinding(true)} className={item}>
+          Find or load subtitles…
+        </button>
+      </div>
     </div>
   );
 }

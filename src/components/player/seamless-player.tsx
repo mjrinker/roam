@@ -19,9 +19,10 @@ import { Button } from "@/components/ui/button";
 import Link from "next/link";
 import { cn } from "@/lib/utils";
 import { useAudioActions } from "@/components/audio/audio-player-provider";
-import { InlineSpeedMenu } from "@/components/player/speed-menu";
 import { clampSpeed } from "@/lib/player/speed";
-import { SubtitleMenu, SubtitleOverlay, type LoadedTrack } from "@/components/player/subtitles";
+import { SubtitleOverlay, type LoadedTrack } from "@/components/player/subtitles";
+import { SettingsMenu } from "@/components/player/settings-menu";
+import { readPreferredHeight, writePreferredHeight } from "@/lib/player/quality-preference";
 import type { PlayManifest, PlayOwnerKind } from "@/lib/player/types";
 import { UNSUPPORTED_AUDIO_CODECS } from "@/lib/scan/codec-support";
 import {
@@ -122,13 +123,21 @@ function formatTime(totalSeconds: number) {
 // per codec (Safari plays AC-3 but not DTS), and computed once — the server
 // uses it to hand back a remuxed copy of any file whose audio is one of them.
 let unsupportedCodecsQuery: string | null = null;
-function playManifestUrl(ownerKind: PlayOwnerKind, ownerId: string): string {
+function playManifestUrl(ownerKind: PlayOwnerKind, ownerId: string, version?: string): string {
   if (unsupportedCodecsQuery === null) {
     const probe = document.createElement("video");
     const unsupported = UNSUPPORTED_AUDIO_CODECS.filter((codec) => !probe.canPlayType(`video/mp4; codecs="${codec}"`));
     unsupportedCodecsQuery = unsupported.length > 0 ? `?unsupportedCodecs=${unsupported.join(",")}` : "";
   }
-  return `/api/play/${ownerKind}/${ownerId}${unsupportedCodecsQuery}`;
+  // Which resolution: the one asked for, else the one closest to what this device last picked, else the best the title has.
+  const extra = new URLSearchParams();
+  if (version !== undefined) extra.set("version", version);
+  else {
+    const height = readPreferredHeight();
+    if (height !== null) extra.set("height", String(height));
+  }
+  const more = extra.toString();
+  return `/api/play/${ownerKind}/${ownerId}${unsupportedCodecsQuery}${more ? `${unsupportedCodecsQuery ? "&" : "?"}${more}` : ""}`;
 }
 
 export function SeamlessPlayer({
@@ -198,6 +207,8 @@ export function SeamlessPlayer({
   const [tracks, setTracks] = useState<LoadedTrack[]>([]);
   const [activeTrack, setActiveTrack] = useState<string | null>(null);
   const [subOffset, setSubOffset] = useState(0);
+  // Playing again after a switch of resolution (the new files load, then it carries on from where it was).
+  const resumePlayingRef = useRef(false);
   const [controlsVisible, setControlsVisible] = useState(true);
   const [hoverRatio, setHoverRatio] = useState<number | null>(null);
 
@@ -301,6 +312,10 @@ export function SeamlessPlayer({
     const onLoaded = () => {
       front.currentTime = toElementTime(segment, localTime);
       front.removeEventListener("loadedmetadata", onLoaded);
+      if (resumePlayingRef.current) {
+        resumePlayingRef.current = false;
+        void front.play();
+      }
     };
     front.addEventListener("loadedmetadata", onLoaded);
   }, [manifest]);
@@ -718,6 +733,27 @@ export function SeamlessPlayer({
     });
   }, [rate, frontSlot, manifest]);
 
+  /** Switches to another resolution of the same title: same place in the film, same play/pause state. */
+  const switchVersion = useCallback(
+    async (label: string) => {
+      const m = manifestRef.current;
+      if (!m || label === m.version) return;
+      const at = currentGlobalTime();
+      const wasPlaying = !(videoRefs.current[frontSlotRef.current]?.paused ?? true);
+      flushRef.current();
+      const res = await fetch(playManifestUrl(ownerKind, ownerId, label)).catch(() => null);
+      if (!res || !res.ok) return; // staying on the version already playing is better than an error
+      const data: PlayManifest = await res.json();
+      if (manifestRef.current !== m) return; // another video opened while this loaded
+      writePreferredHeight(data.versions?.find((v) => v.label === data.version)?.height ?? null);
+      data.resumeSeconds = Math.min(at, Math.max(0, data.durationSeconds - 1));
+      resumePlayingRef.current = wasPlaying;
+      manifestRef.current = data;
+      setManifest(data);
+    },
+    [ownerKind, ownerId, currentGlobalTime]
+  );
+
   const changeRate = useCallback((speed: number) => {
     rateTouchedRef.current = true;
     setRate(clampSpeed(speed));
@@ -1006,8 +1042,22 @@ export function SeamlessPlayer({
               Next
             </Button>
           )}
-          <SubtitleMenu ownerKind={ownerKind} ownerId={ownerId} tracks={tracks} activeId={activeTrack} onSelect={setActiveTrack} onLoaded={addTrack} offset={subOffset} onOffset={setSubOffset} />
-          <InlineSpeedMenu rate={rate} onChange={changeRate} defaultSpeed={manifest?.libraryId ? { libraryId: manifest.libraryId, saved: manifest.defaultRate ?? null } : undefined} />
+          <SettingsMenu
+            rate={rate}
+            onRate={changeRate}
+            defaultSpeed={manifest?.libraryId ? { libraryId: manifest.libraryId, saved: manifest.defaultRate ?? null } : undefined}
+            ownerKind={ownerKind}
+            ownerId={ownerId}
+            tracks={tracks}
+            activeTrack={activeTrack}
+            onSelectTrack={setActiveTrack}
+            onLoadedTrack={addTrack}
+            subtitleOffset={subOffset}
+            onSubtitleOffset={setSubOffset}
+            qualities={manifest?.versions ?? []}
+            quality={manifest?.version ?? ""}
+            onQuality={(label) => void switchVersion(label)}
+          />
           <Button
             variant="ghost"
             size="icon-lg"

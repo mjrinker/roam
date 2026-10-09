@@ -1,20 +1,23 @@
 import { describe, expect, it } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
-import { SubtitleMenu, SubtitleOverlay } from "./subtitles";
+import { SubtitleOverlay, SubtitlePanel } from "./subtitles";
 
 const tracks = [{ id: "a", label: "English", cues: [[0, 1, "x"] as [number, number, string]] }];
 const noop = () => undefined;
-const menu = (over: Partial<Parameters<typeof SubtitleMenu>[0]> = {}) =>
-  renderToStaticMarkup(<SubtitleMenu ownerKind="title" ownerId="t" tracks={[]} activeId={null} onSelect={noop} onLoaded={noop} offset={0} onOffset={noop} {...over} />);
+const panel = (over: Partial<Parameters<typeof SubtitlePanel>[0]> = {}) =>
+  renderToStaticMarkup(<SubtitlePanel ownerKind="title" ownerId="t" tracks={[]} activeId={null} onSelect={noop} onLoaded={noop} offset={0} onOffset={noop} onDone={noop} {...over} />);
 
-describe("the subtitles button", () => {
-  it("is always there (anyone can load subtitles), says whether they are on, and starts closed", () => {
-    const off = menu();
-    expect(off).toContain('aria-label="Subtitles, off"');
-    expect(off).toContain('aria-haspopup="menu"');
-    expect(off).toContain('aria-expanded="false"');
-    expect(off).not.toContain('role="menu"');
-    expect(menu({ tracks, activeId: "a" })).toContain('aria-label="Subtitles, on"');
+describe("the subtitles panel", () => {
+  it("offers Off, what has been loaded with the active one checked, and a way to load more", () => {
+    const html = panel({ tracks, activeId: "a" });
+    expect(html).toContain('aria-label="Subtitles"');
+    expect(html).toMatch(/aria-checked="false"[^>]*>Off/);
+    expect(html).toMatch(/aria-checked="true"[^>]*><span class="truncate">English/);
+    expect(html).toContain("Find or load subtitles…");
+  });
+  it("shows the delay control only while a track is on", () => {
+    expect(panel()).not.toContain("Subtitles earlier");
+    expect(panel({ tracks, activeId: "a", offset: 0.5 })).toContain("+0.5s");
   });
 });
 
