@@ -7,8 +7,8 @@ import { checkRateLimit } from "@/lib/rate-limit";
 const bodySchema = z.object({ titleIds: z.array(z.string().uuid()).min(1).max(MAX_BULK_TITLES) });
 
 /**
- * The download choices for a selection of titles (movies, shows, audiobooks), each checked against the same gate as playing it. A show
- * stands for all its episodes. Anything not allowed is simply counted in `skipped`.
+ * The download choices for a selection (movies, shows, audiobooks), each checked against the same gate as playing it. A show
+ * stands for everything in it. Anything not allowed is simply counted in `skipped`.
  */
 export async function POST(request: Request) {
   const resolved = await getCurrentViewer();

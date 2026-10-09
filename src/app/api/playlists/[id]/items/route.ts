@@ -37,7 +37,7 @@ export async function POST(request: Request, ctx: RouteContext<"/api/playlists/[
   if (!parsed.success) return badRequest(parsed.error);
   const slow = await throttled(who.actor.accountId, "playlist_item_add", 240, 60);
   if (slow) return slow;
-  // Many titles at once (the ones selected on a library page).
+  // Many items at once (the ones selected on a library page).
   if (parsed.data.titleIds) {
     return respond(await addTitles(db, { playlistId: id, viewerId: who.actor.viewerId, titleIds: parsed.data.titleIds }), (v) => v, 201);
   }
