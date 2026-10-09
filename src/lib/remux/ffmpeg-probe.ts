@@ -49,6 +49,13 @@ export function parseVideoInfo(ffmpegStderr: string): VideoInfo | null {
   return { width: Number(size[1]), height: Number(size[2]), durationSeconds };
 }
 
+/** The first audio stream's bitrate in kbit/s as ffmpeg reports it ("... fltp, 448 kb/s"), or null when it doesn't say. */
+export function parseAudioKbps(ffmpegStderr: string): number | null {
+  const line = ffmpegStderr.split("\n").find((l) => /Stream #\d+:\d+.*: Audio:/.test(l));
+  const m = line ? /(\d+)\s*kb\/s/.exec(line) : null;
+  return m ? Number(m[1]) : null;
+}
+
 /** The first `Audio:` stream line of ffmpeg's input summary, or null when the file has none. */
 export function parseFirstAudioStream(ffmpegStderr: string): AudioStreamInfo | null {
   const line = ffmpegStderr.split("\n").find((l) => /Stream #\d+:\d+.*: Audio:/.test(l));

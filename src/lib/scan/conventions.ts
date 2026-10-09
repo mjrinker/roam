@@ -463,6 +463,15 @@ export function resolutionName(width: number | null, height: number | null): str
 
 const SPLIT_TAIL_RE = /(\s+-\s+(?:cd|disc|disk|dvd|part|pt)\s*0*\d+)$/i;
 
+/** A file name without its trailing part marker: "Movie (2020) - pt2.mp4" -> "Movie (2020).mp4" (a name with no marker is returned as it is). */
+export function withoutSplitMarker(fileName: string): string {
+  const dot = fileName.lastIndexOf(".");
+  const ext = dot > 0 ? fileName.slice(dot) : "";
+  const base = dot > 0 ? fileName.slice(0, dot) : fileName;
+  const tail = SPLIT_TAIL_RE.exec(base);
+  return tail ? base.slice(0, tail.index) + ext : fileName;
+}
+
 /**
  * A file name with a resolution label added in Plex's place: before a trailing " - pt1" (so the parts of one version stay together),
  * else at the end of the name. "Movie (2020).mp4" -> "Movie (2020) - 1080p.mp4"; "Show - s01e01 - Pilot - pt2.mp4" -> "Show - s01e01 - Pilot - 720p - pt2.mp4".

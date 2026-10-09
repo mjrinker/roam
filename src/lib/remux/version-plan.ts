@@ -51,24 +51,35 @@ export function audioKbps(rung: number): number {
  * The most video bitrate (kbit/s) to allow: the rung's ceiling, lowered so a long film still fits in `maxBytes`
  * (a 3-hour 1440p at 6000 kbit/s would not).
  */
-export function videoKbps(rung: number, durationSeconds: number | null, maxBytes = MAX_OUTPUT_BYTES): number {
+export function videoKbps(rung: number, durationSeconds: number | null, maxBytes = MAX_OUTPUT_BYTES, audioKbpsUsed = audioKbps(rung)): number {
   const ceiling = VIDEO_KBPS[rung] ?? 1000;
   if (!durationSeconds || durationSeconds <= 0) return ceiling;
-  const fits = Math.floor((maxBytes * 8) / durationSeconds / 1000) - audioKbps(rung) - 32; // 32: container overhead
+  const fits = Math.floor((maxBytes * 8) / durationSeconds / 1000) - audioKbpsUsed - 32; // 32: container overhead
   return Math.max(100, Math.min(ceiling, fits));
 }
 
-/** The ffmpeg arguments for one rung: H.264 at the rung's size and bitrate ceiling, stereo AAC, faststart (our duration reader needs a plain, non-fragmented file). */
-export function buildVersionArgs(input: string, output: string, opts: { width: number; height: number; rung: number; kbps: number; preset: string; crf: number }): string[] {
+/** ffmpeg codec names a browser plays inside an MP4 as they are; anything else (AC-3, E-AC-3, DTS, TrueHD, PCM ...) also gets an AAC copy. */
+const BROWSER_SAFE_FFMPEG_AUDIO = new Set(["aac", "mp3", "opus", "flac", "vorbis"]);
+
+export function audioNeedsAacCopy(ffmpegCodec: string | null): boolean {
+  return ffmpegCodec !== null && !BROWSER_SAFE_FFMPEG_AUDIO.has(ffmpegCodec.toLowerCase());
+}
+
+/**
+ * The ffmpeg arguments for one rung: H.264 at the rung's size and bitrate ceiling, faststart (our duration reader needs a plain,
+ * non-fragmented file). `audio: "copy"` keeps the original's audio untouched; "aac" re-encodes it to stereo AAC at the rung's bitrate.
+ * `inputArgs` is everything that names the input, e.g. ["-i", file] or, for a film in several parts, ["-f", "concat", "-safe", "0", "-i", list].
+ */
+export function buildVersionArgs(inputArgs: string[], output: string, opts: { width: number; height: number; rung: number; kbps: number; preset: string; crf: number; audio: "copy" | "aac" }): string[] {
   const size = rungSize(opts.width, opts.height, opts.rung);
   return [
     "-y", "-hide_banner", "-loglevel", "error", "-stats",
-    "-i", input,
+    ...inputArgs,
     "-map", "0:v:0", "-map", "0:a:0?", "-sn", "-dn",
     "-vf", `scale=${size.width}:${size.height}:flags=lanczos,format=yuv420p`,
     "-c:v", "libx264", "-preset", opts.preset, "-profile:v", "high", "-crf", String(opts.crf),
     "-maxrate", `${opts.kbps}k`, "-bufsize", `${opts.kbps * 2}k`,
-    "-c:a", "aac", "-ac", "2", "-b:a", `${audioKbps(opts.rung)}k`,
+    ...(opts.audio === "copy" ? ["-c:a", "copy"] : ["-c:a", "aac", "-ac", "2", "-b:a", `${audioKbps(opts.rung)}k`]),
     "-movflags", "+faststart",
     output,
   ];

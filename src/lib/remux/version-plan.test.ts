@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { buildVersionArgs, MAX_OUTPUT_BYTES, originalLabel, RUNGS, rungsBelow, rungSize, videoKbps } from "./version-plan";
-import { withVersionLabel, splitVersionLabel } from "@/lib/scan/conventions";
-import { parseVideoInfo } from "./ffmpeg-probe";
+import { audioNeedsAacCopy, buildVersionArgs, MAX_OUTPUT_BYTES, originalLabel, RUNGS, rungsBelow, rungSize, videoKbps } from "./version-plan";
+import { withVersionLabel, splitVersionLabel, withoutSplitMarker } from "@/lib/scan/conventions";
+import { parseAudioKbps, parseVideoInfo } from "./ffmpeg-probe";
 
 describe("which rungs to make", () => {
   it("makes every rung below the source's own resolution, never an upscale", () => {
@@ -45,7 +45,7 @@ describe("sizes and bitrates", () => {
     expect(videoKbps(144, 100 * 3600)).toBeGreaterThanOrEqual(100);
   });
   it("builds ffmpeg arguments for the size, bitrate and a plain faststart file", () => {
-    const args = buildVersionArgs("in.mp4", "out.mp4", { width: 1920, height: 1080, rung: 720, kbps: 2500, preset: "medium", crf: 23 });
+    const args = buildVersionArgs(["-i", "in.mp4"], "out.mp4", { width: 1920, height: 1080, rung: 720, kbps: 2500, preset: "medium", crf: 23, audio: "aac" });
     const at = (flag: string) => args[args.indexOf(flag) + 1];
     expect(at("-vf")).toBe("scale=1280:720:flags=lanczos,format=yuv420p");
     expect([at("-c:v"), at("-crf"), at("-maxrate"), at("-bufsize"), at("-c:a"), at("-ac"), at("-b:a"), at("-movflags")]).toEqual(["libx264", "23", "2500k", "5000k", "aac", "2", "128k", "+faststart"]);
@@ -83,5 +83,37 @@ describe("reading a video's size out of ffmpeg's summary", () => {
   it("is null with no video, and ignores cover art", () => {
     expect(parseVideoInfo("Stream #0:0: Audio: aac, 44100 Hz, stereo")).toBeNull();
     expect(parseVideoInfo("Stream #0:1: Video: mjpeg, yuvj420p, 600x600, 90k tbr (attached pic)")).toBeNull();
+  });
+});
+
+describe("keeping the original audio, and the AAC copy beside it", () => {
+  it("can keep the audio as it is, or re-encode it, and takes a list of parts as its input", () => {
+    const base = { width: 1920, height: 1080, rung: 360, kbps: 700, preset: "fast", crf: 23 };
+    const copy = buildVersionArgs(["-f", "concat", "-safe", "0", "-i", "parts.txt"], "o.mp4", { ...base, audio: "copy" });
+    expect(copy.slice(copy.indexOf("-c:a"), copy.indexOf("-c:a") + 2)).toEqual(["-c:a", "copy"]);
+    expect(copy).not.toContain("-b:a");
+    expect(copy.slice(copy.indexOf("-f"), copy.indexOf("-f") + 6)).toEqual(["-f", "concat", "-safe", "0", "-i", "parts.txt"]);
+    const aac = buildVersionArgs(["-i", "a.mp4"], "o.mp4", { ...base, audio: "aac" });
+    expect(aac.slice(aac.indexOf("-c:a"), aac.indexOf("-c:a") + 2)).toEqual(["-c:a", "aac"]);
+    expect(aac[aac.indexOf("-b:a") + 1]).toBe("96k");
+  });
+  it("budgets the file size for the audio actually being kept", () => {
+    expect(videoKbps(1080, 7200, MAX_OUTPUT_BYTES, 1536)).toBeLessThan(videoKbps(1080, 7200, MAX_OUTPUT_BYTES, 128));
+  });
+  it("knows which audio also needs an AAC copy", () => {
+    expect(["ac3", "eac3", "dts", "truehd", "pcm_s16le", "alac"].map(audioNeedsAacCopy)).toEqual([true, true, true, true, true, true]);
+    expect(["aac", "mp3", "opus", "FLAC"].map(audioNeedsAacCopy)).toEqual([false, false, false, false]);
+    expect(audioNeedsAacCopy(null)).toBe(false);
+  });
+  it("reads the audio bitrate", () => {
+    expect(parseAudioKbps("Stream #0:1(und): Audio: ac3 (ac-3 / 0x332D6361), 48000 Hz, 5.1(side), fltp, 448 kb/s")).toBe(448);
+    expect(parseAudioKbps("Stream #0:1: Audio: aac, 44100 Hz, stereo, fltp")).toBeNull();
+    expect(parseAudioKbps("Stream #0:0: Video: h264, 1920x1080, 4800 kb/s")).toBeNull();
+  });
+  it("joins the parts of a film into one name", () => {
+    expect(withoutSplitMarker("Movie (2020) - pt1.mp4")).toBe("Movie (2020).mp4");
+    expect(withoutSplitMarker("Show - s01e02 - Title - cd2.mp4")).toBe("Show - s01e02 - Title.mp4");
+    expect(withoutSplitMarker("Movie (2020).mp4")).toBe("Movie (2020).mp4");
+    expect(withVersionLabel(withoutSplitMarker("Movie (2020) - pt2.mp4"), "720p")).toBe("Movie (2020) - 720p.mp4");
   });
 });
