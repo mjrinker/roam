@@ -13,6 +13,8 @@ import { formatClock, isFinished, locate, timelineAt, type Segment } from "./clo
 import { pickNext, type Box } from "./focus";
 import { actionOf, directionOf, TIZEN_MEDIA_KEYS, type Action } from "./keys";
 import { clampSpeed, formatSpeed, SPEED_STEP } from "@/lib/player/speed";
+import { activeCues, type Cue } from "@/lib/subtitles/cues";
+import { pickInitialTrack, readChoice, rememberedChoice, writeChoice } from "@/lib/subtitles/choice";
 
 declare const tizen: { tvinputdevice?: { registerKey(name: string): void } } | undefined;
 
@@ -276,6 +278,128 @@ function createSpeedControl(media: HTMLMediaElement, onChange: () => void) {
   };
 }
 
+// ── Subtitles ────────────────────────────────────────────────────────────
+
+interface SubtitleTrack {
+  id: string;
+  language: string;
+  label: string;
+  hearingImpaired: boolean;
+}
+
+const SUBTITLE_DELAY_STEP = 0.5;
+
+/**
+ * Subtitles on the TV: the words drawn over the picture from the player's clock, and a picker the remote drives (Down opens it: up and
+ * down choose Off or a track, left and right move the delay by half a second, OK closes). The language last chosen on this TV is
+ * switched on by itself when a video has it.
+ */
+function createSubtitleControl(getTime: () => number) {
+  let tracks: SubtitleTrack[] = [];
+  let activeId: string | null = null;
+  let cues: Cue[] | null = null;
+  let offset = 0;
+  let open = false;
+  let cursor = 0;
+  let shown = "";
+  const words = doc.getElementById("subs");
+  const picker = doc.getElementById("subpicker");
+
+  const drawWords = () => {
+    if (!words) return;
+    const now = cues ? activeCues(cues, getTime(), offset) : [];
+    const key = now.map((c) => c[0] + ":" + c[1]).join("|");
+    if (key === shown) return;
+    shown = key;
+    words.innerHTML = "";
+    for (let i = 0; i < now.length; i++) {
+      const p = doc.createElement("p");
+      p.textContent = now[i][2];
+      words.appendChild(p);
+    }
+  };
+  window.setInterval(drawWords, 120);
+
+  const drawPicker = () => {
+    if (!picker) return;
+    picker.style.display = open ? "block" : "none";
+    if (!open) return;
+    picker.className = "speedbox subpick";
+    picker.innerHTML = "";
+    const title = doc.createElement("div");
+    title.textContent = "Subtitles";
+    picker.appendChild(title);
+    const rows = ["Off"].concat(tracks.map((t) => t.label));
+    for (let i = 0; i < rows.length; i++) {
+      const row = doc.createElement("div");
+      row.className = "row2" + (i === cursor ? " on" : "");
+      const isActive = i === 0 ? activeId === null : tracks[i - 1].id === activeId;
+      row.textContent = (i === cursor ? "▶ " : "   ") + rows[i] + (isActive ? "  ✓" : "");
+      picker.appendChild(row);
+    }
+    const hint = doc.createElement("small");
+    hint.textContent = "Up and Down: choose · OK: select" + (activeId ? " · Left and Right: delay " + (offset > 0 ? "+" : "") + offset.toFixed(1) + "s" : "");
+    picker.appendChild(hint);
+  };
+
+  /** Switches a track on or off without remembering it (what happens when a video loads); `choose` is for the viewer's own choice. */
+  const apply = (id: string | null) => {
+    activeId = id;
+    cues = null;
+    shown = "";
+    if (words) words.innerHTML = ""; // whatever was on screen goes now, not at the next tick
+    if (id) {
+      fetch("/api/subtitles/" + id, { credentials: "same-origin" })
+        .then((r) => (r.ok ? r.json() : Promise.reject(new Error("no cues"))))
+        .then((body: { cues: Cue[] }) => {
+          if (activeId === id) cues = body.cues;
+        })
+        .catch(() => {
+          if (activeId === id) activeId = null;
+        });
+    }
+    drawWords();
+  };
+  const choose = (id: string | null) => {
+    apply(id);
+    writeChoice(rememberedChoice(tracks.filter((t) => t.id === id)[0] || null));
+  };
+
+  return {
+    hasTracks: () => tracks.length > 0,
+    /** A video's tracks (from its manifest): resets the delay and switches on the remembered language, if there is one. */
+    setTracks(next: SubtitleTrack[] | undefined) {
+      tracks = next || [];
+      offset = 0;
+      open = false;
+      apply(null);
+      const wanted = pickInitialTrack(tracks, readChoice());
+      if (wanted) apply(wanted.id);
+      const hint = doc.getElementById("vhint");
+      if (hint) hint.textContent = "Up: playback speed" + (tracks.length ? "  ·  Down: subtitles" : "");
+    },
+    isOpen: () => open,
+    open() {
+      open = true;
+      cursor = activeId === null ? 0 : 1 + Math.max(0, tracks.map((t) => t.id).indexOf(activeId));
+      drawPicker();
+    },
+    key(action: Action | null, dirKey: string | null): boolean {
+      if (dirKey === "up") cursor = Math.max(0, cursor - 1);
+      else if (dirKey === "down") cursor = Math.min(tracks.length, cursor + 1);
+      else if (dirKey === "left" && activeId) offset = Math.round((offset - SUBTITLE_DELAY_STEP) * 10) / 10;
+      else if (dirKey === "right" && activeId) offset = Math.round((offset + SUBTITLE_DELAY_STEP) * 10) / 10;
+      else if (action === "enter") {
+        choose(cursor === 0 ? null : tracks[cursor - 1].id);
+        open = false;
+      } else if (action === "back" || action === "stop") open = false;
+      drawPicker();
+      drawWords();
+      return true;
+    },
+  };
+}
+
 /** " · 1.25x" after the clock when the speed is not normal. */
 const speedSuffix = (rate: number) => (Math.abs(rate - 1) < 1e-9 ? "" : "  ·  " + formatSpeed(rate));
 
@@ -295,6 +419,7 @@ interface Manifest {
   segments: Segment[];
   resumeSeconds: number;
   defaultRate?: number | null;
+  subtitles?: SubtitleTrack[];
 }
 
 const SAVE_EVERY_MS = 15000;
@@ -326,6 +451,7 @@ function startPlayer(first: PlayConfig) {
 
   const position = () => (manifest && part ? timelineAt(part, video.currentTime) : 0);
   const speed = createSpeedControl(video, () => paint());
+  const subs = createSubtitleControl(() => position());
 
   function say(text: string) {
     status.textContent = text;
@@ -424,6 +550,7 @@ function startPlayer(first: PlayConfig) {
       .then((m: Manifest) => {
         manifest = m;
         speed.applyDefault(m.defaultRate);
+        subs.setTracks(m.subtitles);
         const start = resumeFrom !== undefined ? resumeFrom : m.resumeSeconds > 0 && m.resumeSeconds < m.durationSeconds - 30 ? m.resumeSeconds : 0;
         const at = locate(m.segments, start);
         say("");
@@ -537,6 +664,7 @@ function startPlayer(first: PlayConfig) {
   /** Player keys, called from the page's key handler; returns true when it handled the key. */
   playerKeys = (action: Action | null, dirKey: string | null): boolean => {
     if (speed.isOpen()) return speed.key(action, dirKey);
+    if (subs.isOpen()) return subs.key(action, dirKey);
     if (upNextPending) {
       // The episode has ended and the next one's details haven't arrived: Back still stops, OK waits for them.
       if (action === "back" || action === "stop") {
@@ -562,7 +690,7 @@ function startPlayer(first: PlayConfig) {
     if (action === "forward" || dirKey === "right") return seekTo(position() + (action === "forward" ? 30 : SKIP_SECONDS)), true;
     if (action === "rewind" || dirKey === "left") return seekTo(position() - (action === "rewind" ? 30 : SKIP_SECONDS)), true;
     if (dirKey === "up") return speed.open(), showHud(), true;
-    if (dirKey === "down") return showHud(), true;
+    if (dirKey === "down") return subs.hasTracks() ? (subs.open(), showHud(), true) : (showHud(), true);
     return false;
   };
   bar.style.display = "block";

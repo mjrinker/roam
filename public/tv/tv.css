@@ -93,3 +93,7 @@ button.tile { margin: 0 1.5rem 1.5rem 0; }
 .speedbox b { display: block; font-size: 4.2rem; margin: 0.6rem 0; color: #7fd8bd; }
 .speedbox small { display: block; color: #a8a8b4; font-size: 1.05rem; }
 .hint { margin-top: 0.5rem; font-size: 1rem; color: #8d8d99; }
+.subs { position: absolute; left: 0; width: 100%; bottom: 7rem; text-align: center; padding: 0 8%; box-sizing: border-box; pointer-events: none; z-index: 2; }
+.subs p { display: inline-block; max-width: 100%; margin: 0.2rem 0; padding: 0.3rem 1rem; background: rgba(0, 0, 0, 0.62); border-radius: 0.4rem; color: #fff; font-size: 2rem; line-height: 1.3; white-space: pre-line; }
+.subpick .row2 { padding: 0.35rem 0; font-size: 1.5rem; }
+.subpick .row2.on { color: #7fd8bd; font-weight: 700; }

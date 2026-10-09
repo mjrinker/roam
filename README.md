@@ -106,6 +106,10 @@ How it's built (the interesting part, for reviewers): a server's admin can switc
 - Source-level enforcement tests fail the build if a new reader skips the access helper or a new code path special-cases a library kind with a string literal.
 - Every feature went through plan → independent review → small commits → independent review again; the commit history reflects that.
 
+### Subtitles
+
+The server's admin can add subtitles to any movie, video or episode from its **Subtitles** page (reached from the title page, or the captions menu in the player): upload an SRT, WebVTT or ASS file (2 MB at most), or search OpenSubtitles. Searching needs `OPENSUBTITLES_API_KEY`, `OPENSUBTITLES_USERNAME` and `OPENSUBTITLES_PASSWORD` (see `.env.example`); without them uploading still works. Only the words and timing are kept, never the file. Everyone who can watch the title can pick a track (web: the captions button or `C`; TV: Down), and the language last chosen is remembered per device.
+
 ### Turning on the CAPTCHA
 
 Sign-in has Cloudflare Turnstile support that stays off until you configure it, so nothing changes for anyone until then. Order matters, because once Supabase requires a token a build without the widget cannot sign anyone in:
