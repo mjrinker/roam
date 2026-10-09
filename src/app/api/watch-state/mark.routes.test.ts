@@ -24,7 +24,7 @@ async function signInAs(accountId: string) {
   const all = await db.select().from(viewers).where(eq(viewers.accountId, accountId));
   h.resolution = { account, viewer: all[0], viewers: all };
 }
-const mark = (body: unknown) => POST(new Request("http://x", { method: "POST", body: typeof body === "string" ? body : JSON.stringify(body) }));
+const mark = (body: unknown, contentType = "application/json") => POST(new Request("http://x", { method: "POST", headers: { "content-type": contentType }, body: typeof body === "string" ? body : JSON.stringify(body) }));
 const rows = (viewerId: string) => db.select().from(watchState).where(eq(watchState.viewerId, viewerId));
 const stateOf = async (viewerId: string, ownerKind: "title" | "episode", ownerId: string) =>
   (await db.select().from(watchState).where(and(eq(watchState.viewerId, viewerId), eq(watchState.ownerKind, ownerKind), eq(watchState.ownerId, ownerId))))[0];
@@ -125,6 +125,36 @@ describe("marking episodes, seasons and shows", () => {
   });
 });
 
+describe("unmarking and forged requests", () => {
+  it("unmarking removes finished rows only: something half-watched keeps its place", async () => {
+    const w = await world();
+    const film = await makeTitle(db, (await w.lib("movies")).id, { kind: "movie", name: "Film" });
+    await db.insert(watchState).values({ viewerId: w.me.viewer.id, ownerKind: "title", ownerId: film.id, positionSeconds: 300, durationSeconds: 3000, finished: false });
+    expect((await mark({ kind: "title", id: film.id, done: false })).status).toBe(200);
+    expect(await stateOf(w.me.viewer.id, "title", film.id)).toMatchObject({ positionSeconds: 300, finished: false });
+    await mark({ kind: "title", id: film.id, done: true });
+    await mark({ kind: "title", id: film.id, done: false });
+    expect(await stateOf(w.me.viewer.id, "title", film.id)).toBeUndefined();
+  });
+  it("only accepts a JSON post, so another site's form can't send it", async () => {
+    const w = await world();
+    const film = await makeTitle(db, (await w.lib("movies")).id, { kind: "movie", name: "Film" });
+    const body = JSON.stringify({ kind: "title", id: film.id, done: true });
+    for (const type of ["text/plain", "application/x-www-form-urlencoded", "multipart/form-data"]) expect((await mark(body, type)).status, type).toBe(415);
+    expect(await rows(w.me.viewer.id)).toEqual([]);
+  });
+  it("answers 404 for a season of a hidden show or another server", async () => {
+    const w = await world();
+    const hidden = await world("restricted");
+    const { season: hiddenSeason } = await makeShow(db, (await hidden.lib("shows")).id, 1, { name: "Hidden" });
+    const other = await world();
+    const { season: otherSeason } = await makeShow(db, (await other.lib("shows")).id, 1, { name: "Other" });
+    await signInAs(w.me.accountId);
+    for (const s of [hiddenSeason, otherSeason]) expect((await mark({ kind: "season", id: s.id, done: true })).status).toBe(404);
+    expect(await rows(w.me.viewer.id)).toEqual([]);
+  });
+});
+
 describe("what a profile may not mark", () => {
   it("answers 404 for a hidden library, another server's title and anything the age limit forbids, and writes nothing", async () => {
     const w = await world();
@@ -144,14 +174,14 @@ describe("what a profile may not mark", () => {
       { kind: "show", id: adultShow.id },
       { kind: "episode", id: adultEps[0].id },
     ];
-    for (const a of attempts) expect([403, 404], JSON.stringify(a)).toContain((await mark({ ...a, done: true })).status);
+    for (const a of attempts) expect((await mark({ ...a, done: true })).status, JSON.stringify(a)).toBe(404); // not a member looks the same as not found
     expect(await rows(w.me.viewer.id)).toEqual([]);
   });
   it("is refused when nobody is signed in", async () => {
     const w = await world();
     const film = await makeTitle(db, (await w.lib("movies")).id, { kind: "movie", name: "Film" });
     h.resolution = null;
-    expect([403, 404]).toContain((await mark({ kind: "title", id: film.id, done: true })).status);
+    expect((await mark({ kind: "title", id: film.id, done: true })).status).toBe(404);
     expect(await rows(w.me.viewer.id)).toEqual([]);
   });
 });

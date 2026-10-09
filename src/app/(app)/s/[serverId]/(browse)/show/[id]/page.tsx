@@ -173,7 +173,7 @@ export default async function ShowDetailPage({
           </Button>
         )}
         <AddToPlaylistMenu serverId={serverId} target={{ titleId: show.id }} />
-        {rows.length > 0 && <MarkDoneButton kind="show" id={show.id} done={rows.every((r) => r.watched)} media="watch" scope="show" />}
+        {rows.length > 0 && <MarkDoneButton kind="show" id={show.id} done={rows.some((r) => r.ready) && rows.filter((r) => r.ready).every((r) => r.watched)} media="watch" scope="show" />}
         {role === "admin" && <TitleResyncButton titleId={show.id} titleName={show.name} />}
         {role === "admin" && <TmdbMatchButton titleId={show.id} titleName={show.name} kind="show" />}
         {role === "admin" && needsAudioFix(segments) && <FixAudioButton titleId={show.id} titleName={show.name} />}

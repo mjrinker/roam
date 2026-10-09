@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { episodes, seasons, watchState } from "@/lib/db/schema";
-import { createTestDb, makeAccount, makeLibrary, makeServer, makeShow, type TestDb } from "@/lib/playlists/test-db";
+import { addEpisodeFile, createTestDb, makeAccount, makeLibrary, makeServer, makeShow, type TestDb } from "@/lib/playlists/test-db";
 import { watchedShowIds } from "./shows";
 
 let db: TestDb;
@@ -25,6 +25,10 @@ describe("watchedShowIds", () => {
     const empty = await makeShow(db, lib.id, 0, { name: "Empty" });
     const [s2] = await db.insert(seasons).values({ titleId: done.show.id, number: 2, boxFolderId: `s2-${done.show.id}` }).returning();
     const [lateEp] = await db.insert(episodes).values({ seasonId: s2.id, number: 1 }).returning();
+    for (const e of [...done.episodes, lateEp, ...part.episodes, ...none.episodes]) await addEpisodeFile(db, e.id);
+    // an episode that is missing from the collection (no file) never stops a show counting as watched
+    const [gap] = await db.insert(episodes).values({ seasonId: done.season.id, number: 9, name: "Missing" }).returning();
+    expect(gap.id).toBeTruthy();
     const finish = (viewerId: string, id: string, finished = true) => db.insert(watchState).values({ viewerId, ownerKind: "episode", ownerId: id, positionSeconds: 0, finished });
     for (const e of [...done.episodes, lateEp]) await finish(me.viewer.id, e.id);
     await finish(me.viewer.id, part.episodes[0].id);

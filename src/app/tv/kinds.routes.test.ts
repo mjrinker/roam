@@ -523,7 +523,7 @@ describe("marking watched, listened to and read from the TV", () => {
     expect(await page()).toContain("Mark as watched");
     const back = `/tv/s/${w.server.id}/title/${film.id}`;
     const res = await post(w, { kind: "title", id: film.id, done: "1", back });
-    expect([res.status, res.headers.get("location")]).toEqual([302, `https://roam.example${back}`]);
+    expect([res.status, res.headers.get("location")]).toEqual([303, `https://roam.example${back}`]);
     expect((await doneRows(w.member.viewer.id)).map((r) => r.ownerId)).toEqual([film.id]);
     expect(await page()).toContain("Mark as unwatched");
     await post(w, { kind: "title", id: film.id, done: "0", back });
@@ -539,7 +539,8 @@ describe("marking watched, listened to and read from the TV", () => {
 
     const { show: s, season, episodes: eps } = await makeShow(db, (await w.lib("shows")).id, 2, { name: "Show" });
     const [s2] = await db.insert(seasonsTable).values({ titleId: s.id, number: 2, boxFolderId: `x-${s.id}` }).returning();
-    await db.insert(episodesTable).values({ seasonId: s2.id, number: 1, name: "S2E1" });
+    const [s2e1] = await db.insert(episodesTable).values({ seasonId: s2.id, number: 1, name: "S2E1" }).returning();
+    for (const e of [...eps, s2e1]) await addEpisodeFile(db, e.id); // only episodes that can play count towards "the whole show"
     const showPage = async () => text(await show(req("/x"), ctx({ ...sid(w), id: s.id })));
     const first = await showPage();
     expect(first).toContain("Mark show as watched");

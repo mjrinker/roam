@@ -163,7 +163,7 @@ export function SeasonEpisodes({
 
       {visible.length > 0 && (
         <div>
-          <MarkDoneButton key={seasonId} kind="season" id={seasonId} done={visible.every((e) => e.watched)} media="watch" scope="season" compact />
+          <MarkDoneButton key={seasonId} kind="season" id={seasonId} done={visible.some((e) => e.ready) && visible.filter((e) => e.ready).every((e) => e.watched)} media="watch" scope="season" compact />
         </div>
       )}
 

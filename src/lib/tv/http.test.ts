@@ -4,6 +4,10 @@ import { redirectTo } from "./http";
 const go = (from: string, to: string) => redirectTo(new Request(`https://roam.example${from}`), to).headers.get("location");
 
 describe("redirectTo", () => {
+  it("can answer 303, for a page that follows a form post", () => {
+    expect(redirectTo(new Request("https://roam.example/x", { method: "POST" }), "/tv", 303).status).toBe(303);
+    expect(redirectTo(new Request("https://roam.example/x"), "/tv").status).toBe(302);
+  });
   it("sends the TV where asked", () => {
     expect(go("/t", "/tv")).toBe("https://roam.example/tv");
   });

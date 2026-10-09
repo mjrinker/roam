@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Check, CircleOff, Loader2 } from "lucide-react";
 import { toast } from "sonner";
@@ -34,21 +34,24 @@ export function MarkDoneButton({
   compact?: boolean;
 }) {
   const router = useRouter();
-  const [busy, setBusy] = useState(false);
+  const [fetching, setFetching] = useState(false);
+  const [refreshing, startRefresh] = useTransition();
+  // Busy until the page has re-read the new state, so a second press can't act on a stale label.
+  const busy = fetching || refreshing;
   const words = doneWords(media);
   const label = scope ? (done ? words.markUndone : words.markDone).replace(" as ", ` ${scope} as `) : done ? words.markUndone : words.markDone;
 
   async function toggle() {
-    setBusy(true);
+    setFetching(true);
     try {
       const res = await fetch("/api/watch-state/mark", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ kind, id, done: !done }) });
       if (!res.ok) throw new Error("failed");
       toast.success(done ? words.undoneToast : words.doneToast);
-      router.refresh();
+      startRefresh(() => router.refresh());
     } catch {
       toast.error("Couldn't change that. Try again.");
     } finally {
-      setBusy(false);
+      setFetching(false);
     }
   }
 

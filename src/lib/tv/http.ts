@@ -19,12 +19,12 @@ export function json(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json", "cache-control": "no-store" } });
 }
 
-export function redirectTo(request: Request, path: string): Response {
+export function redirectTo(request: Request, path: string, status: 302 | 303 = 302): Response {
   const target = new URL(path, request.url);
   // ?modern=0 / ?modern=1 (the switch for a newer browser's extras) must survive the hops between the short address and the page that reads it.
   const modern = new URL(request.url).searchParams.get("modern");
   if ((modern === "0" || modern === "1") && !target.searchParams.has("modern")) target.searchParams.set("modern", modern);
-  return new Response(null, { status: 302, headers: { location: target.toString(), "cache-control": "private, no-store" } });
+  return new Response(null, { status, headers: { location: target.toString(), "cache-control": "private, no-store" } });
 }
 
 export const TV_PAIR_COOKIE = "roam_tv_pair";

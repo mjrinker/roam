@@ -29,7 +29,8 @@ export async function episodeOwners(ex: Db, scope: { showId: string } | { season
 
 /**
  * Marks the owners done (a finished row, keeping any length already known and putting the position at the end so it never looks half-way) or
- * not done (the row removed, so it no longer counts as started either). Returns how many owners were handled.
+ * not done (finished rows removed; something half-watched keeps its place, so a stale button can't throw away someone's resume point).
+ * Returns how many owners were handled.
  */
 export async function setDone(ex: Db, args: { viewerId: string; owners: Owner[]; done: boolean }): Promise<number> {
   const { viewerId, owners, done } = args;
@@ -46,7 +47,7 @@ export async function setDone(ex: Db, args: { viewerId: string; owners: Owner[];
     } else {
       for (const kind of ["title", "episode"] as const) {
         const ids = chunk.filter((o) => o.ownerKind === kind).map((o) => o.ownerId);
-        if (ids.length) await ex.delete(watchState).where(and(eq(watchState.viewerId, viewerId), eq(watchState.ownerKind, kind), inArray(watchState.ownerId, ids)));
+        if (ids.length) await ex.delete(watchState).where(and(eq(watchState.viewerId, viewerId), eq(watchState.ownerKind, kind), inArray(watchState.ownerId, ids), eq(watchState.finished, true)));
       }
     }
   }

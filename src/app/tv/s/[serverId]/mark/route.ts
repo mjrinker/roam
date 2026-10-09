@@ -28,5 +28,5 @@ export async function POST(request: Request, ctx: RouteContext<"/tv/s/[serverId]
   const back = safeBack(access.base, field("back"));
   const result = await markDone({ kind, id, done: done === "1" });
   if (!result.ok) return html(messagePage("Couldn't change that", "That can't be marked.", { href: back, label: "Back" }), 404);
-  return redirectTo(request, back);
+  return redirectTo(request, back, 303); // 303: the browser must GET the page, never re-send the form
 }
