@@ -89,16 +89,19 @@ export async function addItem(
 
 /** Most songs one "add an album / an artist" will put in a playlist (an artist with a huge catalogue is cut off here). */
 export const MAX_SONGS_PER_ADD = 500;
+/** How many of an artist's songs are looked at when deciding what to add (so a big artist can be added in several rounds). */
+const MAX_SONGS_SCANNED = 2000;
 
 /**
  * Adds all of an album's songs, or all of an artist's (albums oldest first, each in album order), as ordinary playlist items, skipping
  * any already in the playlist. Only songs the viewer may see are considered, and it is all one locked transaction: all or nothing.
- * The songs are copied in as they are now (songs added to the album later don't join the playlist).
+ * The songs are copied in as they are now (songs added to the album later don't join the playlist). At most MAX_SONGS_PER_ADD go in
+ * at once; `remaining` says how many more are still to add (adding again continues from there).
  */
 export async function addSongs(
   ex: Executor,
   args: { playlistId: string; viewerId: string; albumId?: string; artistId?: string }
-): Promise<Result<{ added: number; skipped: number }>> {
+): Promise<Result<{ added: number; skipped: number; remaining: number }>> {
   const pre = await loadContext(ex, args);
   if (!pre) return NOT_FOUND;
   if (!pre.caps.canEditItems) return fail(403, "You can't change this playlist's items.");
@@ -107,13 +110,13 @@ export async function addSongs(
     args.albumId
       ? albumSongIds(db, { actor: ctx.lib, viewer: ctx.access, albumId: args.albumId })
       : args.artistId
-        ? artistSongIds(db, { actor: ctx.lib, viewer: ctx.access, artistId: args.artistId }, MAX_SONGS_PER_ADD)
+        ? artistSongIds(db, { actor: ctx.lib, viewer: ctx.access, artistId: args.artistId }, MAX_SONGS_SCANNED)
         : Promise.resolve(null);
   if (!(await songsFor(pre, ex))?.length) return NOT_FOUND;
 
   return retryOnContention(
     () =>
-      ex.transaction(async (tx): Promise<Result<{ added: number; skipped: number }>> => {
+      ex.transaction(async (tx): Promise<Result<{ added: number; skipped: number; remaining: number }>> => {
         const ctx = await loadContext(tx, { playlistId: args.playlistId, viewerId: args.viewerId, lock: true });
         if (!ctx) return NOT_FOUND;
         if (!ctx.caps.canEditItems) return fail(403, "You can't change this playlist's items.");
@@ -125,7 +128,9 @@ export async function addSongs(
           .from(playlistItems)
           .where(and(eq(playlistItems.playlistId, ctx.playlist.id), inArray(playlistItems.titleId, songs)));
         const present = new Set(have.map((h) => h.titleId));
-        const fresh = songs.filter((id) => !present.has(id));
+        const unseen = songs.filter((id) => !present.has(id));
+        // The cap counts only songs that would really go in, so adding again carries on where the last add stopped.
+        const fresh = unseen.slice(0, MAX_SONGS_PER_ADD);
         if (fresh.length > 0) {
           const [{ top }] = await tx.select({ top: max(playlistItems.position) }).from(playlistItems).where(eq(playlistItems.playlistId, ctx.playlist.id));
           const first = appendPosition(top === null || top === undefined ? null : Number(top));
@@ -136,7 +141,7 @@ export async function addSongs(
           }
           await touch(tx, ctx.playlist.id);
         }
-        return ok({ added: fresh.length, skipped: songs.length - fresh.length });
+        return ok({ added: fresh.length, skipped: songs.length - unseen.length, remaining: unseen.length - fresh.length });
       }),
     WRITE_RETRY_CODES
   );

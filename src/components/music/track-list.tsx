@@ -100,7 +100,7 @@ export function TrackList({ tracks, serverId }: { tracks: TrackListItem[]; serve
                 <span className={cn("block truncate text-sm font-medium", isCurrent && "text-primary")}>{t.name}</span>
                 {t.artist && <span className="block truncate text-xs text-muted-foreground">{t.artist}</span>}
               </span>
-              {t.done && <Check className="size-4 shrink-0 text-primary" aria-label="Listened to" />}
+              {t.done && <Check className="size-4 shrink-0 text-primary" role="img" aria-label="Listened to" />}
               <span className="shrink-0 text-xs text-muted-foreground tabular-nums">{t.durationSeconds != null ? formatClock(t.durationSeconds) : ""}</span>
             </button>
             <div className="absolute top-1/2 right-2 -translate-y-1/2">

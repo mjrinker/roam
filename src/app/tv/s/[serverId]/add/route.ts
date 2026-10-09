@@ -73,9 +73,9 @@ export async function POST(request: Request, ctx: RouteContext<"/tv/s/[serverId]
     const songs = await addSongs(db, { playlistId, viewerId: access.scope.viewerId, ...(target.field === "album" ? { albumId: target.id } : { artistId: target.id }) });
     const page = (title: string, message: string, status = 200) => html(messagePage(title, message, { href: back, label: "Back" }), status);
     if (!songs.ok) return page("Couldn't add them", "That playlist can't be changed.", 404);
-    const { added, skipped } = songs.value;
+    const { added, skipped, remaining } = songs.value;
     if (added === 0) return page("Already there", "Those songs are already in this playlist.");
-    return page("Added", `Added ${added} ${added === 1 ? "song" : "songs"} to your playlist${skipped ? ` (${skipped} already there)` : ""}.`);
+    return page("Added", `Added ${added} ${added === 1 ? "song" : "songs"} to your playlist${skipped ? ` (${skipped} already there)` : ""}.${remaining > 0 ? ` ${remaining} more didn't fit this time: add again to continue.` : ""}`);
   }
   const result = await addItem(db, { playlistId, viewerId: access.scope.viewerId, ...(target.field === "title" ? { titleId: target.id } : { episodeId: target.id }) });
   const done = (title: string, message: string) => html(messagePage(title, message, { href: back, label: "Back" }), result.ok ? 200 : result.status === 409 ? 200 : 404);

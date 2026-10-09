@@ -13,8 +13,8 @@ export type MarkKind = "title" | "episode" | "season" | "show" | "album";
 export type MarkResult = { ok: true; count: number } | { ok: false; status: 403 | 404 };
 
 /**
- * `title` is a movie, a video, an audiobook or audio file, or an eBook; `show` and `season` mean every episode in them. A picture, a clip in a
- * photo library and a song are not markable (they keep no place), and anything the caller can't see is "not found".
+ * `title` is a movie, a video, an audiobook or audio file, or an eBook; `show` and `season` mean every episode in them. A picture and a clip in a
+ * photo library are not markable (a song or an eBook keeps no resume place, but can carry the listened-to / read flag), and anything the caller can't see is "not found".
  */
 export async function markDone(args: { kind: MarkKind; id: string; done: boolean }): Promise<MarkResult> {
   if (args.kind === "album") return markAlbum(args.id, args.done);

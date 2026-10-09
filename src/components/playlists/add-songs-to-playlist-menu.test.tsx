@@ -11,5 +11,6 @@ describe("addedMessage", () => {
     expect(addedMessage("Road trip", 8, 3)).toBe('Added 8 songs to "Road trip" (3 already there).');
     expect(addedMessage("Road trip", 0, 1)).toBe('All 1 song was already in "Road trip".');
     expect(addedMessage("Road trip", 0, 12)).toBe('All 12 songs were already in "Road trip".');
+    expect(addedMessage("Big", 500, 0, 120)).toBe('Added 500 songs to "Big". 120 songs more didn\'t fit this time: add again to continue.');
   });
 });

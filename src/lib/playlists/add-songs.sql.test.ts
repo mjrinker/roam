@@ -43,17 +43,17 @@ describe("addSongs", () => {
     await addItem(db, w.playlist.id, { titleId: other.id }, 1024);
     await addItem(db, w.playlist.id, { titleId: early.songs[1].id }, 2048); // E2 is already in
     const r = await addSongs(db, { playlistId: w.playlist.id, viewerId: w.me.viewer.id, albumId: early.al.id });
-    expect(r).toEqual({ ok: true, value: { added: 2, skipped: 1 } });
+    expect(r).toEqual({ ok: true, value: { added: 2, skipped: 1, remaining: 0 } });
     expect(await names(w)).toEqual(["Already first", "E2", "E1", "E3"]); // E2 stays where it was; the new ones follow in order
     const again = await addSongs(db, { playlistId: w.playlist.id, viewerId: w.me.viewer.id, albumId: early.al.id });
-    expect(again).toEqual({ ok: true, value: { added: 0, skipped: 3 } });
+    expect(again).toEqual({ ok: true, value: { added: 0, skipped: 3, remaining: 0 } });
   });
   it("adds all of an artist's songs: albums oldest first, each in order", async () => {
     const w = await world();
     await w.album("Late", 2005, ["L1", "L2"]);
     await w.album("Early", 1995, ["E1", "E2"]);
     const r = await addSongs(db, { playlistId: w.playlist.id, viewerId: w.me.viewer.id, artistId: w.artist.id });
-    expect(r).toEqual({ ok: true, value: { added: 4, skipped: 0 } });
+    expect(r).toEqual({ ok: true, value: { added: 4, skipped: 0, remaining: 0 } });
     expect(await names(w)).toEqual(["E1", "E2", "L1", "L2"]);
   });
   it("leaves out songs the profile's age limit hides, and refuses when none are visible", async () => {
@@ -61,7 +61,7 @@ describe("addSongs", () => {
     const mixed = await w.album("Mixed", 2000, ["Kid song"], { ratingAges: { ANY: 0 } });
     await makeTitle(db, w.lib.id, { kind: "audiobook", name: "Adult song", albumId: mixed.al.id, trackNumber: 2, sortKey: "002", ratingAges: { ANY: 17 } });
     await db.update(viewers).set({ maxAge: 7, allowUnrated: false }).where(eq(viewers.id, w.me.viewer.id));
-    expect(await addSongs(db, { playlistId: w.playlist.id, viewerId: w.me.viewer.id, albumId: mixed.al.id })).toEqual({ ok: true, value: { added: 1, skipped: 0 } });
+    expect(await addSongs(db, { playlistId: w.playlist.id, viewerId: w.me.viewer.id, albumId: mixed.al.id })).toEqual({ ok: true, value: { added: 1, skipped: 0, remaining: 0 } });
     const adultOnly = await w.album("Adults", 2001, ["Nope"], { ratingAges: { ANY: 17 } });
     const refused = await addSongs(db, { playlistId: w.playlist.id, viewerId: w.me.viewer.id, albumId: adultOnly.al.id });
     expect(refused).toMatchObject({ ok: false, status: 404 });
@@ -90,7 +90,11 @@ describe("addSongs", () => {
     const [al] = await db.insert(musicAlbums).values({ libraryId: w.lib.id, artistId: w.artist.id, name: "Huge", nameKey: "huge", year: 2000 }).returning();
     await db.insert(titles).values(Array.from({ length: MAX_SONGS_PER_ADD + 5 }, (_, i) => ({ libraryId: w.lib.id, kind: "audiobook" as const, name: `Song ${i}`, boxFolderId: `huge-${i}`, albumId: al.id, trackNumber: i + 1, sortKey: String(i).padStart(4, "0") })));
     const r = await addSongs(db, { playlistId: w.playlist.id, viewerId: editor.viewer.id, artistId: w.artist.id });
-    expect(r).toEqual({ ok: true, value: { added: MAX_SONGS_PER_ADD, skipped: 0 } });
+    expect(r).toEqual({ ok: true, value: { added: MAX_SONGS_PER_ADD, skipped: 0, remaining: 5 } });
+    // adding again carries on where it stopped (the cap counts only songs that would go in), so a big artist can be added in rounds
+    const rest = await addSongs(db, { playlistId: w.playlist.id, viewerId: editor.viewer.id, artistId: w.artist.id });
+    expect(rest).toEqual({ ok: true, value: { added: 5, skipped: MAX_SONGS_PER_ADD, remaining: 0 } });
+    expect(await db.select().from(playlistItems).where(eq(playlistItems.playlistId, w.playlist.id))).toHaveLength(MAX_SONGS_PER_ADD + 5);
   });
 });
 

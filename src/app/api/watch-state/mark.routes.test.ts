@@ -178,6 +178,14 @@ describe("marking an album", () => {
     await mark({ kind: "album", id: al.id, done: false });
     expect(await rows(w.me.viewer.id)).toEqual([]);
   });
+  it("unmarking an album leaves a half-played song's place alone", async () => {
+    const w = await world();
+    const { al, made } = await album(w, [{}, {}]);
+    await mark({ kind: "album", id: al.id, done: true });
+    await db.update(watchState).set({ finished: false, positionSeconds: 40, durationSeconds: 200 }).where(eq(watchState.ownerId, made[0].id));
+    await mark({ kind: "album", id: al.id, done: false });
+    expect((await rows(w.me.viewer.id)).map((r) => [r.ownerId, r.finished, r.positionSeconds])).toEqual([[made[0].id, false, 40]]);
+  });
   it("marks only the songs this profile may see, and answers 404 for an album it can't see or that is on another server", async () => {
     const w = await world();
     const { al, made } = await album(w, [{ ratingAges: { ANY: 0 } }, { ratingAges: { ANY: 17 } }]);

@@ -69,7 +69,7 @@ export const playlistApi = {
   editable: (serverId: string) => call<{ playlists: { id: string; name: string }[] }>(`/api/servers/${serverId}/playlists/editable`),
 
   addSongs: (playlistId: string, target: SongsTarget) =>
-    call<{ added: number; skipped: number }>(`/api/playlists/${playlistId}/items`, { method: "POST", body: JSON.stringify(target) }),
+    call<{ added: number; skipped: number; remaining?: number }>(`/api/playlists/${playlistId}/items`, { method: "POST", body: JSON.stringify(target) }),
 
   addItem: (playlistId: string, target: ItemTarget) =>
     call<{ id: string }>(`/api/playlists/${playlistId}/items`, { method: "POST", body: JSON.stringify(target) }),

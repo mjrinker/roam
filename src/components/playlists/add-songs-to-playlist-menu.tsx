@@ -9,10 +9,11 @@ import { NameDialog } from "@/components/playlists/name-dialog";
 import { playlistApi, type SongsTarget } from "@/components/playlists/playlist-api";
 
 /** What to say after adding songs: how many went in, and how many were already there. */
-export function addedMessage(name: string, added: number, skipped: number): string {
+export function addedMessage(name: string, added: number, skipped: number, remaining = 0): string {
   const songs = (n: number) => `${n} ${n === 1 ? "song" : "songs"}`;
   if (added === 0) return `All ${songs(skipped)} ${skipped === 1 ? "was" : "were"} already in "${name}".`;
-  return skipped === 0 ? `Added ${songs(added)} to "${name}".` : `Added ${songs(added)} to "${name}" (${skipped} already there).`;
+  const base = skipped === 0 ? `Added ${songs(added)} to "${name}".` : `Added ${songs(added)} to "${name}" (${skipped} already there).`;
+  return remaining > 0 ? `${base} ${songs(remaining)} more didn't fit this time: add again to continue.` : base;
 }
 
 /**
@@ -37,7 +38,7 @@ export function AddSongsToPlaylistMenu({ serverId, target, label = "Add to playl
     const res = await playlistApi.addSongs(playlistId, target);
     setBusy(false);
     if (!res.ok) return res.error;
-    toast.success(addedMessage(name, res.data.added, res.data.skipped));
+    toast.success(addedMessage(name, res.data.added, res.data.skipped, res.data.remaining ?? 0));
     return null;
   }
 
