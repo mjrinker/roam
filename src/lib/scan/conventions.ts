@@ -455,7 +455,27 @@ export function resolutionName(width: number | null, height: number | null): str
   if (effective >= 1000) return "1080p";
   if (effective >= 680) return "720p";
   if (effective >= 540) return "576p";
-  return "480p";
+  if (effective >= 400) return "480p";
+  if (effective >= 300) return "360p";
+  if (effective >= 200) return "240p";
+  return "144p";
+}
+
+const SPLIT_TAIL_RE = /(\s+-\s+(?:cd|disc|disk|dvd|part|pt)\s*0*\d+)$/i;
+
+/**
+ * A file name with a resolution label added in Plex's place: before a trailing " - pt1" (so the parts of one version stay together),
+ * else at the end of the name. "Movie (2020).mp4" -> "Movie (2020) - 1080p.mp4"; "Show - s01e01 - Pilot - pt2.mp4" -> "Show - s01e01 - Pilot - 720p - pt2.mp4".
+ * A name that already has a label is returned as it is.
+ */
+export function withVersionLabel(fileName: string, label: string): string {
+  if (splitVersionLabel(fileName).label !== "") return fileName;
+  const dot = fileName.lastIndexOf(".");
+  const ext = dot > 0 ? fileName.slice(dot) : "";
+  const base = dot > 0 ? fileName.slice(0, dot) : fileName;
+  const tail = SPLIT_TAIL_RE.exec(base);
+  if (tail) return `${base.slice(0, tail.index)} - ${label}${tail[1]}${ext}`;
+  return `${base} - ${label}${ext}`;
 }
 
 const VIDEO_EXTENSIONS = new Set([".mp4", ".m4v", ".mov"]);

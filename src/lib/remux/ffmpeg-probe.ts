@@ -31,6 +31,24 @@ export function channelsFromLayout(layout: string): number | null {
   return LAYOUT_CHANNELS[l.replace(/\(.*\)$/, "")] ?? null;
 }
 
+export interface VideoInfo {
+  width: number;
+  height: number;
+  durationSeconds: number | null;
+}
+
+/** The first video stream's picture size, and the file's length, out of `ffmpeg -i <file>` stderr; null when there is no video stream. */
+export function parseVideoInfo(ffmpegStderr: string): VideoInfo | null {
+  const line = ffmpegStderr.split("\n").find((l) => /Stream #\d+:\d+.*: Video:/.test(l) && !/attached pic/.test(l));
+  if (!line) return null;
+  // "Video: h264 (High), yuv420p(tv, bt709), 1920x800 [SAR 1:1 DAR 12:5], 23.98 fps" - the size is the first NNNxNNN after the codec.
+  const size = /[\s,](\d{2,5})x(\d{2,5})(?=[\s,\[]|$)/.exec(line.slice(line.indexOf("Video:")));
+  if (!size) return null;
+  const d = /Duration:\s*(\d+):(\d{2}):(\d{2}(?:\.\d+)?)/.exec(ffmpegStderr);
+  const durationSeconds = d ? Number(d[1]) * 3600 + Number(d[2]) * 60 + Number(d[3]) : null;
+  return { width: Number(size[1]), height: Number(size[2]), durationSeconds };
+}
+
 /** The first `Audio:` stream line of ffmpeg's input summary, or null when the file has none. */
 export function parseFirstAudioStream(ffmpegStderr: string): AudioStreamInfo | null {
   const line = ffmpegStderr.split("\n").find((l) => /Stream #\d+:\d+.*: Audio:/.test(l));
