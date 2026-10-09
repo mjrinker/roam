@@ -28,7 +28,7 @@ function gate(id: string) {
 
 function newPlayer() {
   state = { book: null, status: "idle", error: null, buffering: false, position: 0, rate: 1, sleep: null, sleepMinutesLeft: null, chapterIndex: -1, listPosition: null };
-  const { actions, internals } = createPlayer((u) => (state = typeof u === "function" ? u(state) : u), 1, "viewer");
+  const { actions, internals } = createPlayer((u) => (state = typeof u === "function" ? u(state) : u), 1);
   internals.attach(fakeAudio() as never);
   return { actions, internals };
 }

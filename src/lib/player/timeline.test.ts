@@ -105,7 +105,7 @@ describe("clampRate", () => {
   it("keeps rates within bounds and sane", () => {
     expect(clampRate(1.25)).toBe(1.25);
     expect(clampRate(10)).toBe(3);
-    expect(clampRate(0.1)).toBe(0.5);
+    expect(clampRate(0.1)).toBe(0.25);
     expect(clampRate(NaN)).toBe(1);
     expect(clampRate(1.333)).toBe(1.33);
   });

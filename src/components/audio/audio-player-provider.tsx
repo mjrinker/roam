@@ -39,7 +39,6 @@ const PROGRESS_SAVE_INTERVAL_MS = 15_000;
 const POSITION_STATE_INTERVAL_MS = 5_000;
 const MAX_RECOVERY_ATTEMPTS = 3;
 // Per profile, so two people on one device don't share a speed.
-const rateStorageKey = (viewerId: string) => `roam-playback-rate:${viewerId}`;
 
 export type AudioBook = Omit<AudiobookManifest, "urls" | "resumeSeconds">;
 export type SleepTimer =
@@ -142,7 +141,6 @@ interface Engine {
   lastPositionStateAt: number;
   sleep: SleepTimer;
   sleepTimeout: ReturnType<typeof setTimeout> | null;
-  rateSaveTimeout: ReturnType<typeof setTimeout> | null;
   /** What the user last asked for, kept separately from element state (which flips during part swaps). */
   playRequested: boolean;
   /** The playlist queue this book was started from, if any; cleared when a different book starts or the player closes. */
@@ -154,8 +152,7 @@ interface Engine {
 /** Exported for tests; the provider below is the only real caller. */
 export function createPlayer(
   setState: Dispatch<SetStateAction<AudioPlayerState>>,
-  initialRate: number,
-  viewerId: string
+  initialRate = 1
 ): { actions: AudioPlayerActions; internals: EngineInternals } {
   const e: Engine = {
     book: null,
@@ -170,7 +167,6 @@ export function createPlayer(
     lastPositionStateAt: 0,
     sleep: null,
     sleepTimeout: null,
-    rateSaveTimeout: null,
     playRequested: false,
     queue: null,
     list: null,
@@ -422,8 +418,14 @@ export function createPlayer(
           const body = await res.json().catch(() => ({}));
           throw new Error(typeof body.error === "string" ? body.error : "Couldn't load this audiobook.");
         }
-        const { urls, resumeSeconds, ...book } = (await res.json()) as AudiobookManifest;
+        const { urls, resumeSeconds, defaultRate, ...book } = (await res.json()) as AudiobookManifest;
         if (e.token !== token) return { ok: true };
+
+        // Starting from nothing (the player was closed): begin at this library's speed. Moving between books or songs keeps the speed in use.
+        if (e.book === null) {
+          e.rate = clampRate(defaultRate ?? 1);
+          patch({ rate: e.rate });
+        }
 
         e.book = book;
         e.hasPlayed = false;
@@ -489,20 +491,7 @@ export function createPlayer(
       if (el) applyRate(el);
       patch({ rate: e.rate });
       updatePositionState();
-      try {
-        localStorage.setItem(rateStorageKey(viewerId), String(e.rate));
-      } catch {
-        // storage can be unavailable; the profile copy below still saves
-      }
-      if (e.rateSaveTimeout) clearTimeout(e.rateSaveTimeout);
-      e.rateSaveTimeout = setTimeout(() => {
-        fetch("/api/viewers/current/playback-rate", {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ rate: e.rate }),
-          keepalive: true,
-        }).catch(() => {});
-      }, 600);
+      // Not saved anywhere: a speed picked while listening lasts until the player is closed (a library's own starting speed is an admin setting).
     },
 
     setSleep,
@@ -516,13 +505,14 @@ export function createPlayer(
       e.book = null;
       e.urls.clear();
       clearSleep();
+      e.rate = 1; // closing the player ends the speed too
       const el = audio();
       if (el) {
         el.pause();
         el.removeAttribute("src");
         el.load();
       }
-      patch({ book: null, status: "idle", error: null, buffering: false, position: 0, chapterIndex: -1, sleepMinutesLeft: null, listPosition: null });
+      patch({ rate: 1, book: null, status: "idle", error: null, buffering: false, position: 0, chapterIndex: -1, sleepMinutesLeft: null, listPosition: null });
     },
   };
 
@@ -546,18 +536,8 @@ export function createPlayer(
 
 // ── Provider ─────────────────────────────────────────────────────────────
 
-export function AudioPlayerProvider({
-  initialRate,
-  viewerId,
-  children,
-}: {
-  /** The selected profile's saved speed; authoritative on load. */
-  initialRate?: number;
-  /** Keys this device's cached speed to the profile. */
-  viewerId: string;
-  children: ReactNode;
-}) {
-  const startRate = clampRate(initialRate ?? 1);
+export function AudioPlayerProvider({ children }: { children: ReactNode }) {
+  const startRate = 1;
 
   const [state, setState] = useState<AudioPlayerState>({
     book: null,
@@ -572,7 +552,7 @@ export function AudioPlayerProvider({
     listPosition: null,
   });
 
-  const [{ actions, internals }] = useState(() => createPlayer(setState, startRate, viewerId));
+  const [{ actions, internals }] = useState(() => createPlayer(setState, startRate));
   const router = useRouter();
   // createPlayer lives outside React, so the end-of-book hand-off reaches the router through this ref.
   const queueEnded = useRef<(queue: BookQueue) => void>(() => {});
@@ -714,20 +694,8 @@ export function AudioPlayerProvider({
       internals.saveProgress();
       el.pause();
       if (e.sleepTimeout) clearTimeout(e.sleepTimeout);
-      if (e.rateSaveTimeout) clearTimeout(e.rateSaveTimeout);
     };
   }, [internals, actions]); // both are stable for the life of the provider
-
-  // If the profile's speed isn't available, fall back to the last one used on this device.
-  useEffect(() => {
-    if (initialRate !== undefined) return;
-    try {
-      const saved = Number(localStorage.getItem(rateStorageKey(viewerId)));
-      if (saved) actions.setRate(saved);
-    } catch {
-      // ignore
-    }
-  }, [initialRate, actions, viewerId]);
 
   // Lock-screen / headset / notification controls.
   const book = state.book;

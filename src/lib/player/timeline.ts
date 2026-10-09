@@ -5,6 +5,7 @@
  */
 
 import type { PlaySegment } from "@/lib/player/types";
+import { clampSpeed, SPEED_MAX, SPEED_MIN, SPEED_PRESETS } from "./speed";
 
 export interface TimelineSegment {
   startSeconds: number;
@@ -87,14 +88,11 @@ export function isEffectivelyFinished(
 /** A book only shows up under "continue listening" once there's real progress. */
 export const CONTINUE_LISTENING_MIN_SECONDS = 10;
 
-export const PLAYBACK_RATES = [0.75, 1, 1.25, 1.5, 1.75, 2, 2.5, 3] as const;
-export const MIN_PLAYBACK_RATE = 0.5;
-export const MAX_PLAYBACK_RATE = 3;
+export const PLAYBACK_RATES = SPEED_PRESETS;
+export const MIN_PLAYBACK_RATE = SPEED_MIN;
+export const MAX_PLAYBACK_RATE = SPEED_MAX;
 
-export function clampRate(rate: number): number {
-  if (!Number.isFinite(rate)) return 1;
-  return Math.min(MAX_PLAYBACK_RATE, Math.max(MIN_PLAYBACK_RATE, Math.round(rate * 100) / 100));
-}
+export const clampRate = clampSpeed;
 
 // ── Trimmed segments (multi-episode split playback) ─────────────────────
 // A "trimmed" segment plays only a WINDOW of its underlying physical file

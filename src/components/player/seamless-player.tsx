@@ -19,6 +19,8 @@ import { Button } from "@/components/ui/button";
 import Link from "next/link";
 import { cn } from "@/lib/utils";
 import { useAudioActions } from "@/components/audio/audio-player-provider";
+import { InlineSpeedMenu } from "@/components/player/speed-menu";
+import { clampSpeed } from "@/lib/player/speed";
 import type { PlayManifest, PlayOwnerKind } from "@/lib/player/types";
 import { UNSUPPORTED_AUDIO_CODECS } from "@/lib/scan/codec-support";
 import {
@@ -148,6 +150,10 @@ export function SeamlessPlayer({
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [finished, setFinished] = useState(false);
   const [buffering, setBuffering] = useState(false);
+  // Playback speed: starts at the library's default and lasts until the player is closed (this component goes away); a speed the
+  // viewer picked is kept when the next episode loads into the same player.
+  const [rate, setRate] = useState(1);
+  const rateTouchedRef = useRef(false);
   const [controlsVisible, setControlsVisible] = useState(true);
   const [hoverRatio, setHoverRatio] = useState<number | null>(null);
 
@@ -182,6 +188,7 @@ export function SeamlessPlayer({
       const data: PlayManifest = await res.json();
       manifestRef.current = data;
       setManifest(data);
+      if (!rateTouchedRef.current) setRate(clampSpeed(data.defaultRate ?? 1));
     })();
     return () => {
       cancelled = true;
@@ -574,6 +581,20 @@ export function SeamlessPlayer({
     });
   }, [volume, muted]);
 
+  // Speed goes on both elements, as the default too, so a segment loaded into either one later starts at the same speed.
+  useEffect(() => {
+    videoRefs.current.forEach((el) => {
+      if (!el) return;
+      el.defaultPlaybackRate = rate;
+      el.playbackRate = rate;
+    });
+  }, [rate, frontSlot, manifest]);
+
+  const changeRate = useCallback((speed: number) => {
+    rateTouchedRef.current = true;
+    setRate(clampSpeed(speed));
+  }, []);
+
   if (error && !manifest) {
     return (
       <div className="flex h-dvh flex-col items-center justify-center gap-4 bg-black px-6 text-center">
@@ -853,6 +874,7 @@ export function SeamlessPlayer({
               Next
             </Button>
           )}
+          <InlineSpeedMenu rate={rate} onChange={changeRate} />
           <Button
             variant="ghost"
             size="icon-lg"

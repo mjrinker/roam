@@ -6,6 +6,8 @@ import Link from "next/link";
 import { Headphones, Loader2, Pause, Play, RotateCcw, RotateCw } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { formatClock, PLAYBACK_RATES } from "@/lib/player/timeline";
+import { formatSpeed } from "@/lib/player/speed";
+import { SpeedDialog } from "@/components/player/speed-menu";
 import { Slider } from "@/components/ui/slider";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import {
@@ -60,6 +62,7 @@ export function NowPlayingSheet({
 }) {
   const p = useAudioPlayer();
   const [drag, setDrag] = useState<number | null>(null);
+  const [customSpeed, setCustomSpeed] = useState(false);
 
   const book = p?.book;
   if (!p || !book) return null;
@@ -160,10 +163,14 @@ export function NowPlayingSheet({
           <div className="flex flex-wrap gap-1.5">
             {PLAYBACK_RATES.map((r) => (
               <Chip key={r} active={p.rate === r} onClick={() => p.setRate(r)}>
-                {r}×
+                {formatSpeed(r)}
               </Chip>
             ))}
+            <Chip active={!PLAYBACK_RATES.includes(p.rate)} onClick={() => setCustomSpeed(true)}>
+              {PLAYBACK_RATES.includes(p.rate) ? "Custom…" : `${formatSpeed(p.rate)} (custom)`}
+            </Chip>
           </div>
+          {customSpeed && <SpeedDialog open onOpenChange={setCustomSpeed} current={p.rate} onPick={p.setRate} />}
         </section>
 
         <section className="flex flex-col gap-2">

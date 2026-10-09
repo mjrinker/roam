@@ -25,6 +25,8 @@ export interface PlayManifest {
   segments: PlaySegment[];
   resumeSeconds: number;
   expiresAt: string;
+  /** The speed this title's library starts playback at (null or missing = normal speed). */
+  defaultRate?: number | null;
 }
 
 // ── Audiobooks ───────────────────────────────────────────────────────────
@@ -60,4 +62,6 @@ export interface AudiobookManifest {
   chapters: { title: string; startSeconds: number }[];
   resumeSeconds: number;
   urls: AudiobookSegmentUrl[];
+  /** The speed this book's library starts playback at (null or missing = normal speed). */
+  defaultRate?: number | null;
 }

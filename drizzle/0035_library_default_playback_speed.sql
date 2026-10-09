@@ -1,0 +1,1 @@
+ALTER TABLE "libraries" ADD COLUMN "default_playback_speed" real;

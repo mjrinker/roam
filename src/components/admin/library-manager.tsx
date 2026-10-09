@@ -1,5 +1,6 @@
 "use client";
 
+import { formatSpeed, parseSpeedInput, SPEED_PRESETS } from "@/lib/player/speed";
 import { useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
@@ -41,6 +42,8 @@ export interface LibraryRow {
   /** Video libraries: remove a video once it has left Box. */
   pruneMissing: boolean;
   musicLookup: boolean;
+  /** The speed playback starts at for this library (0.25 to 3); null = normal speed. */
+  defaultPlaybackSpeed: number | null;
   boxFolderId: string;
   audibleRegion: string;
   lastScannedAt: string | null;
@@ -200,6 +203,75 @@ function MusicLookupToggle({ libraryId, initial }: { libraryId: string; initial:
       <input type="checkbox" className="size-3.5 accent-[var(--primary)]" checked={enabled} onChange={(e) => change(e.target.checked)} />
       Look up albums on MusicBrainz for titles, years and cover art (sends artist and album folder names)
     </label>
+  );
+}
+
+/** The speed this library's videos, audio and books start playing at (viewers can still change it while playing, until they close the player). */
+export function PlaybackSpeedSetting({ libraryId, initial }: { libraryId: string; initial: number | null }) {
+  const [speed, setSpeed] = useState<number | null>(initial);
+  const [custom, setCustom] = useState(initial !== null && !SPEED_PRESETS.includes(initial) ? String(initial) : "");
+
+  async function save(next: number | null) {
+    const previous = speed;
+    setSpeed(next);
+    const res = await fetch(`/api/libraries/${libraryId}/playback-speed`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ speed: next }),
+    });
+    if (!res.ok) {
+      setSpeed(previous);
+      toast.error("Couldn't change the speed.");
+      return;
+    }
+    if (next === null || SPEED_PRESETS.includes(next)) setCustom("");
+    toast.success(next === null ? "This library will start at normal speed." : `This library will start at ${formatSpeed(next)}.`);
+  }
+
+  function saveCustom() {
+    if (custom.trim() === "") return;
+    const parsed = parseSpeedInput(custom);
+    if (parsed === null) {
+      toast.error("Enter a speed from 0.25 to 3.");
+      return;
+    }
+    void save(parsed);
+  }
+
+  const isPreset = speed === null || SPEED_PRESETS.includes(speed);
+  return (
+    <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+      <label className="flex items-center gap-2">
+        Starts playing at
+        <select
+          value={speed === null ? "" : isPreset ? String(speed) : "custom"}
+          onChange={(e) => (e.target.value === "custom" ? undefined : save(e.target.value === "" ? null : Number(e.target.value)))}
+          className="h-8 rounded-md border border-input bg-transparent px-2 text-xs text-foreground"
+        >
+          <option value="">Normal speed</option>
+          {SPEED_PRESETS.map((p) => (
+            <option key={p} value={p}>
+              {formatSpeed(p)}
+            </option>
+          ))}
+          {!isPreset && <option value="custom">{formatSpeed(speed as number)} (custom)</option>}
+        </select>
+      </label>
+      <label className="flex items-center gap-2">
+        or custom
+        <input
+          type="text"
+          inputMode="decimal"
+          value={custom}
+          onChange={(e) => setCustom(e.target.value)}
+          onKeyDown={(e) => e.key === "Enter" && saveCustom()}
+          onBlur={saveCustom}
+          placeholder="0.25 to 3"
+          aria-label="Custom starting speed"
+          className="h-8 w-24 rounded-md border border-input bg-transparent px-2 text-xs text-foreground"
+        />
+      </label>
+    </div>
   );
 }
 
@@ -545,6 +617,7 @@ export function LibraryManager({
                 />
               )}
               {lib.kind === "audiobooks" && <AudibleRegionSelect libraryId={lib.id} initial={lib.audibleRegion} />}
+              {lib.kind !== "ebooks" && <PlaybackSpeedSetting libraryId={lib.id} initial={lib.defaultPlaybackSpeed} />}
               {isFileTreeLibraryKind(lib.kind) && <VideoRatingSelect libraryId={lib.id} initial={agesToRating(lib.ratingAges)} />}
               {isFileTreeLibraryKind(lib.kind) && <PruneToggle libraryId={lib.id} initial={lib.pruneMissing} />}
               {lib.kind === "music" && <MusicLookupToggle libraryId={lib.id} initial={lib.musicLookup} />}

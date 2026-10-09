@@ -1,0 +1,172 @@
+"use client";
+
+import { useEffect, useRef, useState } from "react";
+import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuRadioGroup, DropdownMenuRadioItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { Input } from "@/components/ui/input";
+import { formatSpeed, parseSpeedInput, SPEED_MAX, SPEED_MIN, SPEED_PRESETS } from "@/lib/player/speed";
+import { cn } from "@/lib/utils";
+
+/** A small dialog to type a custom speed (0.25 to 3). */
+export function SpeedDialog({ open, onOpenChange, current, onPick }: { open: boolean; onOpenChange: (open: boolean) => void; current: number; onPick: (speed: number) => void }) {
+  const [text, setText] = useState(String(current));
+  const [error, setError] = useState<string | null>(null);
+
+  function submit(e: React.FormEvent) {
+    e.preventDefault();
+    const speed = parseSpeedInput(text);
+    if (speed === null) {
+      setError(`Enter a speed from ${SPEED_MIN} to ${SPEED_MAX}, like 1.35.`);
+      return;
+    }
+    onPick(speed);
+    onOpenChange(false);
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-xs">
+        <DialogHeader>
+          <DialogTitle>Custom speed</DialogTitle>
+          <DialogDescription>
+            From {SPEED_MIN}x to {SPEED_MAX}x.
+          </DialogDescription>
+        </DialogHeader>
+        <form onSubmit={submit} className="flex flex-col gap-3">
+          <Input autoFocus inputMode="decimal" value={text} onChange={(e) => (setText(e.target.value), setError(null))} aria-label="Speed" placeholder="1.35" />
+          {error && <p className="text-sm text-destructive">{error}</p>}
+          <div className="flex justify-end gap-2">
+            <Button type="button" variant="ghost" onClick={() => onOpenChange(false)}>
+              Cancel
+            </Button>
+            <Button type="submit">Set speed</Button>
+          </div>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+/**
+ * The playback speed control: the current speed on a button, a menu of 0.25x steps up to 3x, and "Custom…" for anything in between.
+ * Picking a speed only changes this player; it is not saved (a library's own starting speed is set by an admin).
+ */
+export function SpeedMenu({ rate, onChange, side = "top", className }: { rate: number; onChange: (speed: number) => void; side?: "top" | "bottom"; className?: string }) {
+  const [custom, setCustom] = useState(false);
+  const isPreset = SPEED_PRESETS.some((p) => Math.abs(p - rate) < 1e-9);
+  return (
+    <>
+      <DropdownMenu>
+        <DropdownMenuTrigger
+          aria-label={`Playback speed, ${formatSpeed(rate)}`}
+          title="Playback speed"
+          className={cn("flex h-9 min-w-11 items-center justify-center rounded-full px-2 text-sm font-medium tabular-nums outline-none hover:bg-white/10 focus-visible:ring-2 focus-visible:ring-ring", className)}
+        >
+          {formatSpeed(rate)}
+        </DropdownMenuTrigger>
+        <DropdownMenuContent side={side} align="end" className="max-h-80 w-40">
+          <DropdownMenuLabel>Speed</DropdownMenuLabel>
+          <DropdownMenuRadioGroup value={isPreset ? String(rate) : "custom"} onValueChange={(v) => v !== "custom" && onChange(Number(v))}>
+            {!isPreset && <DropdownMenuRadioItem value="custom">{formatSpeed(rate)} (custom)</DropdownMenuRadioItem>}
+            {SPEED_PRESETS.map((r) => (
+              <DropdownMenuRadioItem key={r} value={String(r)}>
+                {formatSpeed(r)}
+              </DropdownMenuRadioItem>
+            ))}
+          </DropdownMenuRadioGroup>
+          <DropdownMenuSeparator />
+          <DropdownMenuItem onClick={() => setCustom(true)}>Custom…</DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+      {custom && <SpeedDialog open onOpenChange={setCustom} current={rate} onPick={onChange} />}
+    </>
+  );
+}
+
+/**
+ * The same control drawn inside the page instead of in a floating layer, for the video player: a fullscreen video hides anything drawn
+ * outside it, so its menu has to live inside. A list of the 0.25x steps and a box for a custom speed.
+ */
+export function InlineSpeedMenu({ rate, onChange, className }: { rate: number; onChange: (speed: number) => void; className?: string }) {
+  const [open, setOpen] = useState(false);
+  const [text, setText] = useState("");
+  const [bad, setBad] = useState(false);
+  const box = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const away = (e: PointerEvent) => !box.current?.contains(e.target as Node) && setOpen(false);
+    const key = (e: KeyboardEvent) => e.key === "Escape" && (e.stopPropagation(), setOpen(false));
+    document.addEventListener("pointerdown", away);
+    document.addEventListener("keydown", key, true);
+    return () => {
+      document.removeEventListener("pointerdown", away);
+      document.removeEventListener("keydown", key, true);
+    };
+  }, [open]);
+
+  function pick(speed: number) {
+    onChange(speed);
+    setOpen(false);
+  }
+  function submit(e: React.FormEvent) {
+    e.preventDefault();
+    const speed = parseSpeedInput(text);
+    if (speed === null) return setBad(true);
+    setText("");
+    setBad(false);
+    pick(speed);
+  }
+
+  return (
+    <div ref={box} className="relative">
+      <button
+        type="button"
+        aria-haspopup="menu"
+        aria-expanded={open}
+        aria-label={`Playback speed, ${formatSpeed(rate)}`}
+        title="Playback speed"
+        onClick={() => setOpen((o) => !o)}
+        className={cn("flex h-10 min-w-12 items-center justify-center rounded-full px-3 text-sm font-semibold tabular-nums outline-none hover:bg-white/15 focus-visible:ring-2 focus-visible:ring-ring", open && "bg-white/15", className)}
+      >
+        {formatSpeed(rate)}
+      </button>
+      {open && (
+        <div role="menu" aria-label="Speed" className="absolute right-0 bottom-full z-10 mb-2 w-44 rounded-xl bg-black/90 p-1.5 text-white shadow-xl ring-1 ring-white/15 backdrop-blur">
+          <ul className="max-h-60 overflow-y-auto">
+            {SPEED_PRESETS.map((r) => (
+              <li key={r}>
+                <button
+                  type="button"
+                  role="menuitemradio"
+                  aria-checked={Math.abs(r - rate) < 1e-9}
+                  onClick={() => pick(r)}
+                  className={cn("flex w-full items-center justify-between rounded-lg px-3 py-1.5 text-left text-sm tabular-nums outline-none hover:bg-white/15 focus-visible:bg-white/15", Math.abs(r - rate) < 1e-9 && "font-semibold text-primary")}
+                >
+                  {formatSpeed(r)}
+                  {Math.abs(r - rate) < 1e-9 && <span aria-hidden>✓</span>}
+                </button>
+              </li>
+            ))}
+          </ul>
+          <form onSubmit={submit} className="mt-1 flex items-center gap-1.5 border-t border-white/15 px-1.5 pt-2 pb-1">
+            <input
+              inputMode="decimal"
+              value={text}
+              onChange={(e) => (setText(e.target.value), setBad(false))}
+              placeholder="Custom"
+              aria-label="Custom speed"
+              aria-invalid={bad}
+              className={cn("h-8 min-w-0 flex-1 rounded-md bg-white/10 px-2 text-sm text-white outline-none placeholder:text-white/40 focus-visible:ring-2 focus-visible:ring-ring", bad && "ring-2 ring-destructive")}
+            />
+            <button type="submit" className="h-8 rounded-md bg-white/15 px-2.5 text-sm font-medium hover:bg-white/25">
+              Set
+            </button>
+          </form>
+          {bad && <p className="px-2.5 pb-1 text-xs text-red-300">{SPEED_MIN} to {SPEED_MAX}</p>}
+        </div>
+      )}
+    </div>
+  );
+}

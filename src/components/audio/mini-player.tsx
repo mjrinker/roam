@@ -5,15 +5,14 @@ import { Artwork as Image } from "@/components/ui/artwork";
 import Link from "next/link";
 import { ChevronUp, Headphones, List, Loader2, Moon, Pause, Play, RotateCcw, RotateCw, SkipBack, SkipForward, X } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { formatClock, PLAYBACK_RATES } from "@/lib/player/timeline";
+import { formatClock } from "@/lib/player/timeline";
+import { SpeedMenu } from "@/components/player/speed-menu";
 import { Slider } from "@/components/ui/slider";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuLabel,
-  DropdownMenuRadioGroup,
-  DropdownMenuRadioItem,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
@@ -181,25 +180,7 @@ export function MiniPlayer({ serverId }: { serverId: string }) {
             </DropdownMenu>
           )}
 
-          <DropdownMenu>
-            <DropdownMenuTrigger
-              aria-label="Playback speed"
-              title="Playback speed"
-              className="flex h-9 min-w-11 items-center justify-center rounded-full px-2 text-sm font-medium text-muted-foreground tabular-nums outline-none hover:bg-white/10 hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
-            >
-              {p.rate}×
-            </DropdownMenuTrigger>
-            <DropdownMenuContent side="top" align="end" className="w-36">
-              <DropdownMenuLabel>Speed</DropdownMenuLabel>
-              <DropdownMenuRadioGroup value={String(p.rate)} onValueChange={(v) => p.setRate(Number(v))}>
-                {PLAYBACK_RATES.map((r) => (
-                  <DropdownMenuRadioItem key={r} value={String(r)}>
-                    {r}×
-                  </DropdownMenuRadioItem>
-                ))}
-              </DropdownMenuRadioGroup>
-            </DropdownMenuContent>
-          </DropdownMenu>
+          <SpeedMenu rate={p.rate} onChange={p.setRate} className="text-muted-foreground hover:text-foreground" />
 
           <DropdownMenu>
             <DropdownMenuTrigger

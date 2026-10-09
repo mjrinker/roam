@@ -71,7 +71,7 @@ export async function resolveOwner(
 }
 
 export type OwnerAuthorization =
-  | { ok: true; member: ServerMembership; serverId: string; libraryKind: LibraryKind }
+  | { ok: true; member: ServerMembership; serverId: string; libraryId: string; libraryKind: LibraryKind }
   | { ok: false; status: 404 | 403 };
 
 /**
@@ -100,7 +100,7 @@ export async function authorizeOwner(
 
   if (!isAllowed(member.viewer, owner.ratingAges)) return { ok: false, status: 404 };
   if (!(await canSeeLibrary(db, libraryActor(member, owner.serverId), owner.libraryId))) return { ok: false, status: 404 };
-  return { ok: true, member, serverId: owner.serverId, libraryKind: owner.libraryKind };
+  return { ok: true, member, serverId: owner.serverId, libraryId: owner.libraryId, libraryKind: owner.libraryKind };
 }
 
 /** Same idea, for a title id specifically (used by the admin match-fix route). */
