@@ -9,25 +9,43 @@ import { cn } from "@/lib/utils";
 const PANEL_WIDTH = 240;
 const EDGE = 8;
 
-/** Where the panel goes: just under the button, kept inside the window (pure, so it can be tested). */
-export function placePanel(button: { left: number; bottom: number; right: number }, viewport: { width: number }, panelWidth = PANEL_WIDTH): { top: number; left: number } {
-  const left = Math.max(EDGE, Math.min(button.left, viewport.width - panelWidth - EDGE));
-  return { top: button.bottom + EDGE, left };
+export interface PanelPlacement {
+  top: number;
+  left: number;
+  /** Set when the panel is taller than the room it has: it scrolls instead of running off the screen. */
+  maxHeight?: number;
+}
+
+/**
+ * Where the panel goes: under the button when it fits there, else above it, else in whichever side has more room with a
+ * height limit so it scrolls. Always inside the window sideways (pure, so it can be tested).
+ */
+export function placePanel(
+  button: { left: number; top: number; bottom: number },
+  viewport: { width: number; height: number },
+  panel: { width: number; height: number } = { width: PANEL_WIDTH, height: 0 }
+): PanelPlacement {
+  const left = Math.max(EDGE, Math.min(button.left, viewport.width - panel.width - EDGE));
+  const below = viewport.height - button.bottom - EDGE * 2;
+  const above = button.top - EDGE * 2;
+  if (panel.height <= below) return { top: button.bottom + EDGE, left };
+  if (panel.height <= above) return { top: button.top - EDGE - panel.height, left };
+  return above > below ? { top: EDGE, left, maxHeight: Math.max(above, 0) + EDGE } : { top: button.bottom + EDGE, left, maxHeight: Math.max(below, 0) };
 }
 
 /** Clicks inside these belong to a menu or dialog opened from something in the panel, not to "outside". */
 const KEEP_OPEN = '[data-slot^="dropdown-menu"], [role="menu"], [role="dialog"], [data-slot^="dialog"]';
 
 /**
- * "More": the actions beyond the first two on a page. The panel is a floating list that stays mounted while closed, so the buttons in it
+ * "More": the actions beyond the first two on a page, behind an ellipsis button. The panel is a floating list that stays mounted while closed, so the buttons in it
  * (and any dialog or menu they open) keep their state; it closes after an action, on Escape and on a click elsewhere. It renders nothing
  * when it has nothing to hold.
  */
-export function MoreMenu({ children, label = "More", className }: { children: ReactNode; label?: string; className?: string }) {
+export function MoreMenu({ children, label = "More actions", className }: { children: ReactNode; label?: string; className?: string }) {
   const [open, setOpen] = useState(false);
   // False while the page is built on the server, true in the browser: the panel is drawn into the page body, which only exists there.
   const mounted = useSyncExternalStore(() => () => undefined, () => true, () => false);
-  const [pos, setPos] = useState({ top: 0, left: 0 });
+  const [pos, setPos] = useState<PanelPlacement>({ top: 0, left: 0 });
   const button = useRef<HTMLButtonElement>(null);
   const panel = useRef<HTMLDivElement>(null);
   const hasContent = Children.toArray(children).length > 0;
@@ -56,7 +74,14 @@ export function MoreMenu({ children, label = "More", className }: { children: Re
   if (!hasContent) return null;
 
   function toggle() {
-    if (!open && button.current) setPos(placePanel(button.current.getBoundingClientRect(), { width: window.innerWidth }));
+    const b = button.current;
+    const p = panel.current;
+    if (!open && b && p) {
+      // Measure the panel as it will look (it is kept hidden while closed), then put it where it fits.
+      p.hidden = false;
+      const height = p.scrollHeight;
+      setPos(placePanel(b.getBoundingClientRect(), { width: window.innerWidth, height: window.innerHeight }, { width: PANEL_WIDTH, height }));
+    }
     setOpen((o) => !o);
   }
 
@@ -68,11 +93,12 @@ export function MoreMenu({ children, label = "More", className }: { children: Re
         variant="secondary"
         aria-haspopup="true"
         aria-expanded={open}
+        aria-label={label}
+        title={label}
         onClick={toggle}
-        className={cn("h-11 gap-2 rounded-xl bg-white/10 px-4 backdrop-blur hover:bg-white/20", className)}
+        className={cn("size-11 rounded-xl bg-white/10 p-0 backdrop-blur hover:bg-white/20", className)}
       >
-        <MoreHorizontal className="size-4" />
-        {label}
+        <MoreHorizontal className="size-5" />
       </Button>
       {mounted &&
         createPortal(
@@ -81,7 +107,7 @@ export function MoreMenu({ children, label = "More", className }: { children: Re
             hidden={!open}
             role="group"
             aria-label={label}
-            style={{ position: "fixed", top: pos.top, left: pos.left, width: PANEL_WIDTH }}
+            style={{ position: "fixed", top: pos.top, left: pos.left, width: PANEL_WIDTH, maxHeight: pos.maxHeight, overflowY: pos.maxHeight ? "auto" : undefined }}
             onClick={(e) => {
               // After an action the panel closes; a button that opens a menu of its own keeps it open so the menu has somewhere to hang.
               const t = e.target as Element;
