@@ -86,3 +86,6 @@ button.tile { margin: 0 1.5rem 1.5rem 0; }
 .queuelist { display: none; position: absolute; left: 0; width: 100%; top: 77%; text-align: center; padding: 0 3rem; box-sizing: border-box; color: #c3c3cf; font-size: 1.2rem; line-height: 1.7; z-index: 1; }
 .modern .queuelist { display: block; }
 .queuelist b { color: #7fd8bd; font-weight: 600; }
+.morewrap { display: inline-block; }
+.morewrap .more-item { display: none; }
+.morewrap.open .more-item { display: inline-block; }
