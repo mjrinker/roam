@@ -1,6 +1,7 @@
 import { db } from "@/lib/db/client";
 import { asUuid, notFoundPage, tvAccess } from "@/lib/tv/context";
 import { html } from "@/lib/tv/http";
+import { tvQueueStart } from "@/lib/tv/queue";
 import { parsePlaylistCursor, playlistCursorParam, playlistItemHref, playlistItemLabel, tvPlaylist } from "@/lib/tv/playlists";
 import { listPage } from "@/tv/render";
 
@@ -23,7 +24,7 @@ export async function GET(request: Request, ctx: RouteContext<"/tv/s/[serverId]/
       subtitle: [result.playlist.ownerName, result.playlist.description].filter(Boolean).join(" · ") || null,
       backHref: `${access.base}/playlists`,
       // Play all starts at the top (a following page of a long playlist is reached with More).
-      folders: after ? undefined : [{ href: `${here}/play`, name: "Play all", note: "One after another" }],
+      folders: after || !(await tvQueueStart(db, access.scope, id)) ? undefined : [{ href: `${here}/play`, name: "Play all", note: "One after another" }],
       items: result.items.flatMap((item) => {
         const href = playlistItemHref(item, id);
         const label = playlistItemLabel(item);

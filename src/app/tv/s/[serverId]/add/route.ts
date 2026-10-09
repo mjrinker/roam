@@ -13,6 +13,15 @@ function safeBack(base: string, raw: string | null): string {
   return raw && raw.startsWith(`${base}/`) && !/[\\\u0000-\u001f]|\/\//.test(raw.slice(base.length)) && raw.length < 600 ? raw : base;
 }
 
+/** Whether an Origin header names the same host as the request ("null" and anything unparsable are not the same). */
+function sameHost(origin: string, requestUrl: string): boolean {
+  try {
+    return new URL(origin).host === new URL(requestUrl).host;
+  } catch {
+    return false;
+  }
+}
+
 const targetFrom = (get: (name: string) => string | null | undefined) => {
   const title = asUuid(get("title") ?? "");
   const episode = asUuid(get("episode") ?? "");
@@ -50,10 +59,11 @@ export async function POST(request: Request, ctx: RouteContext<"/tv/s/[serverId]
   const serverId = asUuid((await ctx.params).serverId);
   if (!serverId) return notFoundPage();
   const origin = request.headers.get("origin");
-  if (origin && new URL(origin).host !== new URL(request.url).host) return notFoundPage();
+  if (origin && !sameHost(origin, request.url)) return notFoundPage();
   const access = await tvAccess(request, serverId);
   if (!access.ok) return access.response;
-  const form = await request.formData();
+  const form = await request.formData().catch(() => null);
+  if (!form) return notFoundPage(); // not a form post
   const field = (n: string) => (typeof form.get(n) === "string" ? (form.get(n) as string) : null);
   const target = targetFrom(field);
   const playlistId = asUuid(field("playlist") ?? "");

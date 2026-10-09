@@ -441,6 +441,27 @@ describe("playing a playlist through", () => {
     const lookup = await (await watch(req(`/x?json=1&playlist=${list.id}&item=${i1.id}`), ctx({ ...sid(w), kind: "title", id: m1.id }))).json();
     expect(lookup.next).toContain(`/watch/title/${m2.id}?playlist=`);
   });
+  it("follows a queue only on the server its playlist belongs to, and hides Play all when nothing in the playlist can play", async () => {
+    const { w, list, m1, i1 } = await setup();
+    // someone in two servers cannot walk a queue of one through the other's addresses
+    const other = await world();
+    const theirs = await makePlaylist(db, { serverId: other.server.id, ownerViewerId: other.member.viewer.id, name: "Other server" });
+    const film = await makeTitle(db, (await other.lib("movies")).id, { kind: "movie", name: "Theirs" });
+    await addItem(db, theirs.id, { titleId: film.id });
+    await joinServer(db, w.server.id, other.member.accountId);
+    await signIn(other.member);
+    expect((await playlistPlay(req("/x"), ctx({ ...sid(w), id: theirs.id }))).status).toBe(404);
+    await signIn(w.member);
+    // a playlist with only a picture in it has nothing to play
+    const photoLib = await w.lib("photos");
+    const pic = await makeTitle(db, photoLib.id, { kind: "photo", name: "Pic", takenAt: new Date() });
+    const photoList = await makePlaylist(db, { serverId: w.server.id, ownerViewerId: w.member.viewer.id, name: "Pictures" });
+    await addItem(db, photoList.id, { titleId: pic.id });
+    expect(await text(await playlist(req("/x"), ctx({ ...sid(w), id: photoList.id })))).not.toContain("/play\"");
+    expect(await text(await playlist(req("/x"), ctx({ ...sid(w), id: list.id })))).toContain("/play\"");
+    expect(m1.id).toBeTruthy();
+    expect(i1.id).toBeTruthy();
+  });
   it("ignores a queue that isn't genuine: another item's id, a playlist that is not yours, junk", async () => {
     const { w, list, m1, m2, i1 } = await setup();
     // the page plays m1 but claims to be item 1's neighbour: m2 is not item i1
@@ -527,6 +548,16 @@ describe("adding to a playlist from the TV", () => {
     const refused = await post({ playlist: viewOnly.id, title: film.id });
     expect(refused.status).toBe(404);
     expect(await inList(w, viewOnly.id)).toBe(0);
+  });
+  it("treats an Origin of null, a missing Origin and a body that is not a form without crashing", async () => {
+    const { w, film, mine } = await setup();
+    const call = (init: RequestInit) => addPost(new Request(`https://roam.example/tv/s/${w.server.id}/add`, { method: "POST", ...init }), ctx(sid(w)));
+    expect((await call({ body: new URLSearchParams({ playlist: mine.id, title: film.id }), headers: { origin: "null" } })).status).toBe(404);
+    expect(await inList(w, mine.id)).toBe(0);
+    expect((await call({ body: "{not a form", headers: { "content-type": "application/json" } })).status).toBe(404);
+    // a request with no Origin at all (some TV browsers send none) is allowed: the sign-in cookie only travels with same-site requests
+    expect((await call({ body: new URLSearchParams({ playlist: mine.id, title: film.id }) })).status).toBe(200);
+    expect(await inList(w, mine.id)).toBe(1);
   });
   it("won't add something hidden, from another server, or on a POST from another site, and cleans the back address", async () => {
     const { w, film, mine } = await setup();

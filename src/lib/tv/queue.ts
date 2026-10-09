@@ -1,6 +1,7 @@
 /** A TV playing through a playlist ("Play all"): the same queue rules the web uses, with TV addresses. */
 import { nextAfter, queueNext, type NextTarget } from "@/lib/playlists/next";
 import type { Executor } from "@/lib/playlists/executor";
+import { getPlaylistDetail } from "@/lib/playlists/service";
 import type { TvScope } from "@/lib/tv/data";
 
 export interface QueueContext {
@@ -26,6 +27,12 @@ export function targetHref(base: string, target: NextTarget, playlistId: string)
   return `${base}/watch/${target.kind === "episode" ? "episode" : "title"}/${target.id}${q}`;
 }
 
+/** A queue is only followed on the server its playlist belongs to (a person can be in two servers, and the TV addresses are per server). */
+async function onThisServer(ex: Executor, scope: TvScope, playlistId: string): Promise<boolean> {
+  const detail = await getPlaylistDetail(ex, { playlistId, viewerId: scope.viewerId });
+  return detail.ok && detail.value.serverId === scope.actor.serverId;
+}
+
 export type TvQueueNext = { valid: false } | { valid: true; next: NextTarget | null };
 
 /**
@@ -33,6 +40,7 @@ export type TvQueueNext = { valid: false } | { valid: true; next: NextTarget | n
  * and what is playing really is that item), and what comes next. `valid: false` means "ignore the queue and behave normally".
  */
 export async function tvQueueNext(ex: Executor, scope: TvScope, ctx: QueueContext, current: { titleId?: string; episodeId?: string }): Promise<TvQueueNext> {
+  if (!(await onThisServer(ex, scope, ctx.playlistId))) return { valid: false };
   const check = await queueNext(ex, { playlistId: ctx.playlistId, itemId: ctx.itemId, viewerId: scope.viewerId, ...current, replay: ctx.replay });
   if (!check.valid) return { valid: false };
   if (!check.next) return { valid: true, next: null };
@@ -42,6 +50,7 @@ export async function tvQueueNext(ex: Executor, scope: TvScope, ctx: QueueContex
 
 /** What "Play all" starts with: the first thing the profile can play in the playlist, or null when there isn't anything. */
 export async function tvQueueStart(ex: Executor, scope: TvScope, playlistId: string): Promise<NextTarget | null> {
+  if (!(await onThisServer(ex, scope, playlistId))) return null;
   const first = await nextAfter(ex, { playlistId, viewerId: scope.viewerId });
   return first.ok ? first.value : null;
 }

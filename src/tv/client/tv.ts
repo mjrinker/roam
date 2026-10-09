@@ -560,17 +560,14 @@ function startListening(cfg: ListenConfig) {
 
   /** A song from another album brings its own cover: the big picture and the blurred backdrop follow it. */
   function showCover(src: string | null) {
-    if (!src) return;
-    let img = doc.getElementById("coverimg");
-    const box = doc.querySelector(".listen .cover");
-    if (!img && box) {
-      img = doc.createElement("img");
-      img.id = "coverimg";
-      box.appendChild(img);
-    }
-    if (img) img.setAttribute("src", src);
-    const bg = doc.getElementById("bgimg");
-    if (bg && MODERN) bg.setAttribute("src", src);
+    // A song with no cover shows none, rather than the previous album's.
+    const set = (el: HTMLElement | null) => {
+      if (!el) return;
+      if (src) el.setAttribute("src", src);
+      else el.removeAttribute("src");
+    };
+    set(doc.getElementById("coverimg"));
+    if (MODERN) set(doc.getElementById("bgimg"));
   }
 
   function previousSong() {
@@ -736,7 +733,7 @@ function startListening(cfg: ListenConfig) {
     }
     cfg.next = i + 1 < queue.length ? base + "/listen/" + queue[i + 1].id : null;
     paintQueue();
-    const cover = item.cover || (cfg.queue && cfg.queue.cover) || null;
+    const cover = item.cover !== undefined ? item.cover : (cfg.queue && cfg.queue.cover) || null; // an artist queue names each song's own cover (or none)
     showCover(cover);
     tellSystem(item.title, item.by, cover);
     load(undefined, true);
