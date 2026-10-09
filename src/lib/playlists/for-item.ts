@@ -31,6 +31,37 @@ export async function listEditablePlaylistsForItem(
   const target = await findAddableTarget(ex, { lib: { serverId: args.serverId, accountId: viewer.accountId, isAdmin: membership.role === "admin" }, viewer: access, titleId: args.titleId, episodeId: args.episodeId });
   if (!target) return NOT_FOUND;
 
+  const editable = await editablePlaylistRows(ex, { serverId: args.serverId, viewer, membership, limit: args.limit });
+  if (editable.length === 0) return ok([]);
+
+  const present = await ex
+    .select({ id: playlistItems.id, playlistId: playlistItems.playlistId })
+    .from(playlistItems)
+    .where(
+      and(
+        inArray(playlistItems.playlistId, editable.map((e) => e.playlist.id)),
+        "titleId" in target ? eq(playlistItems.titleId, target.titleId) : eq(playlistItems.episodeId, target.episodeId)
+      )
+    );
+  const itemByPlaylist = new Map(present.map((p) => [p.playlistId, p.id]));
+  return ok(editable.map((e) => ({ id: e.playlist.id, name: e.playlist.name, itemId: itemByPlaylist.get(e.playlist.id) ?? null })));
+}
+
+/** Every playlist this viewer may add to (see listEditablePlaylistsForItem), without regard to any one item. */
+export async function listEditablePlaylists(ex: Executor, args: { serverId: string; viewerId: string; limit?: number }): Promise<Result<{ id: string; name: string }[]>> {
+  const membership = await serverMembershipOf(ex, args.viewerId, args.serverId);
+  if (!membership) return NOT_FOUND;
+  const [viewer] = await ex.select().from(viewers).where(eq(viewers.id, args.viewerId));
+  if (!viewer) return NOT_FOUND;
+  const rows = await editablePlaylistRows(ex, { serverId: args.serverId, viewer, membership, limit: args.limit });
+  return ok(rows.map((r) => ({ id: r.playlist.id, name: r.playlist.name })));
+}
+
+async function editablePlaylistRows(
+  ex: Executor,
+  args: { serverId: string; viewer: typeof viewers.$inferSelect; membership: { role: string }; limit?: number }
+) {
+  const { viewer, membership } = args;
   // My playlists and ones I'm a member of (the pure rules below decide who can really edit).
   const mine = await ex
     .select({ playlist: playlists, role: playlistMembers.role })
@@ -68,17 +99,5 @@ export async function listEditablePlaylistsForItem(
         r.role ?? null
       ).canEditItems
   );
-  if (editable.length === 0) return ok([]);
-
-  const present = await ex
-    .select({ id: playlistItems.id, playlistId: playlistItems.playlistId })
-    .from(playlistItems)
-    .where(
-      and(
-        inArray(playlistItems.playlistId, editable.map((e) => e.playlist.id)),
-        "titleId" in target ? eq(playlistItems.titleId, target.titleId) : eq(playlistItems.episodeId, target.episodeId)
-      )
-    );
-  const itemByPlaylist = new Map(present.map((p) => [p.playlistId, p.id]));
-  return ok(editable.map((e) => ({ id: e.playlist.id, name: e.playlist.name, itemId: itemByPlaylist.get(e.playlist.id) ?? null })));
+  return editable;
 }

@@ -19,7 +19,7 @@ export async function GET(request: Request, ctx: RouteContext<"/tv/s/[serverId]/
       title: result.artist.name,
       subtitle: result.artist.libraryName,
       backHref: `${access.base}/library/${result.artist.libraryId}`,
-      folders: [{ href: `${access.base}/artist/${id}/play`, name: "Play all", note: "In album order" }, { href: `${access.base}/artist/${id}/play?shuffle=1`, name: "Shuffle", note: "All songs, mixed" }],
+      folders: [{ href: `${access.base}/artist/${id}/play`, name: "Play all", note: "In album order" }, { href: `${access.base}/artist/${id}/play?shuffle=1`, name: "Shuffle", note: "All songs, mixed" }, { href: `${access.base}/add?artist=${id}&back=${encodeURIComponent(`${access.base}/artist/${id}`)}`, name: "Add to playlist", note: "All songs" }],
       items: result.albums.map((a) => ({ href: `${access.base}/album/${a.id}`, name: a.name, meta: [a.year, `${a.trackCount} ${a.trackCount === 1 ? "song" : "songs"}`].filter(Boolean).join(" · "), posterUrl: a.coverUrl, square: true })),
       prevHref: null,
       nextHref: null,

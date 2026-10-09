@@ -1,12 +1,13 @@
 "use client";
 
-import { Loader2, Pause, Play, Shuffle } from "lucide-react";
+import { Check, Loader2, Pause, Play, Shuffle } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { formatClock } from "@/lib/player/timeline";
 import { shuffled } from "@/lib/music/list-queue";
 import { Button } from "@/components/ui/button";
 import { useAudioPlayer } from "@/components/audio/audio-player-provider";
+import { AddToPlaylistMenu } from "@/components/playlists/add-to-playlist-menu";
 
 export interface TrackListItem {
   id: string;
@@ -15,6 +16,8 @@ export interface TrackListItem {
   trackNumber: number | null;
   durationSeconds: number | null;
   artist: string | null;
+  /** Whether this profile has marked it (or the whole album) as listened to. */
+  done?: boolean;
 }
 
 /** Play and Shuffle for an album: queues every song so it carries on to the next one. */
@@ -49,7 +52,7 @@ export function AlbumPlayButtons({ ids }: { ids: string[] }) {
 }
 
 /** The songs of an album, in order; clicking one plays from there and carries on through the rest. */
-export function TrackList({ tracks }: { tracks: TrackListItem[] }) {
+export function TrackList({ tracks, serverId }: { tracks: TrackListItem[]; serverId: string }) {
   const p = useAudioPlayer();
   const ids = tracks.map((t) => t.id);
   const multiDisc = new Set(tracks.map((t) => t.discNumber ?? 1)).size > 1;
@@ -71,12 +74,13 @@ export function TrackList({ tracks }: { tracks: TrackListItem[] }) {
         return (
           <li key={t.id}>
             {heading && <p className="px-3 pt-4 pb-1 text-xs font-medium tracking-wide text-muted-foreground uppercase">{heading}</p>}
+            <div className="relative">
             <button
               type="button"
               onClick={() => playFrom(i)}
               disabled={!p}
               className={cn(
-                "group flex w-full items-center gap-4 rounded-lg px-3 py-2.5 text-left outline-none transition-colors hover:bg-white/[0.06] focus-visible:ring-2 focus-visible:ring-primary",
+                "group flex w-full items-center gap-4 rounded-lg py-2.5 pr-14 pl-3 text-left outline-none transition-colors hover:bg-white/[0.06] focus-visible:ring-2 focus-visible:ring-primary",
                 isCurrent && "bg-white/[0.06]"
               )}
             >
@@ -96,8 +100,13 @@ export function TrackList({ tracks }: { tracks: TrackListItem[] }) {
                 <span className={cn("block truncate text-sm font-medium", isCurrent && "text-primary")}>{t.name}</span>
                 {t.artist && <span className="block truncate text-xs text-muted-foreground">{t.artist}</span>}
               </span>
+              {t.done && <Check className="size-4 shrink-0 text-primary" aria-label="Listened to" />}
               <span className="shrink-0 text-xs text-muted-foreground tabular-nums">{t.durationSeconds != null ? formatClock(t.durationSeconds) : ""}</span>
             </button>
+            <div className="absolute top-1/2 right-2 -translate-y-1/2">
+              <AddToPlaylistMenu serverId={serverId} target={{ titleId: t.id }} variant="icon" />
+            </div>
+            </div>
           </li>
         );
       })}

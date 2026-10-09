@@ -339,7 +339,7 @@ export interface AddToPlaylistData {
   /** What is being added (its name), for the heading. */
   what: string;
   /** The address of the thing being added: "title" or "episode" and its id. */
-  target: { field: "title" | "episode"; id: string };
+  target: { field: "title" | "episode" | "album" | "artist"; id: string };
   /** Where to go back to, an address on this server's TV pages. */
   back: string;
   playlists: { id: string; name: string; note: string }[];

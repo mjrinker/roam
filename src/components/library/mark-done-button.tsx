@@ -7,7 +7,7 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { doneWords, type DoneKind } from "@/lib/watch/words";
 
-type MarkKind = "title" | "episode" | "season" | "show";
+type MarkKind = "title" | "episode" | "season" | "show" | "album";
 
 /**
  * "Mark as watched / listened to / read" (and the opposite, depending on where things stand now). `scope` names what is being marked

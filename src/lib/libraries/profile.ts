@@ -43,11 +43,12 @@ export function libraryRemembersProgress(kind: LibraryKind | null | undefined): 
 }
 
 /**
- * Whether things in this library can be marked watched, listened to or read. Pictures, clips beside them and songs keep no place
- * (nothing resumes), so there is nothing to mark; an eBook has no resume position but can still be marked read.
+ * Whether things in this library can be marked watched, listened to or read. Pictures (and clips beside them) have nothing to mark.
+ * Songs and eBooks keep no resume place, but can still carry the finished flag: a song is "listened to" (marked an album at a time),
+ * an eBook "read".
  */
 export function libraryHasDoneState(kind: LibraryKind | null | undefined): boolean {
-  return kind !== "photos" && kind !== "music";
+  return kind !== "photos";
 }
 
 /** Libraries of songs, browsed as artists, albums and songs. */

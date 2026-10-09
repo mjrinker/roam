@@ -1,12 +1,15 @@
 /** Mark as watched / listened to / read: checks the caller may see the thing (the same gate as playing it), then writes the rows. */
 import { eq } from "drizzle-orm";
 import { db } from "@/lib/db/client";
-import { seasons, titles } from "@/lib/db/schema";
+import { libraries, musicAlbums, seasons, titles } from "@/lib/db/schema";
+import { getCurrentServerMember } from "@/lib/auth/guards";
+import { canSeeLibrary, libraryActor } from "@/lib/content/library-access";
+import { albumSongIds } from "@/lib/music/browse";
 import { authorizeOwner } from "@/lib/auth/resolve-server";
 import { libraryHasDoneState } from "@/lib/libraries/profile";
 import { episodeOwners, setDone, type Owner } from "./mark";
 
-export type MarkKind = "title" | "episode" | "season" | "show";
+export type MarkKind = "title" | "episode" | "season" | "show" | "album";
 export type MarkResult = { ok: true; count: number } | { ok: false; status: 403 | 404 };
 
 /**
@@ -14,6 +17,7 @@ export type MarkResult = { ok: true; count: number } | { ok: false; status: 403 
  * photo library and a song are not markable (they keep no place), and anything the caller can't see is "not found".
  */
 export async function markDone(args: { kind: MarkKind; id: string; done: boolean }): Promise<MarkResult> {
+  if (args.kind === "album") return markAlbum(args.id, args.done);
   let auth;
   let owners: Owner[];
   if (args.kind === "episode") {
@@ -41,5 +45,24 @@ export async function markDone(args: { kind: MarkKind; id: string; done: boolean
     owners[0].durationSeconds = t?.runtimeSeconds ?? null;
   }
   const count = await setDone(db, { viewerId: auth.member.viewer.id, owners, done: args.done });
+  return { ok: true, count };
+}
+
+/** Every song of an album that this profile may see, marked listened to (or not). An album that isn't visible, or has nothing visible, is "not found". */
+async function markAlbum(albumId: string, done: boolean): Promise<MarkResult> {
+  const [album] = await db
+    .select({ serverId: libraries.serverId, libraryId: libraries.id })
+    .from(musicAlbums)
+    .innerJoin(libraries, eq(libraries.id, musicAlbums.libraryId))
+    .where(eq(musicAlbums.id, albumId))
+    .limit(1);
+  if (!album) return { ok: false, status: 404 };
+  const member = await getCurrentServerMember(album.serverId);
+  if (!member) return { ok: false, status: 404 };
+  const actor = libraryActor(member, album.serverId);
+  if (!(await canSeeLibrary(db, actor, album.libraryId))) return { ok: false, status: 404 };
+  const songs = await albumSongIds(db, { actor, viewer: member.viewer, albumId });
+  if (!songs?.length) return { ok: false, status: 404 };
+  const count = await setDone(db, { viewerId: member.viewer.id, owners: songs.map((id) => ({ ownerKind: "title" as const, ownerId: id, durationSeconds: null })), done });
   return { ok: true, count };
 }

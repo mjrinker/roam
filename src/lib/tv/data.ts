@@ -441,3 +441,10 @@ export async function randomPhotoId(ex: Db, scope: TvScope): Promise<string | nu
     .limit(1);
   return row?.id ?? null;
 }
+
+/** Which of these titles this profile has marked (or finished): for an album's "listened to" state. */
+export async function finishedTitleIds(ex: Db, viewerId: string, ids: string[]): Promise<Set<string>> {
+  if (ids.length === 0) return new Set();
+  const rows = await stateFor(ex, viewerId, "title", ids);
+  return new Set(rows.filter((r) => r.finished).map((r) => r.ownerId));
+}

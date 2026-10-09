@@ -10,7 +10,7 @@ vi.mock("@/lib/db/client", async () => {
 });
 vi.mock("@/lib/auth/viewer", () => ({ getCurrentViewer: async () => h.resolution }));
 
-import { profiles, viewers, watchState } from "@/lib/db/schema";
+import { musicAlbums, musicArtists, profiles, titles, viewers, watchState } from "@/lib/db/schema";
 import { joinServer, makeAccount, makeLibrary, makeServer, makeShow, makeTitle, type TestDb } from "@/lib/playlists/test-db";
 import { POST } from "./mark/route";
 
@@ -74,14 +74,16 @@ describe("marking a title", () => {
     for (const t of things) expect((await mark({ kind: "title", id: t.id, done: true })).status, t.name).toBe(200);
     expect((await rows(w.me.viewer.id)).map((r) => r.finished)).toEqual([true, true, true, true]);
   });
-  it("refuses what keeps no place (pictures, a clip beside them, songs), and a show as a title", async () => {
+  it("refuses pictures, a clip beside them, and a show as a title; a song can be marked listened to", async () => {
     const w = await world();
     const pic = await makeTitle(db, (await w.lib("photos")).id, { kind: "photo", name: "Pic", takenAt: new Date() });
     const clip = await makeTitle(db, (await w.lib("photos")).id, { kind: "movie", name: "Clip", takenAt: new Date() });
-    const song = await makeTitle(db, (await w.lib("music")).id, { kind: "audiobook", name: "Song" });
     const { show } = await makeShow(db, (await w.lib("shows")).id, 1, { name: "Show" });
-    for (const t of [pic, clip, song, show]) expect((await mark({ kind: "title", id: t.id, done: true })).status, t.name).toBe(404);
+    for (const t of [pic, clip, show]) expect((await mark({ kind: "title", id: t.id, done: true })).status, t.name).toBe(404);
     expect(await rows(w.me.viewer.id)).toEqual([]);
+    const song = await makeTitle(db, (await w.lib("music")).id, { kind: "audiobook", name: "Song" });
+    expect((await mark({ kind: "title", id: song.id, done: true })).status).toBe(200);
+    expect(await stateOf(w.me.viewer.id, "title", song.id)).toMatchObject({ finished: true });
   });
 });
 
@@ -152,6 +154,44 @@ describe("unmarking and forged requests", () => {
     await signInAs(w.me.accountId);
     for (const s of [hiddenSeason, otherSeason]) expect((await mark({ kind: "season", id: s.id, done: true })).status).toBe(404);
     expect(await rows(w.me.viewer.id)).toEqual([]);
+  });
+});
+
+describe("marking an album", () => {
+  async function album(w: Awaited<ReturnType<typeof world>>, songs: Partial<typeof titles.$inferInsert>[]) {
+    const lib = await w.lib("music");
+    const [artist] = await db.insert(musicArtists).values({ libraryId: lib.id, name: "Band", nameKey: "band", sortKey: "band" }).returning();
+    const [al] = await db.insert(musicAlbums).values({ libraryId: lib.id, artistId: artist.id, name: "LP", nameKey: "lp" }).returning();
+    const made = [];
+    for (const [i, s] of songs.entries()) made.push(await makeTitle(db, lib.id, { kind: "audiobook", name: `S${i}`, albumId: al.id, trackNumber: i + 1, ...s }));
+    return { al, made };
+  }
+  it("marks every song of the album listened to, and not listened to again, for this profile only", async () => {
+    const w = await world();
+    const { al, made } = await album(w, [{}, {}, {}]);
+    const other = await makeAccount(db, "other");
+    await joinServer(db, w.server.id, other.accountId);
+    const res = await mark({ kind: "album", id: al.id, done: true });
+    expect([res.status, await res.json()]).toEqual([200, { ok: true, count: 3 }]);
+    expect((await rows(w.me.viewer.id)).map((r) => r.ownerId).sort()).toEqual(made.map((m) => m.id).sort());
+    expect(await rows(other.viewer.id)).toEqual([]);
+    await mark({ kind: "album", id: al.id, done: false });
+    expect(await rows(w.me.viewer.id)).toEqual([]);
+  });
+  it("marks only the songs this profile may see, and answers 404 for an album it can't see or that is on another server", async () => {
+    const w = await world();
+    const { al, made } = await album(w, [{ ratingAges: { ANY: 0 } }, { ratingAges: { ANY: 17 } }]);
+    await db.update(viewers).set({ maxAge: 7, allowUnrated: false }).where(eq(viewers.id, w.me.viewer.id));
+    await signInAs(w.me.accountId);
+    expect((await mark({ kind: "album", id: al.id, done: true })).status).toBe(200);
+    expect((await rows(w.me.viewer.id)).map((r) => r.ownerId)).toEqual([made[0].id]);
+    const hidden = await world("restricted");
+    const hiddenAlbum = await album(hidden, [{}]);
+    const other = await world();
+    const theirs = await album(other, [{}]);
+    await signInAs(w.me.accountId);
+    for (const a of [hiddenAlbum.al, theirs.al]) expect((await mark({ kind: "album", id: a.id, done: true })).status).toBe(404);
+    expect((await mark({ kind: "album", id: "00000000-0000-4000-8000-0000000000aa", done: true })).status).toBe(404);
   });
 });
 

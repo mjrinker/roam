@@ -18,6 +18,9 @@ async function call<T>(url: string, init?: RequestInit): Promise<ApiResult<T>> {
 
 export type ItemTarget = { titleId: string } | { episodeId: string };
 
+/** Adds all the songs of an album, or of an artist, as separate playlist items. */
+export type SongsTarget = { albumId: string } | { artistId: string };
+
 export interface EditablePlaylist {
   id: string;
   name: string;
@@ -62,6 +65,11 @@ export const playlistApi = {
     const q = "titleId" in target ? `titleId=${target.titleId}` : `episodeId=${target.episodeId}`;
     return call<{ playlists: EditablePlaylist[] }>(`/api/servers/${serverId}/playlists/for-item?${q}`);
   },
+
+  editable: (serverId: string) => call<{ playlists: { id: string; name: string }[] }>(`/api/servers/${serverId}/playlists/editable`),
+
+  addSongs: (playlistId: string, target: SongsTarget) =>
+    call<{ added: number; skipped: number }>(`/api/playlists/${playlistId}/items`, { method: "POST", body: JSON.stringify(target) }),
 
   addItem: (playlistId: string, target: ItemTarget) =>
     call<{ id: string }>(`/api/playlists/${playlistId}/items`, { method: "POST", body: JSON.stringify(target) }),

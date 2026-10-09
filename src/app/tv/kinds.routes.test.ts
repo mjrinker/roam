@@ -575,6 +575,67 @@ describe("marking watched, listened to and read from the TV", () => {
   });
 });
 
+describe("music: mark an album and add albums and artists to a playlist from the TV", () => {
+  const formPost = (w: { server: { id: string } }, path: string, fields: Record<string, string>) =>
+    markPost(new Request(`https://roam.example/tv/s/${w.server.id}/${path}`, { method: "POST", body: new URLSearchParams(fields) }), ctx(sid(w)));
+  async function setup() {
+    const w = await world();
+    const lib = await w.lib("music");
+    const [art] = await db.insert(musicArtists).values({ libraryId: lib.id, name: "Band <&>", nameKey: "band", sortKey: "band" }).returning();
+    const [al] = await db.insert(musicAlbums).values({ libraryId: lib.id, artistId: art.id, name: "LP", nameKey: "lp", year: 2000 }).returning();
+    const songs = [];
+    for (const [i, name] of ["One", "Two", "Three"].entries()) songs.push(await makeTitle(db, lib.id, { kind: "audiobook", name, albumId: al.id, trackNumber: i + 1, sortKey: String(i) }));
+    const list = await makePlaylist(db, { serverId: w.server.id, ownerViewerId: w.member.viewer.id, name: "Mix" });
+    return { w, art, al, songs, list };
+  }
+  const itemsIn = async (w: { server: { id: string }; member: { accountId: string; viewer: { id: string } } }, id: string) =>
+    (await tvPlaylist(db, { actor: { serverId: w.server.id, accountId: w.member.accountId, isAdmin: false }, viewer: { locale: "en-US", maxAge: null, allowUnrated: true }, viewerId: w.member.viewer.id }, id, null))?.items.map((i) => i.name) ?? [];
+
+  it("marks the whole album listened to and back, with the album page's button following", async () => {
+    const { w, al } = await setup();
+    const page = async () => text(await album(req("/x"), ctx({ ...sid(w), id: al.id })));
+    expect(await page()).toContain("Mark as listened to");
+    const back = `/tv/s/${w.server.id}/album/${al.id}`;
+    const res = await formPost(w, "mark", { kind: "album", id: al.id, done: "1", back });
+    expect([res.status, res.headers.get("location")]).toEqual([303, `https://roam.example${back}`]);
+    expect(await page()).toContain("Mark as not listened to");
+    await formPost(w, "mark", { kind: "album", id: al.id, done: "0", back });
+    expect(await page()).toContain("Mark as listened to");
+  });
+  it("adds an album, and then all of an artist's songs, to a playlist, saying how many went in", async () => {
+    const { w, art, al, list } = await setup();
+    const chooser = await text(await addGet(req(`/x?album=${al.id}`), ctx(sid(w))));
+    expect(chooser).toContain("LP · 3 songs");
+    expect(chooser).toContain("Mix");
+    expect(chooser).toContain(`name="album" value="${al.id}"`);
+    const added = await text(await addPost(new Request(`https://roam.example/tv/s/${w.server.id}/add`, { method: "POST", body: new URLSearchParams({ playlist: list.id, album: al.id }) }), ctx(sid(w))));
+    expect(added).toContain("Added 3 songs to your playlist.");
+    expect(await itemsIn(w, list.id)).toEqual(["One", "Two", "Three"]);
+    const again = await text(await addPost(new Request(`https://roam.example/tv/s/${w.server.id}/add`, { method: "POST", body: new URLSearchParams({ playlist: list.id, artist: art.id }) }), ctx(sid(w))));
+    expect(again).toContain("already in this playlist");
+    expect(await text(await addGet(req(`/x?artist=${art.id}`), ctx(sid(w))))).toContain("Band &lt;&amp;&gt; · 3 songs");
+    const artistPage = await text(await artist(req("/x"), ctx({ ...sid(w), id: art.id })));
+    expect(artistPage).toContain(`/add?artist=${art.id}`);
+    expect(await text(await album(req("/x"), ctx({ ...sid(w), id: al.id })))).toContain(`/add?album=${al.id}`);
+  });
+  it("won't add a hidden album or one from another server, or into a playlist that can't be changed", async () => {
+    const { w, al } = await setup();
+    const friend = await makeAccount(db, "friend");
+    await joinServer(db, w.server.id, friend.accountId);
+    const viewOnly = await makePlaylist(db, { serverId: w.server.id, ownerViewerId: friend.viewer.id, name: "View only", visibility: "server" });
+    const post = (fields: Record<string, string>) => addPost(new Request(`https://roam.example/tv/s/${w.server.id}/add`, { method: "POST", body: new URLSearchParams(fields) }), ctx(sid(w)));
+    expect((await post({ playlist: viewOnly.id, album: al.id })).status).toBe(404);
+    const other = await world();
+    const lib = await other.lib("music");
+    const [oa] = await db.insert(musicArtists).values({ libraryId: lib.id, name: "Other", nameKey: "o", sortKey: "o" }).returning();
+    const [oal] = await db.insert(musicAlbums).values({ libraryId: lib.id, artistId: oa.id, name: "Theirs", nameKey: "t" }).returning();
+    await makeTitle(db, lib.id, { kind: "audiobook", name: "T1", albumId: oal.id, trackNumber: 1 });
+    await signIn(w.member);
+    expect((await addGet(req(`/x?album=${oal.id}`), ctx(sid(w)))).status).toBe(404);
+    expect((await addGet(req("/x?album=00000000-0000-4000-8000-0000000000aa"), ctx(sid(w)))).status).toBe(404);
+  });
+});
+
 describe("adding to a playlist from the TV", () => {
   const form = (path: string, fields: Record<string, string>, headers: Record<string, string> = {}) => new Request(`https://roam.example${path}`, { method: "POST", body: new URLSearchParams(fields), headers });
   async function setup() {

@@ -24,7 +24,7 @@ export async function POST(request: Request, ctx: RouteContext<"/tv/s/[serverId]
   const kind = field("kind");
   const id = asUuid(field("id") ?? "");
   const done = field("done");
-  if ((kind !== "title" && kind !== "episode" && kind !== "season" && kind !== "show") || !id || (done !== "0" && done !== "1")) return notFoundPage();
+  if ((kind !== "title" && kind !== "episode" && kind !== "season" && kind !== "show" && kind !== "album") || !id || (done !== "0" && done !== "1")) return notFoundPage();
   const back = safeBack(access.base, field("back"));
   const result = await markDone({ kind, id, done: done === "1" });
   if (!result.ok) return html(messagePage("Couldn't change that", "That can't be marked.", { href: back, label: "Back" }), 404);

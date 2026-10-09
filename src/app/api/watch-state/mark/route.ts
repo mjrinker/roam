@@ -3,7 +3,7 @@ import { z } from "zod";
 import { markDone } from "@/lib/watch/service";
 
 const bodySchema = z.object({
-  kind: z.enum(["title", "episode", "season", "show"]),
+  kind: z.enum(["title", "episode", "season", "show", "album"]),
   id: z.string().uuid(),
   /** true: mark as watched / listened to / read; false: mark as not. */
   done: z.boolean(),

@@ -7,6 +7,7 @@ import { isUuid } from "@/lib/playlists/http";
 import { getArtist } from "@/lib/music/browse";
 import { Breadcrumbs } from "@/components/shell/breadcrumbs";
 import { AlbumTile, TILE_GRID } from "@/components/music/music-cards";
+import { AddSongsToPlaylistMenu } from "@/components/playlists/add-songs-to-playlist-menu";
 
 export default async function ArtistPage({ params }: PageProps<"/s/[serverId]/artist/[id]">) {
   const { serverId, id } = await params;
@@ -28,6 +29,9 @@ export default async function ArtistPage({ params }: PageProps<"/s/[serverId]/ar
           <p className="text-sm text-muted-foreground">
             {albums.length} {albums.length === 1 ? "album" : "albums"}
           </p>
+        </div>
+        <div className="ml-auto">
+          <AddSongsToPlaylistMenu serverId={serverId} target={{ artistId: artist.id }} label="Add all songs to playlist" />
         </div>
       </div>
       <div className={TILE_GRID}>

@@ -24,15 +24,20 @@ describe("music tiles", () => {
 describe("track list", () => {
   const t = (id: string, name: string, trackNumber: number | null, discNumber: number | null, artistName: string | null = null) => ({ id, name, trackNumber, discNumber, durationSeconds: 125, artist: artistName });
   it("shows number, name, a differing artist and the length, and a dash for an unnumbered song", () => {
-    const html = renderToStaticMarkup(<TrackList tracks={[t("a", "Come Together", 1, null), t("b", "Hidden", null, null, "Guest")]} />);
+    const html = renderToStaticMarkup(<TrackList serverId="s1" tracks={[t("a", "Come Together", 1, null), t("b", "Hidden", null, null, "Guest")]} />);
     expect(html).toContain("Come Together");
     expect(html).toContain("Guest");
     expect(html).toContain("2:05");
     expect(html).toContain(">–<");
     expect(html).not.toContain("Disc ");
   });
+  it("gives each song an add-to-playlist button and a tick when it has been listened to", () => {
+    const html = renderToStaticMarkup(<TrackList serverId="s1" tracks={[{ ...t("a", "Heard", 1, null), done: true }, t("b", "New", 2, null)]} />);
+    expect(html.match(/aria-label="Add to playlist"/g)).toHaveLength(2);
+    expect(html.match(/aria-label="Listened to"/g)).toHaveLength(1);
+  });
   it("adds a heading per disc only when there is more than one", () => {
-    const html = renderToStaticMarkup(<TrackList tracks={[t("a", "x", 1, 1), t("b", "y", 2, 1), t("c", "z", 1, 2)]} />);
+    const html = renderToStaticMarkup(<TrackList serverId="s1" tracks={[t("a", "x", 1, 1), t("b", "y", 2, 1), t("c", "z", 1, 2)]} />);
     expect(html.match(/Disc \d/g)).toEqual(["Disc 1", "Disc 2"]);
   });
   it("renders play and shuffle disabled outside the player", () => {

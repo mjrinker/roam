@@ -195,3 +195,22 @@ export async function getAlbum(ex: Db, scope: Scope & { albumId: string }): Prom
     totalSeconds: tracks.reduce((n, t) => n + (t.durationSeconds ?? 0), 0),
   };
 }
+
+/** The ids of an album's songs this viewer may see, in album order; null when the album isn't visible. */
+export async function albumSongIds(ex: Db, scope: Scope & { albumId: string }): Promise<string[] | null> {
+  const page = await getAlbum(ex, scope);
+  return page ? page.tracks.map((t) => t.id) : null;
+}
+
+/** The ids of all of an artist's songs this viewer may see: albums oldest first, each in album order, at most `max`. Null when the artist isn't visible. */
+export async function artistSongIds(ex: Db, scope: Scope & { artistId: string }, max: number): Promise<string[] | null> {
+  const artist = await getArtist(ex, scope);
+  if (!artist) return null;
+  const ids: string[] = [];
+  for (const album of artist.albums) {
+    const page = await getAlbum(ex, { actor: scope.actor, viewer: scope.viewer, albumId: album.id });
+    if (page) ids.push(...page.tracks.map((t) => t.id));
+    if (ids.length >= max) break;
+  }
+  return ids.slice(0, max);
+}

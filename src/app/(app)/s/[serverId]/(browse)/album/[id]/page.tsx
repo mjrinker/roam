@@ -8,6 +8,10 @@ import { db } from "@/lib/db/client";
 import { formatRuntime } from "@/lib/format";
 import { isUuid } from "@/lib/playlists/http";
 import { getAlbum } from "@/lib/music/browse";
+import { and, eq, inArray } from "drizzle-orm";
+import { watchState } from "@/lib/db/schema";
+import { AddSongsToPlaylistMenu } from "@/components/playlists/add-songs-to-playlist-menu";
+import { MarkDoneButton } from "@/components/library/mark-done-button";
 import { Breadcrumbs } from "@/components/shell/breadcrumbs";
 import { AlbumPlayButtons, TrackList } from "@/components/music/track-list";
 import { AlbumRematchButton } from "@/components/admin/album-rematch-button";
@@ -18,7 +22,14 @@ export default async function AlbumPage({ params }: PageProps<"/s/[serverId]/alb
   const { profile, viewer, role } = await requireServerMember(serverId);
   const page = await getAlbum(db, { actor: libraryActor({ profile, role }, serverId), viewer, albumId: id });
   if (!page) notFound();
-  const { album, tracks, totalSeconds } = page;
+  const { album, tracks: plain, totalSeconds } = page;
+  // Which songs this profile has marked as listened to (marking an album marks each of its songs).
+  const finished = plain.length
+    ? await db.select({ id: watchState.ownerId }).from(watchState).where(and(eq(watchState.viewerId, viewer.id), eq(watchState.ownerKind, "title"), eq(watchState.finished, true), inArray(watchState.ownerId, plain.map((t) => t.id))))
+    : [];
+  const doneIds = new Set(finished.map((f) => f.id));
+  const tracks = plain.map((t) => ({ ...t, done: doneIds.has(t.id) }));
+  const albumDone = tracks.length > 0 && tracks.every((t) => t.done);
   const runtime = formatRuntime(totalSeconds);
 
   return (
@@ -51,10 +62,14 @@ export default async function AlbumPage({ params }: PageProps<"/s/[serverId]/alb
             {[album.year, `${album.trackCount} ${album.trackCount === 1 ? "song" : "songs"}`, runtime].filter(Boolean).map((part) => ` · ${part}`)}
           </p>
           <AlbumPlayButtons ids={tracks.map((t) => t.id)} />
+          <div className="flex flex-wrap items-center gap-3">
+            <AddSongsToPlaylistMenu serverId={serverId} target={{ albumId: album.id }} label="Add album to playlist" />
+            <MarkDoneButton kind="album" id={album.id} done={albumDone} media="listen" scope="album" compact />
+          </div>
           {role === "admin" && viewer.role !== "limited" && <AlbumRematchButton albumId={album.id} matched={album.matched} />}
         </div>
       </header>
-      <TrackList tracks={tracks} />
+      <TrackList tracks={tracks} serverId={serverId} />
     </div>
   );
 }

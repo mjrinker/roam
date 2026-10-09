@@ -3,12 +3,13 @@
  * the actor (role, restrictions) under that lock, so a revoked editor or a
  * freshly restricted profile can't slip through on stale facts.
  */
-import { and, asc, eq, gt, max, ne, or, sql } from "drizzle-orm";
+import { and, asc, eq, gt, inArray, max, ne, or, sql } from "drizzle-orm";
+import { albumSongIds, artistSongIds } from "@/lib/music/browse";
 import { playlistItems, playlists } from "@/lib/db/schema";
 import { loadContext } from "./context";
 import type { Executor } from "./executor";
 import { findAddableTarget, findVisibleItem, listVisibleItems, type ItemCursor, type ItemsPage } from "./items";
-import { appendPosition, planMove } from "./position";
+import { appendPosition, planMove, POSITION_GAP } from "./position";
 import { CONTENTION_CODES, FK_VIOLATION, retryOnContention } from "./retry";
 import { fail, NOT_FOUND, ok, type Result } from "./results";
 
@@ -81,6 +82,61 @@ export async function addItem(
           .returning({ id: playlistItems.id, position: playlistItems.position });
         await touch(tx, ctx.playlist.id);
         return ok({ id: row.id, position: row.position });
+      }),
+    WRITE_RETRY_CODES
+  );
+}
+
+/** Most songs one "add an album / an artist" will put in a playlist (an artist with a huge catalogue is cut off here). */
+export const MAX_SONGS_PER_ADD = 500;
+
+/**
+ * Adds all of an album's songs, or all of an artist's (albums oldest first, each in album order), as ordinary playlist items, skipping
+ * any already in the playlist. Only songs the viewer may see are considered, and it is all one locked transaction: all or nothing.
+ * The songs are copied in as they are now (songs added to the album later don't join the playlist).
+ */
+export async function addSongs(
+  ex: Executor,
+  args: { playlistId: string; viewerId: string; albumId?: string; artistId?: string }
+): Promise<Result<{ added: number; skipped: number }>> {
+  const pre = await loadContext(ex, args);
+  if (!pre) return NOT_FOUND;
+  if (!pre.caps.canEditItems) return fail(403, "You can't change this playlist's items.");
+
+  const songsFor = async (ctx: NonNullable<typeof pre>, db: Executor) =>
+    args.albumId
+      ? albumSongIds(db, { actor: ctx.lib, viewer: ctx.access, albumId: args.albumId })
+      : args.artistId
+        ? artistSongIds(db, { actor: ctx.lib, viewer: ctx.access, artistId: args.artistId }, MAX_SONGS_PER_ADD)
+        : Promise.resolve(null);
+  if (!(await songsFor(pre, ex))?.length) return NOT_FOUND;
+
+  return retryOnContention(
+    () =>
+      ex.transaction(async (tx): Promise<Result<{ added: number; skipped: number }>> => {
+        const ctx = await loadContext(tx, { playlistId: args.playlistId, viewerId: args.viewerId, lock: true });
+        if (!ctx) return NOT_FOUND;
+        if (!ctx.caps.canEditItems) return fail(403, "You can't change this playlist's items.");
+        const songs = await songsFor(ctx, tx);
+        if (!songs?.length) return NOT_FOUND;
+
+        const have = await tx
+          .select({ titleId: playlistItems.titleId })
+          .from(playlistItems)
+          .where(and(eq(playlistItems.playlistId, ctx.playlist.id), inArray(playlistItems.titleId, songs)));
+        const present = new Set(have.map((h) => h.titleId));
+        const fresh = songs.filter((id) => !present.has(id));
+        if (fresh.length > 0) {
+          const [{ top }] = await tx.select({ top: max(playlistItems.position) }).from(playlistItems).where(eq(playlistItems.playlistId, ctx.playlist.id));
+          const first = appendPosition(top === null || top === undefined ? null : Number(top));
+          for (let i = 0; i < fresh.length; i += 200) {
+            await tx.insert(playlistItems).values(
+              fresh.slice(i, i + 200).map((titleId, j) => ({ playlistId: ctx.playlist.id, titleId, position: first + (i + j) * POSITION_GAP, addedByViewerId: ctx.viewer.id }))
+            );
+          }
+          await touch(tx, ctx.playlist.id);
+        }
+        return ok({ added: fresh.length, skipped: songs.length - fresh.length });
       }),
     WRITE_RETRY_CODES
   );

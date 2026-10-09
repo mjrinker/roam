@@ -1,11 +1,11 @@
 import { z } from "zod";
 import { db } from "@/lib/db/client";
-import { addItem, listItems, moveItem } from "@/lib/playlists/item-service";
+import { addItem, addSongs, listItems, moveItem } from "@/lib/playlists/item-service";
 import { badRequest, decodeCursor, encodeCursor, isUuid, limitParam, notFound, readJson, requireActor, respond, throttled } from "@/lib/playlists/http";
 
 const addSchema = z
-  .object({ titleId: z.string().uuid().optional(), episodeId: z.string().uuid().optional() })
-  .refine((v) => Boolean(v.titleId) !== Boolean(v.episodeId), "Provide exactly one of titleId or episodeId");
+  .object({ titleId: z.string().uuid().optional(), episodeId: z.string().uuid().optional(), albumId: z.string().uuid().optional(), artistId: z.string().uuid().optional() })
+  .refine((v) => [v.titleId, v.episodeId, v.albumId, v.artistId].filter(Boolean).length === 1, "Provide exactly one of titleId, episodeId, albumId or artistId");
 const moveSchema = z.object({ itemId: z.string().uuid(), afterItemId: z.string().uuid().nullable() });
 const cursorSchema = z.object({ position: z.number(), id: z.string().uuid() });
 
@@ -31,7 +31,11 @@ export async function POST(request: Request, ctx: RouteContext<"/api/playlists/[
   if (!parsed.success) return badRequest(parsed.error);
   const slow = await throttled(who.actor.accountId, "playlist_item_add", 240, 60);
   if (slow) return slow;
-  return respond(await addItem(db, { playlistId: id, viewerId: who.actor.viewerId, ...parsed.data }), (v) => ({ id: v.id }), 201);
+  // An album or an artist adds all of its songs as separate items.
+  if (parsed.data.albumId || parsed.data.artistId) {
+    return respond(await addSongs(db, { playlistId: id, viewerId: who.actor.viewerId, albumId: parsed.data.albumId, artistId: parsed.data.artistId }), (v) => v, 201);
+  }
+  return respond(await addItem(db, { playlistId: id, viewerId: who.actor.viewerId, titleId: parsed.data.titleId, episodeId: parsed.data.episodeId }), (v) => ({ id: v.id }), 201);
 }
 
 /** Move one item to just after another (or to the top with afterItemId: null). */
