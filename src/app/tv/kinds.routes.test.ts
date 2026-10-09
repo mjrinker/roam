@@ -40,7 +40,7 @@ vi.mock("@/lib/auth/guards", async () => {
 });
 vi.mock("@/lib/supabase/server", () => ({ createSupabaseServerClient: async () => ({ auth: { signOut: async () => void h.signedOut++ } }) }));
 
-import { musicAlbums, musicArtists, photoFavorites, playlistItems, profiles, viewers } from "@/lib/db/schema";
+import { musicAlbums, musicArtists, photoFavorites, profiles, viewers } from "@/lib/db/schema";
 import { addMember, addEpisodeFile, addItem, joinServer, makeAccount, makeLibrary, makePlaylist, makeServer, makeShow, makeTitle, type TestDb } from "@/lib/playlists/test-db";
 import { GET as home } from "./s/[serverId]/route";
 import { GET as library } from "./s/[serverId]/library/[id]/route";
@@ -56,6 +56,7 @@ import { GET as search } from "./s/[serverId]/search/route";
 import { GET as screensaver } from "./s/[serverId]/screensaver/route";
 import { GET as playlists } from "./s/[serverId]/playlists/route";
 import { GET as playlist } from "./s/[serverId]/playlist/[id]/route";
+import { tvPlaylist } from "@/lib/tv/playlists";
 import { GET as addGet, POST as addPost } from "./s/[serverId]/add/route";
 import { GET as playlistPlay } from "./s/[serverId]/playlist/[id]/play/route";
 
@@ -489,7 +490,9 @@ describe("adding to a playlist from the TV", () => {
     const mine = await makePlaylist(db, { serverId: w.server.id, ownerViewerId: w.member.viewer.id, name: "Mine" });
     return { w, film, mine };
   }
-  const inList = async (playlistId: string) => (await db.select().from(playlistItems).where(eq(playlistItems.playlistId, playlistId))).length;
+  // how many items this profile sees in a playlist (read the way the TV reads it, never straight from the tables)
+  const inList = async (w: { server: { id: string }; member: { accountId: string; viewer: { id: string } } }, playlistId: string) =>
+    (await tvPlaylist(db, { actor: { serverId: w.server.id, accountId: w.member.accountId, isAdmin: false }, viewer: { locale: "en-US", maxAge: null, allowUnrated: true }, viewerId: w.member.viewer.id }, playlistId, null))?.items.length ?? 0;
 
   it("offers the title pages an Add to playlist button, and lists only playlists this profile can add to", async () => {
     const { w, film, mine } = await setup();
@@ -514,16 +517,16 @@ describe("adding to a playlist from the TV", () => {
     const ok = await post({ playlist: mine.id, title: film.id, back: `/tv/s/${w.server.id}/title/${film.id}` });
     expect(ok.status).toBe(200);
     expect(await text(ok)).toContain("Added to your playlist.");
-    expect(await inList(mine.id)).toBe(1);
+    expect(await inList(w, mine.id)).toBe(1);
     const again = await post({ playlist: mine.id, title: film.id });
     expect(await text(again)).toContain("already in this playlist");
-    expect(await inList(mine.id)).toBe(1);
+    expect(await inList(w, mine.id)).toBe(1);
     const friend = await makeAccount(db, "friend");
     await joinServer(db, w.server.id, friend.accountId);
     const viewOnly = await makePlaylist(db, { serverId: w.server.id, ownerViewerId: friend.viewer.id, name: "V", visibility: "server" });
     const refused = await post({ playlist: viewOnly.id, title: film.id });
     expect(refused.status).toBe(404);
-    expect(await inList(viewOnly.id)).toBe(0);
+    expect(await inList(w, viewOnly.id)).toBe(0);
   });
   it("won't add something hidden, from another server, or on a POST from another site, and cleans the back address", async () => {
     const { w, film, mine } = await setup();
@@ -540,7 +543,7 @@ describe("adding to a playlist from the TV", () => {
     await signIn(w.member);
     expect((await post({ playlist: mine.id, title: theirs.id })).status).toBe(404);
     expect((await post({ playlist: mine.id, title: film.id }, { origin: "https://evil.example" })).status).toBe(404);
-    expect(await inList(mine.id)).toBe(0);
+    expect(await inList(w, mine.id)).toBe(0);
     for (const bad of ["https://evil.example/x", "//evil.example", `/tv/s/${w.server.id}//evil.example`, "javascript:alert(1)", `/tv/s/${w.server.id}/x\\y`]) {
       const res = await post({ playlist: mine.id, title: film.id, back: bad });
       expect(await text(res), bad).not.toContain("evil.example");
