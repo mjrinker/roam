@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { NO_SESSION, progressPercent, sameVideo, videoSessionReducer, type VideoSessionInfo } from "./video-session-state";
+import { needsFreshPlayer, NO_SESSION, progressPercent, sameVideo, videoSessionReducer, type VideoSessionInfo } from "./video-session-state";
 
 const movie: VideoSessionInfo = { ownerKind: "title", ownerId: "m1", title: "Film", backHref: "/s/x/title/m1", watchHref: "/s/x/watch/title/m1" };
 const episode: VideoSessionInfo = { ownerKind: "episode", ownerId: "e1", title: "Show", subtitle: "S1 · E1", backHref: "/s/x/show/s", nextHref: "/s/x/watch/episode/e2", watchHref: "/s/x/watch/episode/e1" };
@@ -37,5 +37,21 @@ describe("progressPercent", () => {
     expect(progressPercent(500, 120)).toBe(100);
     expect(progressPercent(-5, 120)).toBe(0);
     expect(progressPercent(10, 0)).toBe(0);
+  });
+});
+
+describe("needsFreshPlayer", () => {
+  const live = { finished: false, error: null, ready: true };
+  it("is yes for the same video again after it finished, or after it failed to load", () => {
+    expect(needsFreshPlayer(movie, movie, { ...live, finished: true })).toBe(true);
+    expect(needsFreshPlayer(movie, movie, { finished: false, error: "Playback failed", ready: false })).toBe(true);
+  });
+  it("is no while it is still playing, for another video, with nothing open, or with no news from the player yet", () => {
+    expect(needsFreshPlayer(movie, movie, live)).toBe(false);
+    expect(needsFreshPlayer(movie, episode, { ...live, finished: true })).toBe(false);
+    expect(needsFreshPlayer(null, movie, { ...live, finished: true })).toBe(false);
+    expect(needsFreshPlayer(movie, movie, null)).toBe(false);
+    // an error after it had loaded (a reconnect blip) is not a reason to start over
+    expect(needsFreshPlayer(movie, movie, { finished: false, error: "Reconnecting…", ready: true })).toBe(false);
   });
 });

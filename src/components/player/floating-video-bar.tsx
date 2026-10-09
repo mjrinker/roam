@@ -41,7 +41,7 @@ export function FloatingVideoBar() {
 
   return (
     <div role="region" aria-label="Now playing" className="fixed inset-x-3 bottom-3 z-40 mx-auto max-w-2xl overflow-hidden rounded-2xl border border-white/10 bg-background/90 shadow-2xl backdrop-blur-xl sm:inset-x-6">
-      <div role="progressbar" aria-label="Progress" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(progressPercent(status?.time ?? 0, status?.duration ?? 0))} className="h-1 bg-white/15">
+      <div role="progressbar" aria-label="Progress" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(progressPercent(status?.time ?? 0, status?.duration ?? 0))} aria-valuetext={status && status.duration > 0 ? `${formatClock(status.time)} of ${formatClock(status.duration)}` : undefined} className="h-1 bg-white/15">
         <div className="h-full bg-primary" style={{ width: `${progressPercent(status?.time ?? 0, status?.duration ?? 0)}%` }} />
       </div>
       <div className="flex items-center gap-1.5 px-3 py-2.5 sm:gap-2">
@@ -89,5 +89,5 @@ export function FloatingVideoBar() {
 /** Room at the end of a page for the floating bar, only while it is showing. */
 export function PlayerBarSpacer() {
   const view = useVideoSession();
-  return view?.session && !view.expanded ? <div aria-hidden className="h-24" /> : null;
+  return view?.barShown ? <div aria-hidden className="h-24" /> : null;
 }

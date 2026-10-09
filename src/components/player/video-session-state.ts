@@ -39,5 +39,14 @@ export function videoSessionReducer(state: VideoSessionState, action: VideoSessi
   }
 }
 
+/**
+ * Whether opening `incoming` needs a brand-new player rather than carrying on with the one that is there: the same video again after
+ * it finished (it should start over), or after it failed to load (it should try again). Another video, or one still playing, does not.
+ */
+export function needsFreshPlayer(current: VideoSessionInfo | null, incoming: VideoSessionInfo, status: { finished: boolean; error: string | null; ready: boolean } | null): boolean {
+  if (!current || !sameVideo(current, incoming) || !status) return false;
+  return status.finished || (!!status.error && !status.ready);
+}
+
 /** A progress bar's fill, 0 to 100, safe against a length of zero. */
 export const progressPercent = (time: number, duration: number) => (duration > 0 ? Math.min(100, Math.max(0, (time / duration) * 100)) : 0);

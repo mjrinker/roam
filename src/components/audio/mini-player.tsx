@@ -64,8 +64,8 @@ export function MiniPlayer({ serverId }: { serverId: string }) {
   const video = useVideoSession();
   const [drag, setDrag] = useState<number | null>(null);
   const [expanded, setExpanded] = useState(false);
-  // A video in the floating bar takes this spot: only one bar at a time (the audio one returns when the video is closed).
-  if (!p?.book || video?.session) return null;
+  // The video's floating bar takes this spot while it is the one in use: only one bar at a time.
+  if (!p?.book || video?.barShown) return null;
   const { book } = p;
 
   const playing = p.status === "playing";

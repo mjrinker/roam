@@ -180,6 +180,10 @@ export function SeamlessPlayer({
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [finished, setFinished] = useState(false);
   const finishedRef = useRef(false);
+  // Whether this title has actually played in this player: only then is its position worth saving on the way out
+  // (a player closed before the picture loaded would otherwise write 0 over a resume point or a watched mark).
+  const hasPlayedRef = useRef(false);
+  const flushRef = useRef<() => void>(() => undefined);
   useEffect(() => {
     finishedRef.current = finished;
   }, [finished]);
@@ -211,6 +215,7 @@ export function SeamlessPlayer({
   // ── Load the manifest ─────────────────────────────────────────────────
   useEffect(() => {
     let cancelled = false;
+    const videos = videoRefs.current; // the same two-slot list for the player's whole life
     (async () => {
       const res = await fetch(playManifestUrl(ownerKind, ownerId));
       if (cancelled) return;
@@ -226,6 +231,24 @@ export function SeamlessPlayer({
     })();
     return () => {
       cancelled = true;
+      // This video is being left (another one is opening in this player, or the player is closing): save where it got to, stop it,
+      // let go of its files and start the next from a clean slate (not "playing", not "finished").
+      flushRef.current();
+      hasPlayedRef.current = false;
+      manifestRef.current = null;
+      virtualEndFiredRef.current = false;
+      videos.forEach((el) => {
+        if (!el) return;
+        el.pause();
+        el.removeAttribute("src");
+        el.load();
+      });
+      setManifest(null);
+      setPlaying(false);
+      setBuffering(false);
+      setFinished(false);
+      setError(null);
+      setGlobalTime(0);
     };
   }, [ownerKind, ownerId]);
 
@@ -417,6 +440,7 @@ export function SeamlessPlayer({
       };
       const onPlay = () => {
         if (frontSlotRef.current !== slot) return;
+        hasPlayedRef.current = true;
         setPlaying(true);
         showControls();
       };
@@ -584,16 +608,14 @@ export function SeamlessPlayer({
     onStatus?.({ ready: !!manifest, playing, buffering, finished, error, time: globalTime, duration: manifest?.durationSeconds ?? 0 });
   }, [onStatus, manifest, playing, buffering, finished, error, globalTime]);
 
-  // Closing the player (or leaving the page) saves where it got to.
+  // Closing the player, switching video or leaving the page saves where it got to (only if it ever played, and never over a finished title).
   useEffect(() => {
     const flush = () => {
-      if (manifestRef.current && !finishedRef.current) saveProgress(currentGlobalTime(), false);
+      if (manifestRef.current && hasPlayedRef.current && !finishedRef.current) saveProgress(currentGlobalTime(), false);
     };
+    flushRef.current = flush;
     window.addEventListener("pagehide", flush);
-    return () => {
-      window.removeEventListener("pagehide", flush);
-      flush();
-    };
+    return () => window.removeEventListener("pagehide", flush);
   }, [saveProgress, currentGlobalTime]);
 
   // Shrinking to the bar ends fullscreen.
