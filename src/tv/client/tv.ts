@@ -494,7 +494,7 @@ interface ListenConfig {
   back: string;
   next: string | null;
   /** An album's songs and this one's place: newer browsers play on to the next song in the same page. */
-  queue?: { items: { id: string; title: string; by: string | null }[]; index: number; cover?: string | null } | null;
+  queue?: { items: { id: string; title: string; by: string | null; cover?: string | null }[]; index: number; cover?: string | null } | null;
 }
 interface AudioPart {
   index: number;
@@ -543,12 +543,11 @@ function startListening(cfg: ListenConfig) {
   }
 
   /** Lets the system (and a newer TV's own remote handling) show and control what is playing. */
-  function tellSystem(title: string, by: string | null) {
+  function tellSystem(title: string, by: string | null, cover?: string | null) {
     const ms = (navigator as unknown as { mediaSession?: { metadata: unknown; setActionHandler(name: string, fn: (() => void) | null): void } }).mediaSession;
     const Meta = (window as unknown as { MediaMetadata?: new (init: { title: string; artist: string; artwork: { src: string }[] }) => unknown }).MediaMetadata;
     if (!MODERN || !ms || !Meta) return;
     try {
-      const cover = cfg.queue && cfg.queue.cover;
       ms.metadata = new Meta({ title: title, artist: by || "", artwork: cover ? [{ src: cover }] : [] });
       ms.setActionHandler("play", () => (audio.paused ? toggle() : undefined));
       ms.setActionHandler("pause", () => (audio.paused ? undefined : toggle()));
@@ -557,6 +556,21 @@ function startListening(cfg: ListenConfig) {
     } catch {
       /* some browsers refuse an action they don't know */
     }
+  }
+
+  /** A song from another album brings its own cover: the big picture and the blurred backdrop follow it. */
+  function showCover(src: string | null) {
+    if (!src) return;
+    let img = doc.getElementById("coverimg");
+    const box = doc.querySelector(".listen .cover");
+    if (!img && box) {
+      img = doc.createElement("img");
+      img.id = "coverimg";
+      box.appendChild(img);
+    }
+    if (img) img.setAttribute("src", src);
+    const bg = doc.getElementById("bgimg");
+    if (bg && MODERN) bg.setAttribute("src", src);
   }
 
   function previousSong() {
@@ -722,7 +736,9 @@ function startListening(cfg: ListenConfig) {
     }
     cfg.next = i + 1 < queue.length ? base + "/listen/" + queue[i + 1].id : null;
     paintQueue();
-    tellSystem(item.title, item.by);
+    const cover = item.cover || (cfg.queue && cfg.queue.cover) || null;
+    showCover(cover);
+    tellSystem(item.title, item.by, cover);
     load(undefined, true);
   }
 
@@ -790,7 +806,7 @@ function startListening(cfg: ListenConfig) {
     if (bg) bg.setAttribute("src", bg.getAttribute("data-src") || "");
   }
   paintQueue();
-  if (queue) tellSystem(queue[qi].title, queue[qi].by);
+  if (queue) tellSystem(queue[qi].title, queue[qi].by, queue[qi].cover || cfg.queue?.cover || null);
   load();
 }
 

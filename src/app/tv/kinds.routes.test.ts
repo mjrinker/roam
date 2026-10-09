@@ -588,6 +588,24 @@ describe("photo albums and favourites", () => {
     expect(second).not.toContain("Loose 00");
     expect(second).toContain("Albums"); // still the albums view
   });
+  it("sends Back from a clip to the favourites or album it was opened from", async () => {
+    const w = await world();
+    const lib = await w.lib("photos");
+    const clip = await makeTitle(db, lib.id, { kind: "movie", name: "Clip", takenAt: day(5), folderPath: "Trips", sortKey: "c" });
+    await db.insert(photoFavorites).values({ viewerId: w.member.viewer.id, titleId: clip.id });
+    const backOf = async (q: string) => JSON.parse(/id="play-config">(.*?)<\/script>/.exec(await text(await watch(req(`/x${q}`), ctx({ ...sid(w), kind: "title", id: clip.id }))))![1]).back;
+    expect(await backOf("?from=favorites")).toBe(`/tv/s/${w.server.id}/library/${lib.id}?view=favorites`);
+    expect(await backOf("?from=album")).toBe(`/tv/s/${w.server.id}/library/${lib.id}?view=albums&path=Trips`);
+    expect(await backOf("")).toContain(`/library/${lib.id}?after=`);
+    expect(await backOf("?from=nonsense")).toContain(`/library/${lib.id}?after=`);
+    // the grids link their clips with where they came from
+    const favs = await text(await library(req("/x?view=favorites"), ctx({ ...sid(w), id: lib.id })));
+    expect(favs).toContain(`/watch/title/${clip.id}?from=favorites`);
+    const album = await text(await library(req("/x?view=albums&path=Trips"), ctx({ ...sid(w), id: lib.id })));
+    expect(album).toContain(`/watch/title/${clip.id}?from=album`);
+    const moved = await photo(req("/x?from=album"), ctx({ ...sid(w), id: clip.id }));
+    expect(moved.headers.get("location")).toBe(`https://roam.example/tv/s/${w.server.id}/watch/title/${clip.id}?from=album`);
+  });
   it("steps through one album and Back returns to it; favourites step through hearts and Back returns there", async () => {
     const w = await world();
     const lib = await w.lib("photos");

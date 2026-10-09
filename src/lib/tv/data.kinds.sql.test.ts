@@ -244,12 +244,15 @@ describe("listenInfo", () => {
     const lib = await w.lib("music");
     const [artist] = await db.insert(musicArtists).values({ libraryId: lib.id, name: "Band", nameKey: "band", sortKey: "band" }).returning();
     const [late] = await db.insert(musicAlbums).values({ libraryId: lib.id, artistId: artist.id, name: "Late", nameKey: "late", year: 2005 }).returning();
+    const coverOf = (name: string) => `https://img.example/${name}.jpg`;
     const [early] = await db.insert(musicAlbums).values({ libraryId: lib.id, artistId: artist.id, name: "Early", nameKey: "early", year: 1995 }).returning();
-    const e1 = await makeTitle(db, lib.id, { kind: "audiobook", name: "E1", albumId: early.id, trackNumber: 1, sortKey: "1" });
+    const e1 = await makeTitle(db, lib.id, { kind: "audiobook", name: "E1", albumId: early.id, trackNumber: 1, sortKey: "1", posterUrl: coverOf("early") });
     const e2 = await makeTitle(db, lib.id, { kind: "audiobook", name: "E2", albumId: early.id, trackNumber: 2, sortKey: "2" });
-    const l1 = await makeTitle(db, lib.id, { kind: "audiobook", name: "L1", albumId: late.id, trackNumber: 1, sortKey: "1" });
+    const l1 = await makeTitle(db, lib.id, { kind: "audiobook", name: "L1", albumId: late.id, trackNumber: 1, sortKey: "1", posterUrl: coverOf("late") });
     const all = await artistSongs(db, w.scope(), artist.id);
     expect(all!.songs.map((s) => s.title)).toEqual(["E1", "E2", "L1"]);
+    // an artist's queue crosses albums, so each song carries its own album's cover
+    expect(all!.songs.map((s) => s.cover)).toEqual([coverOf("early"), coverOf("early"), coverOf("late")]);
     const info = await listenInfo(db, w.scope(), e2.id, { artistId: artist.id });
     expect(info).toMatchObject({ back: `/artist/${artist.id}`, next: `/listen/${l1.id}` });
     expect(info!.queue!.items.map((i) => i.title)).toEqual(["E1", "E2", "L1"]);
@@ -315,7 +318,7 @@ describe("continue listening and where Back goes from a clip", () => {
     expect((await watchInfo(db, w.scope(), "title", clip.id))!.back).toEqual({ kind: "folder", libraryId: video.id, path: "Trips/Paris" });
     const photoClip = await makeTitle(db, (await w.lib("photos")).id, { kind: "movie", name: "Photo clip", takenAt: new Date() });
     const photoLib = photoClip.libraryId;
-    expect((await watchInfo(db, w.scope(), "title", photoClip.id))!.back).toEqual({ kind: "photoGrid", libraryId: photoLib, after: gridCursorAt(photoClip.takenAt) });
+    expect((await watchInfo(db, w.scope(), "title", photoClip.id))!.back).toEqual({ kind: "photoGrid", libraryId: photoLib, after: gridCursorAt(photoClip.takenAt), folderPath: "" });
     const film = await makeTitle(db, (await w.lib("movies")).id, { kind: "movie", name: "Film" });
     expect((await watchInfo(db, w.scope(), "title", film.id))!.back).toEqual({ kind: "title", id: film.id });
   });

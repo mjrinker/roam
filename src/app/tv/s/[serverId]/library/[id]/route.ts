@@ -120,7 +120,7 @@ async function photosPage(access: Ok, here: string, url: URL, id: string) {
       backHref: favorites ? here : access.base,
       // The first screen offers the other ways in: pictures by folder, and the ones hearted on the web.
       folders: !after && !favorites ? [{ href: `${here}?view=albums`, name: "Albums", note: "Pictures by folder" }, { href: `${here}?view=favorites`, name: "Favourites", note: "Pictures you hearted" }] : undefined,
-      items: result.items.map((p) => ({ href: p.kind === "movie" ? `${access.base}/watch/title/${p.id}` : `${access.base}/photo/${p.id}${from}`, name: p.name, meta: p.takenAt ? p.takenAt.slice(0, 10) : null, posterUrl: p.posterUrl, square: true })),
+      items: result.items.map((p) => ({ href: p.kind === "movie" ? `${access.base}/watch/title/${p.id}${from}` : `${access.base}/photo/${p.id}${from}`, name: p.name, meta: p.takenAt ? p.takenAt.slice(0, 10) : null, posterUrl: p.posterUrl, square: true })),
       prevHref: null,
       nextHref: result.next ? `${here}?${favorites ? "view=favorites&" : ""}after=${encodeURIComponent(timeParam(result.next))}` : null,
     })
@@ -141,7 +141,7 @@ async function albumsPage(access: Ok, here: string, url: URL, id: string) {
       subtitle: level.library.name,
       backHref: up,
       folders: level.folders.map((name) => ({ href: albumUrl(level.path === "" ? name : `${level.path}/${name}`), name, note: "Album" })),
-      items: level.items.map((p) => ({ href: p.kind === "movie" ? `${access.base}/watch/title/${p.id}` : `${access.base}/photo/${p.id}?from=album`, name: p.name, meta: null, posterUrl: p.posterUrl, square: true })),
+      items: level.items.map((p) => ({ href: p.kind === "movie" ? `${access.base}/watch/title/${p.id}?from=album` : `${access.base}/photo/${p.id}?from=album`, name: p.name, meta: null, posterUrl: p.posterUrl, square: true })),
       prevHref: null,
       nextHref: level.nextCursor ? `${albumUrl(level.path)}&after=${encodeURIComponent(folderCursorParam(level.nextCursor))}` : null,
     })

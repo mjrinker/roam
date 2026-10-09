@@ -20,10 +20,10 @@ export async function GET(request: Request, ctx: RouteContext<"/tv/s/[serverId]/
   const view = await photoView(db, access.scope, id, from);
   if (!view) return notFoundPage();
   // A clip beside the pictures plays in the video player.
-  if (view.photo.kind === "movie") return redirectTo(request, `${access.base}/watch/title/${id}`);
+  if (view.photo.kind === "movie") return redirectTo(request, `${access.base}/watch/title/${id}${from === "timeline" ? "" : `?from=${from}`}`);
   const parts = [from === "timeline" ? "" : `from=${from}`, saver ? "saver=1" : ""].filter(Boolean);
   const suffix = parts.length ? `?${parts.join("&")}` : "";
-  const hrefOf = (n: { id: string; kind: "photo" | "movie" } | null) => (n ? (n.kind === "movie" ? `${access.base}/watch/title/${n.id}` : `${access.base}/photo/${n.id}${suffix}`) : null);
+  const hrefOf = (n: { id: string; kind: "photo" | "movie" } | null) => (n ? (n.kind === "movie" ? `${access.base}/watch/title/${n.id}${from === "timeline" ? "" : `?from=${from}`}` : `${access.base}/photo/${n.id}${suffix}`) : null);
   const library = `${access.base}/library/${view.photo.libraryId}`;
   // Back reopens the place you came from: the favourites, this album, or the timeline grid at this picture (the page that starts at its second).
   const after = gridCursorAt(view.photo.takenAt);

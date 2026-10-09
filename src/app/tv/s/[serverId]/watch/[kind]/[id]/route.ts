@@ -22,7 +22,7 @@ export async function GET(request: Request, ctx: RouteContext<"/tv/s/[serverId]/
   const back =
     b.kind === "title" ? `${access.base}/title/${b.id}`
     : b.kind === "show" ? `${access.base}/show/${b.id}?season=${b.season}`
-    : b.kind === "photoGrid" ? `${access.base}/library/${b.libraryId}${b.after ? `?after=${encodeURIComponent(b.after)}` : ""}`
+    : b.kind === "photoGrid" ? photoGridBack(access.base, b, new URL(request.url).searchParams.get("from"))
     : `${access.base}/library/${b.libraryId}${b.path ? `?path=${encodeURIComponent(b.path)}` : ""}`;
   let data = { title: info.title, subtitle: info.subtitle, ownerKind: info.ownerKind, ownerId: info.ownerId, back, next: info.next ? `${access.base}/watch/episode/${info.next.id}` : null };
   // Playing through a playlist: what follows is the next thing in it (not the next episode of a season), and Back returns to the playlist.
@@ -34,4 +34,12 @@ export async function GET(request: Request, ctx: RouteContext<"/tv/s/[serverId]/
   // ?json=1: the player of a newer browser asks for the next episode's details so it can carry on without loading a page.
   if (new URL(request.url).searchParams.get("json") === "1") return json({ ...watchConfig(data), title: data.title, subtitle: data.subtitle, upNextSeconds: UP_NEXT_SECONDS });
   return html(watchPage(data));
+}
+
+/** Back from a clip in a photo library: to the favourites or album it was opened from, else to the timeline grid at that clip. */
+function photoGridBack(base: string, b: { libraryId: string; after: string | null; folderPath: string }, from: string | null): string {
+  const library = `${base}/library/${b.libraryId}`;
+  if (from === "favorites") return `${library}?view=favorites`;
+  if (from === "album") return `${library}?view=albums${b.folderPath ? `&path=${encodeURIComponent(b.folderPath)}` : ""}`;
+  return `${library}${b.after ? `?after=${encodeURIComponent(b.after)}` : ""}`;
 }

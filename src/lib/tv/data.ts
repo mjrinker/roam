@@ -190,7 +190,7 @@ export interface WatchInfo {
   title: string;
   subtitle: string | null;
   /** Where Back goes, relative to the TV's base path. */
-  back: { kind: "title"; id: string } | { kind: "show"; id: string; season: number } | { kind: "folder"; libraryId: string; path: string } | { kind: "photoGrid"; libraryId: string; after: string | null };
+  back: { kind: "title"; id: string } | { kind: "show"; id: string; season: number } | { kind: "folder"; libraryId: string; path: string } | { kind: "photoGrid"; libraryId: string; after: string | null; folderPath: string };
   next: { kind: "episode"; id: string } | null;
 }
 
@@ -200,7 +200,7 @@ export async function watchInfo(ex: Db, scope: TvScope, ownerKind: "title" | "ep
     const row = await visibleTitle(ex, scope, id, "movie");
     if (!row) return null;
     // A clip in a photo library goes back to the grid at that clip, one in a video library to its folder; a movie to its page.
-    const back: WatchInfo["back"] = isPhotoLibraryKind(row.libraryKind) ? { kind: "photoGrid", libraryId: row.libraryId, after: gridCursorAt(row.title.takenAt) } : tvBrowseStyle(row.libraryKind) === "folders" ? { kind: "folder", libraryId: row.libraryId, path: row.title.folderPath ?? "" } : { kind: "title", id };
+    const back: WatchInfo["back"] = isPhotoLibraryKind(row.libraryKind) ? { kind: "photoGrid", libraryId: row.libraryId, after: gridCursorAt(row.title.takenAt), folderPath: row.title.folderPath ?? "" } : tvBrowseStyle(row.libraryKind) === "folders" ? { kind: "folder", libraryId: row.libraryId, path: row.title.folderPath ?? "" } : { kind: "title", id };
     return { ownerKind, ownerId: id, title: row.title.name, subtitle: row.title.year ? String(row.title.year) : null, back, next: null };
   }
   const [row] = await ex
@@ -324,6 +324,8 @@ export interface QueueSong {
   id: string;
   title: string;
   by: string | null;
+  /** The cover of the album it is on (an artist's queue crosses albums, so it can differ from song to song). */
+  cover?: string | null;
 }
 
 /** All the songs an artist has that this profile may hear, albums oldest first, each in album order; null when the artist isn't visible. */
@@ -333,7 +335,7 @@ export async function artistSongs(ex: Db, scope: TvScope, artistId: string): Pro
   const songs: QueueSong[] = [];
   for (const al of artist.albums) {
     const page = await getAlbum(ex, { actor: scope.actor, viewer: scope.viewer, albumId: al.id });
-    if (page) songs.push(...page.tracks.map((x) => ({ id: x.id, title: x.name, by: x.artist ?? page.album.artistName })));
+    if (page) songs.push(...page.tracks.map((x) => ({ id: x.id, title: x.name, by: x.artist ?? page.album.artistName, cover: page.album.coverUrl })));
     if (songs.length >= QUEUE_MAX) break;
   }
   return { songs: songs.slice(0, QUEUE_MAX), albumIds: new Set(artist.albums.map((al) => al.id)) };

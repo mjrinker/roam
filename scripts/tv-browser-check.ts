@@ -27,9 +27,9 @@ const pages: Record<string, string> = {
   "/tv/s/x/search": searchPage({ base: "/tv/s/x", query: "mo", focusKey: null, max: 40, results: [1, 2, 3].map(poster) }),
   "/tv/s/x/library/f": listPage({ base: "/tv/s/x", title: "Videos", backHref: "/tv/s/x", folders: [{ href: "/tv/s/x/library/f?path=Trips", name: "Trips" }, { href: "/tv/s/x/library/f?path=Pets", name: "Pets" }], items: [1, 2, 3].map(poster), prevHref: null, nextHref: null }),
   "/tv/s/x/album/1": detailPage({ title: "First Record", meta: "The Band · 1999 · 2 songs", overview: null, posterUrl: null, square: true, backHref: "/tv/s/x/library/m", actions: [{ href: "/tv/s/x/listen/1", label: "Play album", primary: true }], listHeading: "Songs", episodes: [{ href: "/tv/s/x/listen/1", label: "1. Intro", sub: "0:12" }, { href: "/tv/s/x/listen/2", label: "2. Second", sub: "0:12" }] }),
-  "/tv/s/x/listen/1": listenPage({ title: "Intro", subtitle: "The Band", coverUrl: null, ownerId: "1", remembers: false, skip: 10, back: "/tv/s/x/album/1", next: "/tv/s/x/listen/2", queue: { items: [{ id: "1", title: "Intro", by: "The Band" }, { id: "2", title: "Second", by: "The Band" }], index: 0 } }),
+  "/tv/s/x/listen/1": listenPage({ title: "Intro", subtitle: "The Band", coverUrl: null, ownerId: "1", remembers: false, skip: 10, back: "/tv/s/x/album/1", next: "/tv/s/x/listen/2", queue: { items: [{ id: "1", title: "Intro", by: "The Band", cover: "/media/pic1.png" }, { id: "2", title: "Second", by: "The Band", cover: "/media/pic2.png" }], index: 0 } }),
   "/tv/s/x/listen/9": listenPage({ title: "A Book", subtitle: "Someone", coverUrl: null, ownerId: "9", remembers: true, skip: 30, back: "/tv/s/x/album/1", next: null }),
-  "/tv/s/x/listen/2": listenPage({ title: "Second", subtitle: "The Band", coverUrl: null, ownerId: "2", remembers: false, skip: 10, back: "/tv/s/x/album/1", next: null, queue: { items: [{ id: "1", title: "Intro", by: "The Band" }, { id: "2", title: "Second", by: "The Band" }], index: 1 } }),
+  "/tv/s/x/listen/2": listenPage({ title: "Second", subtitle: "The Band", coverUrl: null, ownerId: "2", remembers: false, skip: 10, back: "/tv/s/x/album/1", next: null, queue: { items: [{ id: "1", title: "Intro", by: "The Band", cover: "/media/pic1.png" }, { id: "2", title: "Second", by: "The Band", cover: "/media/pic2.png" }], index: 1 } }),
   "/tv/s/y": homePage({ serverName: "Saver Server", base: "/tv/s/x", profileName: "Matt", continueWatching: [], libraries: [{ id: "a", name: "Pictures", kind: "Photos" }], unsupported: 0, screensaver: { href: "/tv/s/x/photo/1#slide", afterSeconds: 2 } }),
   "/tv/s/x/photo/1": photoViewPage({ title: "Picture one", imageUrl: "/media/pic1.png", prev: null, next: "/tv/s/x/photo/2", back: "/tv/s/x/library/p", position: "2024-05-01", nextImage: "/media/pic2.png" }),
   "/tv/s/x/photo/2": photoViewPage({ title: "Picture two", imageUrl: "/media/pic2.png", prev: "/tv/s/x/photo/1", next: "/tv/s/x/photo/3", back: "/tv/s/x/library/p", position: "2024-05-02" }),
@@ -317,10 +317,12 @@ async function run(label: string, exe: string, m56: boolean) {
   await key(page, 38);
   check(L("Up goes to the previous song in the same page"), await page.waitFor(`location.pathname === "/tv/s/x/listen/1" && document.getElementById("ttl").textContent === "Intro" && window.__sameDocument === 1`, 8000), await page.url());
   check(L("and the system hears about it"), (await page.evaluate<string>(`navigator.mediaSession.metadata.title`)) === "Intro");
+  check(L("and the big cover follows the song"), await page.evaluate<boolean>(`document.getElementById("coverimg").getAttribute("src") === "/media/pic1.png"`));
   check(L("and the queue moves with it"), (await page.evaluate<string>(`document.getElementById("queuelist").textContent`)).indexOf("Next: Second") >= 0);
   await page.waitFor(`document.getElementById("pa").currentTime > 0.2`, 15000);
   await key(page, 40);
   check(L("Down goes to the next song in the same page"), await page.waitFor(`location.pathname === "/tv/s/x/listen/2" && document.getElementById("ttl").textContent === "Second" && window.__sameDocument === 1`, 8000), await page.url());
+  check(L("and the cover changes with it"), await page.evaluate<boolean>(`document.getElementById("coverimg").getAttribute("src") === "/media/pic2.png"`));
   await page.waitFor(`document.getElementById("pa").currentTime > 0.2`, 15000);
   await key(page, 40);
   check(L("Down on the last song stays put"), (await page.url()).endsWith("/tv/s/x/listen/2"));
