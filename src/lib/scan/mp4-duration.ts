@@ -40,6 +40,9 @@ export interface Mp4Probe {
   /** First audio/video track's codec fourcc, by stream index (matching ffmpeg's default `-map 0:a:0`/`-map 0:v:0`). Null if that track type doesn't exist. */
   audioCodec: string | null;
   videoCodec: string | null;
+  /** The first video track's picture size in pixels (its tkhd), or null when there is none or the file doesn't say. */
+  width: number | null;
+  height: number | null;
   /** False only if reading codecs hit an unexpected error (a malformed track) — distinct from a clean read that simply found no such track. Never affects durationSeconds. */
   codecsProbed: boolean;
 }
@@ -192,10 +195,22 @@ async function findMoov(r: RangeReader, fileSizeBytes: number): Promise<Box> {
 export async function probeMp4Codecs(
   fetchRange: ByteRangeFetcher,
   fileSizeBytes: number
-): Promise<{ audioCodec: string | null; videoCodec: string | null; codecsProbed: boolean }> {
+): Promise<{ audioCodec: string | null; videoCodec: string | null; width: number | null; height: number | null; codecsProbed: boolean }> {
   const r = new RangeReader(fetchRange, fileSizeBytes);
   const moov = await findMoov(r, fileSizeBytes);
   return readCodecsFromTracks(r, moov);
+}
+
+/** The first video track's picture size, read from the file's header over range requests (nothing is downloaded). Null when there is no video track. */
+export async function probeMp4VideoSize(fetchRange: ByteRangeFetcher, fileSizeBytes: number): Promise<{ width: number; height: number } | null> {
+  const r = new RangeReader(fetchRange, fileSizeBytes);
+  const moov = await findMoov(r, fileSizeBytes);
+  for await (const child of childBoxes(r, moov, MOOV_PREFETCH)) {
+    if (child.type !== "trak") continue;
+    const info = await readTrakInfo(r, child);
+    if (info.handler === "vide") return info.width && info.height ? { width: info.width, height: info.height } : null;
+  }
+  return null;
 }
 
 /**
@@ -229,22 +244,28 @@ export async function probeMp4AudioTrack(
 async function readCodecsFromTracks(
   r: RangeReader,
   moov: Box
-): Promise<{ audioCodec: string | null; videoCodec: string | null; codecsProbed: boolean }> {
+): Promise<{ audioCodec: string | null; videoCodec: string | null; width: number | null; height: number | null; codecsProbed: boolean }> {
   let audioCodec: string | null = null;
   let videoCodec: string | null = null;
+  let width: number | null = null;
+  let height: number | null = null;
   let codecsProbed = true;
   for await (const child of childBoxes(r, moov, MOOV_PREFETCH)) {
     if (child.type !== "trak") continue;
     try {
       const info = await readTrakInfo(r, child);
       if (info.handler === "soun" && audioCodec === null) audioCodec = info.codec;
-      if (info.handler === "vide" && videoCodec === null) videoCodec = info.codec;
+      if (info.handler === "vide" && videoCodec === null) {
+        videoCodec = info.codec;
+        width = info.width;
+        height = info.height;
+      }
     } catch {
       codecsProbed = false;
     }
     if (audioCodec !== null && videoCodec !== null) break;
   }
-  return { audioCodec, videoCodec, codecsProbed };
+  return { audioCodec, videoCodec, width, height, codecsProbed };
 }
 
 // ── moov ─────────────────────────────────────────────────────────────────
@@ -258,6 +279,9 @@ interface TrakInfo {
   timescale: number;
   stbl: Box | null;
   codec: string | null;
+  /** A video track's picture size from its tkhd (whole pixels); null when absent or zero. */
+  width: number | null;
+  height: number | null;
 }
 
 async function probeMoov(r: RangeReader, moov: Box, wantChapters: boolean): Promise<Mp4Probe> {
@@ -266,6 +290,8 @@ async function probeMoov(r: RangeReader, moov: Box, wantChapters: boolean): Prom
   let chplChapters: Mp4Chapter[] | null = null;
   let audioCodec: string | null = null;
   let videoCodec: string | null = null;
+  let width: number | null = null;
+  let height: number | null = null;
   let codecsProbed = true;
 
   for await (const child of childBoxes(r, moov, MOOV_PREFETCH)) {
@@ -281,7 +307,11 @@ async function probeMoov(r: RangeReader, moov: Box, wantChapters: boolean): Prom
         const info = await readTrakInfo(r, child);
         if (wantChapters) traks.push(info);
         if (info.handler === "soun" && audioCodec === null) audioCodec = info.codec;
-        if (info.handler === "vide" && videoCodec === null) videoCodec = info.codec;
+        if (info.handler === "vide" && videoCodec === null) {
+          videoCodec = info.codec;
+          width = info.width;
+          height = info.height;
+        }
       } catch {
         codecsProbed = false;
       }
@@ -299,7 +329,7 @@ async function probeMoov(r: RangeReader, moov: Box, wantChapters: boolean): Prom
 
   if (!movie) throw new Mp4DurationError("mvhd atom not found within moov search window");
   const durationSeconds = movie.duration / movie.timescale;
-  const codecs = { audioCodec, videoCodec, codecsProbed };
+  const codecs = { audioCodec, videoCodec, width, height, codecsProbed };
   if (!wantChapters) return { durationSeconds, chapters: null, chaptersSource: null, ...codecs };
 
   if (chplChapters && chplChapters.length > 0) {
@@ -504,12 +534,23 @@ async function readStsdCodec(r: RangeReader, stbl: Box): Promise<{ codec: string
 }
 
 async function readTrakInfo(r: RangeReader, trak: Box): Promise<TrakInfo> {
-  const info: TrakInfo = { trackId: 0, chapterRefs: [], handler: "", timescale: 0, stbl: null, codec: null, channelCount: null };
+  const info: TrakInfo = { trackId: 0, chapterRefs: [], handler: "", timescale: 0, stbl: null, codec: null, channelCount: null, width: null, height: null };
 
   for await (const child of childBoxes(r, trak, 4096)) {
     if (child.type === "tkhd") {
-      const view = await r.read(child.contentStart, 24, 24);
-      info.trackId = view.getUint32(view.getUint8(0) === 1 ? 20 : 12, false);
+      const view = await r.read(child.contentStart, Math.min(96, child.end - child.contentStart), 96);
+      const v1 = view.getUint8(0) === 1;
+      info.trackId = view.getUint32(v1 ? 20 : 12, false);
+      // The picture size is the last two 16.16 fixed-point fields (version 0: bytes 76 and 80; version 1: 88 and 92).
+      const at = v1 ? 88 : 76;
+      if (view.byteLength >= at + 8) {
+        const w = view.getUint32(at, false) >>> 16;
+        const h = view.getUint32(at + 4, false) >>> 16;
+        if (w > 0 && h > 0) {
+          info.width = w;
+          info.height = h;
+        }
+      }
     } else if (child.type === "tref") {
       for await (const ref of childBoxes(r, child, 256)) {
         if (ref.type !== "chap") continue;

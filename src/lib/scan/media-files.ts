@@ -228,6 +228,8 @@ interface ProbeOneResult {
   chapters: Mp4Chapter[] | null;
   audioCodec: string | null;
   videoCodec: string | null;
+  width?: number | null;
+  height?: number | null;
   /** False only if the codec read itself hit an unexpected error — distinct from a clean read that found no such track. See probeAndRecord. */
   codecsProbed: boolean;
 }
@@ -252,10 +254,10 @@ async function probeOne(provider: StorageProvider, file: MediaFileRow): Promise<
   // (see mp4-duration.ts's module doc comment) — it runs regardless.
   const isMultiEpisode =
     file.ownerKind === "episode" && (parseEpisodeFileName(file.filename)?.episodes.length ?? 0) > 1;
-  const { durationSeconds, chapters, audioCodec, videoCodec, codecsProbed } = await probeMp4(fetchRange, size, {
+  const { durationSeconds, chapters, audioCodec, videoCodec, width, height, codecsProbed } = await probeMp4(fetchRange, size, {
     chapters: AUDIO_MP4_CONTAINERS.has(container) || isMultiEpisode,
   });
-  return { durationSeconds, chapters, audioCodec, videoCodec, codecsProbed };
+  return { durationSeconds, chapters, audioCodec, videoCodec, width, height, codecsProbed };
 }
 
 /**
@@ -287,7 +289,7 @@ export async function probeFiles(
 async function probeAndRecord(provider: StorageProvider, file: MediaFileRow, errors: string[]) {
   const attempts = file.probeAttempts + 1;
   try {
-    const { durationSeconds, chapters, audioCodec, videoCodec, codecsProbed } = await probeOne(provider, file);
+    const { durationSeconds, chapters, audioCodec, videoCodec, width, height, codecsProbed } = await probeOne(provider, file);
     const durationMs = Math.round(durationSeconds * 1000);
     await db
       .update(mediaFiles)
@@ -304,6 +306,8 @@ async function probeAndRecord(provider: StorageProvider, file: MediaFileRow, err
         // permanently hide a real codec issue behind "unknown = safe". Left
         // false, it's picked up and retried by the backfill pass below.
         ...(codecsProbed ? { audioCodec, videoCodec, codecProbed: true } : {}),
+        // The picture size, when the file says (used to name and compare resolution versions).
+        ...(width && height ? { width, height } : {}),
       })
       .where(eq(mediaFiles.id, file.id));
   } catch (err) {
@@ -353,11 +357,11 @@ async function probeCodecsOnly(provider: StorageProvider, file: MediaFileRow) {
   const attempts = file.codecProbeAttempts + 1;
   const fetchRange = (start: number, end: number) => provider.fetchByteRange(file.boxFileId, start, end);
   try {
-    const { audioCodec, videoCodec, codecsProbed } = await probeMp4Codecs(fetchRange, file.sizeBytes as number);
+    const { audioCodec, videoCodec, width, height, codecsProbed } = await probeMp4Codecs(fetchRange, file.sizeBytes as number);
     if (codecsProbed) {
       await db
         .update(mediaFiles)
-        .set({ audioCodec, videoCodec, codecProbed: true, codecProbeAttempts: attempts })
+        .set({ audioCodec, videoCodec, codecProbed: true, codecProbeAttempts: attempts, ...(width && height ? { width, height } : {}) })
         .where(eq(mediaFiles.id, file.id));
       return;
     }

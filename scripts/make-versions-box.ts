@@ -9,8 +9,8 @@
  *      (AC-3, DTS ...) a stereo/multichannel AAC copy goes beside it ("<name> - 720p.aac.mp4"), like the original's own;
  *   3. renames the original to say what it is ("<name> - 1080p.<ext>", each part, and its ".aac" copy with it) - last, so a run that
  *      stops half way is simply finished by running it again.
- * Nothing is written to Roam's tables except the renamed files' names; run a Roam rescan afterwards and the new versions appear in the
- * player's Quality menu. Safe to re-run: files that already exist in Box are skipped. (The original's own ".aac" copy is made by
+ * Each new version is added to Roam as soon as it is uploaded (probed, linked to its movie or episode), so no rescan is needed; the
+ * original's rename is recorded too. Safe to re-run: files that already exist in Box are skipped. (The original's own ".aac" copy is made by
  * scripts/remux-box.ts; run that too if some originals lack one.)
  *
  * Run from the repo root (reads .env.local; never writes it):
@@ -39,6 +39,8 @@ import { and, asc, eq, inArray, isNotNull, isNull, sql } from "drizzle-orm";
 import { db } from "@/lib/db/client";
 import { episodes, libraries, mediaFiles, seasons, titles } from "@/lib/db/schema";
 import { isBrowserSafeAudioCodec } from "@/lib/scan/codec-support";
+import { probeMp4VideoSize } from "@/lib/scan/mp4-duration";
+import { registerAacCopy, registerVersion } from "@/lib/remux/register-version";
 import { splitVersionLabel, stripVariantSuffix, variantFileName, withoutSplitMarker, withVersionLabel } from "@/lib/scan/conventions";
 import { createBoxProviderForServer, getFreshDownloadUrl, renameBoxEntry } from "@/lib/storage/box";
 import { ensureFreshAccessToken, withBoxClient } from "@/lib/storage/box-token-storage";
@@ -75,6 +77,7 @@ type Variant = { boxFileId: string; filename: string };
 type Part = {
   boxFileId: string;
   filename: string;
+  sizeBytes: number | null;
   width: number | null;
   height: number | null;
   durationSeconds: number | null;
@@ -88,11 +91,15 @@ type Group = {
   folderId: string;
   label: string;
   parts: Part[];
+  /** The movie or episodes that play this original (several for a combined multi-episode file): new versions are added to each. */
+  owners: { kind: "title" | "episode"; id: string }[];
 };
 
 async function loadGroups(): Promise<{ groups: Group[]; skipped: string[] }> {
   type Row = {
+    ownerKind: "title" | "episode";
     ownerId: string;
+    sizeBytes: number | null;
     versionLabel: string;
     partIndex: number;
     id: string;
@@ -112,6 +119,7 @@ async function loadGroups(): Promise<{ groups: Group[]; skipped: string[] }> {
   const scope = (libraryId: typeof titles.libraryId, titleId: typeof titles.id) =>
     and(libraryFilter ? eq(libraryId, libraryFilter) : undefined, titleFilter ? eq(titleId, titleFilter) : undefined);
   const columns = {
+    sizeBytes: mediaFiles.sizeBytes,
     ownerId: mediaFiles.ownerId,
     versionLabel: mediaFiles.versionLabel,
     partIndex: mediaFiles.partIndex,
@@ -135,7 +143,7 @@ async function loadGroups(): Promise<{ groups: Group[]; skipped: string[] }> {
       .innerJoin(libraries, eq(titles.libraryId, libraries.id))
       .where(and(eq(mediaFiles.ownerKind, "title"), isNull(mediaFiles.variantOfMediaFileId), eq(titles.kind, "movie"), eq(libraries.kind, "movies"), scope(titles.libraryId, titles.id)))
       .orderBy(asc(mediaFiles.partIndex));
-    rows.push(...movies.map((m) => ({ ...m, ownerId: m.ownerId as string, label: m.filename })));
+    rows.push(...movies.map((m) => ({ ...m, ownerKind: "title" as const, ownerId: m.ownerId as string, label: m.filename })));
   }
   if (only !== "movies") {
     const eps = await db
@@ -147,7 +155,7 @@ async function loadGroups(): Promise<{ groups: Group[]; skipped: string[] }> {
       .innerJoin(libraries, eq(titles.libraryId, libraries.id))
       .where(and(eq(mediaFiles.ownerKind, "episode"), isNull(mediaFiles.variantOfMediaFileId), eq(libraries.kind, "shows"), scope(titles.libraryId, titles.id)))
       .orderBy(asc(mediaFiles.partIndex));
-    rows.push(...eps.map(({ episodeFolderId, seasonFolderId, showName, ...r }) => ({ ...r, ownerId: r.ownerId as string, folderId: episodeFolderId ?? seasonFolderId, label: `${showName} — ${r.filename}` })));
+    rows.push(...eps.map(({ episodeFolderId, seasonFolderId, showName, ...r }) => ({ ...r, ownerKind: "episode" as const, ownerId: r.ownerId as string, folderId: episodeFolderId ?? seasonFolderId, label: `${showName} — ${r.filename}` })));
   }
 
   // Per movie or episode, the original is its highest-resolution version (a rerun finds the already-renamed original, not a smaller version).
@@ -171,13 +179,20 @@ async function loadGroups(): Promise<{ groups: Group[]; skipped: string[] }> {
       continue;
     }
     const key = `${parts[0].serverId}:${parts.map((r) => r.boxFileId).join(",")}`;
-    if (groups.has(key)) continue; // a combined multi-episode file is one original for all its episodes
+    const existingGroup = groups.get(key);
+    if (existingGroup) {
+      // a combined multi-episode file is one original for all its episodes
+      if (!existingGroup.owners.some((o) => o.id === parts[0].ownerId)) existingGroup.owners.push({ kind: parts[0].ownerKind, id: parts[0].ownerId });
+      for (const r of parts) primaryIdsByBoxFile.set(r.boxFileId, [...(primaryIdsByBoxFile.get(r.boxFileId) ?? []), r.id]);
+      continue;
+    }
     for (const r of parts) primaryIdsByBoxFile.set(r.boxFileId, [...(primaryIdsByBoxFile.get(r.boxFileId) ?? []), r.id]);
     groups.set(key, {
       serverId: parts[0].serverId,
       folderId: parts[0].folderId,
       label: parts.length > 1 ? `${parts[0].label} (+${parts.length - 1} more part${parts.length > 2 ? "s" : ""})` : parts[0].label,
-      parts: parts.map((r) => ({ boxFileId: r.boxFileId, filename: r.filename, width: r.width, height: r.height, durationSeconds: r.durationSeconds, audioCodec: r.audioCodec, codecProbed: r.codecProbed, variants: [] })),
+      owners: [{ kind: parts[0].ownerKind, id: parts[0].ownerId }],
+      parts: parts.map((r) => ({ boxFileId: r.boxFileId, filename: r.filename, sizeBytes: r.sizeBytes, width: r.width, height: r.height, durationSeconds: r.durationSeconds, audioCodec: r.audioCodec, codecProbed: r.codecProbed, variants: [] })),
     });
   }
   const out = [...groups.values()].sort((a, b) => a.parts[0].filename.localeCompare(b.parts[0].filename));
@@ -295,8 +310,18 @@ const mainName = (p: Pick<Plan, "baseName">, rung: number) => withVersionLabel(p
 /** What a film needs, from its name, its probed size and what is already in its Box folder. Null when there is nothing to do. */
 async function plan(g: Group): Promise<Plan | { skip: string } | null> {
   const first = g.parts[0];
-  const sized = g.parts.find((x) => x.width && x.height);
-  if (!sized || !sized.width || !sized.height) return { skip: "its size isn't known to Roam yet (run a scan so it gets probed)" };
+  let sized = g.parts.find((x) => x.width && x.height);
+  if (!sized) {
+    // Roam hasn't recorded the picture size yet: read it from the file's header (no download), and record it.
+    const fetchRange = (start: number, end: number) => createBoxProviderForServer(g.serverId).fetchByteRange(first.boxFileId, start, end);
+    const size = first.sizeBytes ? await probeMp4VideoSize(fetchRange, first.sizeBytes).catch(() => null) : null;
+    if (!size) return { skip: "its picture size couldn't be read from the file" };
+    first.width = size.width;
+    first.height = size.height;
+    if (!dryRun) await db.update(mediaFiles).set({ width: size.width, height: size.height }).where(and(eq(mediaFiles.boxFileId, first.boxFileId), isNull(mediaFiles.variantOfMediaFileId)));
+    sized = first;
+  }
+  if (!sized.width || !sized.height) return { skip: "its picture size isn't known" };
   const parsed = splitVersionLabel(first.filename);
   const srcLabel = parsed.label || originalLabel(sized.width, sized.height);
   const baseName = withoutSplitMarker(parsed.rest);
@@ -363,6 +388,7 @@ async function makeRungs(ffmpeg: string, p: Plan) {
       const output = join(dir, `out-${rung}.mp4`);
       const label = rungLabel(rung);
 
+      let mainRows: string[] = [];
       // The rung with the original's audio kept as it is; if the container won't take that audio, it gets AAC and needs no copy.
       let audioMode: "copy" | "aac" = "copy";
       let kbps = videoKbps(rung, duration, MAX_OUTPUT_BYTES, audioMode === "copy" ? (sourceAudioKbps ?? GUESS_AUDIO_KBPS) : undefined);
@@ -390,7 +416,9 @@ async function makeRungs(ffmpeg: string, p: Plan) {
         console.log(`   [${label}] uploading "${name}" ...`);
         const uploaded = await uploadWithRetries(getToken, g.folderId, name, output);
         if ("conflictId" in uploaded) console.warn(`   [${label}] "${name}" is already in Box; left alone`);
+        else mainRows = await registerVersion(createBoxProviderForServer(g.serverId), g.owners, name, uploaded);
         names.add(name.toLowerCase());
+        if (mainRows.length) console.log(`   [${label}] added to Roam`);
       }
 
       // The AAC copy beside it: the same picture, the audio made browser-friendly (like the original's own ".aac" copy).
@@ -410,6 +438,7 @@ async function makeRungs(ffmpeg: string, p: Plan) {
           console.log(`   [${label}] uploading "${aacName}" ...`);
           const uploaded = await uploadWithRetries(getToken, g.folderId, aacName, aacOut);
           if ("conflictId" in uploaded) console.warn(`   [${label}] "${aacName}" is already in Box; left alone`);
+          else await registerAacCopy(createBoxProviderForServer(g.serverId), mainRows, aacName, uploaded);
           names.add(aacName.toLowerCase());
         }
         await rm(aacOut, { force: true });
@@ -503,7 +532,7 @@ async function main() {
   console.log(
     `\n${dryRun ? "Would make" : "Made"} ${c.rungs} lower version(s) and ${dryRun ? "rename" : "renamed"} ${c.renamed} original file(s); ` +
       `${c.nothing} already complete, ${c.skipped} skipped, ${c.failed} failed.` +
-      (dryRun || (c.rungs === 0 && c.renamed === 0) ? "" : "\nNow rescan the libraries in Roam so the new versions show up in the player's Quality menu.")
+      (dryRun || (c.rungs === 0 && c.renamed === 0) ? "" : "\nThe new versions were added to Roam as they were uploaded; if any \"a rescan will pick it up\" warnings appeared above, rescan that library.")
   );
   if (c.failed) process.exitCode = 1;
 }

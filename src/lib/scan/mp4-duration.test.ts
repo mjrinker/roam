@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { Mp4DurationError, probeMp4, probeMp4AudioTrack, probeMp4Codecs, probeMp4DurationSeconds } from "./mp4-duration";
+import { Mp4DurationError, probeMp4, probeMp4AudioTrack, probeMp4Codecs, probeMp4DurationSeconds, probeMp4VideoSize } from "./mp4-duration";
 
 // ── Minimal MP4 box builders ────────────────────────────────────────────
 // Just enough of the ISO BMFF box format to exercise the real parser
@@ -156,6 +156,11 @@ function chplBox(chapters: { start100ns: number; title: string }[]): number[] {
     return [...u32be(Math.floor(c.start100ns / 2 ** 32)), ...u32be(c.start100ns % 2 ** 32), t.length, ...t];
   });
   return box("chpl", [1, 0, 0, 0, ...u32be(0), chapters.length, ...entries]);
+}
+
+/** A version 0 tkhd carrying a picture size (16.16 fixed point at bytes 76 and 80 of the payload). */
+function tkhdSized(trackId: number, width: number, height: number): number[] {
+  return box("tkhd", [0, 0, 0, 0, ...u32be(0), ...u32be(0), ...u32be(trackId), ...zeros(4), ...u32be(0), ...zeros(8), ...zeros(2), ...zeros(2), ...zeros(2), ...zeros(2), ...zeros(36), ...u32be(width << 16), ...u32be(height << 16)]);
 }
 
 function tkhd(trackId: number): number[] {
@@ -345,6 +350,8 @@ describe("probeMp4 chapters", () => {
       chaptersSource: null,
       audioCodec: null,
       videoCodec: null,
+      width: null,
+      height: null,
       codecsProbed: true,
     });
   });
@@ -415,7 +422,22 @@ describe("probeMp4 codecs", () => {
     const moov = box("moov", [...trakWithCodec(1, "soun", 44100, "ac-3")]); // no mvhd at all
     const bytes = [...FTYP, ...moov];
     const result = await probeMp4Codecs(fetcherFromSegments([{ offset: 0, bytes }]), bytes.length);
-    expect(result).toEqual({ audioCodec: "ac-3", videoCodec: null, codecsProbed: true });
+    expect(result).toEqual({ audioCodec: "ac-3", videoCodec: null, width: null, height: null, codecsProbed: true });
+  });
+
+  it("reads the first video track's picture size (and the codecs call reports it too), ignoring audio tracks", async () => {
+    const video = box("trak", [...tkhdSized(1, 1920, 800), ...box("mdia", [...mdhd(24000), ...hdlr("vide"), ...box("minf", box("stbl", stsd("avc1")))])]);
+    const moov = box("moov", [...trakWithCodec(2, "soun", 48000, "mp4a"), ...video]);
+    const bytes = [...FTYP, ...moov];
+    expect(await probeMp4VideoSize(fetcherFromSegments([{ offset: 0, bytes }]), bytes.length)).toEqual({ width: 1920, height: 800 });
+    expect(await probeMp4Codecs(fetcherFromSegments([{ offset: 0, bytes }]), bytes.length)).toEqual({ audioCodec: "mp4a", videoCodec: "avc1", width: 1920, height: 800, codecsProbed: true });
+  });
+  it("has no picture size for a file with no video track, or whose track says zero", async () => {
+    const audioOnly = [...FTYP, ...box("moov", trakWithCodec(1, "soun", 44100, "mp4a"))];
+    expect(await probeMp4VideoSize(fetcherFromSegments([{ offset: 0, bytes: audioOnly }]), audioOnly.length)).toBeNull();
+    const zero = box("trak", [...tkhdSized(1, 0, 0), ...box("mdia", [...mdhd(24000), ...hdlr("vide"), ...box("minf", box("stbl", stsd("avc1")))])]);
+    const bytes = [...FTYP, ...box("moov", zero)];
+    expect(await probeMp4VideoSize(fetcherFromSegments([{ offset: 0, bytes }]), bytes.length)).toBeNull();
   });
 
   it("probeMp4AudioTrack reads the first audio track's codec and declared channel count", async () => {
