@@ -441,11 +441,11 @@ export function createPlayer(
           if (downloaded && downloaded.files.length === manifest.segments.length) {
             local = await openLocalFiles(downloaded).catch(() => null);
             if (local) {
-              const expiresAt = new Date(Date.now() + 365 * 24 * 3600_000).toISOString();
+              const expiresAt = new Date(Date.now() + 7 * 24 * 3600_000).toISOString();
               manifest.urls = local.urls.map((url, index) => ({ index, url, expiresAt }));
             }
           }
-        } else if (downloaded && (!res || res.status >= 500)) {
+        } else if (downloaded && (!res || res.status >= 500 || res.status === 401)) {
           local = await openLocalFiles(downloaded).catch(() => null);
           const offline = local ? await offlineAudioManifest(downloaded, local) : null;
           if (!local || !offline) throw new Error("This download can't be opened. Remove it and download it again.");

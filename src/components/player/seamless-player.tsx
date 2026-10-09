@@ -241,9 +241,11 @@ export function SeamlessPlayer({
       let data: PlayManifest;
       if (res && res.ok) {
         data = await res.json();
+        const files = await applyLocalFiles(data).catch(() => null);
+        if (cancelled) return files?.release();
         localFilesRef.current?.release();
-        localFilesRef.current = await applyLocalFiles(data).catch(() => null);
-      } else if (downloaded && (!res || res.status >= 500)) {
+        localFilesRef.current = files;
+      } else if (downloaded && (!res || res.status >= 500 || res.status === 401)) {
         const files = await openLocalFiles(downloaded).catch(() => null);
         const offline = files ? await offlineVideoManifest(downloaded, files) : null;
         if (cancelled) return files?.release();
@@ -565,6 +567,7 @@ export function SeamlessPlayer({
   // long first segment doesn't run into an expired *next* segment URL.
   useEffect(() => {
     if (!manifest) return;
+    if (localFilesRef.current) return; // files on this device don't expire
     const msUntilExpiry = new Date(manifest.expiresAt).getTime() - Date.now();
     const refreshInMs = Math.max(msUntilExpiry - 60_000, 30_000);
     const timer = setTimeout(async () => {

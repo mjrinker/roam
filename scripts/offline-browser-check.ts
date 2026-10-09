@@ -55,6 +55,7 @@ const media = http.createServer((req, res) => {
   let start = 0;
   const m = /bytes=(\d+)-/.exec(req.headers.range ?? "");
   if (m) start = Number(m[1]);
+  if (m && start >= data.length) return void res.writeHead(416, { "Content-Range": `bytes */${data.length}` }).end();
   const slice = data.subarray(start);
   res.writeHead(m ? 206 : 200, { "Content-Type": "video/mp4", "Accept-Ranges": "bytes", "Content-Length": slice.length, ...(m ? { "Content-Range": `bytes ${start}-${data.length - 1}/${data.length}` } : {}) });
   if (file === "b.mp4" && dropNextBig && !m) {
@@ -132,6 +133,7 @@ async function main() {
   const browser = await launch(exe!, 9333);
   const page = browser.page;
   try {
+    await page.addInitScript(`localStorage.setItem("roam-offline-viewer", "V1");`);
     await page.addInitScript(`(() => { const W = window.Worker; window.Worker = class extends W { constructor(u, o) { super("/worker.js"); } }; })();`);
     await page.goto(`${base}/`);
     check("the harness loads", await page.waitFor(`!!window.H`, 5000));
@@ -148,6 +150,10 @@ async function main() {
     const hashes = await page.evaluate<string[]>(`(async () => { const r = H.manager.getSnapshot()[0]; const out = []; for (const f of r.files) { const file = await H.storage.openSavedFile(f.name); const buf = await file.arrayBuffer(); const d = await crypto.subtle.digest("SHA-256", buf); out.push([...new Uint8Array(d)].map(b => b.toString(16).padStart(2, "0")).join("")); } return out; })()`);
     check("each saved file matches the original byte for byte", hashes[0] === sha(bytes["a.mp4"]) && hashes[1] === sha(bytes["b.mp4"]));
 
+    // 1b. Downloads belong to the profile that made them.
+    const asOther = await page.evaluate<{ listed: number; found: boolean; refused: string }>(`(async () => { localStorage.setItem("roam-offline-viewer", "V2"); H.manager.notifyViewerChanged(); const listed = H.manager.getSnapshot().length; const found = !!(await H.local.localVideoFor("title", "T1")); let refused = ""; try { await H.manager.startDownload("S1", ${options}, ${choice}); } catch (e) { refused = e.message; } localStorage.setItem("roam-offline-viewer", "V1"); H.manager.notifyViewerChanged(); return { listed, found, refused }; })()`);
+    check("another profile on the same browser doesn't see, find or replace a download", asOther.listed === 0 && !asOther.found && asOther.refused.includes("Another profile"), asOther);
+
     // 2. A saved file plays.
     const played = await page.evaluate<{ duration: number; ready: number }>(`(async () => { const r = H.manager.getSnapshot()[0]; const files = await H.local.openLocalFiles(r); const v = document.createElement("video"); v.muted = true; v.src = files.urls[1]; await new Promise((res, rej) => { v.onloadedmetadata = res; v.onerror = () => rej(new Error("video error")); }); v.currentTime = 20; await new Promise((res) => (v.onseeked = res)); const out = { duration: v.duration, ready: v.readyState }; files.release(); return out; })()`);
     check("a saved file plays from this device and can be sought", Math.abs(played.duration - 40) < 1 && played.ready >= 2, played);
@@ -157,6 +163,9 @@ async function main() {
     const offlineManifest = await page.evaluate<{ resume: number; urls: string[]; duration: number }>(`(async () => { const r = H.manager.getSnapshot()[0]; const files = await H.local.openLocalFiles(r); const m = await H.local.offlineVideoManifest(r, files); const out = { resume: m.resumeSeconds, urls: m.segments.map(s => s.url.slice(0, 5)), duration: m.durationSeconds }; files.release(); return out; })()`);
     check("without a connection the saved timeline plays from blob addresses, resuming from offline progress", offlineManifest.resume === 12 && offlineManifest.urls.every((u) => u === "blob:") && offlineManifest.duration === 46, offlineManifest);
     watchState.length = 0;
+    await page.evaluate(`localStorage.setItem("roam-offline-viewer", "V2")`);
+    check("another profile's waiting progress is not sent as theirs", (await page.evaluate<number>(`H.sync.flushProgress()`)) === 0 && watchState.length === 0);
+    await page.evaluate(`localStorage.setItem("roam-offline-viewer", "V1")`);
     check("progress made offline is sent when there is a connection, then forgotten", (await page.evaluate<number>(`H.sync.flushProgress()`)) === 1 && watchState.length === 1 && (await page.evaluate<number>(`H.sync.flushProgress()`)) === 0, watchState);
 
     // 4. Removing it clears the files and the record.
@@ -185,6 +194,23 @@ async function main() {
     check("and nothing was lost or doubled", hash3 === sha(bytes["b.mp4"]));
     await page.evaluate(`H.manager.removeDownload(H.manager.getSnapshot()[0].id)`);
 
+    // 5c. Pausing and resuming straight away still ends with a complete, identical file.
+    await page.evaluate(`H.manager.startDownload("S1", ${options}, ${choice})`);
+    await page.evaluate(`(async () => { const id = H.manager.getSnapshot()[0].id; await H.manager.pauseDownload(id); await H.manager.resumeDownload(id); })()`);
+    check("pause then resume at once carries on to the end", await page.waitFor(`H.manager.getSnapshot()[0]?.status === "complete"`, 40000), await state().then((r) => [r.status, r.error]));
+    const hash4 = await page.evaluate<string>(`(async () => { const r = H.manager.getSnapshot()[0]; let h = []; for (const f of r.files) { const buf = await (await H.storage.openSavedFile(f.name)).arrayBuffer(); const d = await crypto.subtle.digest("SHA-256", buf); h.push([...new Uint8Array(d)].map(b => b.toString(16).padStart(2, "0")).join("")); } return h.join(","); })()`);
+    check("with both files intact", hash4 === `${sha(bytes["a.mp4"])},${sha(bytes["b.mp4"])}`);
+    await page.evaluate(`H.manager.removeDownload(H.manager.getSnapshot()[0].id)`);
+
+    // 5d. Removing while it downloads leaves nothing behind.
+    await page.evaluate(`H.manager.startDownload("S1", ${options}, ${choice})`);
+    await new Promise((r) => setTimeout(r, 150));
+    const names = await page.evaluate<string[]>(`H.manager.getSnapshot()[0].files.map(f => f.name)`);
+    await page.evaluate(`H.manager.removeDownload(H.manager.getSnapshot()[0].id)`);
+    await new Promise((r) => setTimeout(r, 800));
+    const leftover = await page.evaluate<number>(`H.storage.savedSizes(${JSON.stringify(names)}).then(s => Object.values(s).reduce((a, b) => a + b, 0))`);
+    check("removing a download that is running leaves no files behind", leftover === 0 && (await page.evaluate<number>(`H.manager.getSnapshot().length`)) === 0, leftover);
+
     // 6. Addresses that have expired are replaced by fresh ones.
     const callsBefore = manifestCalls;
     expireIssuedUpTo = callsBefore + 1; // the addresses the download is first given are already expired; fresh ones work
@@ -202,6 +228,11 @@ async function main() {
     const audioManifest = await page.evaluate<{ name: string; resume: number; url: string; found: boolean }>(`(async () => { const r = await H.local.localAudioFor("B1"); const files = await H.local.openLocalFiles(r); const m = await H.local.offlineAudioManifest(r, files); const out = { name: m.name, resume: m.resumeSeconds, url: m.urls[0].url.slice(0, 5), found: !!r }; files.release(); return out; })()`);
     check("the saved song's timeline plays from this device, resuming from offline progress", audioManifest.found && audioManifest.name === "A Song" && audioManifest.resume === 3 && audioManifest.url === "blob:", audioManifest);
     await page.evaluate(`H.sync.flushProgress()`);
+    // A finished file whose last step was lost before it was recorded: the server says there is nothing more to send; it counts as done.
+    await page.evaluate(`new Promise((res, rej) => { const r = indexedDB.open("roam-offline", 1); r.onsuccess = () => { const tx = r.result.transaction("downloads", "readwrite"); const st = tx.objectStore("downloads"); st.getAll().onsuccess = (e) => { for (const rec of e.target.result) { rec.files[0].done = false; rec.status = "paused"; st.put(rec); } }; tx.oncomplete = () => res(true); tx.onerror = () => rej(tx.error); }; })`);
+    await page.goto(`${base}/?again2`);
+    await page.evaluate(`H.manager.initDownloads().then(() => H.manager.resumeDownload(H.manager.getSnapshot()[0].id))`);
+    check("a file that is already whole (the server answers 416) is counted as done", await page.waitFor(`H.manager.getSnapshot()[0]?.status === "complete"`, 15000), await state().then((r) => [r.status, r.error]));
     await page.evaluate(`H.manager.removeDownload(H.manager.getSnapshot()[0].id)`);
 
     // 7. The service worker opens the offline page when the server is gone.

@@ -49,6 +49,11 @@ async function download(msg: Extract<In, { type: "download" }>) {
       return;
     }
     const res = await fetch(url, { headers: startAt > 0 ? { Range: `bytes=${startAt}-` } : undefined, signal: abort.signal });
+    if (res.status === 416 && startAt > 0) {
+      // The file is already all here (asked for bytes past its end): a download whose last step was lost before it was recorded.
+      scope.postMessage({ type: "done", jobId, bytes: startAt });
+      return;
+    }
     if (!res.ok || !res.body) {
       scope.postMessage({ type: "error", jobId, status: res.status, message: `The server answered ${res.status}` });
       return;
@@ -87,7 +92,16 @@ async function download(msg: Extract<In, { type: "download" }>) {
     scope.postMessage({ type: "done", jobId, bytes: at });
   } catch (err) {
     const aborted = abort.signal.aborted && !stalled;
-    scope.postMessage({ type: "error", jobId, status: 0, aborted, message: stalled ? "The connection stalled" : aborted ? "Cancelled" : (err as Error).message || "The download stopped" });
+    // Running out of room is not a dropped connection: trying again won't help.
+    const noRoom = (err as Error).name === "QuotaExceededError";
+    scope.postMessage({
+      type: "error",
+      jobId,
+      status: 0,
+      aborted,
+      fatal: noRoom,
+      message: noRoom ? "There isn't enough room on this device." : stalled ? "The connection stalled" : aborted ? "Cancelled" : (err as Error).message || "The download stopped",
+    });
   } finally {
     clearTimeout(watchdog);
     aborts.delete(jobId);
@@ -104,19 +118,25 @@ scope.onmessage = async (event: MessageEvent<In>) => {
   if (msg.type === "download") void download(msg);
   else if (msg.type === "cancel") aborts.get(msg.jobId)?.abort();
   else if (msg.type === "remove") {
-    const d = await dir();
-    for (const name of msg.names) await d.removeEntry(name).catch(() => undefined);
-    scope.postMessage({ type: "removed", reqId: msg.reqId });
-  } else if (msg.type === "sizes") {
-    const d = await dir();
-    const sizes: Record<string, number> = {};
-    for (const name of msg.names) {
-      try {
-        sizes[name] = (await (await d.getFileHandle(name)).getFile()).size;
-      } catch {
-        sizes[name] = 0;
-      }
+    try {
+      const d = await dir();
+      for (const name of msg.names) await d.removeEntry(name).catch(() => undefined);
+    } finally {
+      scope.postMessage({ type: "removed", reqId: msg.reqId }); // always answered, so nothing waits forever
     }
-    scope.postMessage({ type: "sizes", reqId: msg.reqId, sizes });
+  } else if (msg.type === "sizes") {
+    const sizes: Record<string, number> = {};
+    try {
+      const d = await dir();
+      for (const name of msg.names) {
+        try {
+          sizes[name] = (await (await d.getFileHandle(name)).getFile()).size;
+        } catch {
+          sizes[name] = 0;
+        }
+      }
+    } finally {
+      scope.postMessage({ type: "sizes", reqId: msg.reqId, sizes });
+    }
   }
 };

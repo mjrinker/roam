@@ -3,6 +3,7 @@
 import { useEffect } from "react";
 import { initDownloads } from "@/lib/offline/manager";
 import { flushProgress } from "@/lib/offline/sync";
+import { setOfflineViewer } from "@/lib/offline/viewer";
 
 /**
  * Starts the offline support when the app opens: registers the service worker (so the app can open with no connection), brings back the
@@ -10,6 +11,8 @@ import { flushProgress } from "@/lib/offline/sync";
  */
 export function OfflineBoot() {
   useEffect(() => {
+    // Signed out (or about to sign in): no profile owns this browser's downloads until one signs in.
+    if (window.location.pathname.startsWith("/sign-in")) setOfflineViewer(null);
     if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js", { scope: "/" }).catch(() => undefined);
     void initDownloads().catch(() => undefined);
     const flush = () => void flushProgress();

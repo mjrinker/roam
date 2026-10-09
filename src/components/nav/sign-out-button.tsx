@@ -3,11 +3,13 @@
 import { useRouter } from "next/navigation";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
+import { setOfflineViewer } from "@/lib/offline/viewer";
 
 export function SignOutButton() {
   const router = useRouter();
 
   async function handleSignOut() {
+    setOfflineViewer(null);
     await fetch("/api/viewers/deselect", { method: "POST" }).catch(() => {});
     const supabase = createSupabaseBrowserClient();
     await supabase.auth.signOut();

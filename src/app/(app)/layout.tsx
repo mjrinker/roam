@@ -1,4 +1,5 @@
 import { requireViewer } from "@/lib/auth/guards";
+import { ViewerMarker } from "@/components/offline/viewer-marker";
 
 /**
  * Thin shell for everything under (app) — just requires a signed-in
@@ -7,6 +8,11 @@ import { requireViewer } from "@/lib/auth/guards";
  * is current and the profile's role on THAT server, not a global role.
  */
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
-  await requireViewer();
-  return <>{children}</>;
+  const { viewer } = await requireViewer();
+  return (
+    <>
+      <ViewerMarker viewerId={viewer.id} />
+      {children}
+    </>
+  );
 }

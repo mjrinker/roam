@@ -69,7 +69,7 @@ export interface Plan {
 }
 
 /** Everything needed to begin: the record to keep and the files' first addresses. */
-export async function planDownload(serverId: string, options: DownloadOptions, choice: DownloadOption): Promise<Plan> {
+export async function planDownload(serverId: string, viewerId: string, options: DownloadOptions, choice: DownloadOption): Promise<Plan> {
   const id = downloadId(options.kind, options.ownerKind, options.ownerId, choice.label);
   const base = {
     id,
@@ -77,6 +77,7 @@ export async function planDownload(serverId: string, options: DownloadOptions, c
     ownerKind: options.ownerKind,
     ownerId: options.ownerId,
     serverId,
+    viewerId,
     title: options.title,
     subtitle: options.subtitle,
     version: choice.label,

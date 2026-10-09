@@ -1,5 +1,6 @@
 "use client";
 
+import { setOfflineViewer } from "@/lib/offline/viewer";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { LayoutGrid, LogOut, Settings2, Users } from "lucide-react";
@@ -25,6 +26,7 @@ export function UserMenu({
   const router = useRouter();
 
   async function signOut() {
+    setOfflineViewer(null);
     // Forget the selected profile too, so the next person to sign in on this device is asked who they are.
     await fetch("/api/viewers/deselect", { method: "POST" }).catch(() => {});
     const supabase = createSupabaseBrowserClient();

@@ -3,7 +3,7 @@
 const DIR = "roam-downloads";
 
 export class SaveError extends Error {
-  constructor(message: string, readonly status: number, readonly aborted = false) {
+  constructor(message: string, readonly status: number, readonly aborted = false, readonly fatal = false) {
     super(message);
   }
 }
@@ -11,14 +11,14 @@ export class SaveError extends Error {
 type Out =
   | { type: "progress"; jobId: string; bytes: number }
   | { type: "done"; jobId: string; bytes: number }
-  | { type: "error"; jobId: string; status: number; message: string; aborted?: boolean }
+  | { type: "error"; jobId: string; status: number; message: string; aborted?: boolean; fatal?: boolean }
   | { type: "removed"; reqId: number }
   | { type: "sizes"; reqId: number; sizes: Record<string, number> };
 
 let worker: Worker | null = null;
 let nextId = 1;
 const jobs = new Map<string, { onProgress: (bytes: number) => void; resolve: (bytes: number) => void; reject: (e: SaveError) => void }>();
-const requests = new Map<number, (m: Out) => void>();
+const requests = new Map<number, { resolve: (m: Out) => void; reject: (e: Error) => void }>();
 
 function ensureWorker(): Worker {
   if (worker) return worker;
@@ -26,7 +26,7 @@ function ensureWorker(): Worker {
   worker.onmessage = (event: MessageEvent<Out>) => {
     const m = event.data;
     if (m.type === "removed" || m.type === "sizes") {
-      requests.get(m.reqId)?.(m);
+      requests.get(m.reqId)?.resolve(m);
       return;
     }
     const job = jobs.get(m.jobId);
@@ -37,12 +37,19 @@ function ensureWorker(): Worker {
     }
     jobs.delete(m.jobId);
     if (m.type === "done") job.resolve(m.bytes);
-    else job.reject(new SaveError(m.message, m.status, m.aborted));
+    else job.reject(new SaveError(m.message, m.status, m.aborted, m.fatal));
   };
   worker.onerror = () => {
+    // A worker that died takes its jobs and requests with it; the next use starts a fresh one.
+    worker?.terminate();
+    worker = null;
     for (const [id, job] of jobs) {
       jobs.delete(id);
       job.reject(new SaveError("The download stopped", 0));
+    }
+    for (const [id, req] of requests) {
+      requests.delete(id);
+      req.reject(new Error("The storage worker stopped"));
     }
   };
   return worker;
@@ -66,9 +73,9 @@ export function cancelSave(jobId: string): void {
 }
 
 function ask<T extends Out>(build: (reqId: number) => unknown): Promise<T> {
-  return new Promise((resolve) => {
+  return new Promise((resolve, reject) => {
     const reqId = nextId++;
-    requests.set(reqId, (m) => (requests.delete(reqId), resolve(m as T)));
+    requests.set(reqId, { resolve: (m) => (requests.delete(reqId), resolve(m as T)), reject });
     ensureWorker().postMessage(build(reqId));
   });
 }

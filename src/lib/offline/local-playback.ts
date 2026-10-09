@@ -1,9 +1,12 @@
 /** Playing a downloaded item from the files on this device. Browser only. */
 import type { AudiobookManifest, PlayManifest } from "@/lib/player/types";
-import { listPendingProgress } from "./db";
+import { pendingProgressFor } from "./sync";
 import { findCompleteDownload, initDownloads } from "./manager";
 import { openSavedFile } from "./storage";
 import type { DownloadRecord } from "./types";
+
+/** Local files never expire; this just keeps "expires at" far off yet inside what a timer can count. */
+const LOCAL_EXPIRY_MS = 7 * 24 * 3600_000;
 
 export interface LocalFiles {
   /** One address per saved file, in order, that a media element can play. */
@@ -41,8 +44,8 @@ export async function localAudioFor(titleId: string): Promise<DownloadRecord | n
 /** A downloaded song/audiobook as the audio player's manifest, for when the server can't be asked. Resumes from progress made offline. */
 export async function offlineAudioManifest(record: DownloadRecord, files: LocalFiles): Promise<AudiobookManifest | null> {
   if (!record.book) return null;
-  const pending = (await listPendingProgress().catch(() => [])).find((p) => p.key === `${record.ownerKind}:${record.ownerId}`);
-  const expiresAt = new Date(Date.now() + 365 * 24 * 3600_000).toISOString();
+  const pending = await pendingProgressFor(record.ownerKind, record.ownerId);
+  const expiresAt = new Date(Date.now() + LOCAL_EXPIRY_MS).toISOString();
   return {
     ...record.book,
     resumeSeconds: pending && !pending.finished ? pending.positionSeconds : 0,
@@ -56,14 +59,14 @@ export async function offlineAudioManifest(record: DownloadRecord, files: LocalF
  */
 export async function offlineVideoManifest(record: DownloadRecord, files: LocalFiles): Promise<PlayManifest | null> {
   if (!record.timeline) return null;
-  const pending = (await listPendingProgress().catch(() => [])).find((p) => p.key === `${record.ownerKind}:${record.ownerId}`);
+  const pending = await pendingProgressFor(record.ownerKind, record.ownerId);
   return {
     ownerKind: record.ownerKind,
     ownerId: record.ownerId,
     durationSeconds: record.timeline.durationSeconds,
     segments: record.timeline.segments.map((s, i) => ({ ...s, url: files.urls[i] })),
     resumeSeconds: pending && !pending.finished ? pending.positionSeconds : 0,
-    expiresAt: new Date(Date.now() + 365 * 24 * 3600_000).toISOString(),
+    expiresAt: new Date(Date.now() + LOCAL_EXPIRY_MS).toISOString(),
     version: record.version,
     versions: [{ label: record.version, name: record.versionName, height: null }],
     libraryId: undefined,
@@ -81,6 +84,6 @@ export async function applyLocalFiles(manifest: PlayManifest): Promise<LocalFile
   const files = await openLocalFiles(record);
   if (!files) return null;
   manifest.segments = manifest.segments.map((s, i) => ({ ...s, url: files.urls[i] }));
-  manifest.expiresAt = new Date(Date.now() + 365 * 24 * 3600_000).toISOString();
+  manifest.expiresAt = new Date(Date.now() + LOCAL_EXPIRY_MS).toISOString();
   return files;
 }

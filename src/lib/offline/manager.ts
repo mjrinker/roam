@@ -1,27 +1,44 @@
 /**
  * The download engine (browser only): one item at a time is saved file by file into the browser's storage, resuming where it stopped after
  * an interruption, asking for fresh addresses when Box's expire. State lives in memory, mirrored to IndexedDB at the points that matter,
- * and is observed with `subscribe` (see use-downloads.ts).
+ * and is observed with `subscribe` (see use-downloads.ts). Downloads belong to the profile that made them (see viewer.ts).
  */
 import { deleteDownload, getDownload, listDownloads, putDownload } from "./db";
 import type { DownloadOption, DownloadOptions } from "./options";
 import { fetchFileUrls, PlanError, planDownload } from "./plan";
 import { cancelSave, offlineStorageSupported, removeFiles, requestPersistence, saveFile, savedSizes, SaveError, storageUsage } from "./storage";
 import { downloadId, type DownloadRecord } from "./types";
+import { currentOfflineViewer } from "./viewer";
 
 const records = new Map<string, DownloadRecord>();
 const listeners = new Set<() => void>();
 let snapshot: DownloadRecord[] = [];
 let loaded: Promise<void> | null = null;
 let activeId: string | null = null;
+/** The run in progress for each download, so removing one can wait for its file to be let go of. */
+const running = new Map<string, Promise<void>>();
+/** Each run gets a number; pausing or removing a download changes it, and the older run then stops at its next step. */
+const generation = new Map<string, number>();
+let nextGeneration = 1;
+/** The save job (worker request) currently open for each download. */
+const openJob = new Map<string, string>();
 const queue: string[] = [];
+/** Downloads to carry on by themselves when the connection returns (interrupted by closing the page or by going offline). */
+const autoResume = new Set<string>();
+const urlCache = new Map<string, string[]>();
 const MAX_URL_REFRESHES = 4;
 /** A dropped connection is tried again from where it stopped this many times (with growing waits) before the download is marked stopped. */
 const MAX_RETRIES = 6;
 
 function publish() {
-  snapshot = [...records.values()].sort((a, b) => b.createdAt - a.createdAt);
+  const viewer = currentOfflineViewer();
+  snapshot = [...records.values()].filter((r) => r.viewerId === viewer).sort((a, b) => b.createdAt - a.createdAt);
   for (const l of listeners) l();
+}
+
+/** The signed-in profile changed (the marker was written): the lists show that profile's downloads. */
+export function notifyViewerChanged() {
+  publish();
 }
 
 export function subscribe(listener: () => void): () => void {
@@ -29,7 +46,7 @@ export function subscribe(listener: () => void): () => void {
   return () => listeners.delete(listener);
 }
 
-/** The current downloads, newest first (the same array until something changes). */
+/** The current profile's downloads, newest first (the same array until something changes). */
 export function getSnapshot(): DownloadRecord[] {
   return snapshot;
 }
@@ -45,13 +62,21 @@ export function initDownloads(): Promise<void> {
     if (!offlineStorageSupported()) return;
     for (const r of await listDownloads()) records.set(r.id, r);
     // A download interrupted by closing the page is paused; it carries on by itself when the app is opened again with a connection.
-    const interrupted = [...records.values()].filter((r) => r.status === "downloading");
-    for (const r of interrupted) r.status = "paused";
+    for (const r of records.values()) {
+      if (r.status === "downloading") {
+        r.status = "paused";
+        autoResume.add(r.id);
+      }
+    }
     publish();
-    if (typeof window !== "undefined") window.addEventListener("online", () => interrupted.forEach((r) => void resumeDownload(r.id)));
-    if (typeof navigator === "undefined" || navigator.onLine) for (const r of interrupted) void resumeDownload(r.id);
+    if (typeof window !== "undefined") window.addEventListener("online", resumeInterrupted);
+    if (typeof navigator === "undefined" || navigator.onLine) resumeInterrupted();
   })();
   return loaded;
+}
+
+function resumeInterrupted() {
+  for (const id of [...autoResume]) void resumeDownload(id);
 }
 
 function update(record: DownloadRecord, persist = true) {
@@ -64,21 +89,23 @@ function update(record: DownloadRecord, persist = true) {
 export async function startDownload(serverId: string, options: DownloadOptions, choice: DownloadOption): Promise<void> {
   if (!offlineStorageSupported()) throw new Error("This browser can't save downloads. Try the installed app, or Chrome, Edge, Firefox or Safari.");
   await initDownloads();
+  const viewerId = currentOfflineViewer();
+  if (!viewerId) throw new Error("Open Roam again and sign in to download.");
   const id = downloadId(options.kind, options.ownerKind, options.ownerId, choice.label);
-  if (records.get(id)?.status === "complete") return;
+  const existing = records.get(id);
+  if (existing && existing.viewerId !== viewerId) throw new Error("Another profile on this device has already downloaded that. Ask them to remove it first.");
+  if (existing?.status === "complete") return;
   const space = await storageUsage();
   if (space && choice.sizeBytes && choice.sizeBytes > space.quota - space.usage) throw new Error("There isn't enough room on this device for that download.");
   await requestPersistence();
-  const { record, urls } = await planDownload(serverId, options, choice);
+  const { record, urls } = await planDownload(serverId, viewerId, options, choice);
   update(record);
   urlCache.set(id, urls);
   enqueue(id);
 }
 
-const urlCache = new Map<string, string[]>();
-
 function enqueue(id: string) {
-  if (activeId === id || queue.includes(id)) return;
+  if (queue.includes(id)) return;
   queue.push(id);
   void pump();
 }
@@ -88,55 +115,66 @@ async function pump() {
   const id = queue.shift();
   if (!id) return;
   activeId = id;
+  const mine = nextGeneration++;
+  generation.set(id, mine);
+  const done = run(id, mine).catch(() => undefined);
+  running.set(id, done);
   try {
-    await run(id);
+    await done;
   } finally {
+    running.delete(id);
     activeId = null;
     void pump();
   }
 }
 
-async function run(id: string) {
-  let record = records.get(id);
-  if (!record) return;
-  record = { ...record, status: "downloading", error: null };
-  update(record);
+async function run(id: string, mine: number) {
+  const stillMine = () => generation.get(id) === mine && records.has(id);
+  const first = records.get(id);
+  if (!first) return;
+  update({ ...first, status: "downloading", error: null });
   let refreshes = 0;
   let retries = 0;
   try {
-    for (let i = 0; i < record.files.length; i++) {
-      if (record.files[i].done) continue;
+    for (let i = 0; i < first.files.length; i++) {
+      if (records.get(id)?.files[i].done) continue;
       for (;;) {
-        const current = records.get(id);
-        if (!current || current.status === "paused") return; // paused or removed meanwhile
+        if (!stillMine()) return; // paused or removed meanwhile
+        const current = records.get(id)!;
         let urls = urlCache.get(id);
         if (!urls) {
           urls = await fetchFileUrls(current);
           urlCache.set(id, urls);
+          if (!stillMine()) return;
         }
         const file = current.files[i];
         const startAt = (await savedSizes([file.name]))[file.name] ?? 0;
+        if (!stillMine()) return;
+        const jobId = `${id}#${i}@${mine}`;
         let lastPersist = 0;
+        openJob.set(id, jobId);
         try {
           const bytes = await saveFile({
-            jobId: `${id}#${i}`,
+            jobId,
             name: file.name,
             url: urls[i],
             startAt,
             expected: file.expected,
             onProgress: (b) => {
               const now = records.get(id);
-              if (!now) return;
+              if (!now || !stillMine()) return;
               const files = now.files.map((f, k) => (k === i ? { ...f, bytes: b } : f));
-              update({ ...now, files }, Date.now() - lastPersist > 5000 && !!(lastPersist = Date.now()));
+              const persist = Date.now() - lastPersist > 5000;
+              if (persist) lastPersist = Date.now();
+              update({ ...now, files }, persist);
             },
           });
-          const now = records.get(id);
-          if (!now) return;
+          if (!stillMine()) return;
+          const now = records.get(id)!;
           update({ ...now, files: now.files.map((f, k) => (k === i ? { ...f, bytes, expected: f.expected ?? bytes, done: true } : f)) });
           break;
         } catch (err) {
-          if (err instanceof SaveError && err.aborted) return;
+          if (!stillMine() || (err instanceof SaveError && err.aborted)) return;
           // An address that has expired is answered with 401/403/404/410; ask for fresh ones and carry on from the same byte.
           if (err instanceof SaveError && [401, 403, 404, 410].includes(err.status) && refreshes < MAX_URL_REFRESHES) {
             refreshes++;
@@ -145,22 +183,26 @@ async function run(id: string) {
           }
           // A dropped connection: wait a little and carry on from the same byte, unless the device is offline (then wait for it to return).
           const offline = typeof navigator !== "undefined" && !navigator.onLine;
-          if (err instanceof SaveError && err.status === 0 && !offline && retries < MAX_RETRIES) {
+          if (err instanceof SaveError && err.status === 0 && !err.fatal && !offline && retries < MAX_RETRIES) {
             retries++;
             await new Promise((r) => setTimeout(r, Math.min(1000 * 2 ** (retries - 1), 30_000)));
             continue;
           }
           throw err;
+        } finally {
+          if (openJob.get(id) === jobId) openJob.delete(id);
         }
       }
     }
-    const done = records.get(id);
-    if (done) update({ ...done, status: "complete", error: null, completedAt: Date.now() });
+    if (!stillMine()) return;
+    update({ ...records.get(id)!, status: "complete", error: null, completedAt: Date.now() });
+    autoResume.delete(id);
     urlCache.delete(id);
   } catch (err) {
-    const now = records.get(id);
-    if (!now) return;
+    if (!stillMine()) return;
+    const now = records.get(id)!;
     const offline = typeof navigator !== "undefined" && !navigator.onLine;
+    if (offline) autoResume.add(id);
     update({
       ...now,
       status: offline ? "paused" : "error",
@@ -173,38 +215,48 @@ async function run(id: string) {
 export async function resumeDownload(id: string): Promise<void> {
   await initDownloads();
   const r = records.get(id);
-  if (!r || r.status === "complete") return;
+  if (!r || r.status === "complete" || r.status === "downloading" || r.viewerId !== currentOfflineViewer()) return;
+  autoResume.delete(id);
   update({ ...r, status: "downloading", error: null }, true);
   enqueue(id);
+}
+
+function stopRun(id: string) {
+  generation.set(id, nextGeneration++); // the run in progress stops at its next step
+  const job = openJob.get(id);
+  if (job) cancelSave(job);
+  const index = queue.indexOf(id);
+  if (index >= 0) queue.splice(index, 1);
 }
 
 /** Stops a running download; what is saved is kept so it can carry on. */
 export async function pauseDownload(id: string): Promise<void> {
   const r = records.get(id);
   if (!r || r.status === "complete") return;
+  autoResume.delete(id);
+  stopRun(id);
   update({ ...r, status: "paused" });
-  const index = queue.indexOf(id);
-  if (index >= 0) queue.splice(index, 1);
-  r.files.forEach((_f, i) => cancelSave(`${id}#${i}`));
 }
 
 /** Removes a download and everything saved for it. */
 export async function removeDownload(id: string): Promise<void> {
   const r = records.get(id) ?? (await getDownload(id));
   if (!r) return;
+  autoResume.delete(id);
+  stopRun(id);
   records.delete(id);
   urlCache.delete(id);
-  const index = queue.indexOf(id);
-  if (index >= 0) queue.splice(index, 1);
-  r.files.forEach((_f, i) => cancelSave(`${id}#${i}`));
   publish();
   // The record goes first, so a page closed half way never lists a download whose files are gone.
   await deleteDownload(id);
-  await removeFiles(r.files.map((f) => f.name));
+  // Its files can only be deleted once the worker has let go of them.
+  await running.get(id);
+  await removeFiles(r.files.map((f) => f.name)).catch(() => undefined);
 }
 
-/** The finished download of an item (any version), preferring the one named, or null. */
+/** The finished download of an item for the current profile (the named version preferred), or null. */
 export function findCompleteDownload(kind: DownloadRecord["kind"], ownerKind: DownloadRecord["ownerKind"], ownerId: string, version?: string): DownloadRecord | null {
-  const matches = [...records.values()].filter((r) => r.status === "complete" && r.kind === kind && r.ownerKind === ownerKind && r.ownerId === ownerId);
+  const viewer = currentOfflineViewer();
+  const matches = [...records.values()].filter((r) => r.viewerId === viewer && r.status === "complete" && r.kind === kind && r.ownerKind === ownerKind && r.ownerId === ownerId);
   return matches.find((r) => version !== undefined && r.version === version) ?? matches[0] ?? null;
 }

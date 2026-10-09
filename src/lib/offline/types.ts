@@ -22,6 +22,8 @@ export interface DownloadRecord {
   ownerKind: PlayOwnerKind;
   ownerId: string;
   serverId: string;
+  /** The profile (who's watching) that downloaded it; only that profile sees and plays it. */
+  viewerId: string;
   title: string;
   subtitle: string | null;
   poster: Blob | null;
@@ -43,6 +45,8 @@ export interface DownloadRecord {
 /** Progress made while offline, waiting to be sent to the server (the same shape as a watch-state update). */
 export interface PendingProgress {
   key: string;
+  /** The profile the progress belongs to. */
+  viewerId: string;
   ownerKind: PlayOwnerKind;
   ownerId: string;
   positionSeconds: number;

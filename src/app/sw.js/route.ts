@@ -29,7 +29,8 @@ async function precache() {
 }
 
 self.addEventListener("install", (event) => {
-  event.waitUntil(precache().then(() => self.skipWaiting()).catch(() => self.skipWaiting()));
+  // If the page and its files could not be kept, the install fails and any earlier worker (with its copy) stays in charge.
+  event.waitUntil(precache().then(() => self.skipWaiting()));
 });
 
 self.addEventListener("activate", (event) => {
