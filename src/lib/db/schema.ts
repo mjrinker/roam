@@ -247,8 +247,7 @@ export const libraries = pgTable(
     pruneMissing: boolean("prune_missing").notNull().default(true),
     // Music libraries: look albums up on MusicBrainz (sends the artist and album folder names there). An admin can turn it off.
     musicLookup: boolean("music_lookup").notNull().default(true),
-    // The speed (0.25 to 3) playback starts at for this library's videos, audio and books; null = normal speed. A speed the viewer picks
-    // while playing is not saved: it applies until the player is closed.
+    // No longer used: starting speeds are per profile now (viewer_library_speeds). Kept so no data is dropped.
     defaultPlaybackSpeed: real("default_playback_speed"),
     lastScannedAt: timestamp("last_scanned_at", { withTimezone: true }),
     // Updated at the START of every scan attempt, success or failure —
@@ -940,4 +939,22 @@ export const tvPairings = pgTable(
     index("tv_pairings_ip_idx").on(t.ipHash, t.createdAt),
     index("tv_pairings_account_idx").on(t.accountId),
   ]
+).enableRLS();
+
+// ── viewer_library_speeds ────────────────────────────────────────────────
+// The speed (0.25 to 3) a profile's playback starts at in one library; no row = normal speed. Only that profile sees it. A speed picked
+// while playing is not saved by itself: it lasts until the player closes, unless the profile chooses to make it their default.
+export const viewerLibrarySpeeds = pgTable(
+  "viewer_library_speeds",
+  {
+    viewerId: uuid("viewer_id")
+      .notNull()
+      .references(() => viewers.id, { onDelete: "cascade" }),
+    libraryId: uuid("library_id")
+      .notNull()
+      .references(() => libraries.id, { onDelete: "cascade" }),
+    speed: real("speed").notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [primaryKey({ columns: [t.viewerId, t.libraryId] })]
 ).enableRLS();

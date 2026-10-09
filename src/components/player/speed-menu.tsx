@@ -6,6 +6,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuRadioGroup, DropdownMenuRadioItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { formatSpeed, parseSpeedInput, SPEED_MAX, SPEED_MIN, SPEED_PRESETS } from "@/lib/player/speed";
+import { saveDefaultSpeed } from "@/lib/player/save-default-speed";
 import { cn } from "@/lib/utils";
 
 /** A small dialog to type a custom speed (0.25 to 3). */
@@ -48,11 +49,53 @@ export function SpeedDialog({ open, onOpenChange, current, onPick }: { open: boo
   );
 }
 
+/** What a speed menu needs to let a profile keep a starting speed for the library: which library, and the speed saved now (null = normal). */
+export interface DefaultSpeed {
+  libraryId: string;
+  saved: number | null;
+}
+
+// What this browser has saved this session, per library: menus close and reopen (and a player may keep playing from an older manifest), so the
+// row can't rely on the value the player loaded with.
+const savedHere = new Map<string, number | null>();
+
+/** "Make this my default here" under the speed list: saves the current speed as this profile's starting speed for the library (or clears it). */
+function DefaultSpeedRow({ rate, setting, dark }: { rate: number; setting: DefaultSpeed; dark?: boolean }) {
+  const [saved, setSaved] = useState<number | null>(savedHere.has(setting.libraryId) ? (savedHere.get(setting.libraryId) ?? null) : setting.saved);
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState<string | null>(null);
+  const isCurrent = saved !== null && Math.abs(saved - rate) < 1e-9;
+  async function save(next: number | null) {
+    setBusy(true);
+    setMessage(null);
+    const error = await saveDefaultSpeed(setting.libraryId, next);
+    setBusy(false);
+    if (error) return setMessage(error);
+    savedHere.set(setting.libraryId, next);
+    setSaved(next);
+    setMessage(next === null ? "Starts at normal speed here." : `Starts at ${formatSpeed(next)} here.`);
+  }
+  const button = cn("w-full rounded-lg px-3 py-1.5 text-left text-sm outline-none focus-visible:bg-white/15 disabled:opacity-50", dark ? "hover:bg-white/15" : "hover:bg-accent");
+  return (
+    <div className="flex flex-col" data-testid="default-speed">
+      <button type="button" disabled={busy || isCurrent} onClick={() => void save(rate)} className={button}>
+        {isCurrent ? `✓ ${formatSpeed(rate)} is your default here` : `Make ${formatSpeed(rate)} my default here`}
+      </button>
+      {saved !== null && !isCurrent && (
+        <button type="button" disabled={busy} onClick={() => void save(null)} className={button}>
+          Reset my default ({formatSpeed(saved)})
+        </button>
+      )}
+      {message && <p role="status" className="px-3 pb-1 text-xs opacity-70">{message}</p>}
+    </div>
+  );
+}
+
 /**
  * The playback speed control: the current speed on a button, a menu of 0.25x steps up to 3x, and "Custom…" for anything in between.
- * Picking a speed only changes this player; it is not saved (a library's own starting speed is set by an admin).
+ * Picking a speed only changes this player; it is not saved unless the profile chooses to make it their default for the library.
  */
-export function SpeedMenu({ rate, onChange, side = "top", className }: { rate: number; onChange: (speed: number) => void; side?: "top" | "bottom"; className?: string }) {
+export function SpeedMenu({ rate, onChange, side = "top", className, defaultSpeed }: { rate: number; onChange: (speed: number) => void; side?: "top" | "bottom"; className?: string; defaultSpeed?: DefaultSpeed }) {
   const [custom, setCustom] = useState(false);
   const isPreset = SPEED_PRESETS.some((p) => Math.abs(p - rate) < 1e-9);
   return (
@@ -77,6 +120,12 @@ export function SpeedMenu({ rate, onChange, side = "top", className }: { rate: n
           </DropdownMenuRadioGroup>
           <DropdownMenuSeparator />
           <DropdownMenuItem onClick={() => setCustom(true)}>Custom…</DropdownMenuItem>
+          {defaultSpeed && (
+            <>
+              <DropdownMenuSeparator />
+              <DefaultSpeedRow key={defaultSpeed.libraryId} rate={rate} setting={defaultSpeed} />
+            </>
+          )}
         </DropdownMenuContent>
       </DropdownMenu>
       {custom && <SpeedDialog open onOpenChange={setCustom} current={rate} onPick={onChange} />}
@@ -88,7 +137,7 @@ export function SpeedMenu({ rate, onChange, side = "top", className }: { rate: n
  * The same control drawn inside the page instead of in a floating layer, for the video player: a fullscreen video hides anything drawn
  * outside it, so its menu has to live inside. A list of the 0.25x steps and a box for a custom speed.
  */
-export function InlineSpeedMenu({ rate, onChange, className }: { rate: number; onChange: (speed: number) => void; className?: string }) {
+export function InlineSpeedMenu({ rate, onChange, className, defaultSpeed }: { rate: number; onChange: (speed: number) => void; className?: string; defaultSpeed?: DefaultSpeed }) {
   const [open, setOpen] = useState(false);
   const [text, setText] = useState("");
   const [bad, setBad] = useState(false);
@@ -165,6 +214,11 @@ export function InlineSpeedMenu({ rate, onChange, className }: { rate: number; o
             </button>
           </form>
           {bad && <p className="px-2.5 pb-1 text-xs text-red-300">{SPEED_MIN} to {SPEED_MAX}</p>}
+          {defaultSpeed && (
+            <div className="mt-1 border-t border-white/15 pt-1">
+              <DefaultSpeedRow key={defaultSpeed.libraryId} rate={rate} setting={defaultSpeed} dark />
+            </div>
+          )}
         </div>
       )}
     </div>

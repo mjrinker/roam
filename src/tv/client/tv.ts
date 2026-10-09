@@ -212,13 +212,18 @@ function snapStep(rate: number, direction: 1 | -1): number {
 
 /**
  * Speed for a player: starts at the library's default (until the viewer changes it), applies to the element, and is changed with an overlay
- * the remote drives: up and down in steps of 0.25, left and right 0.05 at a time (so any speed from 0.25 to 3 can be reached), OK to close.
- * It lasts as long as the page keeps the player (a next episode or song keeps it) and is never saved.
+ * the remote drives: up and down in steps of 0.25, left and right 0.05 at a time (so any speed from 0.25 to 3 can be reached). OK asks
+ * whether to make it this profile's starting speed for the library (OK again saves it, Back closes without saving).
+ * The speed lasts as long as the page keeps the player (a next episode or song keeps it); only that last step saves anything.
  */
 function createSpeedControl(media: HTMLMediaElement, onChange: () => void) {
   let rate = 1;
   let touched = false;
   let open = false;
+  let libraryId: string | null = null;
+  let saved: number | null = null;
+  let asking = false; // the "make this my default?" step
+  let note = "";
   const box = doc.getElementById("speedbox");
 
   const apply = () => {
@@ -235,7 +240,7 @@ function createSpeedControl(media: HTMLMediaElement, onChange: () => void) {
     const big = doc.createElement("b");
     big.textContent = formatSpeed(rate);
     const hint = doc.createElement("small");
-    hint.textContent = "Up and Down: 0.25 steps · Left and Right: fine tune · OK: done";
+    hint.textContent = note || (asking ? "OK: make " + formatSpeed(rate) + " my default here · Back: close without saving" : "Up and Down: 0.25 steps · Left and Right: fine tune · OK: next · Back: done");
     box.appendChild(title);
     box.appendChild(big);
     box.appendChild(hint);
@@ -251,7 +256,11 @@ function createSpeedControl(media: HTMLMediaElement, onChange: () => void) {
   return {
     rate: () => rate,
     /** The library's own starting speed, used until the viewer picks one. */
-    applyDefault(defaultRate: number | null | undefined) {
+    applyDefault(defaultRate: number | null | undefined, forLibrary?: string) {
+      if (forLibrary) {
+        libraryId = forLibrary;
+        saved = defaultRate === null || defaultRate === undefined ? null : defaultRate;
+      }
       if (touched) return;
       rate = clampSpeed(defaultRate === null || defaultRate === undefined ? 1 : defaultRate);
       apply();
@@ -260,16 +269,44 @@ function createSpeedControl(media: HTMLMediaElement, onChange: () => void) {
     isOpen: () => open,
     open() {
       open = true;
+      asking = false;
+      note = "";
       draw();
     },
     /** While the overlay is open it takes every key. */
     key(action: Action | null, dirKey: string | null): boolean {
-      if (dirKey === "up") set(snapStep(rate, 1));
-      else if (dirKey === "down") set(snapStep(rate, -1));
-      else if (dirKey === "right") set(rate + FINE_STEP);
-      else if (dirKey === "left") set(rate - FINE_STEP);
-      else if (action === "enter" || action === "back" || action === "stop") {
+      note = "";
+      if (dirKey === "up" || dirKey === "down" || dirKey === "left" || dirKey === "right") {
+        asking = false;
+        if (dirKey === "up") set(snapStep(rate, 1));
+        else if (dirKey === "down") set(snapStep(rate, -1));
+        else if (dirKey === "right") set(rate + FINE_STEP);
+        else set(rate - FINE_STEP);
+      } else if (action === "enter") {
+        if (!libraryId || (saved !== null && Math.abs(saved - rate) < 1e-9 && !asking)) {
+          open = false; // nothing to save here (no library known, or this is already the default)
+        } else if (!asking) {
+          asking = true;
+        } else {
+          const speedToSave = rate;
+          const lib = libraryId;
+          asking = false;
+          fetch("/api/libraries/" + lib + "/my-playback-speed", { method: "PUT", credentials: "same-origin", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ speed: speedToSave }) }).then(
+            (r) => {
+              if (r.ok) saved = speedToSave;
+              note = r.ok ? "Saved: " + formatSpeed(speedToSave) + " is your default here" : "Couldn't save that";
+              draw();
+            },
+            () => {
+              note = "Couldn't save that";
+              draw();
+            }
+          );
+        }
+        draw();
+      } else if (action === "back" || action === "stop") {
         open = false;
+        asking = false;
         draw();
       }
       return true;
@@ -510,6 +547,7 @@ interface Manifest {
   durationSeconds: number;
   segments: Segment[];
   resumeSeconds: number;
+  libraryId?: string;
   defaultRate?: number | null;
 }
 
@@ -640,7 +678,7 @@ function startPlayer(first: PlayConfig) {
     (ahead || fetchPlay(cfg.ownerKind, cfg.ownerId))
       .then((m: Manifest) => {
         manifest = m;
-        speed.applyDefault(m.defaultRate);
+        speed.applyDefault(m.defaultRate, m.libraryId);
         subs.setOwner(cfg.ownerKind, cfg.ownerId);
         const start = resumeFrom !== undefined ? resumeFrom : m.resumeSeconds > 0 && m.resumeSeconds < m.durationSeconds - 30 ? m.resumeSeconds : 0;
         const at = locate(m.segments, start);
@@ -812,6 +850,7 @@ interface AudioManifest {
   segments: AudioPart[];
   resumeSeconds: number;
   urls: { index: number; url: string; expiresAt: string }[];
+  libraryId?: string;
   defaultRate?: number | null;
 }
 
@@ -1009,7 +1048,7 @@ function startListening(cfg: ListenConfig) {
       .then((m: AudioManifest) => {
         if (seq !== loadSeq) return;
         manifest = m;
-        speed.applyDefault(m.defaultRate);
+        speed.applyDefault(m.defaultRate, m.libraryId);
         const resume = cfg.remembers && m.resumeSeconds > 0 && m.resumeSeconds < m.durationSeconds - 30 ? m.resumeSeconds : 0;
         const at = partAt(resumeFrom !== undefined ? resumeFrom : resume);
         say("");

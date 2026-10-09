@@ -25,7 +25,8 @@ export interface PlayManifest {
   segments: PlaySegment[];
   resumeSeconds: number;
   expiresAt: string;
-  /** The speed this title's library starts playback at (null or missing = normal speed). */
+  /** The library this plays from, and the speed this profile starts it at (null or missing = normal speed). */
+  libraryId?: string;
   defaultRate?: number | null;
 }
 
@@ -62,6 +63,7 @@ export interface AudiobookManifest {
   chapters: { title: string; startSeconds: number }[];
   resumeSeconds: number;
   urls: AudiobookSegmentUrl[];
-  /** The speed this book's library starts playback at (null or missing = normal speed). */
+  /** The library this plays from, and the speed this profile starts it at (null or missing = normal speed). */
+  libraryId?: string;
   defaultRate?: number | null;
 }

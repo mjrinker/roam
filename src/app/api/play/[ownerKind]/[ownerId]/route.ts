@@ -4,7 +4,7 @@ import { authorizeOwner } from "@/lib/auth/resolve-server";
 import { buildPlayManifest } from "@/lib/player/manifest";
 import { isPhotoLibraryKind } from "@/lib/libraries/profile";
 import { parseUnsupportedCodecs } from "@/lib/player/variant-selection";
-import { libraryDefaultSpeed } from "@/lib/player/library-speed";
+import { viewerLibrarySpeed } from "@/lib/player/library-speed";
 
 // authorizeOwner covers server membership AND the profile's rating limit —
 // see lib/content/access. A title blocked by the limit 404s exactly like a
@@ -32,5 +32,5 @@ export async function GET(
   if (!result.ok) {
     return NextResponse.json({ error: result.error }, { status: result.status });
   }
-  return NextResponse.json({ ...result.manifest, defaultRate: await libraryDefaultSpeed(auth.libraryId) });
+  return NextResponse.json({ ...result.manifest, libraryId: auth.libraryId, defaultRate: await viewerLibrarySpeed(auth.member.viewer.id, auth.libraryId) });
 }

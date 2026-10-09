@@ -267,6 +267,13 @@
       "when": 1791531187836,
       "tag": "0037_drop_subtitle_tracks",
       "breakpoints": true
+    },
+    {
+      "idx": 38,
+      "version": "7",
+      "when": 1791532423940,
+      "tag": "0038_viewer_library_speeds",
+      "breakpoints": true
     }
   ]
 }

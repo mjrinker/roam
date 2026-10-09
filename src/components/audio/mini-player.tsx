@@ -186,7 +186,7 @@ export function MiniPlayer({ serverId }: { serverId: string }) {
             </DropdownMenu>
           )}
 
-          <SpeedMenu rate={p.rate} onChange={p.setRate} className="text-muted-foreground hover:text-foreground" />
+          <SpeedMenu rate={p.rate} onChange={p.setRate} className="text-muted-foreground hover:text-foreground" defaultSpeed={book.libraryId ? { libraryId: book.libraryId, saved: book.defaultRate ?? null } : undefined} />
 
           <DropdownMenu>
             <DropdownMenuTrigger

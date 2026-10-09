@@ -49,6 +49,15 @@ let audioManifests = 0;
 let failFirstAudioUrl = false;
 let signouts = 0;
 
+const savedSpeeds: string[] = [];
+const waitUntil = async (test: () => boolean, ms = 5000) => {
+  const end = Date.now() + ms;
+  while (Date.now() < end) {
+    if (test()) return true;
+    await new Promise((r) => setTimeout(r, 50));
+  }
+  return false;
+};
 const server = http.createServer((req, res) => {
   const url = new URL(req.url!, "http://x");
   if (url.searchParams.get("json") === "1" && url.pathname.startsWith("/tv/s/x/watch/episode/")) {
@@ -75,7 +84,7 @@ const server = http.createServer((req, res) => {
     const segments = [1, 2].map((i) => ({ index: i - 1, url: bad ? "/media/missing.webm" : `/media/part${i}.webm`, durationSeconds: 12, startSeconds: (i - 1) * 12 }));
     // the first movie's library starts at 1.5x, as an admin could have set it; everything else at normal speed
     const defaultRate = url.pathname.endsWith("/title/1") ? 1.5 : null;
-    return void res.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify({ ownerKind: "title", ownerId: "1", durationSeconds: 24, segments, resumeSeconds: 0, expiresAt: "2099-01-01T00:00:00Z", defaultRate }));
+    return void res.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify({ ownerKind: "title", ownerId: "1", durationSeconds: 24, segments, resumeSeconds: 0, expiresAt: "2099-01-01T00:00:00Z", libraryId: "lib1", defaultRate }));
   }
   const audioId = /^\/api\/audiobooks\/([^/]+)\/manifest$/.exec(url.pathname);
   if (audioId) {
@@ -89,6 +98,15 @@ const server = http.createServer((req, res) => {
   if (/^\/api\/audiobooks\/[^/]+\/segments\/\d+$/.test(url.pathname)) {
     const i = Number(url.pathname.split("/").pop());
     return void res.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify({ index: i, url: `/media/aud${i + 1}.ogg`, expiresAt: "2099-01-01T00:00:00Z" }));
+  }
+  if (url.pathname === "/api/libraries/lib1/my-playback-speed" && req.method === "PUT") {
+    let raw = "";
+    req.on("data", (c) => (raw += c));
+    req.on("end", () => {
+      savedSpeeds.push(raw);
+      res.writeHead(200, { "content-type": "application/json" }).end("{}");
+    });
+    return;
   }
   if (url.pathname === "/api/subtitles/search") {
     return void res.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify({ results: [{ fileId: 11, language: url.searchParams.get("languages"), release: "Release One", fileName: "a.srt", downloads: 5 }] }));
@@ -490,6 +508,22 @@ async function run(label: string, exe: string, m56: boolean) {
   await key(page, 37);
   await new Promise((r) => setTimeout(r, 300));
   check(L("with the overlay closed, Left seeks again"), !(await page.evaluate<boolean>(speedShown)));
+
+  // Saving a starting speed for this profile: OK asks, OK again saves, Back leaves without saving.
+  const speedText = `document.getElementById("speedbox").textContent`;
+  savedSpeeds.length = 0;
+  await key(page, 38);
+  await key(page, 13);
+  check(L("OK in the speed overlay asks whether to make it the default"), (await page.evaluate<string>(speedText)).indexOf("my default here") >= 0, await page.evaluate<string>(speedText));
+  await key(page, 27);
+  check(L("Back from the question closes without saving anything"), !(await page.evaluate<boolean>(speedShown)) && savedSpeeds.length === 0);
+  await key(page, 38);
+  await key(page, 13);
+  await key(page, 13);
+  check(L("OK again saves this speed for the profile"), await waitUntil(() => savedSpeeds.length === 1), JSON.stringify(savedSpeeds));
+  check(L("and says so"), await page.waitFor(`document.getElementById("speedbox").textContent.indexOf("Saved") >= 0`, 5000), await page.evaluate<string>(speedText));
+  check(L("only the speed is sent"), savedSpeeds[0] === JSON.stringify({ speed: 1 }), savedSpeeds[0]);
+  await key(page, 27);
 
   // Subtitles (this viewing only): Down opens a picker; "Find subtitles" searches, OK on a result downloads it and draws its words;
   // nothing is remembered for the next video.

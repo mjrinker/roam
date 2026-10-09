@@ -1007,7 +1007,7 @@ export function SeamlessPlayer({
             </Button>
           )}
           <SubtitleMenu ownerKind={ownerKind} ownerId={ownerId} tracks={tracks} activeId={activeTrack} onSelect={setActiveTrack} onLoaded={addTrack} offset={subOffset} onOffset={setSubOffset} />
-          <InlineSpeedMenu rate={rate} onChange={changeRate} />
+          <InlineSpeedMenu rate={rate} onChange={changeRate} defaultSpeed={manifest?.libraryId ? { libraryId: manifest.libraryId, saved: manifest.defaultRate ?? null } : undefined} />
           <Button
             variant="ghost"
             size="icon-lg"

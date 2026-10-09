@@ -425,7 +425,8 @@ export function createPlayer(
           const body = await res.json().catch(() => ({}));
           throw new Error(typeof body.error === "string" ? body.error : "Couldn't load this audiobook.");
         }
-        const { urls, resumeSeconds, defaultRate, ...book } = (await res.json()) as AudiobookManifest;
+        const { urls, resumeSeconds, ...book } = (await res.json()) as AudiobookManifest;
+        const { defaultRate } = book;
         if (e.token !== token) return { ok: true };
 
         // Starting from nothing (the player was closed): begin at this library's speed. Moving between books or songs keeps the speed in use.
