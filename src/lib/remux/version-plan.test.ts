@@ -45,7 +45,7 @@ describe("sizes and bitrates", () => {
     expect(videoKbps(144, 100 * 3600)).toBeGreaterThanOrEqual(100);
   });
   it("builds ffmpeg arguments for the size, bitrate and a plain faststart file", () => {
-    const args = buildVersionArgs(["-i", "in.mp4"], "out.mp4", { width: 1920, height: 1080, rung: 720, kbps: 2500, preset: "medium", crf: 23, audio: "aac" });
+    const args = buildVersionArgs(["-i", "in.mp4"], "out.mp4", { width: 1920, height: 1080, rung: 720, kbps: 2500, preset: "medium", crf: 23, audioMode: "aac" });
     const at = (flag: string) => args[args.indexOf(flag) + 1];
     expect(at("-vf")).toBe("scale=1280:720:flags=lanczos,format=yuv420p");
     expect([at("-c:v"), at("-crf"), at("-maxrate"), at("-bufsize"), at("-c:a"), at("-ac"), at("-b:a"), at("-movflags")]).toEqual(["libx264", "23", "2500k", "5000k", "aac", "2", "128k", "+faststart"]);
@@ -89,11 +89,11 @@ describe("reading a video's size out of ffmpeg's summary", () => {
 describe("keeping the original audio, and the AAC copy beside it", () => {
   it("can keep the audio as it is, or re-encode it, and takes a list of parts as its input", () => {
     const base = { width: 1920, height: 1080, rung: 360, kbps: 700, preset: "fast", crf: 23 };
-    const copy = buildVersionArgs(["-f", "concat", "-safe", "0", "-i", "parts.txt"], "o.mp4", { ...base, audio: "copy" });
+    const copy = buildVersionArgs(["-f", "concat", "-safe", "0", "-i", "parts.txt"], "o.mp4", { ...base, audioMode: "copy" });
     expect(copy.slice(copy.indexOf("-c:a"), copy.indexOf("-c:a") + 2)).toEqual(["-c:a", "copy"]);
     expect(copy).not.toContain("-b:a");
     expect(copy.slice(copy.indexOf("-f"), copy.indexOf("-f") + 6)).toEqual(["-f", "concat", "-safe", "0", "-i", "parts.txt"]);
-    const aac = buildVersionArgs(["-i", "a.mp4"], "o.mp4", { ...base, audio: "aac" });
+    const aac = buildVersionArgs(["-i", "a.mp4"], "o.mp4", { ...base, audioMode: "aac" });
     expect(aac.slice(aac.indexOf("-c:a"), aac.indexOf("-c:a") + 2)).toEqual(["-c:a", "aac"]);
     expect(aac[aac.indexOf("-b:a") + 1]).toBe("96k");
   });

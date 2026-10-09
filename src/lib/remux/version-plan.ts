@@ -67,10 +67,10 @@ export function audioNeedsAacCopy(ffmpegCodec: string | null): boolean {
 
 /**
  * The ffmpeg arguments for one rung: H.264 at the rung's size and bitrate ceiling, faststart (our duration reader needs a plain,
- * non-fragmented file). `audio: "copy"` keeps the original's audio untouched; "aac" re-encodes it to stereo AAC at the rung's bitrate.
+ * non-fragmented file). `audioMode: "copy"` keeps the original's audio untouched; "aac" re-encodes it to stereo AAC at the rung's bitrate.
  * `inputArgs` is everything that names the input, e.g. ["-i", file] or, for a film in several parts, ["-f", "concat", "-safe", "0", "-i", list].
  */
-export function buildVersionArgs(inputArgs: string[], output: string, opts: { width: number; height: number; rung: number; kbps: number; preset: string; crf: number; audio: "copy" | "aac" }): string[] {
+export function buildVersionArgs(inputArgs: string[], output: string, opts: { width: number; height: number; rung: number; kbps: number; preset: string; crf: number; audioMode: "copy" | "aac" }): string[] {
   const size = rungSize(opts.width, opts.height, opts.rung);
   return [
     "-y", "-hide_banner", "-loglevel", "error", "-stats",
@@ -79,7 +79,7 @@ export function buildVersionArgs(inputArgs: string[], output: string, opts: { wi
     "-vf", `scale=${size.width}:${size.height}:flags=lanczos,format=yuv420p`,
     "-c:v", "libx264", "-preset", opts.preset, "-profile:v", "high", "-crf", String(opts.crf),
     "-maxrate", `${opts.kbps}k`, "-bufsize", `${opts.kbps * 2}k`,
-    ...(opts.audio === "copy" ? ["-c:a", "copy"] : ["-c:a", "aac", "-ac", "2", "-b:a", `${audioKbps(opts.rung)}k`]),
+    ...(opts.audioMode === "copy" ? ["-c:a", "copy"] : ["-c:a", "aac", "-ac", "2", "-b:a", `${audioKbps(opts.rung)}k`]),
     "-movflags", "+faststart",
     output,
   ];

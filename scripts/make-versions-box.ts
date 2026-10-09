@@ -370,7 +370,7 @@ async function makeRungs(ffmpeg: string, p: Plan) {
       const started = Date.now();
       for (let squeeze = 0; ; squeeze++) {
         try {
-          await encode(ffmpeg, buildVersionArgs(inputArgs, output, { width: info.width, height: info.height, rung, kbps, preset, crf, audio: audioMode }), duration);
+          await encode(ffmpeg, buildVersionArgs(inputArgs, output, { width: info.width, height: info.height, rung, kbps, preset, crf, audioMode }), duration);
         } catch (err) {
           if (audioMode === "aac") throw err;
           console.warn(`   [${label}] couldn't keep the original audio (${(err as Error).message.split("\n")[0].slice(0, 120)}); using AAC`);
