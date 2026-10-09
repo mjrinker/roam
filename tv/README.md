@@ -6,8 +6,19 @@ Roam has a light interface for TV browsers at `/tv` (a server-rendered page plus
 2. **A launcher-icon app on Samsung or LG** (below): a tiny package that just opens `/tv`, so a Roam deploy reaches the TV with nothing to reinstall.
 3. **Vizio, and any TV with Chromecast or AirPlay:** cast from a phone or computer (see the Vizio notes at the end).
 
+## What the TV shows
+Movies, TV shows, videos, audiobooks, audio, music and photos (eBooks are deliberately not on TVs). On top of browsing:
+- **Search** with an on-screen keyboard (titles, books, audio files, albums and artists).
+- **Recently added** and **Continue watching / listening** rows on the home screen.
+- **Playlists:** list, open, **Play all** (the next item plays after each; show entries step through their episodes), and **Add to playlist** from movie, show and book pages. Playlists are created and shared on the web.
+- **Photos:** by date, by album (folder) and favourites; a full-screen viewer with a slideshow; a screensaver after five idle minutes on the home screen.
+- **Music:** artists, albums, songs; Shuffle and Play all for an artist; Up and Down move between songs.
+- **Back remembers your place** in a list.
+
+Keys: arrows move, OK chooses, Back goes back; play/pause/stop/rewind/fast-forward media keys work in players.
+
 ## Signing in on a TV
-The TV shows a code. On a phone or computer where you are signed in, open `https://<your-roam>/link`, type the code and approve it. Profiles that have a PIN are not offered on TVs yet.
+The TV shows a five-character code (and a QR code). On a phone or computer where you are signed in, open `https://<your-roam>/link`, type the code (capitals or not) and approve it. Profiles that have a PIN are not offered on TVs yet.
 
 ## Building the packages
 ```
@@ -56,6 +67,13 @@ The second drives the real pages with remote-control key presses in old Chromium
 
 ## Newer TVs get extras
 
-The basic pages are what a 2018 Samsung (Chromium 56) needs, and every TV gets them. The script adds a `modern` class, and loads a few extras, only where the browser passes feature checks (CSS grid and IntersectionObserver present): a wide backdrop picture behind movie and show pages, softer focus changes, and songs that move on to the next song without loading a page (the next song's details are fetched in its last 30 seconds). Old browsers never download the backdrop and keep loading one page per song.
+The basic pages are what a 2018 Samsung (Chromium 56) needs, and every TV gets them. The script adds a `modern` class, and loads extras, only where the browser passes feature checks (CSS grid and IntersectionObserver present):
+- a wide backdrop picture behind movie and show pages, softer focus changes;
+- songs that move on to the next song without loading a page (the next song's details are fetched in its last 30 seconds), a blurred cover background, the queue under the song, and Media Session (the system shows what is playing);
+- **Up next** for episodes: a countdown, then the next episode starts in the same page;
+- long lists load the next page as you near the end (no More button);
+- the next slideshow picture is fetched ahead and fades in; the screen is asked to stay awake during music and slideshows; the picture screensaver.
+
+Old browsers never download any of that: they get one page per step and a More button.
 
 If one TV misbehaves with the extras, open any TV page with `?modern=0` on that TV (it is remembered; `?modern=1` turns it back on). To turn the extras off for everyone, set `TV_BASIC_ONLY=1` in the environment and redeploy.

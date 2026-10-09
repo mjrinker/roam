@@ -3,6 +3,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 
 vi.mock("next/headers", () => ({ headers: async () => new Headers({ host: "roam.example" }) }));
 
+import { TV_KIND_LABEL } from "@/lib/libraries/profile";
 import TvHelpPage from "./page";
 
 describe("the TV help page", () => {
@@ -30,5 +31,19 @@ describe("the TV help page", () => {
     const html = renderToStaticMarkup(await TvHelpPage());
     for (const word of ["Samsung", "LG", "Fire TV", "Vizio", "QR code"]) expect(html).toContain(word);
     expect(html).toContain("Vizio TVs don&#x27;t have a web browser");
+  });
+  it("mentions every kind of library the TV shows (so the page can't fall behind the app), and what you can do", async () => {
+    const html = renderToStaticMarkup(await TvHelpPage()).toLowerCase();
+    for (const label of Object.values(TV_KIND_LABEL)) expect(html, label).toContain(label!.toLowerCase());
+    for (const word of ["search", "playlists", "shuffle", "slideshow", "screensaver", "add to playlist"]) expect(html, word).toContain(word);
+    expect(html).toContain("ebooks are for phones and computers");
+    expect(html).not.toContain("right now the tv shows movies and tv shows");
+  });
+  it("explains how to switch the extras off for one TV, using the address people already typed", async () => {
+    vi.stubEnv("NEXT_PUBLIC_TV_HOST", "roamtv.vercel.app");
+    const html = renderToStaticMarkup(await TvHelpPage());
+    vi.unstubAllEnvs();
+    expect(html).toContain("roamtv.vercel.app/t?modern=0");
+    expect(html).toContain("?modern=1");
   });
 });

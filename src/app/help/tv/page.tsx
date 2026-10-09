@@ -70,7 +70,23 @@ export default async function TvHelpPage() {
         </ul>
       </section>
 
-      <p className="text-sm text-muted-foreground">Right now the TV shows movies and TV shows. Use the arrow keys to move, OK to choose and Back to go back.</p>
+      <section className="flex flex-col gap-3">
+        <h2 className="text-xl font-medium">What you can do</h2>
+        <p className="text-sm text-muted-foreground">Use the arrow keys to move, OK to choose and Back to go back. After pressing Back, the highlight returns to what you had opened.</p>
+        <ul className="list-disc space-y-1 pl-5 text-sm text-muted-foreground">
+          <li><strong>Movies, TV shows, videos, audio and audiobooks:</strong> pick one and press Play or Resume. When an episode ends, the next one starts after a short countdown (OK to start it now, Back to stop).</li>
+          <li><strong>Music:</strong> artists, then albums, then songs. Use Play all or Shuffle. While a song plays, Up and Down skip between songs.</li>
+          <li><strong>Photos:</strong> browse by date, by album (folder), or your favourites. OK in the picture viewer starts a slideshow. If the home screen sits idle for a few minutes, your pictures play as a screensaver.</li>
+          <li><strong>Search:</strong> on the home screen, choose Search and spell the name with the on-screen keyboard.</li>
+          <li><strong>Playlists:</strong> choose Playlists on the home screen, then Play all or pick an item. On a movie, show or book page, choose Add to playlist to put it in one of yours.</li>
+        </ul>
+        <p className="text-sm text-muted-foreground">eBooks are for phones and computers, not the TV.</p>
+      </section>
+
+      <section className="flex flex-col gap-3">
+        <h2 className="text-xl font-medium">If something looks wrong or runs slowly</h2>
+        <p className="text-sm text-muted-foreground">Newer TVs get a few extras (background pictures, songs that continue on their own). If one misbehaves on your TV, open the same address with <strong>?modern=0</strong> on the end ({host}/t?modern=0) and the TV goes back to the plain pages. <strong>?modern=1</strong> turns the extras back on.</p>
+      </section>
     </main>
   );
 }
