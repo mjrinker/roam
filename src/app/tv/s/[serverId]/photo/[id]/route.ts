@@ -32,12 +32,13 @@ export async function GET(request: Request, ctx: RouteContext<"/tv/s/[serverId]/
     : from === "album" ? `${library}?view=albums${view.photo.folderPath ? `&path=${encodeURIComponent(view.photo.folderPath)}` : ""}`
     : `${library}${after ? `?after=${encodeURIComponent(after)}` : ""}`;
   // A screensaver never ends: after the last picture it starts again somewhere else.
-  const next = hrefOf(view.next) ?? (saver ? `${access.base}/screensaver` : null);
+  // (and it never wanders into a video clip: the player is not a screensaver)
+  const next = saver ? (view.next && view.next.kind === "photo" ? hrefOf(view.next) : `${access.base}/screensaver`) : hrefOf(view.next);
   return html(
     photoViewPage({
       title: view.photo.name,
       imageUrl: photoPreviewUrl(id),
-      prev: hrefOf(view.prev),
+      prev: saver && view.prev?.kind === "movie" ? null : hrefOf(view.prev),
       next,
       back,
       position: view.photo.takenAt ? view.photo.takenAt.toISOString().slice(0, 10) : null,

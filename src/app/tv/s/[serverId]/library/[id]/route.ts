@@ -143,7 +143,7 @@ async function albumsPage(access: Ok, here: string, url: URL, id: string) {
       folders: level.folders.map((name) => ({ href: albumUrl(level.path === "" ? name : `${level.path}/${name}`), name, note: "Album" })),
       items: level.items.map((p) => ({ href: p.kind === "movie" ? `${access.base}/watch/title/${p.id}` : `${access.base}/photo/${p.id}?from=album`, name: p.name, meta: null, posterUrl: p.posterUrl, square: true })),
       prevHref: null,
-      nextHref: level.nextCursor ? `${albumUrl(level.path)}${level.path ? "&" : "?"}after=${encodeURIComponent(folderCursorParam(level.nextCursor))}` : null,
+      nextHref: level.nextCursor ? `${albumUrl(level.path)}&after=${encodeURIComponent(folderCursorParam(level.nextCursor))}` : null,
     })
   );
 }

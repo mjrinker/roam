@@ -74,7 +74,7 @@ function move(dir: "left" | "up" | "right" | "down") {
 function activate(el: HTMLElement) {
   const href = el.getAttribute("href");
   if (href) {
-    rememberFocus(href);
+    if (!el.hasAttribute("data-back")) rememberFocus(href); // pressing Back is leaving, not choosing something to return to
     window.location.href = href;
   } else el.click();
 }
@@ -84,13 +84,21 @@ function activate(el: HTMLElement) {
 const PLACE_KEY = "roamTvPlaces";
 const pageKey = () => window.location.pathname + window.location.search;
 
+interface Place {
+  /** The link that was opened from the page. */
+  h: string;
+  /** The extra pages the endless list had added by then, to be added again on the way back. */
+  p: string[];
+}
+const addedPages: string[] = [];
+
 /** Notes which link was opened from this page, so Back can put the highlight on it again instead of at the top. */
 function rememberFocus(href: string) {
   try {
     const raw = window.sessionStorage.getItem(PLACE_KEY);
-    const places: { [page: string]: string } = raw ? JSON.parse(raw) : {};
+    const places: { [page: string]: Place } = raw ? JSON.parse(raw) : {};
     delete places[pageKey()];
-    places[pageKey()] = href;
+    places[pageKey()] = { h: href, p: addedPages.slice() };
     const keys = Object.keys(places);
     for (let i = 0; i < keys.length - 30; i++) delete places[keys[i]]; // keep the last thirty pages
     window.sessionStorage.setItem(PLACE_KEY, JSON.stringify(places));
@@ -99,23 +107,31 @@ function rememberFocus(href: string) {
   }
 }
 
-/** Puts the highlight back on the link that was opened from this page last time, if it is still here. */
-function restoreFocus(): boolean {
+/** Puts the highlight back on the link that was opened from this page last time (adding the pages of a long list again first). True when there was something to restore. */
+function restoreFocus(fallback: () => void): boolean {
   try {
     const raw = window.sessionStorage.getItem(PLACE_KEY);
     if (!raw) return false;
-    const places: { [page: string]: string } = JSON.parse(raw);
-    const href = places[pageKey()];
-    if (!href) return false;
+    const places: { [page: string]: Place } = JSON.parse(raw);
+    const place = places[pageKey()];
+    if (!place || typeof place.h !== "string") return false;
     delete places[pageKey()];
     window.sessionStorage.setItem(PLACE_KEY, JSON.stringify(places));
-    const items = visibleItems();
-    for (let i = 0; i < items.length; i++) {
-      if (items[i].getAttribute("href") === href) {
-        focusEl(items[i]);
-        return true;
+    const focusIt = () => {
+      const items = visibleItems();
+      for (let i = 0; i < items.length; i++) {
+        if (items[i].getAttribute("href") === place.h) return void focusEl(items[i]);
       }
+      fallback();
+    };
+    const pages = Array.isArray(place.p) ? place.p : [];
+    let chain: Promise<void> = Promise.resolve();
+    for (let i = 0; i < pages.length; i++) {
+      const page = pages[i];
+      chain = chain.then(() => appendPage(page));
     }
+    chain.then(focusIt, focusIt);
+    return true;
   } catch {
     /* ignore */
   }
@@ -126,18 +142,12 @@ function restoreFocus(): boolean {
 
 let loadingMore = false;
 
-/** On a long list, the next page is fetched and added as the highlight nears the end, so there is no More button to press. */
-function maybeLoadMore(el: HTMLElement) {
-  if (!MODERN || loadingMore) return;
+/** Fetches one more page of a list and adds its cards (and its link to the page after it) to this one. */
+function appendPage(href: string): Promise<void> {
   const more = doc.querySelector("a[data-more]");
   const cards = doc.querySelector("[data-cards]");
-  if (!more || !cards || !cards.contains(el)) return;
-  let at = -1;
-  for (let i = 0; i < cards.children.length; i++) if (cards.children[i] === el || cards.children[i].contains(el)) at = i;
-  if (at < cards.children.length - 8) return;
-  loadingMore = true;
-  const href = more.getAttribute("href") || "";
-  fetch(href, { credentials: "same-origin" })
+  if (!cards) return Promise.reject(new Error("no list"));
+  return fetch(href, { credentials: "same-origin" })
     .then((res) => {
       if (!res.ok) throw new Error("page failed");
       return res.text();
@@ -150,21 +160,34 @@ function maybeLoadMore(el: HTMLElement) {
       for (let i = 0; i < added.children.length; i++) nodes.push(added.children[i]);
       for (let i = 0; i < nodes.length; i++) cards.appendChild(doc.importNode(nodes[i], true));
       const nextMore = next.querySelector("a[data-more]");
-      if (nextMore) more.setAttribute("href", nextMore.getAttribute("href") || "");
-      else if (more.parentNode) more.parentNode.removeChild(more);
-      try {
-        // The address now names the page just added, so coming Back to it (and remembering your place) lands where you were.
-        window.history.replaceState(null, "", href);
-      } catch {
-        /* cosmetic */
+      if (more) {
+        if (nextMore) more.setAttribute("href", nextMore.getAttribute("href") || "");
+        else if (more.parentNode) more.parentNode.removeChild(more);
       }
+      addedPages.push(href);
+    });
+}
+
+/** On a long list, the next page is fetched and added as the highlight nears the end, so there is no More button to press. */
+function maybeLoadMore(el: HTMLElement) {
+  if (!MODERN || loadingMore) return;
+  const more = doc.querySelector("a[data-more]");
+  const cards = doc.querySelector("[data-cards]");
+  if (!more || !cards || !cards.contains(el)) return;
+  let at = -1;
+  for (let i = 0; i < cards.children.length; i++) if (cards.children[i] === el || cards.children[i].contains(el)) at = i;
+  if (at < cards.children.length - 8) return;
+  loadingMore = true;
+  appendPage(more.getAttribute("href") || "").then(
+    () => {
       loadingMore = false;
-    })
-    .catch(() => {
+    },
+    () => {
       // Fall back to the visible More button.
       more.className = more.className.replace(" auto", "");
       loadingMore = false;
-    });
+    }
+  );
 }
 
 function goBack() {
@@ -327,15 +350,21 @@ function startPlayer(first: PlayConfig) {
   // ── Up next (newer browsers): the next episode starts in this page after a short countdown ──
   let upNextTimer: number | undefined;
   let upNextGo: (() => void) | null = null;
+  let upNextPending = false; // the episode has ended and the next one's details are on their way
+  let upNextCancelled = false; // Back was pressed in that gap
 
   function upNext() {
     const nextHref = cfg.next as string;
+    upNextPending = true;
+    upNextCancelled = false;
     fetch(nextHref + (nextHref.indexOf("?") < 0 ? "?" : "&") + "json=1", { credentials: "same-origin" })
       .then((res) => {
         if (!res.ok) throw new Error("no details");
         return res.json();
       })
       .then((info: PlayConfig) => {
+        upNextPending = false;
+        if (upNextCancelled) return;
         const box = doc.getElementById("upnext") as HTMLElement;
         const ahead = fetchPlay(info.ownerKind, info.ownerId); // fetched during the countdown, so the episode starts at once
         ahead.catch(() => undefined);
@@ -384,7 +413,8 @@ function startPlayer(first: PlayConfig) {
         upNextTimer = window.setTimeout(tick, 1000);
       })
       .catch(() => {
-        window.location.href = nextHref; // couldn't get the details: load the next page the ordinary way
+        upNextPending = false;
+        if (!upNextCancelled) window.location.href = nextHref; // couldn't get the details: load the next page the ordinary way
       });
   }
 
@@ -421,6 +451,14 @@ function startPlayer(first: PlayConfig) {
 
   /** Player keys, called from the page's key handler; returns true when it handled the key. */
   playerKeys = (action: Action | null, dirKey: string | null): boolean => {
+    if (upNextPending) {
+      // The episode has ended and the next one's details haven't arrived: Back still stops, OK waits for them.
+      if (action === "back" || action === "stop") {
+        upNextCancelled = true;
+        window.location.href = cfg.back;
+      }
+      return true;
+    }
     if (upNextGo) {
       // While the countdown runs, OK starts the next episode now and Back stops (the episode just watched is already saved as finished).
       if (action === "enter" || action === "play" || action === "playpause") upNextGo();
@@ -487,6 +525,7 @@ function startListening(cfg: ListenConfig) {
   let id = cfg.ownerId;
   let qi = cfg.queue && MODERN ? cfg.queue.index : -1;
   let prefetched: { id: string; manifest: Promise<AudioManifest> } | null = null;
+  let loadSeq = 0; // each load() takes a number, and a reply that is not from the latest one is ignored (a fast skip must not play the wrong song)
   const queue = cfg.queue && MODERN ? cfg.queue.items : null;
   const queueEl = doc.getElementById("queuelist");
 
@@ -646,15 +685,19 @@ function startListening(cfg: ListenConfig) {
     // The next song's details are fetched ahead of time, so moving on waits for the audio only, not for a round trip first.
     const ahead = prefetched && prefetched.id === id ? prefetched.manifest : null;
     prefetched = null;
+    const seq = ++loadSeq;
     (ahead || fetchManifest(id))
       .then((m: AudioManifest) => {
+        if (seq !== loadSeq) return;
         manifest = m;
         const resume = cfg.remembers && m.resumeSeconds > 0 && m.resumeSeconds < m.durationSeconds - 30 ? m.resumeSeconds : 0;
         const at = partAt(resumeFrom !== undefined ? resumeFrom : resume);
         say("");
         openPart(at.seg, at.local, autoplay === undefined ? true : autoplay);
       })
-      .catch((e: Error) => say(e.message || "This can't be played right now."));
+      .catch((e: Error) => {
+        if (seq === loadSeq) say(e.message || "This can't be played right now.");
+      });
   }
 
   /** Moves on to song `i` of the album without loading a page, and keeps the address and the screen in step. */
@@ -855,32 +898,55 @@ const MODERN = modernBrowser();
 
 interface WakeLockSentinelLike {
   release(): Promise<void>;
+  addEventListener?(type: "release", fn: () => void): void;
 }
 let wakeLock: WakeLockSentinelLike | null = null;
+let wakeWanted = false;
+let wakePending = false;
+
+function acquireWake() {
+  const api = (navigator as unknown as { wakeLock?: { request(type: string): Promise<WakeLockSentinelLike> } }).wakeLock;
+  if (!MODERN || !api || !wakeWanted || wakeLock || wakePending) return;
+  wakePending = true;
+  api.request("screen").then(
+    (lock) => {
+      wakePending = false;
+      if (!wakeWanted) {
+        lock.release().then(undefined, () => undefined); // no longer wanted by the time it was granted
+        return;
+      }
+      wakeLock = lock;
+      // The system can take it back (the page was hidden); then it is asked for again when the page returns.
+      if (lock.addEventListener)
+        lock.addEventListener("release", () => {
+          if (wakeLock === lock) wakeLock = null;
+        });
+    },
+    () => {
+      wakePending = false;
+    }
+  );
+}
 
 /** Asks a newer browser not to dim the screen or sleep while music or a slideshow plays (video keeps the TV awake by itself). */
 function keepAwake(on: boolean) {
-  if (!MODERN) return;
-  const api = (navigator as unknown as { wakeLock?: { request(type: string): Promise<WakeLockSentinelLike> } }).wakeLock;
-  if (!api) return;
-  if (on) {
-    if (wakeLock) return;
-    api.request("screen").then(
-      (lock) => {
-        wakeLock = lock;
-      },
-      () => undefined
-    );
-  } else if (wakeLock) {
+  wakeWanted = on;
+  if (on) acquireWake();
+  else if (wakeLock) {
     const lock = wakeLock;
     wakeLock = null;
     lock.release().then(undefined, () => undefined);
   }
 }
+doc.addEventListener("visibilitychange", () => {
+  if (!doc.hidden) acquireWake();
+});
 
 /** After a quiet spell on the home screen, a newer browser starts the picture screensaver (any key resets the wait). */
 let idleTimer: number | undefined;
+let idleArmedAt = 0;
 function armIdle() {
+  idleArmedAt = Date.now();
   const el = doc.querySelector("[data-saver]");
   if (!MODERN || !el) return;
   window.clearTimeout(idleTimer);
@@ -899,6 +965,14 @@ function enhance() {
 }
 
 // ── Wiring ───────────────────────────────────────────────────────────────
+
+// A pointer remote (moving or clicking) counts as activity too, not only the arrow keys.
+const onPointer = () => {
+  if (Date.now() - idleArmedAt > 1000) armIdle();
+};
+doc.addEventListener("mousemove", onPointer);
+doc.addEventListener("click", onPointer);
+doc.addEventListener("touchstart", onPointer);
 
 doc.addEventListener("keydown", (e: KeyboardEvent) => {
   armIdle();
@@ -942,10 +1016,11 @@ function init() {
   const items = visibleItems();
   const more = doc.querySelector("a[data-more]");
   if (more && MODERN) more.className += " auto"; // the next page loads by itself; the button stays as a fallback
-  if (restoreFocus()) {
-    /* back where you were */
-  } else if (start) focusEl(start);
-  else if (items.length) focusEl(items[0]);
+  const focusFirst = () => {
+    if (start) focusEl(start);
+    else if (items.length) focusEl(items[0]);
+  };
+  if (!restoreFocus(focusFirst)) focusFirst();
   // A page that polls (the pairing screen) names its script-free refresh target.
   const poll = doc.querySelector("[data-poll]");
   if (poll) startPolling(poll as HTMLElement);

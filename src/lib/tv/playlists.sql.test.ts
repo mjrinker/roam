@@ -77,6 +77,9 @@ describe("tvPlaylist", () => {
     expect(r.items.map((i) => playlistItemHref(i))).toEqual([`/title/${film.id}`, `/watch/episode/${eps[1].id}`, `/listen/${book.id}`, `/show/${show.id}`]);
     expect(playlistItemLabel(r.items[0])).toEqual({ name: "Film", meta: "1999" });
     expect(playlistItemLabel(r.items[1])).toEqual({ name: "Show", meta: "S1 · E2 · Ep 2" });
+    // a picture or an eBook in a playlist has nothing to open on a TV, so it gets no link (the card is left out)
+    expect(playlistItemHref({ episodeId: null, titleId: "x", titleKind: "photo" })).toBeNull();
+    expect(playlistItemHref({ episodeId: null, titleId: "x", titleKind: "ebook" })).toBeNull();
     for (let i = 0; i < TV_PLAYLIST_PAGE + 2; i++) await addItem(db, list.id, { titleId: (await makeTitle(db, w.movies.id, { kind: "movie", name: `M${i}` })).id }, 10_000 + i);
     const first = (await tvPlaylist(db, w.scope(), list.id, null))!;
     expect(first.items).toHaveLength(TV_PLAYLIST_PAGE);

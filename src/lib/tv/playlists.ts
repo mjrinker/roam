@@ -42,6 +42,7 @@ export async function tvPlaylist(ex: Executor, scope: TvScope, playlistId: strin
 export function playlistItemHref(item: Pick<PlaylistItemView, "episodeId" | "titleId" | "titleKind">): string | null {
   if (item.episodeId) return `/watch/episode/${item.episodeId}`;
   if (!item.titleId) return null;
+  if (item.titleKind === "photo" || item.titleKind === "ebook") return null; // nothing to open on a TV
   if (item.titleKind === "show") return `/show/${item.titleId}`;
   if (item.titleKind === "audiobook") return `/listen/${item.titleId}`;
   return `/title/${item.titleId}`;

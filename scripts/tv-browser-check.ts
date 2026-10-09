@@ -191,7 +191,15 @@ async function run(label: string, exe: string, m56: boolean) {
   check(L("on a newer browser the More button is hidden"), await page.evaluate<boolean>(`document.querySelector("a[data-more]").getBoundingClientRect().width === 0`));
   await key(page, 40);
   check(L("the next page is added as the highlight nears the end"), await page.waitFor(`document.querySelectorAll("[data-cards] .card").length === 18`, 8000));
-  check(L("the address names the added page and the end of the list removes the button"), await page.evaluate<boolean>(`location.search === "?page=2" && !document.querySelector("a[data-more]")`));
+  check(L("the end of the list removes the button"), await page.evaluate<boolean>(`!document.querySelector("a[data-more]")`));
+  // Opening a card that came from the added page and coming back puts the extra page back and the highlight on that card.
+  await key(page, 40); // down to the row where the added page's cards start
+  for (let i = 0; i < 8 && !(await focusedText(page)).startsWith("Movie 15"); i++) await key(page, 39);
+  check(L("the highlight can reach a card from the added page"), (await focusedText(page)).startsWith("Movie 15"), await focusedText(page));
+  await key(page, 13);
+  await page.waitFor(`location.pathname === "/tv/s/x/title/15"`);
+  await page.goto(base + "/tv/s/x/library/a?modern=1");
+  check(L("coming back to a long list restores its added pages and the highlight"), await page.waitFor(`document.querySelectorAll("[data-cards] .card").length === 18 && document.activeElement && document.activeElement.textContent.indexOf("Movie 15") === 0`, 8000), `${await page.evaluate<number>(cardCount)} ${await focusedText(page)}`);
 
   // A POST button (Sign out) works with the remote's OK key, and only then.
   await page.goto(base + "/tv/s/x");
@@ -381,6 +389,13 @@ async function run(label: string, exe: string, m56: boolean) {
   await key(page, 40);
   await new Promise((r) => setTimeout(r, 1200));
   check(L("a key press restarts the wait"), (await page.url()).endsWith("/tv/s/y"), await page.url());
+
+  // A pointer remote counts as activity too.
+  await page.goto(base + "/tv/s/y");
+  await new Promise((r) => setTimeout(r, 1300));
+  await page.evaluate(`document.dispatchEvent(new MouseEvent("mousemove", { bubbles: true }))`);
+  await new Promise((r) => setTimeout(r, 1300));
+  check(L("moving the pointer restarts the screensaver wait"), (await page.url()).endsWith("/tv/s/y"), await page.url());
 
   // Pictures: right and left go to the neighbours, a slideshow advances by itself, and a picture that fails says so.
   await page.goto(base + "/tv/s/x/photo/2");

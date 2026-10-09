@@ -433,6 +433,18 @@ describe("photo albums and favourites", () => {
     expect(favs).not.toContain(`/photo/${a.id}`);
     expect((await library(req("/x?view=albums&path=Nope"), ctx({ ...sid(w), id: lib.id }))).status).toBe(404);
   });
+  it("pages the albums root with a working link (the second page is the same view, not the timeline)", async () => {
+    const w = await world();
+    const lib = await w.lib("photos");
+    for (let i = 0; i < 26; i++) await makeTitle(db, lib.id, { kind: "photo", name: `Loose ${String(i).padStart(2, "0")}`, takenAt: day(1), folderPath: "", sortKey: `loose ${String(i).padStart(2, "0")}` });
+    const first = await text(await library(req("/x?view=albums"), ctx({ ...sid(w), id: lib.id })));
+    const more = /data-more href="([^"]+)"/.exec(first)![1].replace(/&amp;/g, "&");
+    expect(more).toMatch(/\?view=albums&after=/);
+    const second = await text(await library(req(`/x${more.slice(more.indexOf("?"))}`), ctx({ ...sid(w), id: lib.id })));
+    expect(second).toContain("Loose 25");
+    expect(second).not.toContain("Loose 00");
+    expect(second).toContain("Albums"); // still the albums view
+  });
   it("steps through one album and Back returns to it; favourites step through hearts and Back returns there", async () => {
     const w = await world();
     const lib = await w.lib("photos");
@@ -464,6 +476,11 @@ describe("slideshow polish and the screensaver", () => {
     // the last picture of a screensaver starts over at a random one; an ordinary slideshow just ends
     const last = JSON.parse(/id="photo-config">(.*?)<\/script>/.exec(await text(await photo(req("/x?saver=1"), ctx({ ...sid(w), id: a.id }))))![1]);
     expect(last.next).toBe(`/tv/s/${w.server.id}/screensaver`);
+    // a screensaver never steps into a video clip: it starts over instead
+    const clip = await makeTitle(db, lib.id, { kind: "movie", name: "Clip", takenAt: day(3) });
+    const beforeClip = JSON.parse(/id="photo-config">(.*?)<\/script>/.exec(await text(await photo(req("/x?saver=1"), ctx({ ...sid(w), id: b.id }))))![1]);
+    expect(beforeClip.prev).toBeNull();
+    expect(JSON.parse(/id="photo-config">(.*?)<\/script>/.exec(await text(await photo(req("/x"), ctx({ ...sid(w), id: b.id }))))![1]).prev).toBe(`/tv/s/${w.server.id}/watch/title/${clip.id}`);
     expect(JSON.parse(/id="photo-config">(.*?)<\/script>/.exec(await text(await photo(req("/x"), ctx({ ...sid(w), id: a.id }))))![1]).next).toBeNull();
   });
   it("starts at a random picture, only from pictures this profile may see, and returns home when there are none", async () => {
