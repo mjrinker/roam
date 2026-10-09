@@ -206,6 +206,17 @@ export async function findAddableTarget(
   return null;
 }
 
+/** Which of these titles the viewer may add (the same test as findAddableTarget, for many at once). */
+export async function findAddableTitleIds(ex: Executor, args: { lib: LibraryActor; viewer: AccessProfile; titleIds: string[] }): Promise<Set<string>> {
+  if (args.titleIds.length === 0) return new Set();
+  const rows = await ex
+    .select({ id: titles.id })
+    .from(titles)
+    .innerJoin(libraries, eq(libraries.id, titles.libraryId))
+    .where(and(inArray(titles.id, args.titleIds), inArray(titles.kind, [...PLAYABLE_TITLE_KINDS]), libraryVisible(ex, args.lib), contentFilter(args.viewer, titles.ratingAges)));
+  return new Set(rows.map((r) => r.id));
+}
+
 /** An item the viewer may see (in this playlist, on this server, passing their restrictions), or null. */
 export async function findVisibleItem(
   ex: Executor,

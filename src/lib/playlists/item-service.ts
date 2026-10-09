@@ -8,7 +8,7 @@ import { albumSongIds, artistSongIds } from "@/lib/music/browse";
 import { playlistItems, playlists } from "@/lib/db/schema";
 import { loadContext } from "./context";
 import type { Executor } from "./executor";
-import { findAddableTarget, findVisibleItem, listVisibleItems, type ItemCursor, type ItemsPage } from "./items";
+import { findAddableTarget, findAddableTitleIds, findVisibleItem, listVisibleItems, type ItemCursor, type ItemsPage } from "./items";
 import { appendPosition, planMove, POSITION_GAP } from "./position";
 import { CONTENTION_CODES, FK_VIOLATION, retryOnContention } from "./retry";
 import { fail, NOT_FOUND, ok, type Result } from "./results";
@@ -142,6 +142,51 @@ export async function addSongs(
           await touch(tx, ctx.playlist.id);
         }
         return ok({ added: fresh.length, skipped: songs.length - unseen.length, remaining: unseen.length - fresh.length });
+      }),
+    WRITE_RETRY_CODES
+  );
+}
+
+/** The most titles one "add selected" puts in a playlist. */
+export const MAX_TITLES_PER_ADD = 500;
+
+/**
+ * Adds many titles at once (the ones selected on a library page), in the order given. Titles already in the playlist are skipped, and so are
+ * ones this profile may not add (reported as `unavailable`, never as a different error, so nothing is revealed about them).
+ */
+export async function addTitles(
+  ex: Executor,
+  args: { playlistId: string; viewerId: string; titleIds: string[] }
+): Promise<Result<{ added: number; alreadyThere: number; unavailable: number }>> {
+  const ids = [...new Set(args.titleIds)].slice(0, MAX_TITLES_PER_ADD);
+  const pre = await loadContext(ex, args);
+  if (!pre) return NOT_FOUND;
+  if (!pre.caps.canEditItems) return fail(403, "You can't change this playlist's items.");
+
+  return retryOnContention(
+    () =>
+      ex.transaction(async (tx): Promise<Result<{ added: number; alreadyThere: number; unavailable: number }>> => {
+        const ctx = await loadContext(tx, { playlistId: args.playlistId, viewerId: args.viewerId, lock: true });
+        if (!ctx) return NOT_FOUND;
+        if (!ctx.caps.canEditItems) return fail(403, "You can't change this playlist's items.");
+
+        const addable = await findAddableTitleIds(tx, { lib: ctx.lib, viewer: ctx.access, titleIds: ids });
+        const have = ids.length
+          ? await tx.select({ titleId: playlistItems.titleId }).from(playlistItems).where(and(eq(playlistItems.playlistId, ctx.playlist.id), inArray(playlistItems.titleId, ids)))
+          : [];
+        const present = new Set(have.map((h) => h.titleId));
+        const fresh = ids.filter((id) => addable.has(id) && !present.has(id));
+        if (fresh.length > 0) {
+          const [{ top }] = await tx.select({ top: max(playlistItems.position) }).from(playlistItems).where(eq(playlistItems.playlistId, ctx.playlist.id));
+          const first = appendPosition(top === null || top === undefined ? null : Number(top));
+          for (let i = 0; i < fresh.length; i += 200) {
+            await tx.insert(playlistItems).values(
+              fresh.slice(i, i + 200).map((titleId, j) => ({ playlistId: ctx.playlist.id, titleId, position: first + (i + j) * POSITION_GAP, addedByViewerId: ctx.viewer.id }))
+            );
+          }
+          await touch(tx, ctx.playlist.id);
+        }
+        return ok({ added: fresh.length, alreadyThere: ids.filter((id) => addable.has(id) && present.has(id)).length, unavailable: ids.filter((id) => !addable.has(id)).length });
       }),
     WRITE_RETRY_CODES
   );

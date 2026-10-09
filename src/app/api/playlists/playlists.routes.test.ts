@@ -174,6 +174,24 @@ describe("end-to-end flow", () => {
   });
 });
 
+describe("adding many titles at once", () => {
+  it("takes a list of title ids in order, reports counts, and rejects a malformed or mixed request", async () => {
+    const { owner, server, library } = await world();
+    const [a, b, c] = [await makeTitle(db, library.id, { name: "A" }), await makeTitle(db, library.id, { name: "B" }), await makeTitle(db, library.id, { name: "C" })];
+    await signInAs(owner.accountId, owner.viewer.id);
+    const id = (await body(await serverPlaylists.POST(req("POST", { name: "Bulk" }), ctx({ serverId: server.id })))).id as string;
+    const first = await itemsRoute.POST(req("POST", { titleIds: [c.id, a.id] }), ctx({ id }));
+    expect([first.status, await body(first)]).toEqual([201, { added: 2, alreadyThere: 0, unavailable: 0 }]);
+    const second = await itemsRoute.POST(req("POST", { titleIds: [a.id, b.id, "00000000-0000-4000-8000-0000000000aa"] }), ctx({ id }));
+    expect(await body(second)).toEqual({ added: 1, alreadyThere: 1, unavailable: 1 });
+    const listed = await body(await itemsRoute.GET(req("GET"), ctx({ id })));
+    expect(listed.items.map((i: { name: string }) => i.name)).toEqual(["C", "A", "B"]);
+    for (const bad of [{ titleIds: [] }, { titleIds: ["nope"] }, { titleIds: Array.from({ length: 501 }, () => a.id) }, { titleIds: [a.id], titleId: a.id }]) {
+      expect((await itemsRoute.POST(req("POST", bad), ctx({ id }))).status, JSON.stringify(bad).slice(0, 40)).toBe(400);
+    }
+  });
+});
+
 describe("isolation", () => {
   it("another server's members can't see, edit or share a playlist (all 404)", async () => {
     const { owner, server, library } = await world();

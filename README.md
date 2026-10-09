@@ -106,6 +106,10 @@ How it's built (the interesting part, for reviewers): a server's admin can switc
 - Source-level enforcement tests fail the build if a new reader skips the access helper or a new code path special-cases a library kind with a string literal.
 - Every feature went through plan → independent review → small commits → independent review again; the commit history reflects that.
 
+### Selecting several titles
+
+On a Movies, TV Shows or Audiobooks library page, **Select** puts a checkbox on every title: click to choose (Shift-click for a range), or **Select all** to take every title that matches the current search and filters, scrolled into view or not. The bar then offers **Add to playlist** (everything chosen goes into one playlist you can edit, or a new one, in the order shown) and **Download** (a dialog adds up the sizes, lets you pick one resolution for all, using the closest available for each title, and saves them one after another; a show stands for all its episodes). Music and the folder-style libraries don't have Select yet.
+
 ### Downloads (offline)
 
 Any movie, episode, song, album or audiobook can be saved on the device you are using: **Download** is in the More menu on a movie or audiobook page and on episode rows, a button on song rows, and **Download album** in an album's More menu. For a movie or episode the dialog lists each resolution version with its size; you pick one. The file goes into the browser's private storage (it streams straight from Box to disk, so a multi-gigabyte film never sits in memory; an interrupted download carries on from the byte it reached, and a connection that goes silent is dropped and resumed). Downloaded items are played from the device in the usual players, with or without a connection, and show up under **Downloads** in the sidebar. Where you were is remembered on the device and sent to the server once there is a connection again.

@@ -71,6 +71,10 @@ export const playlistApi = {
   addSongs: (playlistId: string, target: SongsTarget) =>
     call<{ added: number; skipped: number; remaining?: number }>(`/api/playlists/${playlistId}/items`, { method: "POST", body: JSON.stringify(target) }),
 
+  /** Adds many titles at once, in order; ones already there or not addable are counted, not errors. */
+  addTitles: (playlistId: string, titleIds: string[]) =>
+    call<{ added: number; alreadyThere: number; unavailable: number }>(`/api/playlists/${playlistId}/items`, { method: "POST", body: JSON.stringify({ titleIds }) }),
+
   addItem: (playlistId: string, target: ItemTarget) =>
     call<{ id: string }>(`/api/playlists/${playlistId}/items`, { method: "POST", body: JSON.stringify(target) }),
 

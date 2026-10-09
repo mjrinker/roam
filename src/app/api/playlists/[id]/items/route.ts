@@ -1,11 +1,17 @@
 import { z } from "zod";
 import { db } from "@/lib/db/client";
-import { addItem, addSongs, listItems, moveItem } from "@/lib/playlists/item-service";
+import { addItem, addSongs, addTitles, listItems, MAX_TITLES_PER_ADD, moveItem } from "@/lib/playlists/item-service";
 import { badRequest, decodeCursor, encodeCursor, isUuid, limitParam, notFound, readJson, requireActor, respond, throttled } from "@/lib/playlists/http";
 
 const addSchema = z
-  .object({ titleId: z.string().uuid().optional(), episodeId: z.string().uuid().optional(), albumId: z.string().uuid().optional(), artistId: z.string().uuid().optional() })
-  .refine((v) => [v.titleId, v.episodeId, v.albumId, v.artistId].filter(Boolean).length === 1, "Provide exactly one of titleId, episodeId, albumId or artistId");
+  .object({
+    titleId: z.string().uuid().optional(),
+    episodeId: z.string().uuid().optional(),
+    albumId: z.string().uuid().optional(),
+    artistId: z.string().uuid().optional(),
+    titleIds: z.array(z.string().uuid()).min(1).max(MAX_TITLES_PER_ADD).optional(),
+  })
+  .refine((v) => [v.titleId, v.episodeId, v.albumId, v.artistId, v.titleIds].filter(Boolean).length === 1, "Provide exactly one of titleId, episodeId, albumId, artistId or titleIds");
 const moveSchema = z.object({ itemId: z.string().uuid(), afterItemId: z.string().uuid().nullable() });
 const cursorSchema = z.object({ position: z.number(), id: z.string().uuid() });
 
@@ -31,6 +37,10 @@ export async function POST(request: Request, ctx: RouteContext<"/api/playlists/[
   if (!parsed.success) return badRequest(parsed.error);
   const slow = await throttled(who.actor.accountId, "playlist_item_add", 240, 60);
   if (slow) return slow;
+  // Many titles at once (the ones selected on a library page).
+  if (parsed.data.titleIds) {
+    return respond(await addTitles(db, { playlistId: id, viewerId: who.actor.viewerId, titleIds: parsed.data.titleIds }), (v) => v, 201);
+  }
   // An album or an artist adds all of its songs as separate items.
   if (parsed.data.albumId || parsed.data.artistId) {
     return respond(await addSongs(db, { playlistId: id, viewerId: who.actor.viewerId, albumId: parsed.data.albumId, artistId: parsed.data.artistId }), (v) => v, 201);

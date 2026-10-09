@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { ArrowDown, ArrowUp, ArrowUpDown, Check, Search, SlidersHorizontal, X } from "lucide-react";
+import { ArrowDown, ArrowUp, ArrowUpDown, Check, ListChecks, Search, SlidersHorizontal, X } from "lucide-react";
 import { PosterCard, type PosterCardData } from "@/components/library/poster-card";
 import {
   DropdownMenu,
@@ -10,6 +10,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { LetterRail } from "@/components/library/letter-rail";
+import { BulkDownloadButton, BulkPlaylistMenu } from "@/components/library/bulk-actions";
 import { Slider } from "@/components/ui/slider";
 import {
   DEFAULT_DIRECTION,
@@ -89,6 +90,10 @@ export function LibraryBrowser({
   const [dir, setDir] = useState<SortDir>("asc");
   const [filters, setFilters] = useState<BrowseFilters>(EMPTY_FILTERS);
   const [panelOpen, setPanelOpen] = useState(false);
+  // Selecting several titles for a bulk action (add to a playlist, download).
+  const [selecting, setSelecting] = useState(false);
+  const [selected, setSelected] = useState<ReadonlySet<string>>(new Set());
+  const [anchor, setAnchor] = useState<number | null>(null);
   // Author sorting only makes sense for libraries whose items carry an author line.
   const hasAuthors = useMemo(() => items.some((i) => i.kind === "audiobook" && i.subtitle), [items]);
 
@@ -155,6 +160,31 @@ export function LibraryBrowser({
       maxSeconds: hi < facets.duration!.hi ? hi * 60 : null,
     }));
   }
+
+  // A click toggles one title; with Shift held, everything from the last one clicked to this one (in the order shown) joins it.
+  function toggleSelected(index: number, shift: boolean) {
+    setSelected((cur) => {
+      const next = new Set(cur);
+      const range = shift && anchor !== null ? visible.slice(Math.min(anchor, index), Math.max(anchor, index) + 1) : [visible[index]];
+      const turnOn = !cur.has(visible[index].id);
+      for (const t of range) {
+        if (turnOn) next.add(t.id);
+        else next.delete(t.id);
+      }
+      return next;
+    });
+    setAnchor(index);
+  }
+  function stopSelecting() {
+    setSelecting(false);
+    setSelected(new Set());
+    setAnchor(null);
+  }
+  // The order of the library as shown, so bulk actions (a playlist's order) follow what the viewer sees.
+  const selectedIds = useMemo(() => {
+    const shown = new Set(visible.map((i) => i.id));
+    return visible.filter((i) => selected.has(i.id)).map((i) => i.id).concat(items.filter((i) => selected.has(i.id) && !shown.has(i.id)).map((i) => i.id));
+  }, [visible, items, selected]);
 
   const showRail = sort === "title" && visible.length > 30;
   const railKeys = useMemo(() => new Set(visible.map((i) => letterKey(i.name))), [visible]);
@@ -245,12 +275,47 @@ export function LibraryBrowser({
           )}
         </button>
 
+        <button
+          type="button"
+          aria-pressed={selecting}
+          onClick={() => (selecting ? stopSelecting() : setSelecting(true))}
+          className={cn(
+            "flex h-10 items-center gap-2 rounded-xl px-3 text-sm ring-1 transition",
+            selecting ? "bg-primary/15 text-primary ring-primary/40" : "bg-white/[0.06] ring-white/[0.08] hover:bg-white/[0.09]"
+          )}
+        >
+          <ListChecks className="size-4" />
+          Select
+        </button>
+
         <span className="ml-auto text-sm text-muted-foreground tabular-nums">
           {visible.length === items.length
             ? `${items.length.toLocaleString()} title${items.length === 1 ? "" : "s"}`
             : `${visible.length.toLocaleString()} of ${items.length.toLocaleString()}`}
         </span>
       </div>
+
+      {selecting && (
+        <div role="toolbar" aria-label="Selected titles" className="sticky top-16 z-20 -mt-2 flex flex-wrap items-center gap-2 rounded-2xl bg-popover/95 p-3 ring-1 ring-white/10 backdrop-blur">
+          <span className="mr-auto text-sm font-medium tabular-nums">{selected.size === 0 ? "Choose titles" : `${selected.size.toLocaleString()} selected`}</span>
+          <button
+            type="button"
+            disabled={visible.length === 0 || visible.every((i) => selected.has(i.id))}
+            onClick={() => setSelected((cur) => new Set([...cur, ...visible.map((i) => i.id)]))}
+            className="h-10 rounded-xl px-3 text-sm text-muted-foreground transition hover:bg-white/10 hover:text-foreground disabled:opacity-40"
+          >
+            Select all{visible.length !== items.length ? ` shown (${visible.length.toLocaleString()})` : ` (${visible.length.toLocaleString()})`}
+          </button>
+          <button type="button" disabled={selected.size === 0} onClick={() => setSelected(new Set())} className="h-10 rounded-xl px-3 text-sm text-muted-foreground transition hover:bg-white/10 hover:text-foreground disabled:opacity-40">
+            Clear
+          </button>
+          <BulkPlaylistMenu serverId={serverId} titleIds={selectedIds} disabled={selected.size === 0} />
+          <BulkDownloadButton serverId={serverId} titleIds={selectedIds} disabled={selected.size === 0} />
+          <button type="button" onClick={stopSelecting} className="h-10 rounded-xl px-3 text-sm font-medium text-primary transition hover:bg-primary/10">
+            Done
+          </button>
+        </div>
+      )}
 
       {panelOpen && (
         <div className="flex flex-col gap-5 rounded-2xl bg-white/[0.04] p-4 ring-1 ring-white/[0.06]">
@@ -348,9 +413,32 @@ export function LibraryBrowser({
           </div>
         ) : (
           <div className={cn("grid min-w-0 flex-1 grid-cols-[repeat(auto-fill,minmax(9.25rem,1fr))] gap-x-4 gap-y-8 sm:grid-cols-[repeat(auto-fill,minmax(10.5rem,1fr))]", showRail && "pr-3")}>
-            {visible.map((t) => (
-              <div key={t.id} id={`card-${t.id}`} className="scroll-mt-24">
+            {visible.map((t, index) => (
+              <div key={t.id} id={`card-${t.id}`} className="relative scroll-mt-24">
                 <PosterCard title={t} serverId={serverId} />
+                {selecting && (
+                  // Over the card: a click selects it instead of opening it.
+                  <button
+                    type="button"
+                    role="checkbox"
+                    aria-checked={selected.has(t.id)}
+                    aria-label={`Select ${t.name}`}
+                    onClick={(e) => toggleSelected(index, e.shiftKey)}
+                    className={cn(
+                      "absolute inset-0 z-10 cursor-pointer rounded-xl outline-none transition focus-visible:ring-2 focus-visible:ring-primary",
+                      selected.has(t.id) ? "bg-primary/10 ring-2 ring-primary" : "hover:bg-white/5"
+                    )}
+                  >
+                    <span
+                      className={cn(
+                        "absolute top-2 left-2 flex size-6 items-center justify-center rounded-full ring-2 ring-white/70",
+                        selected.has(t.id) ? "bg-primary text-primary-foreground ring-primary" : "bg-black/50"
+                      )}
+                    >
+                      {selected.has(t.id) && <Check className="size-3.5" strokeWidth={3} />}
+                    </span>
+                  </button>
+                )}
               </div>
             ))}
           </div>
