@@ -171,7 +171,7 @@ export class OpenSubtitles {
     }
     // The link is followed only if it is an https address on OpenSubtitles' own domains.
     if (link.protocol !== "https:" || !isOpenSubtitlesHost(link.hostname)) throw new OpenSubtitlesError("upstream", "OpenSubtitles sent an unexpected download address.");
-    const file = await this.request(link.toString(), { method: "GET", headers: { "User-Agent": APP_NAME } });
+    const file = await this.request(link.toString(), { method: "GET", redirect: "manual", headers: { "User-Agent": APP_NAME } }); // a redirect is not followed: it would leave the checked host
     if (!file.ok) throw new OpenSubtitlesError("upstream", `The subtitle file couldn't be fetched (${file.status}).`);
     const bytes = await readLimited(file, MAX_SUBTITLE_BYTES);
     if (bytes === null) throw new OpenSubtitlesError("upstream", "That subtitle file is too large.");

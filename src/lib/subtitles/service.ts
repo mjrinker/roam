@@ -83,22 +83,29 @@ export async function addTrack(
       .limit(1);
     if (dupe) return { ok: false, status: 409, error: "That subtitle is already added." };
   }
-  const [row] = await ex
-    .insert(subtitleTracks)
-    .values({
-      titleId: args.owner.kind === "title" ? args.owner.id : null,
-      episodeId: args.owner.kind === "episode" ? args.owner.id : null,
-      language: args.language,
-      label: args.label,
-      source: args.source,
-      externalId: args.externalId ?? null,
-      hearingImpaired: args.hearingImpaired ?? false,
-      cues: args.cues,
-      cueCount: args.cues.length,
-      createdBy: args.createdBy,
-    })
-    .returning({ id: subtitleTracks.id });
-  return { ok: true, id: row.id };
+  try {
+    const [row] = await ex
+      .insert(subtitleTracks)
+      .values({
+        titleId: args.owner.kind === "title" ? args.owner.id : null,
+        episodeId: args.owner.kind === "episode" ? args.owner.id : null,
+        language: args.language,
+        label: args.label,
+        source: args.source,
+        externalId: args.externalId ?? null,
+        hearingImpaired: args.hearingImpaired ?? false,
+        cues: args.cues,
+        cueCount: args.cues.length,
+        createdBy: args.createdBy,
+      })
+      .returning({ id: subtitleTracks.id });
+    return { ok: true, id: row.id };
+  } catch (e) {
+    // Two adds of the same file at once: the database's unique index catches the second.
+    const code = (e as { code?: string; cause?: { code?: string } })?.code ?? (e as { cause?: { code?: string } })?.cause?.code;
+    if (code === "23505") return { ok: false, status: 409, error: "That subtitle is already added." };
+    throw e;
+  }
 }
 
 export async function deleteTrack(ex: Db, trackId: string): Promise<boolean> {

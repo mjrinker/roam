@@ -723,6 +723,7 @@ export function SeamlessPlayer({
           setMuted((m) => !m);
           break;
         case "KeyC":
+          if (e.ctrlKey || e.metaKey || e.altKey) break;
           // Subtitles on/off: off turns them off; on picks the remembered language, else the first track.
           if (activeTrack) chooseTrack(null);
           else if (tracks.length) chooseTrack((pickInitialTrack(tracks, readChoice()) ?? tracks[0]).id);

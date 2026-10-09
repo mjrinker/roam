@@ -29,6 +29,7 @@ export function SubtitleOverlay({ cues, getTime, offset, lifted }: { cues: reado
         setShown(now);
       }
     };
+    key.current = ""; // new words (another track or video) always redraw, even if the active timings match
     tick();
     const timer = setInterval(tick, 100);
     return () => clearInterval(timer);
@@ -36,8 +37,8 @@ export function SubtitleOverlay({ cues, getTime, offset, lifted }: { cues: reado
   if (shown.length === 0) return null;
   return (
     <div aria-live="off" className={cn("pointer-events-none absolute inset-x-0 flex flex-col items-center gap-1 px-[6%] text-center transition-[bottom] duration-300", lifted ? "bottom-28" : "bottom-10")}>
-      {shown.map((c) => (
-        <p key={`${c[0]}-${c[1]}`} className="max-w-full rounded-md bg-black/55 px-3 py-1 text-[clamp(1rem,2.3vw,1.9rem)] leading-snug whitespace-pre-line text-white [text-shadow:0_0_3px_#000,0_0_6px_#000]">
+      {shown.map((c, i) => (
+        <p key={`${i}-${c[0]}-${c[1]}`} className="max-w-full rounded-md bg-black/55 px-3 py-1 text-[clamp(1rem,2.3vw,1.9rem)] leading-snug whitespace-pre-line text-white [text-shadow:0_0_3px_#000,0_0_6px_#000]">
           {c[2]}
         </p>
       ))}
