@@ -14,6 +14,7 @@ import { pickNext, type Box } from "./focus";
 import { actionOf, directionOf, TIZEN_MEDIA_KEYS, type Action } from "./keys";
 import { clampSpeed, formatSpeed, SPEED_STEP } from "@/lib/player/speed";
 import { activeCues, type Cue } from "@/lib/subtitles/cues";
+import { readPreferredHeight, writePreferredHeight } from "@/lib/player/quality-preference";
 
 declare const tizen: { tvinputdevice?: { registerKey(name: string): void } } | undefined;
 
@@ -314,6 +315,127 @@ function createSpeedControl(media: HTMLMediaElement, onChange: () => void) {
   };
 }
 
+// ── Settings ─────────────────────────────────────────────────────────────
+
+interface SettingsRow {
+  label: string;
+  value: string;
+  open: () => void;
+}
+
+/**
+ * The video player's settings list (Up): Speed, Subtitles and, when the title has several resolutions, Quality. Up and Down choose a
+ * row, OK opens that row's own choices, Back closes. The rows are asked for each time it opens, so they show what is current.
+ */
+function createSettingsControl(rowsFor: () => SettingsRow[]) {
+  let open = false;
+  let cursor = 0;
+  let rows: SettingsRow[] = [];
+  const box = doc.getElementById("settingsbox");
+  const draw = () => {
+    if (!box) return;
+    box.style.display = open ? "block" : "none";
+    if (!open) return;
+    box.className = "speedbox subpick";
+    box.innerHTML = "";
+    const title = doc.createElement("div");
+    title.textContent = "Settings";
+    box.appendChild(title);
+    for (let i = 0; i < rows.length; i++) {
+      const row = doc.createElement("div");
+      row.className = "row2" + (i === cursor ? " on" : "");
+      row.textContent = (i === cursor ? "▶ " : "   ") + rows[i].label + "   " + rows[i].value;
+      box.appendChild(row);
+    }
+    const hint = doc.createElement("small");
+    hint.textContent = "Up and Down: choose · OK: open · Back: close";
+    box.appendChild(hint);
+  };
+  return {
+    isOpen: () => open,
+    open() {
+      rows = rowsFor();
+      cursor = 0;
+      open = true;
+      draw();
+    },
+    key(action: Action | null, dirKey: string | null): boolean {
+      if (dirKey === "up") cursor = Math.max(0, cursor - 1);
+      else if (dirKey === "down") cursor = Math.min(rows.length - 1, cursor + 1);
+      else if (action === "enter") {
+        open = false;
+        draw();
+        rows[cursor].open();
+        return true;
+      } else if (action === "back" || action === "stop") open = false;
+      draw();
+      return true;
+    },
+  };
+}
+
+/** The resolution picker: the versions of this title, best first; OK switches to the chosen one. */
+function createQualityControl(getManifest: () => Manifest | null, choose: (label: string) => void) {
+  let open = false;
+  let cursor = 0;
+  const box = doc.getElementById("qualitybox");
+  const versions = () => {
+    const m = getManifest();
+    return m && m.versions ? m.versions : [];
+  };
+  const draw = () => {
+    if (!box) return;
+    box.style.display = open ? "block" : "none";
+    if (!open) return;
+    box.className = "speedbox subpick";
+    box.innerHTML = "";
+    const title = doc.createElement("div");
+    title.textContent = "Quality";
+    box.appendChild(title);
+    const list = versions();
+    const m = getManifest();
+    for (let i = 0; i < list.length; i++) {
+      const row = doc.createElement("div");
+      row.className = "row2" + (i === cursor ? " on" : "");
+      row.textContent = (i === cursor ? "▶ " : "   ") + list[i].name + (m && m.version === list[i].label ? "  ✓" : "");
+      box.appendChild(row);
+    }
+    const hint = doc.createElement("small");
+    hint.textContent = "Up and Down: choose · OK: switch · Back: close";
+    box.appendChild(hint);
+  };
+  return {
+    isOpen: () => open,
+    currentName(): string {
+      const m = getManifest();
+      const list = versions();
+      for (let i = 0; i < list.length; i++) if (m && list[i].label === m.version) return list[i].name;
+      return "";
+    },
+    open() {
+      const m = getManifest();
+      const list = versions();
+      cursor = 0;
+      for (let i = 0; i < list.length; i++) if (m && list[i].label === m.version) cursor = i;
+      open = true;
+      draw();
+    },
+    key(action: Action | null, dirKey: string | null): boolean {
+      const list = versions();
+      if (dirKey === "up") cursor = Math.max(0, cursor - 1);
+      else if (dirKey === "down") cursor = Math.min(list.length - 1, cursor + 1);
+      else if (action === "enter") {
+        open = false;
+        draw();
+        if (list[cursor]) choose(list[cursor].label);
+        return true;
+      } else if (action === "back" || action === "stop") open = false;
+      draw();
+      return true;
+    },
+  };
+}
+
 // ── Subtitles ────────────────────────────────────────────────────────────
 
 interface LoadedSubtitle {
@@ -483,8 +605,11 @@ function createSubtitleControl(getTime: () => number) {
       found = null;
       note = "";
       select(null);
-      const hint = doc.getElementById("vhint");
-      if (hint) hint.textContent = "Up: playback speed  ·  Down: subtitles";
+    },
+    /** What the settings list shows for subtitles. */
+    activeLabel(): string {
+      for (let i = 0; i < loaded.length; i++) if (loaded[i].id === activeId) return loaded[i].label;
+      return "Off";
     },
     isOpen: () => open,
     open() {
@@ -549,6 +674,8 @@ interface Manifest {
   resumeSeconds: number;
   libraryId?: string;
   defaultRate?: number | null;
+  version?: string;
+  versions?: { label: string; name: string; height: number | null }[];
 }
 
 const SAVE_EVERY_MS = 15000;
@@ -581,6 +708,18 @@ function startPlayer(first: PlayConfig) {
   const position = () => (manifest && part ? timelineAt(part, video.currentTime) : 0);
   const speed = createSpeedControl(video, () => paint());
   const subs = createSubtitleControl(() => position());
+  const quality = createQualityControl(
+    () => manifest,
+    (label) => switchQuality(label)
+  );
+  const settings = createSettingsControl(() => {
+    const rows = [
+      { label: "Speed", value: formatSpeed(speed.rate()), open: () => speed.open() },
+      { label: "Subtitles", value: subs.activeLabel(), open: () => subs.open() },
+    ];
+    if (manifest && manifest.versions && manifest.versions.length > 1) rows.push({ label: "Quality", value: quality.currentName(), open: () => quality.open() });
+    return rows;
+  });
 
   function say(text: string) {
     status.textContent = text;
@@ -661,8 +800,17 @@ function startPlayer(first: PlayConfig) {
     showHud();
   }
 
-  function fetchPlay(kind: string, id: string): Promise<Manifest> {
-    return fetch("/api/play/" + kind + "/" + id + unsupportedCodecsQuery(), { credentials: "same-origin" }).then((res) => {
+  function fetchPlay(kind: string, id: string, version?: string): Promise<Manifest> {
+    // Which resolution: the one asked for, else the closest to what this TV last picked, else the best the title has.
+    let which = "";
+    if (version !== undefined) which = "version=" + encodeURIComponent(version);
+    else {
+      const preferred = readPreferredHeight();
+      if (preferred !== null) which = "height=" + preferred;
+    }
+    const codecs = unsupportedCodecsQuery();
+    const query = codecs + (which ? (codecs ? "&" : "?") + which : "");
+    return fetch("/api/play/" + kind + "/" + id + query, { credentials: "same-origin" }).then((res) => {
       if (res.status === 401 || res.status === 403) {
         window.location.href = "/tv";
         throw new Error("Signed out.");
@@ -686,6 +834,26 @@ function startPlayer(first: PlayConfig) {
         openPart(at.segment, at.localTime, autoplay === undefined ? true : autoplay);
       })
       .catch((e: Error) => say(e.message || "This can't be played right now."));
+  }
+
+  /** Another resolution of the same title: same place, same play/pause state. */
+  function switchQuality(label: string) {
+    if (!manifest || label === manifest.version) return;
+    const at = position();
+    const resume = !video.paused || wantPlaying;
+    save();
+    say("Switching…");
+    fetchPlay(cfg.ownerKind, cfg.ownerId, label).then(
+      (m) => {
+        const picked = m.versions ? m.versions.filter((v) => v.label === m.version)[0] : null;
+        writePreferredHeight(picked ? picked.height : null);
+        manifest = m;
+        const place = locate(m.segments, Math.min(at, Math.max(0, m.durationSeconds - 1)));
+        say("");
+        openPart(place.segment, place.localTime, resume);
+      },
+      () => say("Couldn't switch")
+    );
   }
 
   // ── Up next (newer browsers): the next episode starts in this page after a short countdown ──
@@ -792,8 +960,10 @@ function startPlayer(first: PlayConfig) {
 
   /** Player keys, called from the page's key handler; returns true when it handled the key. */
   playerKeys = (action: Action | null, dirKey: string | null): boolean => {
+    if (settings.isOpen()) return settings.key(action, dirKey);
     if (speed.isOpen()) return speed.key(action, dirKey);
     if (subs.isOpen()) return subs.key(action, dirKey);
+    if (quality.isOpen()) return quality.key(action, dirKey);
     if (upNextPending) {
       // The episode has ended and the next one's details haven't arrived: Back still stops, OK waits for them.
       if (action === "back" || action === "stop") {
@@ -818,8 +988,8 @@ function startPlayer(first: PlayConfig) {
     if (action === "pause") return video.paused ? true : (toggle(), true);
     if (action === "forward" || dirKey === "right") return seekTo(position() + (action === "forward" ? 30 : SKIP_SECONDS)), true;
     if (action === "rewind" || dirKey === "left") return seekTo(position() - (action === "rewind" ? 30 : SKIP_SECONDS)), true;
-    if (dirKey === "up") return speed.open(), showHud(), true;
-    if (dirKey === "down") return (subs.open(), showHud(), true);
+    if (dirKey === "up") return settings.open(), showHud(), true;
+    if (dirKey === "down") return showHud(), true;
     return false;
   };
   bar.style.display = "block";

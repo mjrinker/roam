@@ -221,8 +221,8 @@ export function watchPage(d: WatchData): string {
     title: d.title,
     bodyClass: "watch",
     body:
-      `<div class="player"><video id="pv" playsinline></video><div id="status" class="status"></div><div id="upnext" class="upnext" style="display:none"></div><div id="speedbox" class="speedbox" style="display:none"></div><div id="subs" class="subs"></div><div id="subpicker" class="speedbox" style="display:none"></div>` +
-      `<div id="hud" class="hud on"><div class="t"><span id="wtitle">${esc(d.title)}</span><span id="wsub">${d.subtitle ? ` · ${esc(d.subtitle)}` : ""}</span></div><div id="bar" class="track" style="display:none"><b id="fill"></b></div><div id="clock" class="clock"></div><div class="hint" id="vhint">Up: playback speed</div></div></div>` +
+      `<div class="player"><video id="pv" playsinline></video><div id="status" class="status"></div><div id="upnext" class="upnext" style="display:none"></div><div id="speedbox" class="speedbox" style="display:none"></div><div id="subs" class="subs"></div><div id="subpicker" class="speedbox" style="display:none"></div><div id="settingsbox" class="speedbox" style="display:none"></div><div id="qualitybox" class="speedbox" style="display:none"></div>` +
+      `<div id="hud" class="hud on"><div class="t"><span id="wtitle">${esc(d.title)}</span><span id="wsub">${d.subtitle ? ` · ${esc(d.subtitle)}` : ""}</span></div><div id="bar" class="track" style="display:none"><b id="fill"></b></div><div id="clock" class="clock"></div><div class="hint" id="vhint">Up: settings</div></div></div>` +
       `<script type="application/json" id="play-config">${cfg}</script>`,
   });
 }

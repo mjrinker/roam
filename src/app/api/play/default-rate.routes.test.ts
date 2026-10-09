@@ -2,14 +2,14 @@
 import { beforeAll, describe, expect, it, vi } from "vitest";
 import { eq } from "drizzle-orm";
 
-const h = vi.hoisted(() => ({ testDb: null as unknown as { db: import("@/lib/playlists/test-db").TestDb }, resolution: null as unknown }));
+const h = vi.hoisted(() => ({ testDb: null as unknown as { db: import("@/lib/playlists/test-db").TestDb }, resolution: null as unknown, choices: [] as unknown[] }));
 vi.mock("@/lib/db/client", async () => {
   const { createTestDb } = await import("@/lib/playlists/test-db");
   h.testDb = await createTestDb();
   return { db: h.testDb.db };
 });
 vi.mock("@/lib/auth/viewer", () => ({ getCurrentViewer: async () => h.resolution }));
-vi.mock("@/lib/player/manifest", () => ({ buildPlayManifest: async () => ({ ok: true, manifest: { segments: [], durationSeconds: 10 } }) }));
+vi.mock("@/lib/player/manifest", () => ({ buildPlayManifest: async (...args: unknown[]) => (h.choices.push(args[6]), { ok: true, manifest: { segments: [], durationSeconds: 10 } }) }));
 vi.mock("@/lib/player/audiobook-manifest", () => ({ buildAudiobookManifest: async () => ({ ok: true, value: { segments: [], durationSeconds: 10 } }) }));
 
 import { profiles, viewerLibrarySpeeds, viewers } from "@/lib/db/schema";
@@ -66,5 +66,23 @@ describe("the manifests' defaultRate", () => {
     const w = await world();
     await db.insert(viewerLibrarySpeeds).values({ viewerId: w.me, libraryId: w.movies.id, speed: 9 });
     expect((await (await play(new Request("http://x"), playCtx(w.film.id))).json()).defaultRate).toBeNull();
+  });
+});
+
+describe("choosing a resolution version", () => {
+  it("passes a requested version and a preferred height to the manifest, cleaned up, and ignores nonsense", async () => {
+    const w = await world();
+    const ask = async (query: string) => {
+      h.choices.length = 0;
+      await play(new Request(`http://x/api/play/title/${w.film.id}${query}`), playCtx(w.film.id));
+      return h.choices[0];
+    };
+    expect(await ask("")).toEqual({ version: null, preferredHeight: null });
+    expect(await ask("?version=%201080P%20")).toEqual({ version: "1080p", preferredHeight: null });
+    expect(await ask("?version=")).toEqual({ version: "", preferredHeight: null });
+    expect(await ask("?height=720")).toEqual({ version: null, preferredHeight: 720 });
+    expect(await ask("?unsupportedCodecs=ac-3&height=1080&version=4k")).toEqual({ version: "4k", preferredHeight: 1080 });
+    for (const bad of ["abc", "50", "99999", "7.5", "-1"]) expect(await ask(`?height=${bad}`), bad).toEqual({ version: null, preferredHeight: null });
+    expect((await ask(`?version=${"x".repeat(200)}`) as { version: string }).version).toHaveLength(60);
   });
 });

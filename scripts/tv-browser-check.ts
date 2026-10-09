@@ -50,6 +50,7 @@ let failFirstAudioUrl = false;
 let signouts = 0;
 
 const savedSpeeds: string[] = [];
+const playRequests: string[] = [];
 const waitUntil = async (test: () => boolean, ms = 5000) => {
   const end = Date.now() + ms;
   while (Date.now() < end) {
@@ -84,7 +85,11 @@ const server = http.createServer((req, res) => {
     const segments = [1, 2].map((i) => ({ index: i - 1, url: bad ? "/media/missing.webm" : `/media/part${i}.webm`, durationSeconds: 12, startSeconds: (i - 1) * 12 }));
     // the first movie's library starts at 1.5x, as an admin could have set it; everything else at normal speed
     const defaultRate = url.pathname.endsWith("/title/1") ? 1.5 : null;
-    return void res.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify({ ownerKind: "title", ownerId: "1", durationSeconds: 24, segments, resumeSeconds: 0, expiresAt: "2099-01-01T00:00:00Z", libraryId: "lib1", defaultRate }));
+    playRequests.push(url.pathname + url.search);
+    const wantVersion = url.searchParams.get("version");
+    const versions = url.pathname.endsWith("/title/1") ? [{ label: "4k", name: "4K", height: 2160 }, { label: "1080p", name: "1080p", height: 1080 }] : undefined;
+    const version = versions ? (wantVersion && versions.some((v) => v.label === wantVersion) ? wantVersion : "4k") : undefined;
+    return void res.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify({ ownerKind: "title", ownerId: "1", durationSeconds: 24, segments, resumeSeconds: 0, expiresAt: "2099-01-01T00:00:00Z", libraryId: "lib1", defaultRate, version, versions }));
   }
   const audioId = /^\/api\/audiobooks\/([^/]+)\/manifest$/.exec(url.pathname);
   if (audioId) {
@@ -487,7 +492,10 @@ async function run(label: string, exe: string, m56: boolean) {
   check(L("the video starts at the library's default speed"), (await page.evaluate<number>(rateNow)) === 1.5, String(await page.evaluate<number>(rateNow)));
   check(L("and the clock says so"), (await page.evaluate<string>(`document.getElementById("clock").textContent`)).indexOf("1.5x") >= 0, await page.evaluate<string>(`document.getElementById("clock").textContent`));
   await key(page, 38);
-  check(L("Up opens the speed overlay"), await page.evaluate<boolean>(speedShown) && (await page.evaluate<string>(`document.getElementById("speedbox").textContent`)).indexOf("1.5x") >= 0);
+  const settingsText = `document.getElementById("settingsbox").textContent`;
+  check(L("Up opens the settings list with Speed, Subtitles and Quality"), (await page.evaluate<boolean>(`document.getElementById("settingsbox").style.display === "block"`)) && /Speed\s+1\.5x[\s\S]*Subtitles\s+Off[\s\S]*Quality\s+4K/.test(await page.evaluate<string>(settingsText)), await page.evaluate<string>(settingsText));
+  await key(page, 13);
+  check(L("OK on Speed opens the speed overlay"), await page.evaluate<boolean>(speedShown) && (await page.evaluate<string>(`document.getElementById("speedbox").textContent`)).indexOf("1.5x") >= 0);
   await key(page, 38);
   check(L("Up in the overlay goes up a step (1.75x)"), (await page.evaluate<number>(rateNow)) === 1.75, String(await page.evaluate<number>(rateNow)));
   await key(page, 39);
@@ -514,10 +522,12 @@ async function run(label: string, exe: string, m56: boolean) {
   savedSpeeds.length = 0;
   await key(page, 38);
   await key(page, 13);
+  await key(page, 13);
   check(L("OK in the speed overlay asks whether to make it the default"), (await page.evaluate<string>(speedText)).indexOf("my default here") >= 0, await page.evaluate<string>(speedText));
   await key(page, 27);
   check(L("Back from the question closes without saving anything"), !(await page.evaluate<boolean>(speedShown)) && savedSpeeds.length === 0);
   await key(page, 38);
+  await key(page, 13);
   await key(page, 13);
   await key(page, 13);
   check(L("OK again saves this speed for the profile"), await waitUntil(() => savedSpeeds.length === 1), JSON.stringify(savedSpeeds));
@@ -532,10 +542,12 @@ async function run(label: string, exe: string, m56: boolean) {
   const subsText = `document.getElementById("subs").textContent`;
   const pickerText = `document.getElementById("subpicker").textContent`;
   const pickerShown = `document.getElementById("subpicker").style.display === "block"`;
-  check(L("the hint says Down opens subtitles"), (await page.evaluate<string>(`document.getElementById("vhint").textContent`)).indexOf("Down: subtitles") >= 0);
+  check(L("the hint says Up opens settings"), (await page.evaluate<string>(`document.getElementById("vhint").textContent`)).indexOf("Up: settings") >= 0);
   check(L("no subtitles are drawn until one is loaded"), (await page.evaluate<string>(subsText)) === "");
+  await key(page, 38);
   await key(page, 40);
-  check(L("Down opens the subtitle picker with Off and Find subtitles"), (await page.evaluate<boolean>(pickerShown)) && /Off[\s\S]*Find subtitles: en/.test(await page.evaluate<string>(pickerText)), await page.evaluate<string>(pickerText));
+  await key(page, 13);
+  check(L("Subtitles in the settings list opens the picker with Off and Find subtitles"), (await page.evaluate<boolean>(pickerShown)) && /Off[\s\S]*Find subtitles: en/.test(await page.evaluate<string>(pickerText)), await page.evaluate<string>(pickerText));
   await key(page, 40);
   await key(page, 39);
   check(L("Left and Right on Find change the search language"), (await page.evaluate<string>(pickerText)).indexOf("Find subtitles: es") >= 0, await page.evaluate<string>(pickerText));
@@ -547,7 +559,9 @@ async function run(label: string, exe: string, m56: boolean) {
   await page.waitFor(`document.getElementById("subpicker").textContent.indexOf("Release One") >= 0`, 5000);
   await key(page, 13);
   check(L("choosing a result closes the picker and draws its words"), await page.waitFor(`document.getElementById("subs").textContent.indexOf("Hello subtitle") >= 0 && !(${pickerShown})`, 5000), await page.evaluate<string>(subsText));
+  await key(page, 38);
   await key(page, 40);
+  await key(page, 13);
   await key(page, 40);
   await key(page, 38);
   await key(page, 38);
@@ -555,14 +569,41 @@ async function run(label: string, exe: string, m56: boolean) {
   check(L("choosing Off clears the words at once"), await page.waitFor(`document.getElementById("subs").textContent === ""`, 5000), await page.evaluate<string>(subsText));
   await page.goto(base + "/tv/s/x/watch/title/1");
   await page.waitFor(`${V} && ${V}.currentTime > 0.3`, 15000);
+  await key(page, 38);
   await key(page, 40);
+  await key(page, 13);
   check(L("nothing is remembered: the next load has only Off and Find"), !/Release One|EN /.test(await page.evaluate<string>(pickerText)) && (await page.evaluate<string>(subsText)) === "");
   await key(page, 27);
+
+  // Quality: the settings list offers the resolutions; choosing one reloads that version at the same place and is remembered on this TV.
+  await page.evaluate(`localStorage.removeItem("roam-preferred-height")`);
+  await page.goto(base + "/tv/s/x/watch/title/1");
+  await page.waitFor(`${V} && ${V}.currentTime > 0.3 && !${V}.paused`, 15000);
+  const qualityText = `document.getElementById("qualitybox").textContent`;
+  const qualityShown = `document.getElementById("qualitybox").style.display === "block"`;
+  check(L("with no preference the best version plays (no height asked for)"), !playRequests[playRequests.length - 1].includes("height=") && !playRequests[playRequests.length - 1].includes("version="), playRequests[playRequests.length - 1]);
+  await page.waitFor(`${V}.currentTime > 2`, 15000);
+  const beforeAt = await page.evaluate<number>(`${V}.currentTime`);
+  await key(page, 38);
+  await key(page, 40);
+  await key(page, 40);
+  await key(page, 13);
+  check(L("Quality opens a list of the versions with the current one checked"), (await page.evaluate<boolean>(qualityShown)) && /4K[\s\S]*✓[\s\S]*1080p/.test(await page.evaluate<string>(qualityText)), await page.evaluate<string>(qualityText));
+  await key(page, 40);
+  await key(page, 13);
+  check(L("choosing 1080p asks for that version"), await waitUntil(() => playRequests.some((r) => r.includes("version=1080p"))), JSON.stringify(playRequests.slice(-3)));
+  check(L("and carries on playing from about the same place"), await page.waitFor(`${V}.currentTime >= ${Math.max(0, beforeAt - 1)} && !${V}.paused`, 15000), String(await page.evaluate<number>(`${V}.currentTime`)));
+  check(L("the choice is remembered as a height on this TV"), (await page.evaluate<string>(`localStorage.getItem("roam-preferred-height")`)) === "1080");
+  await page.goto(base + "/tv/s/x/watch/title/1");
+  await page.waitFor(`${V} && ${V}.currentTime > 0.3`, 15000);
+  check(L("next time that height is asked for"), playRequests[playRequests.length - 1].includes("height=1080"), playRequests[playRequests.length - 1]);
 
   // A speed chosen on one episode carries to the next in the same page; an audiobook starts at its library's speed and has the same overlay; a song queue keeps Up for songs.
   await page.goto(base + "/tv/s/x/watch/episode/1?modern=1");
   await page.waitFor(`${V} && ${V}.currentTime > 0.3 && !${V}.paused`, 15000);
-  for (let i = 0; i < 5; i++) await key(page, 38); // open, then 1 -> 1.25 -> 1.5 -> 1.75 -> 2
+  await key(page, 38); // the settings list
+  await key(page, 13); // its Speed row
+  for (let i = 0; i < 4; i++) await key(page, 38); // 1 -> 1.25 -> 1.5 -> 1.75 -> 2
   await key(page, 13);
   check(L("a speed chosen on an episode is on the video"), (await page.evaluate<number>(rateNow)) === 2, String(await page.evaluate<number>(rateNow)));
   await key(page, 417);
