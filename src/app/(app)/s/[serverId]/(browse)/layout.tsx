@@ -6,6 +6,7 @@ import { requireServerMember } from "@/lib/auth/guards";
 import { libraryActor, libraryVisible } from "@/lib/content/library-access";
 import { listServerMemberships } from "@/lib/auth/servers";
 import { MiniPlayer } from "@/components/audio/mini-player";
+import { PlayerBarSpacer } from "@/components/player/floating-video-bar";
 import { PlayerErrorBoundary } from "@/components/audio/player-error-boundary";
 import { AppSidebar } from "@/components/shell/app-sidebar";
 import { PullToRefresh } from "@/components/shell/pull-to-refresh";
@@ -59,6 +60,7 @@ export default async function BrowseLayout({
           <PlayerErrorBoundary>
             <MiniPlayer serverId={serverId} />
           </PlayerErrorBoundary>
+          <PlayerBarSpacer />
         </div>
       </div>
     </ShellProvider>

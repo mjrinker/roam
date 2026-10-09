@@ -17,6 +17,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { NowPlayingSheet } from "@/components/audio/now-playing-sheet";
+import { useVideoSession } from "@/components/player/video-session";
 import {
   SKIP_BACK_SECONDS,
   SKIP_FORWARD_SECONDS,
@@ -60,9 +61,11 @@ function IconButton({
 /** Persistent audiobook player bar: stays mounted while you browse. Renders nothing until a book is loaded. */
 export function MiniPlayer({ serverId }: { serverId: string }) {
   const p = useAudioPlayer();
+  const video = useVideoSession();
   const [drag, setDrag] = useState<number | null>(null);
   const [expanded, setExpanded] = useState(false);
-  if (!p?.book) return null;
+  // A video in the floating bar takes this spot: only one bar at a time (the audio one returns when the video is closed).
+  if (!p?.book || video?.session) return null;
   const { book } = p;
 
   const playing = p.status === "playing";
@@ -73,7 +76,10 @@ export function MiniPlayer({ serverId }: { serverId: string }) {
   const sleep = sleepLabel(p.sleep, p.sleepMinutesLeft);
 
   return (
-    <div className="sticky bottom-0 z-40 border-t border-white/10 bg-background/90 backdrop-blur-xl">
+    <>
+      {/* Room at the end of the page, so the floating bar never covers the last thing on it. */}
+      <div aria-hidden className="h-24" />
+      <div className="fixed inset-x-3 bottom-3 z-40 mx-auto max-w-4xl overflow-hidden rounded-2xl border border-white/10 bg-background/90 shadow-2xl backdrop-blur-xl sm:inset-x-6">
       <Slider
         aria-label="Seek"
         min={0}
@@ -220,6 +226,7 @@ export function MiniPlayer({ serverId }: { serverId: string }) {
       </div>
 
       <NowPlayingSheet serverId={serverId} open={expanded} onOpenChange={setExpanded} />
-    </div>
+      </div>
+    </>
   );
 }

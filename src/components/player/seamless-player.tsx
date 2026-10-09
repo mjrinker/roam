@@ -31,7 +31,34 @@ import {
   windowClampTarget,
 } from "@/lib/player/timeline";
 
+/** What a floating bar needs to know about the player, reported as it changes. */
+export interface PlayerStatus {
+  ready: boolean;
+  playing: boolean;
+  buffering: boolean;
+  finished: boolean;
+  error: string | null;
+  /** Seconds into the whole title, and its length. */
+  time: number;
+  duration: number;
+}
+
+/** What a floating bar can ask the player to do. */
+export interface PlayerControls {
+  toggle(): void;
+  /** Move by this many seconds (negative goes back), staying inside the title. */
+  skip(seconds: number): void;
+  pause(): void;
+}
+
 interface SeamlessPlayerProps {
+  /**
+   * "full" fills the screen. "mini" keeps the video playing out of sight (the sound carries on) while a floating bar,
+   * drawn elsewhere, shows and controls it.
+   */
+  mode?: "full" | "mini";
+  onStatus?: (status: PlayerStatus) => void;
+  controlsRef?: { current: PlayerControls | null };
   ownerKind: PlayOwnerKind;
   ownerId: string;
   title: string;
@@ -104,6 +131,9 @@ function playManifestUrl(ownerKind: PlayOwnerKind, ownerId: string): string {
 }
 
 export function SeamlessPlayer({
+  mode = "full",
+  onStatus,
+  controlsRef,
   ownerKind,
   ownerId,
   title,
@@ -149,6 +179,10 @@ export function SeamlessPlayer({
   const [muted, setMuted] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [finished, setFinished] = useState(false);
+  const finishedRef = useRef(false);
+  useEffect(() => {
+    finishedRef.current = finished;
+  }, [finished]);
   const [buffering, setBuffering] = useState(false);
   // Playback speed: starts at the library's default and lasts until the player is closed (this component goes away); a speed the
   // viewer picked is kept when the next episode loads into the same player.
@@ -518,6 +552,55 @@ export function SeamlessPlayer({
     setGlobalTime(targetGlobal);
   }, [playing]);
 
+  /** Seconds into the whole title right now, read from the element itself. */
+  const currentGlobalTime = useCallback(() => {
+    const m = manifestRef.current;
+    const front = videoRefs.current[frontSlotRef.current];
+    const seg = m?.segments[segIndexRef.current];
+    return m && seg && front ? seg.startSeconds + toLocalTime(seg, front.currentTime) : 0;
+  }, []);
+
+  // A floating bar drives the player through these.
+  useEffect(() => {
+    if (!controlsRef) return;
+    controlsRef.current = {
+      toggle: togglePlay,
+      skip(seconds) {
+        const m = manifestRef.current;
+        if (!m) return;
+        seekTo(Math.max(0, Math.min(m.durationSeconds - 0.5, currentGlobalTime() + seconds)));
+      },
+      pause() {
+        videoRefs.current[frontSlotRef.current]?.pause();
+      },
+    };
+    return () => {
+      controlsRef.current = null;
+    };
+  }, [controlsRef, togglePlay, seekTo, currentGlobalTime]);
+
+  // ...and watches it through this.
+  useEffect(() => {
+    onStatus?.({ ready: !!manifest, playing, buffering, finished, error, time: globalTime, duration: manifest?.durationSeconds ?? 0 });
+  }, [onStatus, manifest, playing, buffering, finished, error, globalTime]);
+
+  // Closing the player (or leaving the page) saves where it got to.
+  useEffect(() => {
+    const flush = () => {
+      if (manifestRef.current && !finishedRef.current) saveProgress(currentGlobalTime(), false);
+    };
+    window.addEventListener("pagehide", flush);
+    return () => {
+      window.removeEventListener("pagehide", flush);
+      flush();
+    };
+  }, [saveProgress, currentGlobalTime]);
+
+  // Shrinking to the bar ends fullscreen.
+  useEffect(() => {
+    if (mode === "mini" && document.fullscreenElement) void document.exitFullscreen();
+  }, [mode]);
+
   const toggleFullscreen = useCallback(() => {
     if (!containerRef.current) return;
     if (document.fullscreenElement) document.exitFullscreen();
@@ -531,6 +614,8 @@ export function SeamlessPlayer({
   }, []);
 
   useEffect(() => {
+    // Out of sight, the player must not take over the keyboard (Space, arrows and letters belong to the page now).
+    if (mode === "mini") return;
     function onKeyDown(e: KeyboardEvent) {
       if (["INPUT", "TEXTAREA"].includes((e.target as HTMLElement)?.tagName)) return;
       const duration = manifestRef.current?.durationSeconds ?? 0;
@@ -571,7 +656,7 @@ export function SeamlessPlayer({
     }
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [globalTime, seekTo, togglePlay, toggleFullscreen, showControls]);
+  }, [mode, globalTime, seekTo, togglePlay, toggleFullscreen, showControls]);
 
   useEffect(() => {
     videoRefs.current.forEach((el) => {
@@ -595,7 +680,7 @@ export function SeamlessPlayer({
     setRate(clampSpeed(speed));
   }, []);
 
-  if (error && !manifest) {
+  if (error && !manifest && mode === "full") {
     return (
       <div className="flex h-dvh flex-col items-center justify-center gap-4 bg-black px-6 text-center">
         <p className="max-w-sm text-sm text-white/80">{error}</p>
@@ -624,9 +709,11 @@ export function SeamlessPlayer({
       onMouseMove={showControls}
       onPointerDown={showControls}
       className={cn(
-        "relative h-dvh w-full overflow-hidden bg-black select-none",
-        hideCursor && "cursor-none"
+        mode === "full" ? "relative h-dvh w-full overflow-hidden bg-black select-none" : "pointer-events-none fixed top-0 left-0 size-px overflow-hidden opacity-0",
+        mode === "full" && hideCursor && "cursor-none"
       )}
+      aria-hidden={mode === "mini" || undefined}
+      inert={mode === "mini" || undefined}
     >
       {[0, 1].map((slot) => (
         <video

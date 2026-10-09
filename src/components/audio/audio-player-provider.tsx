@@ -316,11 +316,17 @@ export function createPlayer(
     updatePositionState();
   }
 
+  /** Tells the rest of the page that audio is about to play, so a video that is open pauses (one thing plays at a time). */
+  function announcePlay() {
+    if (typeof window !== "undefined") window.dispatchEvent(new Event("roam:audio-play"));
+  }
+
   function play() {
     const el = audio();
     const book = e.book;
     if (!el || !book) return;
     e.playRequested = true;
+    announcePlay();
 
     // Playing again from the very end starts over.
     if (e.position >= book.durationSeconds - 0.5) {
@@ -409,6 +415,7 @@ export function createPlayer(
       const token = ++e.token;
       audio()?.pause();
       clearSleep();
+      if (opts.autoplay) announcePlay();
       patch({ status: "loading", error: null, buffering: true });
 
       try {

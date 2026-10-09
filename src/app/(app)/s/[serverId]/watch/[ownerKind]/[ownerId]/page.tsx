@@ -8,7 +8,7 @@ import { isAllowed } from "@/lib/content/access";
 import { isUuid } from "@/lib/playlists/http";
 import { isPhotoLibraryKind } from "@/lib/libraries/profile";
 import { queueNext } from "@/lib/playlists/next";
-import { SeamlessPlayer } from "@/components/player/seamless-player";
+import { WatchSession } from "@/components/player/watch-session";
 
 async function loadMovie(lib: LibraryActor, id: string) {
   const title = await db
@@ -135,8 +135,12 @@ export default async function WatchPage({
     }
   }
 
+  // Coming back to the full player from the bar must keep the playlist it was opened from (else "next" would change).
+  const queueQuery = playlistId && itemId && isUuid(playlistId) && isUuid(itemId) ? `?playlist=${playlistId}&item=${itemId}${query.replay === "1" ? "&replay=1" : ""}` : "";
+  // The player itself lives in the server layout (see VideoSessionProvider), so a video can carry on in a floating bar when the viewer
+  // browses away; this page just asks for it to fill the screen.
   return (
-    <SeamlessPlayer
+    <WatchSession
       ownerKind={ownerKind}
       ownerId={ownerId}
       title={loaded.displayTitle}
@@ -144,6 +148,7 @@ export default async function WatchPage({
       backHref={loaded.backHref}
       nextHref={nextHref}
       nextLabel={nextLabel}
+      watchHref={`/s/${serverId}/watch/${ownerKind}/${ownerId}${queueQuery}`}
     />
   );
 }

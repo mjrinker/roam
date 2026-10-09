@@ -1,6 +1,7 @@
 import { after } from "next/server";
 import { requireServerMember } from "@/lib/auth/guards";
 import { AudioPlayerProvider } from "@/components/audio/audio-player-provider";
+import { VideoSessionProvider } from "@/components/player/video-session";
 import { findResumableLibraries, scanLibrary } from "@/lib/scan/scanner";
 
 // Gives the after() background resume-scan below (see findResumableLibraries)
@@ -33,5 +34,9 @@ export default async function ServerLayout({
 
   // Mounted here (not in the browse group) so an audiobook keeps playing
   // across browse pages, and can be paused when a video starts.
-  return <AudioPlayerProvider>{children}</AudioPlayerProvider>;
+  return (
+    <AudioPlayerProvider>
+      <VideoSessionProvider>{children}</VideoSessionProvider>
+    </AudioPlayerProvider>
+  );
 }
