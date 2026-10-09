@@ -22,6 +22,10 @@ import {
   parseTitleFolderName,
   folderNameWithTmdbId,
   fileNameWithTmdbId,
+  groupByVersion,
+  labelHeightHint,
+  resolutionName,
+  versionLabelOf,
 } from "./conventions";
 
 describe("parseTitleFolderName", () => {
@@ -182,6 +186,7 @@ describe("parseEpisodeFileName", () => {
       episode: 1,
       episodes: [1],
       name: "Pilot",
+      version: "",
     });
   });
 
@@ -191,6 +196,7 @@ describe("parseEpisodeFileName", () => {
       episode: 2,
       episodes: [2],
       name: null,
+      version: "",
     });
   });
 
@@ -200,6 +206,7 @@ describe("parseEpisodeFileName", () => {
       episode: 10,
       episodes: [10],
       name: "Finale",
+      version: "",
     });
   });
 
@@ -213,12 +220,14 @@ describe("parseEpisodeFileName", () => {
       episode: 2,
       episodes: [2],
       name: null,
+      version: "",
     });
     expect(parseEpisodeFileName("Show - S01E03 - disc2.mp4")).toEqual({
       season: 1,
       episode: 3,
       episodes: [3],
       name: null,
+      version: "",
     });
   });
 
@@ -256,7 +265,7 @@ describe("parseEpisodeFileName", () => {
     ["Show - S01E05-2019 recap.mp4", { season: 1, episodes: [5], name: "2019 recap" }],
     ["Show - S01E05-pt1.mp4", { season: 1, episodes: [5], name: null }],
   ])("parses %s -> %o", (input, expected) => {
-    expect(parseEpisodeFileName(input)).toEqual({ ...expected, episode: expected.episodes[0] });
+    expect(parseEpisodeFileName(input)).toEqual({ ...expected, episode: expected.episodes[0], version: "" });
   });
 
   it.each(["Show - S01E05E06.mp4", "Show - S01E05 E06.mp4"])(
@@ -771,5 +780,46 @@ describe("year correction when stamping", () => {
     expect(fileNameWithTmdbId("The Kid (1921) - pt1.mp4", 10, 2000)).toBe("The Kid (2000) {tmdb-10} - pt1.mp4");
     expect(fileNameWithTmdbId("The Kid.mp4", 10, 2000)).toBe("The Kid (2000) {tmdb-10}.mp4");
     expect(fileNameWithTmdbId("The Kid - pt2.mp4", 10, 2000)).toBe("The Kid (2000) {tmdb-10} - pt2.mp4");
+  });
+});
+
+describe("resolution versions in file names", () => {
+  it("finds the label in a movie or episode name, wherever the part marker sits, and says '' when there is none", () => {
+    expect(versionLabelOf("Movie (2020) - 1080p.mp4")).toBe("1080p");
+    expect(versionLabelOf("Movie (2020) - 4K.mp4")).toBe("4k");
+    expect(versionLabelOf("Movie (2020) - 4K - pt2.mp4")).toBe("4k");
+    expect(versionLabelOf("Movie (2020) - pt1 - 720p.mp4")).toBe("720p");
+    expect(versionLabelOf("Movie (2020) {tmdb-603} - 1080p BluRay.mp4")).toBe("1080p bluray");
+    expect(versionLabelOf("Movie (2020).mp4")).toBe("");
+    expect(versionLabelOf("Movie (2020) - pt1.mp4")).toBe("");
+  });
+  it("is not fooled by titles that merely contain a resolution-like word", () => {
+    expect(versionLabelOf("1080p - The Movie.mp4")).toBe(""); // the first segment is the title
+    expect(versionLabelOf("Show - s01e01 - Pilot.mp4")).toBe("");
+    expect(versionLabelOf("Show - s01e01 - HDR Special.mp4")).toBe("");
+    expect(versionLabelOf("Show - s01e01 - 720pfoo.mp4")).toBe("");
+    expect(versionLabelOf("Movie - 1080p.aac.mp4")).toBe(""); // a remuxed copy is matched to its original by name, not read as a version
+  });
+  it("keeps an episode's title and numbers when the name also carries a label", () => {
+    expect(parseEpisodeFileName("Show - s01e01 - 1080p.mp4")).toEqual({ season: 1, episode: 1, episodes: [1], name: null, version: "1080p" });
+    expect(parseEpisodeFileName("Show - s01e01 - Pilot - 4K.mp4")).toEqual({ season: 1, episode: 1, episodes: [1], name: "Pilot", version: "4k" });
+    expect(parseEpisodeFileName("Show - s01e05-e06 - 720p - pt1.mp4")).toMatchObject({ episodes: [5, 6], name: null, version: "720p" });
+  });
+  it("groups files by version, the unlabelled ones first, keeping each version's parts together", () => {
+    const files = [{ name: "M - 4K - pt2.mp4" }, { name: "M - 1080p.mp4" }, { name: "M.mp4" }, { name: "M - 4K - pt1.mp4" }];
+    const groups = groupByVersion(files);
+    expect([...groups.keys()]).toEqual(["", "1080p", "4k"]);
+    expect(groups.get("4k")?.map((f) => f.name)).toEqual(["M - 4K - pt2.mp4", "M - 4K - pt1.mp4"]);
+  });
+  it("names a resolution from the picture size, counting cropped widescreen as its full-height name", () => {
+    expect(resolutionName(1920, 1080)).toBe("1080p");
+    expect(resolutionName(1920, 800)).toBe("1080p");
+    expect(resolutionName(3840, 1600)).toBe("4K");
+    expect(resolutionName(1280, 720)).toBe("720p");
+    expect(resolutionName(854, 480)).toBe("480p");
+    expect(resolutionName(null, null)).toBeNull();
+  });
+  it("gives a rough height for a label", () => {
+    expect([labelHeightHint("1080p"), labelHeightHint("4k"), labelHeightHint("uhd"), labelHeightHint("720p bluray"), labelHeightHint("sd"), labelHeightHint("x")]).toEqual([1080, 2160, 2160, 720, 480, null]);
   });
 });

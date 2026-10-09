@@ -137,7 +137,7 @@ describe("upsertMediaSegments", () => {
 
     const inserts = recordedCalls.filter((c) => c.op === "insert");
     expect(inserts.map((c) => (c.values as { boxFileId: string }).boxFileId)).toEqual(["B", "A"]);
-    expect(inserts[0].set).toEqual({ partIndex: 0, filename: "Movie - pt1.mp4", sizeBytes: 1000 });
-    expect(inserts[1].set).toEqual({ partIndex: 1, filename: "Movie - pt2.mp4", sizeBytes: 1000 });
+    expect(inserts[0].set).toEqual({ partIndex: 0, versionLabel: "", filename: "Movie - pt1.mp4", sizeBytes: 1000 });
+    expect(inserts[1].set).toEqual({ partIndex: 1, versionLabel: "", filename: "Movie - pt2.mp4", sizeBytes: 1000 });
   });
 });

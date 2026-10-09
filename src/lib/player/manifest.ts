@@ -6,6 +6,7 @@ import { BoxReauthRequiredError } from "@/lib/storage/box-token-storage";
 import type { PlayManifest, PlayOwnerKind, PlaySegment } from "@/lib/player/types";
 import { buildPlaySegment } from "@/lib/player/timeline";
 import { shouldUseVariant } from "@/lib/player/variant-selection";
+import { describeVersions, groupRowsByVersion, pickVersion } from "@/lib/player/versions";
 
 /** How long to wait for Box to make its browser-friendly version of a video the first time it is opened (it is quick afterwards). */
 export const BROWSER_VERSION_WAIT_MS = 40_000;
@@ -39,13 +40,26 @@ export async function buildPlayManifest(
    * back to the original when it isn't ready). For libraries of phone videos: HEVC with the index at the
    * end of the file, which iOS Safari won't start and Chrome shows as a black picture.
    */
-  preferBrowserVersion = false
+  preferBrowserVersion = false,
+  /**
+   * Which resolution version to play when the owner has several ("Movie - 1080p.mp4", "Movie - 4K.mp4"): an exact label, else the one
+   * closest in height to `preferredHeight`, else the highest. Only versions that are fully probed are offered.
+   */
+  choice: { version?: string | null; preferredHeight?: number | null } = {}
 ): Promise<BuildManifestResult> {
-  const allRows = await db
+  const everyRow = await db
     .select()
     .from(mediaFiles)
     .where(and(eq(mediaFiles.ownerKind, ownerKind), eq(mediaFiles.ownerId, ownerId)))
-    .orderBy(asc(mediaFiles.partIndex));
+    .orderBy(asc(mediaFiles.versionLabel), asc(mediaFiles.partIndex));
+
+  // A version whose files are not all probed yet can't be played (it has no length), so it is not offered until it is.
+  const byVersion = groupRowsByVersion(everyRow);
+  const playable = [...byVersion.values()].filter((rows) => rows.filter((r) => r.trimDurationSeconds !== 0).every((r) => r.durationSeconds != null));
+  const offered = playable.length > 0 ? playable.flat() : everyRow;
+  const versions = describeVersions(offered);
+  const version = pickVersion(versions, choice.version ?? null, choice.preferredHeight ?? null);
+  const allRows = offered.filter((r) => r.versionLabel === version);
 
   // A row can be a physical part this owner's Box folder contains but that
   // its OWN estimated window doesn't touch at all — e.g. one part of a
@@ -137,6 +151,8 @@ export async function buildPlayManifest(
       segments,
       // Phone videos in a photo library always start from the beginning, like opening a picture.
       resumeSeconds: preferBrowserVersion || existingState?.finished ? 0 : (existingState?.positionSeconds ?? 0),
+      version,
+      versions,
       expiresAt: (earliestExpiry ?? new Date(Date.now() + 60_000)).toISOString(),
     },
   };

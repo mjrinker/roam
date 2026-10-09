@@ -20,6 +20,7 @@ import { createBoxProviderForServer } from "@/lib/storage/box";
 import { BoxReauthRequiredError } from "@/lib/storage/box-token-storage";
 import type { StorageEntry, StorageProvider } from "@/lib/storage/provider";
 import {
+  groupByVersion,
   groupEpisodeFiles,
   isBrowserFriendlyVariant,
   isExtraFile,
@@ -523,7 +524,8 @@ async function syncMovieFolder(
   // logic, or they'd be appended to the movie as extra parts.
   const candidateFiles = allVideo.filter((c) => !isBrowserFriendlyVariant(c.name));
   const variantFiles = allVideo.filter((c) => isBrowserFriendlyVariant(c.name));
-  const videoFiles = orderMediaSegments(selectPrimaryEdition(candidateFiles));
+  // Each resolution version ("- 1080p", "- 4K") is its own ordered set of parts, never appended to another's.
+  const videoFiles = [...groupByVersion(selectPrimaryEdition(candidateFiles)).values()].flatMap((group) => orderMediaSegments(group));
 
   await upsertMediaSegments("title", title.id, videoFiles);
   await linkVariantFiles("title", [title.id], videoFiles, variantFiles);
@@ -735,7 +737,7 @@ async function syncShowFolder(
     const currentEpisodeRows: { id: string }[] = [];
 
     for (const [episodeNumber, { files, combined }] of episodeGroups) {
-      const orderedFiles = orderMediaSegments(files);
+      const orderedFiles = [...groupByVersion(files).values()].flatMap((group) => orderMediaSegments(group));
       const parsed = parseEpisodeFileName(orderedFiles[0].name);
       const tmdbEp = tmdbEpisodes.find((e) => e.episode_number === episodeNumber);
       // A combined file's title describes the whole block, not one episode:

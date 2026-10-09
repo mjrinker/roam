@@ -281,6 +281,13 @@
       "when": 1791555519675,
       "tag": "0039_drop_library_default_speed",
       "breakpoints": true
+    },
+    {
+      "idx": 40,
+      "version": "7",
+      "when": 1791557600994,
+      "tag": "0040_media_file_versions",
+      "breakpoints": true
     }
   ]
 }

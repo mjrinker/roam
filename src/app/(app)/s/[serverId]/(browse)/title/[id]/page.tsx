@@ -4,6 +4,7 @@ import { and, asc, eq } from "drizzle-orm";
 import { Loader2, Play } from "lucide-react";
 import { db } from "@/lib/db/client";
 import { libraries, mediaFiles, titles, watchState } from "@/lib/db/schema";
+import { defaultVersionRows } from "@/lib/player/versions";
 import { requireServerMember } from "@/lib/auth/guards";
 import { libraryActor, libraryVisible } from "@/lib/content/library-access";
 import { isAllowed } from "@/lib/content/access";
@@ -48,11 +49,14 @@ export default async function TitleDetailPage({
   if (title.kind === "audiobook") redirect(`/s/${serverId}/book/${id}`);
   if (title.kind === "ebook") redirect(`/s/${serverId}/ebook/${id}`);
 
-  const segments = await db
-    .select()
-    .from(mediaFiles)
-    .where(and(eq(mediaFiles.ownerKind, "title"), eq(mediaFiles.ownerId, id)))
-    .orderBy(asc(mediaFiles.partIndex));
+  // A movie saved in several resolutions is the same movie: this page looks at the one that plays by default.
+  const segments = defaultVersionRows(
+    await db
+      .select()
+      .from(mediaFiles)
+      .where(and(eq(mediaFiles.ownerKind, "title"), eq(mediaFiles.ownerId, id)))
+      .orderBy(asc(mediaFiles.partIndex))
+  );
 
   const [state] = await db
     .select()

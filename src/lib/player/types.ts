@@ -25,6 +25,9 @@ export interface PlayManifest {
   segments: PlaySegment[];
   resumeSeconds: number;
   expiresAt: string;
+  /** The resolution version this plays (its label; "" for a file with none) and every version on offer, best first. */
+  version?: string;
+  versions?: { label: string; name: string; height: number | null }[];
   /** The library this plays from, and the speed this profile starts it at (null or missing = normal speed). */
   libraryId?: string;
   defaultRate?: number | null;

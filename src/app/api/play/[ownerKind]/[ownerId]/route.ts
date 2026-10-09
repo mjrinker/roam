@@ -27,8 +27,14 @@ export async function GET(
   const demo = await checkDemoPlay(auth.serverId, auth.member.profile.id);
   if (!demo.ok) return NextResponse.json({ error: demo.error }, { status: 429, headers: { "Cache-Control": "no-store", "Retry-After": String(secondsUntilWindowRenews()) } });
 
-  const unsupportedCodecs = parseUnsupportedCodecs(new URL(request.url).searchParams.get("unsupportedCodecs"));
-  const result = await buildPlayManifest(ownerKind, ownerId, auth.member.viewer.id, auth.serverId, unsupportedCodecs, isPhotoLibraryKind(auth.libraryKind));
+  const params = new URL(request.url).searchParams;
+  const unsupportedCodecs = parseUnsupportedCodecs(params.get("unsupportedCodecs"));
+  const heightParam = Number(params.get("height"));
+  const choice = {
+    version: params.get("version") !== null ? params.get("version")!.trim().toLowerCase().slice(0, 60) : null,
+    preferredHeight: Number.isInteger(heightParam) && heightParam >= 100 && heightParam <= 5000 ? heightParam : null,
+  };
+  const result = await buildPlayManifest(ownerKind, ownerId, auth.member.viewer.id, auth.serverId, unsupportedCodecs, isPhotoLibraryKind(auth.libraryKind), choice);
   if (!result.ok) {
     return NextResponse.json({ error: result.error }, { status: result.status });
   }

@@ -9,7 +9,7 @@ import {
   containerOf,
   estimateAudioDurationMs,
 } from "@/lib/scan/containers";
-import { parseEpisodeFileName, stripVariantSuffix } from "@/lib/scan/conventions";
+import { parseEpisodeFileName, stripVariantSuffix, versionLabelOf } from "@/lib/scan/conventions";
 import { probeMp3 } from "@/lib/scan/mp3-duration";
 import { probeMp4, probeMp4Codecs, type Mp4Chapter } from "@/lib/scan/mp4-duration";
 
@@ -23,7 +23,9 @@ export type Db = PgDatabase<PgQueryResultHKT, Record<string, unknown>>;
 /**
  * Makes an owner's media_files match `files` (already in playback order):
  * removes rows for files that are gone, then upserts the rest with their new
- * part index. Runs in one transaction.
+ * part index. Runs in one transaction. Each file's resolution version comes from
+ * its name ("- 1080p"); a file's part index counts within its own version, so
+ * every version starts at part 0.
  */
 export async function upsertMediaSegments(
   ownerKind: "title" | "episode",
@@ -48,14 +50,18 @@ export async function upsertMediaSegments(
       .set({ partIndex: sql`-${mediaFiles.partIndex} - 1` })
       .where(and(owned, inArray(mediaFiles.boxFileId, currentIds)));
 
-    for (let i = 0; i < files.length; i++) {
-      const file = files[i];
+    const nextPart = new Map<string, number>();
+    for (const file of files) {
+      const versionLabel = versionLabelOf(file.name);
+      const i = nextPart.get(versionLabel) ?? 0;
+      nextPart.set(versionLabel, i + 1);
       await tx
         .insert(mediaFiles)
         .values({
           ownerKind,
           ownerId,
           partIndex: i,
+          versionLabel,
           boxFileId: file.id,
           filename: file.name,
           sizeBytes: file.sizeBytes,
@@ -69,7 +75,7 @@ export async function upsertMediaSegments(
           // global box_file_id unique dropped (Deploy 2) — see the rollout
           // plan in episode-split-pass.ts's module doc comment.
           target: [mediaFiles.ownerKind, mediaFiles.ownerId, mediaFiles.boxFileId],
-          set: { partIndex: i, filename: file.name, sizeBytes: file.sizeBytes },
+          set: { partIndex: i, versionLabel, filename: file.name, sizeBytes: file.sizeBytes },
         });
     }
   });

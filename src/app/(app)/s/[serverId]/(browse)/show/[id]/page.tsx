@@ -4,6 +4,7 @@ import { and, asc, eq, inArray } from "drizzle-orm";
 import { Play } from "lucide-react";
 import { db } from "@/lib/db/client";
 import { episodes, libraries, mediaFiles, seasons, titles, watchState } from "@/lib/db/schema";
+import { defaultVersionRows } from "@/lib/player/versions";
 import { requireServerMember } from "@/lib/auth/guards";
 import { libraryActor, libraryVisible } from "@/lib/content/library-access";
 import { isAllowed } from "@/lib/content/access";
@@ -80,7 +81,9 @@ export default async function ShowDetailPage({
   const seasonNumberById = new Map(allSeasons.map((s) => [s.id, s.number]));
   const stateByEpisode = new Map(states.map((s) => [s.ownerId, s]));
   const filesByEpisode = new Map<string, typeof segments>();
-  for (const f of segments) {
+  // An episode saved in several resolutions is still one episode: only its default version's files count.
+  const defaultSegments = [...groupBy(segments)].flatMap(([, rows]) => defaultVersionRows(rows));
+  for (const f of defaultSegments) {
     // Guaranteed non-null by the ownerKind="episode" filter above — a
     // variant row (ownerKind null) never matches that query. The guard
     // just satisfies ownerId's now-nullable type (see schema.ts).
@@ -190,4 +193,13 @@ export default async function ShowDetailPage({
       />
     </div>
   );
+}
+
+function groupBy<T extends { ownerId: string | null }>(rows: T[]): Map<string, T[]> {
+  const groups = new Map<string, T[]>();
+  for (const r of rows) {
+    if (!r.ownerId) continue;
+    groups.set(r.ownerId, [...(groups.get(r.ownerId) ?? []), r]);
+  }
+  return groups;
 }

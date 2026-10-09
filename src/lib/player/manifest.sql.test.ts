@@ -87,3 +87,52 @@ describe("preferring the browser-friendly version", () => {
     expect(h.calls).toEqual([`original:${c.fileId}`]);
   });
 });
+
+describe("resolution versions", () => {
+  async function film(versions: { label: string; w: number; h: number; parts?: number; probed?: boolean }[]) {
+    const owner = await makeAccount(db, "ov");
+    const server = await makeServer(db, owner.accountId);
+    const lib = await makeLibrary(db, server.id, "movies", "everyone");
+    const t = await makeTitle(db, lib.id, { kind: "movie", boxFolderId: `folder:v${++n}` });
+    for (const v of versions) {
+      for (let p = 0; p < (v.parts ?? 1); p++) {
+        await db.insert(mediaFiles).values({
+          ownerKind: "title", ownerId: t.id, partIndex: p, versionLabel: v.label, boxFileId: `${v.label || "orig"}-${p}-${n}`, filename: `f-${v.label}.mp4`, sizeBytes: 1000, container: "mp4",
+          probeStatus: v.probed === false ? "pending" : "ok", durationSeconds: v.probed === false ? null : 100 + p, width: v.w, height: v.h,
+        });
+      }
+    }
+    return { t, server, owner };
+  }
+  const play = (f: Awaited<ReturnType<typeof film>>, choice = {}) => buildPlayManifest("title", f.t.id, f.owner.viewer.id, f.server.id, [], false, choice);
+
+  it("plays the highest version by default and offers all of them, best first, with only that version's parts", async () => {
+    const f = await film([{ label: "1080p", w: 1920, h: 1080 }, { label: "4k", w: 3840, h: 2160, parts: 2 }, { label: "720p", w: 1280, h: 720 }]);
+    const r = await play(f);
+    expect(r.ok && r.manifest.version).toBe("4k");
+    expect(r.ok && r.manifest.versions?.map((v) => [v.label, v.name])).toEqual([["4k", "4K"], ["1080p", "1080p"], ["720p", "720p"]]);
+    expect(r.ok && r.manifest.segments.map((s) => s.url)).toEqual([expect.stringContaining("4k-0"), expect.stringContaining("4k-1")]);
+    expect(r.ok && r.manifest.durationSeconds).toBe(201); // the 4K parts only, never added to the other versions
+  });
+  it("plays the version asked for, else the closest to a preferred height, else the default", async () => {
+    const f = await film([{ label: "1080p", w: 1920, h: 1080 }, { label: "720p", w: 1280, h: 720 }]);
+    expect((await play(f, { version: "720p" })).ok && (await play(f, { version: "720p" }))).toMatchObject({ manifest: { version: "720p", durationSeconds: 100 } });
+    const closest = await play(f, { preferredHeight: 700 });
+    expect(closest.ok && closest.manifest.version).toBe("720p");
+    const unknown = await play(f, { version: "nope" });
+    expect(unknown.ok && unknown.manifest.version).toBe("1080p");
+  });
+  it("leaves out a version that isn't probed yet, and still plays when only unlabelled files exist", async () => {
+    const f = await film([{ label: "4k", w: 3840, h: 2160, probed: false }, { label: "1080p", w: 1920, h: 1080 }]);
+    const r = await play(f);
+    expect(r.ok && r.manifest.version).toBe("1080p");
+    expect(r.ok && r.manifest.versions?.map((v) => v.label)).toEqual(["1080p"]);
+    const plain = await film([{ label: "", w: 1280, h: 720 }]);
+    const p = await play(plain);
+    expect(p.ok && [p.manifest.version, p.manifest.versions?.[0].name]).toEqual(["", "720p"]);
+  });
+  it("is still 'not ready' when nothing is probed", async () => {
+    const f = await film([{ label: "1080p", w: 1920, h: 1080, probed: false }]);
+    expect((await play(f)).ok).toBe(false);
+  });
+});

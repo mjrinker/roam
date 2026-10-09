@@ -570,6 +570,10 @@ export const mediaFiles = pgTable(
     ownerKind: ownerKindEnum("owner_kind"),
     ownerId: uuid("owner_id"),
     partIndex: integer("part_index").notNull().default(0),
+    // Which resolution version of the owner this file belongs to: the label in its name ("1080p", "4k"; see
+    // lib/scan/conventions splitVersionLabel), lower case, or '' for a file with none. A movie or episode's rows with the same
+    // version_label are the ordered parts of ONE playback; the other versions are alternatives, never appended.
+    versionLabel: text("version_label").notNull().default(""),
 
     // No longer globally unique as of migration 0012 — a multi-episode
     // file's Box id is legitimately owned by more than one episode row now.
@@ -658,6 +662,7 @@ export const mediaFiles = pgTable(
     uniqueIndex("media_files_owner_part_idx").on(
       t.ownerKind,
       t.ownerId,
+      t.versionLabel,
       t.partIndex
     ),
     index("media_files_owner_idx").on(t.ownerKind, t.ownerId),

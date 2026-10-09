@@ -205,6 +205,8 @@ export interface ParsedEpisodeFile {
   /** Every episode number this file spans, in order. `[episode]` for an ordinary single-episode file. */
   episodes: number[];
   name: string | null;
+  /** The resolution label in the name ("1080p"), or "" when it has none. */
+  version: string;
 }
 
 /**
@@ -250,14 +252,16 @@ function expandEpisodeRange(start: number, continuationBlob: string): number[] {
  * { season: 1, episode: 5, episodes: [5, 6], name: "Title" }.
  */
 export function parseEpisodeFileName(fileName: string): ParsedEpisodeFile | null {
-  const match = EPISODE_FILE_RE.exec(fileName.trim());
+  // A resolution label ("Show - s01e01 - 1080p") is not part of the episode's title.
+  const { label: version, rest } = splitVersionLabel(fileName.trim());
+  const match = EPISODE_FILE_RE.exec(rest);
   if (!match) return null;
   const season = Number(match[1]);
   const episode = Number(match[2]);
   const episodes = expandEpisodeRange(episode, match[3] ?? "");
   let name = match[4]?.trim() || null;
   if (name && SUPPRESSED_TITLE_RE.test(name)) name = null;
-  return { season, episode, episodes, name };
+  return { season, episode, episodes, name, version };
 }
 
 /**
@@ -381,6 +385,77 @@ export function groupEpisodeFiles<T extends { name: string }>(
     out.set(ep, { files: orderMediaSegments(spans.get(bestKey)!), combined: true });
   }
   return out;
+}
+
+// ── Resolution versions ──────────────────────────────────────────────────
+// Plex's multiple-versions naming: the same movie (or episode) saved more than once, each file's name carrying a " - <label>" segment:
+//   Movie (2020)/Movie (2020) - 1080p.mp4, Movie (2020) - 4K.mp4 (and "- 4K - pt1.mp4" when a version is split)
+//   Season 01/Show - s01e01 - 720p.mp4, Show - s01e01 - 1080p.mp4
+// Only a segment that STARTS with a resolution word counts as a version label ("1080p", "4K", "UHD", "720p BluRay"), so an episode's
+// title ("Show - s01e01 - Pilot") is never mistaken for one.
+
+const VERSION_LABEL_RE = /^(?:\d{3,4}p|[248]k|uhd|fhd|qhd|hd|sd)(?:\s+\S.*)?$/i;
+
+/** A file name with its resolution label taken out: the label as normalized (lower case, single spaces), or "" when it has none. */
+export function splitVersionLabel(fileName: string): { label: string; rest: string } {
+  const dot = fileName.lastIndexOf(".");
+  const ext = dot > 0 ? fileName.slice(dot) : "";
+  const base = dot > 0 ? fileName.slice(0, dot) : fileName;
+  const parts = base.split(/\s+-\s+/);
+  // Never the first segment: that is the title itself.
+  for (let i = 1; i < parts.length; i++) {
+    if (VERSION_LABEL_RE.test(parts[i].trim())) {
+      const rest = parts.filter((_, j) => j !== i).join(" - ");
+      return { label: parts[i].trim().toLowerCase().replace(/\s+/g, " "), rest: rest + ext };
+    }
+  }
+  return { label: "", rest: fileName };
+}
+
+/** The resolution label in a file's name ("1080p", "4k"), or "" when it names none. */
+export function versionLabelOf(fileName: string): string {
+  return splitVersionLabel(fileName).label;
+}
+
+/** Groups files by their resolution label ("" first, then the rest in name order); each group is still all the parts of one version. */
+export function groupByVersion<T extends { name: string }>(files: T[]): Map<string, T[]> {
+  const groups = new Map<string, T[]>();
+  for (const file of files) {
+    const label = versionLabelOf(file.name);
+    const list = groups.get(label) ?? [];
+    list.push(file);
+    groups.set(label, list);
+  }
+  return new Map([...groups.entries()].sort(([a], [b]) => (a === "" ? -1 : b === "" ? 1 : a.localeCompare(b))));
+}
+
+/** A rough height in pixels for a label ("4k" -> 2160), used to order versions before they have been probed. */
+export function labelHeightHint(label: string): number | null {
+  const m = /^(\d{3,4})p/.exec(label);
+  if (m) return Number(m[1]);
+  const k = /^([248])k/.exec(label);
+  if (k) return k[1] === "2" ? 1440 : k[1] === "4" ? 2160 : 4320;
+  if (/^uhd/.test(label)) return 2160;
+  if (/^(fhd)/.test(label)) return 1080;
+  if (/^qhd/.test(label)) return 1440;
+  if (/^hd/.test(label)) return 720;
+  if (/^sd/.test(label)) return 480;
+  return null;
+}
+
+/**
+ * A resolution name for a picture size. Widescreen films are often cropped (1920x800 is still "1080p"), so the width decides as much as the height.
+ */
+export function resolutionName(width: number | null, height: number | null): string | null {
+  if (!width && !height) return null;
+  const effective = Math.max(height ?? 0, Math.round(((width ?? 0) * 9) / 16));
+  if (effective >= 4000) return "8K";
+  if (effective >= 2000) return "4K";
+  if (effective >= 1300) return "1440p";
+  if (effective >= 1000) return "1080p";
+  if (effective >= 680) return "720p";
+  if (effective >= 540) return "576p";
+  return "480p";
 }
 
 const VIDEO_EXTENSIONS = new Set([".mp4", ".m4v", ".mov"]);

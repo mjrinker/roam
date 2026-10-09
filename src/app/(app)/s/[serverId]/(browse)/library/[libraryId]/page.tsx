@@ -1,5 +1,6 @@
 import Link from "next/link";
-import { and, asc, count, eq, inArray, isNotNull, ne, sum } from "drizzle-orm";
+import { and, asc, count, eq, inArray, isNotNull, max, ne, sum } from "drizzle-orm";
+import { describeVersions } from "@/lib/player/versions";
 import { notFound } from "next/navigation";
 import { z } from "zod";
 import { AudioLines, Clapperboard, Film, BookOpen, Headphones, Images, Music, Tv } from "lucide-react";
@@ -201,17 +202,27 @@ export default async function LibraryDetailPage({
         db
           .select({
             ownerId: mediaFiles.ownerId,
+            versionLabel: mediaFiles.versionLabel,
+            width: max(mediaFiles.width),
+            height: max(mediaFiles.height),
             total: count(),
             probed: count(mediaFiles.durationSeconds),
             seconds: sum(mediaFiles.durationSeconds),
           })
           .from(mediaFiles)
           .where(and(eq(mediaFiles.ownerKind, "title"), inArray(mediaFiles.ownerId, movieIds)))
-          .groupBy(mediaFiles.ownerId),
+          .groupBy(mediaFiles.ownerId, mediaFiles.versionLabel),
       ])
     : [[], []];
   const stateById = new Map(states.map((s) => [s.ownerId, s]));
-  const statsById = new Map(fileStats.map((s) => [s.ownerId, s]));
+  // A movie saved in several resolutions counts once: the stats of the version that plays by default.
+  const statsById = new Map<string, (typeof fileStats)[number]>();
+  const statsByOwner = new Map<string, typeof fileStats>();
+  for (const s of fileStats) if (s.ownerId) statsByOwner.set(s.ownerId, [...(statsByOwner.get(s.ownerId) ?? []), s]);
+  for (const [ownerId, perVersion] of statsByOwner) {
+    const best = perVersion.find((v) => v.versionLabel === describeVersions(perVersion)[0].label) ?? perVersion[0];
+    statsById.set(ownerId, best);
+  }
 
   // Admin-only "audio needs fixing" flag per title: a movie/audiobook's own
   // files, or any episode's files for a show. Only rows with a non-AAC codec

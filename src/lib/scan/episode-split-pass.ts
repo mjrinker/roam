@@ -29,6 +29,7 @@ type CandidateRow = {
   ownerId: string;
   boxFileId: string;
   partIndex: number;
+  versionLabel: string;
   filename: string;
   durationSeconds: number | null;
   durationMs: number | null;
@@ -119,6 +120,7 @@ export async function resolveEpisodeSplits(episodeIds: string[]): Promise<void> 
       ownerId: mediaFiles.ownerId,
       boxFileId: mediaFiles.boxFileId,
       partIndex: mediaFiles.partIndex,
+      versionLabel: mediaFiles.versionLabel,
       filename: mediaFiles.filename,
       durationSeconds: mediaFiles.durationSeconds,
       durationMs: mediaFiles.durationMs,
@@ -140,8 +142,14 @@ export async function resolveEpisodeSplits(episodeIds: string[]): Promise<void> 
   // How many media_files rows each episode owns in total — used to detect
   // an episode that ALSO owns some other, unrelated file (planCombinedTrims
   // treats that as a case not worth reasoning about further).
+  // Each resolution version of an episode is worked out on its own (its files are a separate set of parts), so "an owner" below
+  // means an episode AND a version.
+  const ownerKeyOf = (ownerId: string, versionLabel: string) => `${ownerId}|${versionLabel}`;
   const rowCountByOwner = new Map<string, number>();
-  for (const row of rows) rowCountByOwner.set(row.ownerId, (rowCountByOwner.get(row.ownerId) ?? 0) + 1);
+  for (const row of rows) {
+    const key = ownerKeyOf(row.ownerId, row.versionLabel);
+    rowCountByOwner.set(key, (rowCountByOwner.get(key) ?? 0) + 1);
+  }
 
   // Every row sharing a Box file id, across ALL owners — used below to
   // find a probed duration/chapters for a part even if THIS particular
@@ -170,9 +178,10 @@ export async function resolveEpisodeSplits(episodeIds: string[]): Promise<void> 
   const uf = new BoxFileUnionFind();
   const boxFileIdsByOwner = new Map<string, Set<string>>();
   for (const row of candidates) {
-    const set = boxFileIdsByOwner.get(row.ownerId) ?? new Set<string>();
+    const key = ownerKeyOf(row.ownerId, row.versionLabel);
+    const set = boxFileIdsByOwner.get(key) ?? new Set<string>();
     set.add(row.boxFileId);
-    boxFileIdsByOwner.set(row.ownerId, set);
+    boxFileIdsByOwner.set(key, set);
   }
   for (const boxFileIds of boxFileIdsByOwner.values()) {
     const [first, ...rest] = boxFileIds;
@@ -225,7 +234,7 @@ export async function resolveEpisodeSplits(episodeIds: string[]): Promise<void> 
         : (ownerRowsInGroup.find((r) => r.trimSource != null)?.trimSource ?? null);
       return {
         episodeNumber: ep?.number ?? -1,
-        ownerRowCount: rowCountByOwner.get(ownerId) ?? 1,
+        ownerRowCount: rowCountByOwner.get(ownerKeyOf(ownerId, groupRows[0].versionLabel)) ?? 1,
         runtimeSeconds: ep?.runtimeSeconds ?? null,
         trimSource,
       };
