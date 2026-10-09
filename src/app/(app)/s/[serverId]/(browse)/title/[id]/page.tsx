@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { and, asc, eq } from "drizzle-orm";
-import { Loader2, Play } from "lucide-react";
+import { Loader2, Play, Captions } from "lucide-react";
 import { db } from "@/lib/db/client";
 import { libraries, mediaFiles, titles, watchState } from "@/lib/db/schema";
 import { requireServerMember } from "@/lib/auth/guards";
@@ -134,6 +134,11 @@ export default async function TitleDetailPage({
       <AddToPlaylistMenu serverId={serverId} target={{ titleId: title.id }} />
       <MoreMenu>
         {libraryHasDoneState(row.libraryKind) && <MarkDoneButton kind="title" id={title.id} done={!!state?.finished} media="watch" />}
+        {role === "admin" && libraryHasDoneState(row.libraryKind) && (
+          <Button render={<Link href={`/s/${serverId}/subtitles/title/${title.id}`} />} variant="secondary" className="h-11 gap-2 rounded-xl bg-white/10 px-4 backdrop-blur hover:bg-white/20">
+            <Captions className="size-4" /> Subtitles
+          </Button>
+        )}
         {role === "admin" && !isGeneric && <TitleResyncButton titleId={title.id} titleName={title.name} />}
         {role === "admin" && !isGeneric && <TmdbMatchButton titleId={title.id} titleName={title.name} kind="movie" />}
         {role === "admin" && !isGeneric && needsAudioFix(segments) && <FixAudioButton titleId={title.id} titleName={title.name} />}

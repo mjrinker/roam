@@ -11,6 +11,8 @@ export interface VideoSessionInfo {
   nextLabel?: string;
   /** The address of the full player, for the bar's expand button. */
   watchHref: string;
+  /** Where the admin adds or removes this video's subtitles. */
+  manageSubtitlesHref?: string;
 }
 
 export interface VideoSessionState {

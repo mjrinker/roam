@@ -27,6 +27,9 @@ export interface PlayManifest {
   expiresAt: string;
   /** The speed this title's library starts playback at (null or missing = normal speed). */
   defaultRate?: number | null;
+  /** The subtitle tracks this title has (missing = none), and whether this viewer may add or remove them. */
+  subtitles?: { id: string; language: string; label: string; hearingImpaired: boolean }[];
+  canManageSubtitles?: boolean;
 }
 
 // ── Audiobooks ───────────────────────────────────────────────────────────
