@@ -210,6 +210,7 @@ async function run(label: string, exe: string, m56: boolean) {
   for (let i = 0; i < 10 && !(await inButtonRow()); i++) await key(page, 40);
   for (let i = 0; i < 4 && (await focusedText(page)) !== "More"; i++) await key(page, 39);
   await key(page, 13);
+  check(L("the actions revealed by More are all on screen, not cut off at the bottom"), await page.evaluate<boolean>(`Array.prototype.every.call(document.querySelectorAll(".more-item [data-f]"), function (e) { var r = e.getBoundingClientRect(); return r.width > 0 && r.top >= 0 && r.bottom <= window.innerHeight; })`), await page.evaluate<string>(`Array.prototype.map.call(document.querySelectorAll(".more-item [data-f]"), function (e) { var r = e.getBoundingClientRect(); return Math.round(r.top) + "-" + Math.round(r.bottom); }).join(" ") + " of " + window.innerHeight`));
   for (let i = 0; i < 4 && (await focusedText(page)) !== "Sign out"; i++) await key(page, 39); // the revealed actions follow More
   check(L("the Sign out button can be reached with the arrows"), (await focusedText(page)) === "Sign out", await focusedText(page));
   await key(page, 13);
@@ -282,6 +283,16 @@ async function run(label: string, exe: string, m56: boolean) {
   check(L("and back to More"), (await focusedText(page)) === "More", await focusedText(page));
   await key(page, 13);
   check(L("OK on More again hides them"), (await page.evaluate<string>(shownButtons)) === "Play|Add|More", await page.evaluate<string>(shownButtons));
+
+  // The harder case: the actions are at the very bottom of the screen when More is opened. The page scrolls so they are all in view.
+  await page.goto(base + "/tv/s/x/title/9");
+  await page.evaluate(`document.querySelector(".detail").style.marginTop = (window.innerHeight - 120) + "px"; window.scrollTo(0, 0);`);
+  await key(page, 39);
+  await key(page, 39);
+  check(L("More can be reached with its row at the bottom of the screen"), (await focusedText(page)) === "More", await focusedText(page));
+  await key(page, 13);
+  const inView = `Array.prototype.every.call(document.querySelectorAll(".more-item [data-f]"), function (e) { var r = e.getBoundingClientRect(); return r.width > 0 && r.top >= 0 && r.bottom <= window.innerHeight; })`;
+  check(L("opening More at the bottom of the screen scrolls the revealed actions fully into view"), await page.evaluate<boolean>(inView), await page.evaluate<string>(`Array.prototype.map.call(document.querySelectorAll(".more-item [data-f]"), function (e) { var r = e.getBoundingClientRect(); return Math.round(r.top) + "-" + Math.round(r.bottom); }).join(" ") + " of " + window.innerHeight`));
 
   // A folder page: folders come first and take focus, and arrows reach the files below.
   await page.goto(base + "/tv/s/x/library/f");

@@ -988,7 +988,11 @@ doc.addEventListener("click", (e: MouseEvent) => {
   const opening = wrap.className.indexOf(" open") < 0;
   wrap.className = opening ? wrap.className + " open" : wrap.className.replace(" open", "");
   if (opening) {
-    const first = wrap.querySelector(".more-item [data-f]") as HTMLElement | null;
+    // Bring the whole revealed row into view (the last one first, then the first, which also takes the highlight), so
+    // nothing opens below the bottom edge of the screen.
+    const revealed = wrap.querySelectorAll(".more-item [data-f]");
+    if (revealed.length) reveal(revealed[revealed.length - 1] as HTMLElement);
+    const first = revealed[0] as HTMLElement | undefined;
     if (first) focusEl(first);
   }
 });
