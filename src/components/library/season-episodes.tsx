@@ -7,6 +7,8 @@ import { Check, Loader2, Play, Tv } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { AddToPlaylistMenu } from "@/components/playlists/add-to-playlist-menu";
 import { MarkDoneButton } from "@/components/library/mark-done-button";
+import { MoreMenu } from "@/components/shell/more-menu";
+import { DownloadButton } from "@/components/offline/download-button";
 
 export interface EpisodeRowData {
   id: string;
@@ -97,16 +99,21 @@ function EpisodeRow({ ep, serverId }: { ep: EpisodeRowData; serverId: string }) 
       {ep.ready ? (
         <Link
           href={`/s/${serverId}/watch/episode/${ep.id}`}
-          className={cn(classes, "pr-24 hover:bg-white/[0.05]")}
+          className={cn(classes, "pr-32 hover:bg-white/[0.05]")}
         >
           {body}
         </Link>
       ) : (
-        <div className={cn(classes, "pr-24 opacity-70")}>{body}</div>
+        <div className={cn(classes, "pr-32 opacity-70")}>{body}</div>
       )}
       <div className="absolute top-2 right-2 flex items-center gap-1.5">
         <MarkDoneButton kind="episode" id={ep.id} done={ep.watched} media="watch" variant="icon" />
         <AddToPlaylistMenu serverId={serverId} target={{ episodeId: ep.id }} variant="icon" />
+        {ep.ready && (
+          <MoreMenu>
+            <DownloadButton serverId={serverId} ownerKind="episode" ownerId={ep.id} />
+          </MoreMenu>
+        )}
       </div>
     </div>
   );

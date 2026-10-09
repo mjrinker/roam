@@ -7,6 +7,8 @@ export interface PlaySegment {
   url: string;
   durationSeconds: number;
   startSeconds: number;
+  /** The physical file's size in bytes when known (a download shows progress against it). */
+  sizeBytes?: number;
   // Both PRESENT together only for a trimmed segment — an episode's
   // estimated slice of a multi-episode file (see lib/scan/episode-split.ts)
   // — and OMITTED entirely (not even `undefined`) for an ordinary segment,

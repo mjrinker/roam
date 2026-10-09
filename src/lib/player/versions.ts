@@ -78,6 +78,27 @@ export function pickVersion(versions: readonly VersionInfo[], requested: string 
   return versions[0].label; // describeVersions lists the best first
 }
 
+/**
+ * The rows of an owner that can be offered for playback: every row of each version whose files are all probed (a version still being
+ * read has no length yet), or all rows when none is ready. Shared by the play manifest and the download options.
+ */
+export function offeredRows<T extends VersionRowLike & { durationSeconds: number | null; trimDurationSeconds: number | null }>(rows: readonly T[]): T[] {
+  const playable = [...groupRowsByVersion(rows).values()].filter((group) => group.filter((r) => r.trimDurationSeconds !== 0).every((r) => r.durationSeconds != null));
+  return playable.length > 0 ? playable.flat() : [...rows];
+}
+
+/** A version's size on disk: its files' sizes added up, each physical file once; null when any is unknown. */
+export function versionBytes<T extends { boxFileId: string; sizeBytes: number | null }>(rows: readonly T[]): number | null {
+  const byFile = new Map<string, number | null>();
+  for (const r of rows) byFile.set(r.boxFileId, r.sizeBytes);
+  let total = 0;
+  for (const size of byFile.values()) {
+    if (size == null) return null;
+    total += size;
+  }
+  return byFile.size > 0 ? total : null;
+}
+
 /** Only the rows of the version that would play by default: for pages that add up or list an owner's files without playing them. */
 export function defaultVersionRows<T extends VersionRowLike>(rows: readonly T[]): T[] {
   if (rows.length === 0) return [];

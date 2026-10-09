@@ -23,8 +23,10 @@ import { clampSpeed } from "@/lib/player/speed";
 import { SubtitleOverlay, type LoadedTrack } from "@/components/player/subtitles";
 import { SettingsMenu } from "@/components/player/settings-menu";
 import { readPreferredHeight, writePreferredHeight } from "@/lib/player/quality-preference";
+import { applyLocalFiles, localVideoFor, offlineVideoManifest, openLocalFiles, type LocalFiles } from "@/lib/offline/local-playback";
+import { queueProgress } from "@/lib/offline/sync";
 import type { PlayManifest, PlayOwnerKind } from "@/lib/player/types";
-import { UNSUPPORTED_AUDIO_CODECS } from "@/lib/scan/codec-support";
+import { unsupportedCodecsParam } from "@/lib/player/codec-query";
 import {
   crossedVirtualEnd,
   remainingInSegment,
@@ -122,22 +124,16 @@ function formatTime(totalSeconds: number) {
 // Which of the known-problem audio codecs THIS browser can't decode. Tested
 // per codec (Safari plays AC-3 but not DTS), and computed once — the server
 // uses it to hand back a remuxed copy of any file whose audio is one of them.
-let unsupportedCodecsQuery: string | null = null;
 function playManifestUrl(ownerKind: PlayOwnerKind, ownerId: string, version?: string): string {
-  if (unsupportedCodecsQuery === null) {
-    const probe = document.createElement("video");
-    const unsupported = UNSUPPORTED_AUDIO_CODECS.filter((codec) => !probe.canPlayType(`video/mp4; codecs="${codec}"`));
-    unsupportedCodecsQuery = unsupported.length > 0 ? `?unsupportedCodecs=${unsupported.join(",")}` : "";
-  }
+  const params = new URLSearchParams(unsupportedCodecsParam());
   // Which resolution: the one asked for, else the one closest to what this device last picked, else the best the title has.
-  const extra = new URLSearchParams();
-  if (version !== undefined) extra.set("version", version);
+  if (version !== undefined) params.set("version", version);
   else {
     const height = readPreferredHeight();
-    if (height !== null) extra.set("height", String(height));
+    if (height !== null) params.set("height", String(height));
   }
-  const more = extra.toString();
-  return `/api/play/${ownerKind}/${ownerId}${unsupportedCodecsQuery}${more ? `${unsupportedCodecsQuery ? "&" : "?"}${more}` : ""}`;
+  const query = params.toString();
+  return `/api/play/${ownerKind}/${ownerId}${query ? `?${query}` : ""}`;
 }
 
 export function SeamlessPlayer({
@@ -209,6 +205,8 @@ export function SeamlessPlayer({
   const [subOffset, setSubOffset] = useState(0);
   // Playing again after a switch of resolution (the new files load, then it carries on from where it was).
   const resumePlayingRef = useRef(false);
+  // The downloaded files this video is playing from, if any (their addresses are let go when the video changes).
+  const localFilesRef = useRef<LocalFiles | null>(null);
   const switchTokenRef = useRef(0);
   const [controlsVisible, setControlsVisible] = useState(true);
   const [hoverRatio, setHoverRatio] = useState<number | null>(null);
@@ -235,14 +233,32 @@ export function SeamlessPlayer({
     let cancelled = false;
     const videos = videoRefs.current; // the same two-slot list for the player's whole life
     (async () => {
-      const res = await fetch(playManifestUrl(ownerKind, ownerId));
+      // A downloaded copy is played from this device. When there is a connection the server is still asked (for where the viewer left
+      // off, the speed and the other versions), for the downloaded version; with none, what was saved is enough.
+      const downloaded = await localVideoFor(ownerKind, ownerId).catch(() => null);
+      const res = await fetch(playManifestUrl(ownerKind, ownerId, downloaded?.version)).catch(() => null);
       if (cancelled) return;
-      if (!res.ok) {
-        const body = await res.json().catch(() => ({}));
-        setError(body.error ?? "This can't be played right now.");
+      let data: PlayManifest;
+      if (res && res.ok) {
+        data = await res.json();
+        localFilesRef.current?.release();
+        localFilesRef.current = await applyLocalFiles(data).catch(() => null);
+      } else if (downloaded && (!res || res.status >= 500)) {
+        const files = await openLocalFiles(downloaded).catch(() => null);
+        const offline = files ? await offlineVideoManifest(downloaded, files) : null;
+        if (cancelled) return files?.release();
+        if (!files || !offline) {
+          setError("This download can't be opened. Remove it and download it again.");
+          return;
+        }
+        localFilesRef.current?.release();
+        localFilesRef.current = files;
+        data = offline;
+      } else {
+        const body = res ? await res.json().catch(() => ({})) : {};
+        setError(body.error ?? (res ? "This can't be played right now." : "You're offline, and this isn't downloaded."));
         return;
       }
-      const data: PlayManifest = await res.json();
       manifestRef.current = data;
       setManifest(data);
       if (!rateTouchedRef.current) setRate(clampSpeed(data.defaultRate ?? 1));
@@ -269,6 +285,8 @@ export function SeamlessPlayer({
       setGlobalTime(0);
       setTracks([]);
       setActiveTrack(null);
+      localFilesRef.current?.release();
+      localFilesRef.current = null;
     };
   }, [ownerKind, ownerId]);
 
@@ -332,6 +350,11 @@ export function SeamlessPlayer({
         durationSeconds: Math.floor(m.durationSeconds),
         finished: isFinished,
       });
+      // With no connection the progress waits on this device and is sent once there is one.
+      if (typeof navigator !== "undefined" && !navigator.onLine) {
+        void queueProgress({ ownerKind: m.ownerKind, ownerId: m.ownerId, positionSeconds: Math.floor(positionSeconds), durationSeconds: Math.floor(m.durationSeconds), finished: isFinished });
+        return;
+      }
       // Best-effort; sendBeacon survives page unload, fetch doesn't.
       if (typeof navigator !== "undefined" && navigator.sendBeacon) {
         navigator.sendBeacon(
@@ -747,6 +770,9 @@ export function SeamlessPlayer({
       if (!res || !res.ok) return; // staying on the version already playing is better than an error
       const data: PlayManifest = await res.json();
       if (manifestRef.current !== m || token !== switchTokenRef.current) return; // another video opened, or a newer switch was asked for
+      const files = await applyLocalFiles(data).catch(() => null); // the chosen version may be one that is downloaded
+      localFilesRef.current?.release();
+      localFilesRef.current = files;
       writePreferredHeight(data.versions?.find((v) => v.label === data.version)?.height ?? null);
       data.resumeSeconds = Math.min(at, Math.max(0, data.durationSeconds - 1));
       resumePlayingRef.current = wasPlaying;

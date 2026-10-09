@@ -19,6 +19,7 @@ import { DetailHero } from "@/components/library/detail-hero";
 import { AddToPlaylistMenu } from "@/components/playlists/add-to-playlist-menu";
 import { MarkDoneButton } from "@/components/library/mark-done-button";
 import { MoreMenu } from "@/components/shell/more-menu";
+import { DownloadButton } from "@/components/offline/download-button";
 import { libraryHasDoneState } from "@/lib/libraries/profile";
 import { Breadcrumbs } from "@/components/shell/breadcrumbs";
 import { isFileTreeLibraryKind } from "@/lib/libraries/profile";
@@ -137,6 +138,7 @@ export default async function TitleDetailPage({
       )}
       <AddToPlaylistMenu serverId={serverId} target={{ titleId: title.id }} />
       <MoreMenu>
+        {ready && <DownloadButton serverId={serverId} ownerKind="title" ownerId={title.id} />}
         {libraryHasDoneState(row.libraryKind) && <MarkDoneButton kind="title" id={title.id} done={!!state?.finished} media="watch" />}
         {role === "admin" && !isGeneric && <TitleResyncButton titleId={title.id} titleName={title.name} />}
         {role === "admin" && !isGeneric && <TmdbMatchButton titleId={title.id} titleName={title.name} kind="movie" />}

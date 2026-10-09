@@ -6,7 +6,7 @@ import { BoxReauthRequiredError } from "@/lib/storage/box-token-storage";
 import type { PlayManifest, PlayOwnerKind, PlaySegment } from "@/lib/player/types";
 import { buildPlaySegment } from "@/lib/player/timeline";
 import { shouldUseVariant } from "@/lib/player/variant-selection";
-import { describeVersions, groupRowsByVersion, pickVersion } from "@/lib/player/versions";
+import { describeVersions, offeredRows, pickVersion } from "@/lib/player/versions";
 
 /** How long to wait for Box to make its browser-friendly version of a video the first time it is opened (it is quick afterwards). */
 export const BROWSER_VERSION_WAIT_MS = 40_000;
@@ -54,9 +54,7 @@ export async function buildPlayManifest(
     .orderBy(asc(mediaFiles.versionLabel), asc(mediaFiles.partIndex));
 
   // A version whose files are not all probed yet can't be played (it has no length), so it is not offered until it is.
-  const byVersion = groupRowsByVersion(everyRow);
-  const playable = [...byVersion.values()].filter((rows) => rows.filter((r) => r.trimDurationSeconds !== 0).every((r) => r.durationSeconds != null));
-  const offered = playable.length > 0 ? playable.flat() : everyRow;
+  const offered = offeredRows(everyRow);
   const versions = describeVersions(offered);
   const version = pickVersion(versions, choice.version ?? null, choice.preferredHeight ?? null);
   const allRows = offered.filter((r) => r.versionLabel === version);
@@ -98,10 +96,12 @@ export async function buildPlayManifest(
   try {
     for (const [index, row] of segmentRows.entries()) {
       let streaming: { url: string; expiresAt: Date } | null = null;
+      let usedVariant: typeof row | null = null;
       const variant = variantByPrimaryId.get(row.id);
       if (variant && shouldUseVariant(row, variant, unsupportedCodecs)) {
         // Any trouble minting the copy's URL just means playing the original.
         streaming = await provider.getStreamingUrl(variant.boxFileId).catch(() => null);
+        if (streaming) usedVariant = variant;
       }
       if (!streaming && preferBrowserVersion && provider.getBrowserVideoUrl) {
         // Any trouble just means playing the original.
@@ -112,7 +112,7 @@ export async function buildPlayManifest(
       }
       const { url, expiresAt } = streaming ?? (await provider.getStreamingUrl(row.boxFileId));
       if (!earliestExpiry || expiresAt < earliestExpiry) earliestExpiry = expiresAt;
-      const segment = buildPlaySegment(row, index, url, cursor);
+      const segment: PlaySegment = { ...buildPlaySegment(row, index, url, cursor), sizeBytes: (usedVariant ?? row).sizeBytes ?? undefined };
       segments.push(segment);
       // A trimmed segment's window duration, not the whole physical
       // file's — the next segment's startSeconds has to pick up right

@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import { Geist_Mono, Inter } from "next/font/google";
 import { GestureGuard } from "@/components/shell/gesture-guard";
+import { OfflineBoot } from "@/components/offline/offline-boot";
 import { SplashScreen, SPLASH_SKIP_SCRIPT } from "@/components/shell/splash-screen";
 import { Toaster } from "@/components/ui/sonner";
 import "./globals.css";
@@ -46,6 +47,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
       </head>
       <body className="min-h-full flex flex-col bg-background text-foreground">
         <GestureGuard />
+        <OfflineBoot />
         <SplashScreen />
         {children}
         <Toaster richColors position="top-center" />
