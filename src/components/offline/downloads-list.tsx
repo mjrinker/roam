@@ -38,7 +38,7 @@ function Poster({ blob, kind }: { blob: Blob | null; kind: DownloadRecord["kind"
  * Everything saved on this device: what each is, how big, how far along; play it, pause or resume, remove it. `playTo` gives the link
  * that plays a finished one (online: the watch page; offline: the offline player).
  */
-export function DownloadsList({ playTo }: { playTo: (record: DownloadRecord) => string }) {
+export function DownloadsList({ onPlayVideo }: { onPlayVideo: (record: DownloadRecord) => void }) {
   const audio = useAudioActions();
   const records = useDownloads();
   const supported = useSyncExternalStore(() => () => undefined, offlineStorageSupported, () => false);
@@ -61,12 +61,12 @@ export function DownloadsList({ playTo }: { playTo: (record: DownloadRecord) => 
   }
   const total = records.reduce((n, r) => n + savedBytes(r), 0);
   return (
-    <div className="flex flex-col gap-4">
-      <ul className="flex flex-col gap-2">
+    <div className="flex min-w-0 flex-col gap-4">
+      <ul className="flex min-w-0 flex-col gap-2">
         {records.map((r) => (
-          <li key={r.id} className="flex items-center gap-4 rounded-xl bg-white/[0.04] p-3 ring-1 ring-white/[0.08]">
+          <li key={r.id} className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-2 rounded-xl bg-white/[0.04] p-3 ring-1 ring-white/[0.08]">
             <Poster blob={r.poster} kind={r.kind} />
-            <div className="min-w-0 flex-1">
+            <div className="min-w-0 flex-1 basis-40">
               <p className="truncate font-medium">{r.title}</p>
               {r.subtitle && <p className="truncate text-sm text-muted-foreground">{r.subtitle}</p>}
               <p className="text-xs text-muted-foreground">
@@ -76,17 +76,20 @@ export function DownloadsList({ playTo }: { playTo: (record: DownloadRecord) => 
               {r.status === "downloading" && <ProgressBar record={r} />}
               {r.error && <p className="mt-1 text-xs text-destructive">{r.error}</p>}
             </div>
-            {r.status === "complete" &&
-              (r.kind === "listen" ? (
-                <Button type="button" size="sm" className="rounded-lg" disabled={!audio} onClick={() => void audio?.load(r.ownerId, { autoplay: true })}>
+            <div className="ml-auto flex shrink-0 items-center gap-2">
+              {r.status === "complete" && (
+                <Button
+                  type="button"
+                  size="sm"
+                  className="rounded-lg"
+                  disabled={r.kind === "listen" && !audio}
+                  onClick={() => (r.kind === "listen" ? void audio?.load(r.ownerId, { autoplay: true }) : onPlayVideo(r))}
+                >
                   Play
                 </Button>
-              ) : (
-                <Button render={<a href={playTo(r)} />} size="sm" className="rounded-lg">
-                  Play
-                </Button>
-              ))}
-            <RowActions record={r} />
+              )}
+              <RowActions record={r} />
+            </div>
           </li>
         ))}
       </ul>

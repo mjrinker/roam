@@ -70,6 +70,8 @@ interface SeamlessPlayerProps {
   subtitle?: string | null;
   /** Where the back arrow (and the finished screen's back button) goes. */
   backHref: string;
+  /** Closes the player in place instead of going to `backHref` (a player shown over a list, such as a downloaded video). */
+  onBack?: () => void;
   /** Shown as a button on the finished screen, e.g. linking to the next episode. */
   nextHref?: string;
   nextLabel?: string;
@@ -145,6 +147,7 @@ export function SeamlessPlayer({
   title,
   subtitle,
   backHref,
+  onBack,
   nextHref,
   nextLabel,
 }: SeamlessPlayerProps) {
@@ -208,6 +211,8 @@ export function SeamlessPlayer({
   // The downloaded files this video is playing from, if any (their addresses are let go when the video changes).
   const localFilesRef = useRef<LocalFiles | null>(null);
   const switchTokenRef = useRef(0);
+  // The viewer pressed back and the page behind is still loading.
+  const [leaving, setLeaving] = useState(false);
   const [controlsVisible, setControlsVisible] = useState(true);
   const [hoverRatio, setHoverRatio] = useState<number | null>(null);
 
@@ -860,6 +865,16 @@ export function SeamlessPlayer({
           href={backHref}
           aria-label="Back"
           tabIndex={controlsShown ? 0 : -1}
+          onClick={(e) => {
+            // Going back answers at once: the screen says so while the page behind it loads.
+            if (onBack) {
+              e.preventDefault();
+              onBack();
+              return;
+            }
+            setLeaving(true);
+            setTimeout(() => setLeaving(false), 8000);
+          }}
           className={cn(
             "flex size-10 shrink-0 items-center justify-center rounded-full bg-white/10 text-white backdrop-blur transition hover:bg-white/25",
             controlsShown && "pointer-events-auto"
@@ -876,6 +891,12 @@ export function SeamlessPlayer({
           )}
         </div>
       </div>
+
+      {leaving && (
+        <div className="absolute inset-0 z-30 flex items-center justify-center bg-black">
+          <Loader2 className="size-10 animate-spin text-white/70" />
+        </div>
+      )}
 
       {/* Center: loading / buffering / big play */}
       {!manifest && !error && (
@@ -907,7 +928,17 @@ export function SeamlessPlayer({
           </div>
           <div className="flex flex-wrap justify-center gap-3">
             <Button
-              render={<Link href={backHref} />}
+              render={
+                <Link
+                  href={backHref}
+                  onClick={(e) => {
+                    if (onBack) {
+                      e.preventDefault();
+                      onBack();
+                    } else setLeaving(true);
+                  }}
+                />
+              }
               variant="secondary"
               className="h-11 gap-2 rounded-xl bg-white/10 px-5 hover:bg-white/20"
             >
