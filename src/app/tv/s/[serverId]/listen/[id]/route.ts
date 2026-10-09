@@ -2,6 +2,7 @@ import { db } from "@/lib/db/client";
 import { asUuid, notFoundPage, tvAccess } from "@/lib/tv/context";
 import { html } from "@/lib/tv/http";
 import { listenInfo } from "@/lib/tv/data";
+import { parseQueueContext, targetHref, tvQueueNext } from "@/lib/tv/queue";
 import { parseSeed } from "@/lib/tv/shuffle";
 import { listenPage } from "@/tv/render";
 
@@ -17,6 +18,19 @@ export async function GET(request: Request, ctx: RouteContext<"/tv/s/[serverId]/
   const seed = parseSeed(query.get("shuffle"));
   const info = await listenInfo(db, access.scope, id, { artistId, shuffleSeed: seed });
   if (!info) return notFoundPage();
+  // Playing through a playlist: its order replaces an album's, and Back returns to the playlist.
+  let nextHref = info.next ? `${access.base}${info.next}${carried(info.back, artistId, seed)}` : null;
+  let backHref = `${access.base}${info.back}`;
+  let queue = info.queue;
+  const inPlaylist = parseQueueContext(query);
+  if (inPlaylist) {
+    const q = await tvQueueNext(db, access.scope, inPlaylist, { titleId: id });
+    if (q.valid) {
+      nextHref = q.next ? targetHref(access.base, q.next, inPlaylist.playlistId) : null;
+      backHref = `${access.base}/playlist/${inPlaylist.playlistId}`;
+      queue = null;
+    }
+  }
   return html(
     listenPage({
       title: info.name,
@@ -25,10 +39,10 @@ export async function GET(request: Request, ctx: RouteContext<"/tv/s/[serverId]/
       ownerId: info.id,
       remembers: info.remembers,
       skip: info.libraryKind === "audiobooks" ? 30 : 10,
-      back: `${access.base}${info.back}`,
+      back: backHref,
       // The way the queue was made (an artist's songs, a shuffle seed) rides along to the next song's page.
-      next: info.next ? `${access.base}${info.next}${carried(info.back, artistId, seed)}` : null,
-      queue: info.queue,
+      next: nextHref,
+      queue,
     })
   );
 }

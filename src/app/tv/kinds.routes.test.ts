@@ -40,8 +40,8 @@ vi.mock("@/lib/auth/guards", async () => {
 });
 vi.mock("@/lib/supabase/server", () => ({ createSupabaseServerClient: async () => ({ auth: { signOut: async () => void h.signedOut++ } }) }));
 
-import { musicAlbums, musicArtists, photoFavorites, profiles, viewers } from "@/lib/db/schema";
-import { addItem, joinServer, makeAccount, makeLibrary, makePlaylist, makeServer, makeTitle, type TestDb } from "@/lib/playlists/test-db";
+import { musicAlbums, musicArtists, photoFavorites, playlistItems, profiles, viewers } from "@/lib/db/schema";
+import { addMember, addEpisodeFile, addItem, joinServer, makeAccount, makeLibrary, makePlaylist, makeServer, makeShow, makeTitle, type TestDb } from "@/lib/playlists/test-db";
 import { GET as home } from "./s/[serverId]/route";
 import { GET as library } from "./s/[serverId]/library/[id]/route";
 import { GET as book } from "./s/[serverId]/book/[id]/route";
@@ -56,6 +56,8 @@ import { GET as search } from "./s/[serverId]/search/route";
 import { GET as screensaver } from "./s/[serverId]/screensaver/route";
 import { GET as playlists } from "./s/[serverId]/playlists/route";
 import { GET as playlist } from "./s/[serverId]/playlist/[id]/route";
+import { GET as addGet, POST as addPost } from "./s/[serverId]/add/route";
+import { GET as playlistPlay } from "./s/[serverId]/playlist/[id]/play/route";
 
 let db: TestDb;
 beforeAll(() => {
@@ -389,7 +391,8 @@ describe("playlists", () => {
     expect(lists).toContain(`href="/tv/s/${w.server.id}/playlist/${list.id}"`);
     const page = await text(await playlist(req("/x"), ctx({ ...sid(w), id: list.id })));
     expect(page).toContain("Film &lt;1&gt;");
-    expect(page).toContain(`href="/tv/s/${w.server.id}/title/${film.id}"`);
+    expect(page).toContain(`href="/tv/s/${w.server.id}/watch/title/${film.id}?playlist=${list.id}&amp;item=`);
+    expect(page).toContain(`href="/tv/s/${w.server.id}/playlist/${list.id}/play"`);
     const more = /href="([^"]*playlist\/[^"]*after=[^"]+)"/.exec(page)![1].replace(/&amp;/g, "&");
     expect(await text(await playlist(req(more), ctx({ ...sid(w), id: list.id })))).toContain("Extra 24");
     expect((await playlist(req(`/x?after=bogus`), ctx({ ...sid(w), id: list.id }))).status).toBe(404);
@@ -406,6 +409,146 @@ describe("playlists", () => {
     const theirs = await makePlaylist(db, { serverId: other.server.id, ownerViewerId: other.member.viewer.id, name: "T", visibility: "server" });
     await signIn(w.member);
     expect((await playlist(req("/x"), ctx({ ...sid(w), id: theirs.id }))).status).toBe(404);
+  });
+});
+
+describe("playing a playlist through", () => {
+  const cfgOf = (page: string) => JSON.parse(/id="play-config">(.*?)<\/script>/.exec(page)![1]);
+  async function setup() {
+    const w = await world();
+    const movies = await w.lib("movies");
+    const m1 = await makeTitle(db, movies.id, { kind: "movie", name: "First" });
+    const m2 = await makeTitle(db, movies.id, { kind: "movie", name: "Second" });
+    const book = await makeTitle(db, (await w.lib("audiobooks")).id, { kind: "audiobook", name: "Book" });
+    const list = await makePlaylist(db, { serverId: w.server.id, ownerViewerId: w.member.viewer.id, name: "Queue" });
+    const i1 = await addItem(db, list.id, { titleId: m1.id }, 1024);
+    const i2 = await addItem(db, list.id, { titleId: m2.id }, 2048);
+    const i3 = await addItem(db, list.id, { titleId: book.id }, 3072);
+    return { w, list, m1, m2, book, i1, i2, i3 };
+  }
+  it("Play all starts at the first item, and each item points to the next, ending at the playlist", async () => {
+    const { w, list, m1, m2, book, i1, i2, i3 } = await setup();
+    const start = await playlistPlay(req("/x"), ctx({ ...sid(w), id: list.id }));
+    expect([start.status, start.headers.get("location")]).toEqual([302, `https://roam.example/tv/s/${w.server.id}/watch/title/${m1.id}?playlist=${list.id}&item=${i1.id}`]);
+    const first = cfgOf(await text(await watch(req(`/x?playlist=${list.id}&item=${i1.id}`), ctx({ ...sid(w), kind: "title", id: m1.id }))));
+    expect(first).toMatchObject({ back: `/tv/s/${w.server.id}/playlist/${list.id}`, next: `/tv/s/${w.server.id}/watch/title/${m2.id}?playlist=${list.id}&item=${i2.id}` });
+    const second = cfgOf(await text(await watch(req(`/x?playlist=${list.id}&item=${i2.id}`), ctx({ ...sid(w), kind: "title", id: m2.id }))));
+    expect(second.next).toBe(`/tv/s/${w.server.id}/listen/${book.id}?playlist=${list.id}&item=${i3.id}`); // a book plays on the audio screen
+    const listening = JSON.parse(/id="listen-config">(.*?)<\/script>/.exec(await text(await listen(req(`/x?playlist=${list.id}&item=${i3.id}`), ctx({ ...sid(w), id: book.id }))))![1]);
+    expect(listening).toMatchObject({ next: null, back: `/tv/s/${w.server.id}/playlist/${list.id}`, queue: null });
+    // the Up-next lookup follows the queue too
+    const lookup = await (await watch(req(`/x?json=1&playlist=${list.id}&item=${i1.id}`), ctx({ ...sid(w), kind: "title", id: m1.id }))).json();
+    expect(lookup.next).toContain(`/watch/title/${m2.id}?playlist=`);
+  });
+  it("ignores a queue that isn't genuine: another item's id, a playlist that is not yours, junk", async () => {
+    const { w, list, m1, m2, i1 } = await setup();
+    // the page plays m1 but claims to be item 1's neighbour: m2 is not item i1
+    const wrong = cfgOf(await text(await watch(req(`/x?playlist=${list.id}&item=${i1.id}`), ctx({ ...sid(w), kind: "title", id: m2.id }))));
+    expect(wrong).toMatchObject({ next: null, back: expect.stringContaining("/title/") });
+    const friend = await makeAccount(db, "friend");
+    await joinServer(db, w.server.id, friend.accountId);
+    const priv = await makePlaylist(db, { serverId: w.server.id, ownerViewerId: friend.viewer.id, name: "Theirs" });
+    const pi = await addItem(db, priv.id, { titleId: m1.id });
+    const peek = cfgOf(await text(await watch(req(`/x?playlist=${priv.id}&item=${pi.id}`), ctx({ ...sid(w), kind: "title", id: m1.id }))));
+    expect(peek.back).not.toContain("/playlist/");
+    const junk = cfgOf(await text(await watch(req("/x?playlist=nope&item=nope"), ctx({ ...sid(w), kind: "title", id: m1.id }))));
+    expect(junk.back).not.toContain("/playlist/");
+    expect((await playlistPlay(req("/x"), ctx({ ...sid(w), id: priv.id }))).status).toBe(404);
+  });
+  it("steps through a show entry's episodes, then on to the next item; skips what the profile can't see", async () => {
+    const w = await world();
+    const shows = await w.lib("shows");
+    const { show, episodes: eps } = await makeShow(db, shows.id, 2, { name: "Show", ratingAges: { ANY: 0 } });
+    for (const e of eps) await addEpisodeFile(db, e.id);
+    const movie = await makeTitle(db, (await w.lib("movies")).id, { kind: "movie", name: "After", ratingAges: { ANY: 0 } });
+    const hidden = await makeTitle(db, (await w.lib("movies")).id, { kind: "movie", name: "Adult", ratingAges: { ANY: 17 } });
+    const list = await makePlaylist(db, { serverId: w.server.id, ownerViewerId: w.member.viewer.id, name: "Q" });
+    const si = await addItem(db, list.id, { titleId: show.id }, 1024);
+    await addItem(db, list.id, { titleId: hidden.id }, 1500);
+    const mi = await addItem(db, list.id, { titleId: movie.id }, 2048);
+    const start = await playlistPlay(req("/x"), ctx({ ...sid(w), id: list.id }));
+    expect(start.headers.get("location")).toContain(`/watch/episode/${eps[0].id}?playlist=${list.id}&item=${si.id}`);
+    const e1 = cfgOf(await text(await watch(req(`/x?playlist=${list.id}&item=${si.id}`), ctx({ ...sid(w), kind: "episode", id: eps[0].id }))));
+    expect(e1.next).toBe(`/tv/s/${w.server.id}/watch/episode/${eps[1].id}?playlist=${list.id}&item=${si.id}`);
+    const e2 = cfgOf(await text(await watch(req(`/x?playlist=${list.id}&item=${si.id}`), ctx({ ...sid(w), kind: "episode", id: eps[1].id }))));
+    // an adult profile goes on to the next item, whatever it is...
+    expect(e2.next).toContain(`/watch/title/${hidden.id}?playlist=${list.id}&item=`);
+    // ...a child's profile skips the one it may not see and goes to the one after
+    await db.update(viewers).set({ maxAge: 7, allowUnrated: false }).where(eq(viewers.id, w.member.viewer.id));
+    await signIn(w.member);
+    const kidE2 = cfgOf(await text(await watch(req(`/x?playlist=${list.id}&item=${si.id}`), ctx({ ...sid(w), kind: "episode", id: eps[1].id }))));
+    expect(kidE2.next).toBe(`/tv/s/${w.server.id}/watch/title/${movie.id}?playlist=${list.id}&item=${mi.id}`);
+  });
+});
+
+describe("adding to a playlist from the TV", () => {
+  const form = (path: string, fields: Record<string, string>, headers: Record<string, string> = {}) => new Request(`https://roam.example${path}`, { method: "POST", body: new URLSearchParams(fields), headers });
+  async function setup() {
+    const w = await world();
+    const film = await makeTitle(db, (await w.lib("movies")).id, { kind: "movie", name: "Film <x>" });
+    const mine = await makePlaylist(db, { serverId: w.server.id, ownerViewerId: w.member.viewer.id, name: "Mine" });
+    return { w, film, mine };
+  }
+  const inList = async (playlistId: string) => (await db.select().from(playlistItems).where(eq(playlistItems.playlistId, playlistId))).length;
+
+  it("offers the title pages an Add to playlist button, and lists only playlists this profile can add to", async () => {
+    const { w, film, mine } = await setup();
+    const page = await text(await title(req("/x"), ctx({ ...sid(w), id: film.id })));
+    expect(page).toContain(`href="/tv/s/${w.server.id}/add?title=${film.id}&amp;back=`);
+    const friend = await makeAccount(db, "friend");
+    await joinServer(db, w.server.id, friend.accountId);
+    const theirs = await makePlaylist(db, { serverId: w.server.id, ownerViewerId: friend.viewer.id, name: "Friend's view-only", visibility: "server" });
+    const shared = await makePlaylist(db, { serverId: w.server.id, ownerViewerId: friend.viewer.id, name: "Friend's shared edit" });
+    await addMember(db, shared.id, w.member.viewer.id, "editor");
+    await addMember(db, theirs.id, w.member.viewer.id, "viewer");
+    const chooser = await text(await addGet(req(`/x?title=${film.id}&back=${encodeURIComponent(`/tv/s/${w.server.id}/title/${film.id}`)}`), ctx(sid(w))));
+    expect(chooser).toContain("Film &lt;x&gt;");
+    expect(chooser).toContain("Mine");
+    expect(chooser).toContain("shared edit"); // an editor can add
+    expect(chooser).not.toContain("view-only"); // a viewer cannot
+    expect(chooser).toContain(`value="${mine.id}"`);
+  });
+  it("adds on POST, says when it is already there, and refuses a playlist that can't be changed", async () => {
+    const { w, film, mine } = await setup();
+    const post = (fields: Record<string, string>) => addPost(form(`/tv/s/${w.server.id}/add`, fields), ctx(sid(w)));
+    const ok = await post({ playlist: mine.id, title: film.id, back: `/tv/s/${w.server.id}/title/${film.id}` });
+    expect(ok.status).toBe(200);
+    expect(await text(ok)).toContain("Added to your playlist.");
+    expect(await inList(mine.id)).toBe(1);
+    const again = await post({ playlist: mine.id, title: film.id });
+    expect(await text(again)).toContain("already in this playlist");
+    expect(await inList(mine.id)).toBe(1);
+    const friend = await makeAccount(db, "friend");
+    await joinServer(db, w.server.id, friend.accountId);
+    const viewOnly = await makePlaylist(db, { serverId: w.server.id, ownerViewerId: friend.viewer.id, name: "V", visibility: "server" });
+    const refused = await post({ playlist: viewOnly.id, title: film.id });
+    expect(refused.status).toBe(404);
+    expect(await inList(viewOnly.id)).toBe(0);
+  });
+  it("won't add something hidden, from another server, or on a POST from another site, and cleans the back address", async () => {
+    const { w, film, mine } = await setup();
+    const post = (fields: Record<string, string>, headers: Record<string, string> = {}) => addPost(form(`/tv/s/${w.server.id}/add`, fields, headers), ctx(sid(w)));
+    const adult = await makeTitle(db, (await w.lib("movies")).id, { kind: "movie", name: "Adult", ratingAges: { ANY: 17 } });
+    await db.update(viewers).set({ maxAge: 7, allowUnrated: false }).where(eq(viewers.id, w.member.viewer.id));
+    await signIn(w.member);
+    expect((await post({ playlist: mine.id, title: adult.id })).status).toBe(404);
+    expect((await addGet(req(`/x?title=${adult.id}`), ctx(sid(w)))).status).toBe(404);
+    await db.update(viewers).set({ maxAge: null, allowUnrated: true }).where(eq(viewers.id, w.member.viewer.id));
+    await signIn(w.member);
+    const other = await world();
+    const theirs = await makeTitle(db, (await other.lib("movies")).id, { kind: "movie", name: "Theirs" });
+    await signIn(w.member);
+    expect((await post({ playlist: mine.id, title: theirs.id })).status).toBe(404);
+    expect((await post({ playlist: mine.id, title: film.id }, { origin: "https://evil.example" })).status).toBe(404);
+    expect(await inList(mine.id)).toBe(0);
+    for (const bad of ["https://evil.example/x", "//evil.example", `/tv/s/${w.server.id}//evil.example`, "javascript:alert(1)", `/tv/s/${w.server.id}/x\\y`]) {
+      const res = await post({ playlist: mine.id, title: film.id, back: bad });
+      expect(await text(res), bad).not.toContain("evil.example");
+    }
+    const chooser = await text(await addGet(req(`/x?title=${film.id}&back=https://evil.example/`), ctx(sid(w))));
+    expect(chooser).not.toContain("evil.example");
+    expect((await addGet(req("/x"), ctx(sid(w)))).status).toBe(404); // nothing to add
+    expect((await addPost(form("/x", { playlist: mine.id, title: film.id }), ctx({ serverId: "nope" }))).status).toBe(404);
   });
 });
 

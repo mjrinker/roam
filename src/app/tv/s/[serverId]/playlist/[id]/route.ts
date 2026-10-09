@@ -22,8 +22,10 @@ export async function GET(request: Request, ctx: RouteContext<"/tv/s/[serverId]/
       title: result.playlist.name,
       subtitle: [result.playlist.ownerName, result.playlist.description].filter(Boolean).join(" · ") || null,
       backHref: `${access.base}/playlists`,
+      // Play all starts at the top (a following page of a long playlist is reached with More).
+      folders: after ? undefined : [{ href: `${here}/play`, name: "Play all", note: "One after another" }],
       items: result.items.flatMap((item) => {
-        const href = playlistItemHref(item);
+        const href = playlistItemHref(item, id);
         const label = playlistItemLabel(item);
         return href ? [{ href: `${access.base}${href}`, name: label.name, meta: label.meta, posterUrl: item.posterUrl, square: item.titleKind === "audiobook" }] : [];
       }),

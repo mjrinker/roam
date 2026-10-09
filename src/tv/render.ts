@@ -329,3 +329,25 @@ export function playlistsPage(d: { base: string; lists: { href: string; name: st
     body: `<div class="page">${top(`<a data-f data-back href="${esc(d.base)}" class="btn" style="margin:0">Back</a>`)}<h1>Playlists</h1>${body}</div>`,
   });
 }
+
+export interface AddToPlaylistData {
+  base: string;
+  /** What is being added (its name), for the heading. */
+  what: string;
+  /** The address of the thing being added: "title" or "episode" and its id. */
+  target: { field: "title" | "episode"; id: string };
+  /** Where to go back to, an address on this server's TV pages. */
+  back: string;
+  playlists: { id: string; name: string; note: string }[];
+}
+
+/** Choosing which playlist to add something to: each playlist is a button that sends a POST, which works with the remote's OK key. */
+export function addToPlaylistPage(d: AddToPlaylistData): string {
+  const list = d.playlists.length
+    ? `<div class="row">${d.playlists.map((p, i) => postButton(`${d.base}/add`, p.name, { autofocus: i === 0, className: "tile", fields: { playlist: p.id, [d.target.field]: d.target.id, back: d.back } }).replace("</button>", `<small>${esc(p.note)}</small></button>`)).join("")}</div>`
+    : `<p class="sub">You don't have a playlist you can add to yet. Make one in Roam on a phone or computer, then come back.</p>`;
+  return tvDocument({
+    title: "Add to a playlist",
+    body: `<div class="page">${top(`<a data-f data-back href="${esc(safeUrl(d.back) ?? d.base)}" class="btn" style="margin:0">Back</a>`)}<h1>Add to a playlist</h1><p class="sub">${esc(d.what)}</p>${list}</div>`,
+  });
+}

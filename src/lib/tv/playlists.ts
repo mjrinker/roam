@@ -11,13 +11,15 @@ export interface TvPlaylistSummary {
   name: string;
   itemCount: number;
   ownerName: string | null;
+  /** Whether this profile may add to it (the owner and editors). */
+  canAdd: boolean;
 }
 
 /** The playlists this profile can see on this server, newest first (one page is plenty for a TV). */
 export async function tvPlaylists(ex: Executor, scope: TvScope): Promise<TvPlaylistSummary[]> {
   const result = await listPlaylists(ex, { serverId: scope.actor.serverId, viewerId: scope.viewerId, limit: 50 });
   if (!result.ok) return [];
-  return result.value.playlists.map((p) => ({ id: p.id, name: p.name, itemCount: p.itemCount, ownerName: p.owner?.name ?? null }));
+  return result.value.playlists.map((p) => ({ id: p.id, name: p.name, itemCount: p.itemCount, ownerName: p.owner?.name ?? null, canAdd: p.myRole === "owner" || p.myRole === "editor" }));
 }
 
 /** A cursor in a URL: the position and id of the last item shown, or "bad". */
@@ -38,14 +40,18 @@ export async function tvPlaylist(ex: Executor, scope: TvScope, playlistId: strin
   return { playlist: { id: detail.value.id, name: detail.value.name, description: detail.value.description, itemCount: detail.value.itemCount, ownerName: detail.value.owner?.name ?? null }, ...page };
 }
 
-/** Where an item opens, relative to the TV's base path: an episode plays, a movie and a show open their pages, a book, audio file or song plays. */
-export function playlistItemHref(item: Pick<PlaylistItemView, "episodeId" | "titleId" | "titleKind">): string | null {
-  if (item.episodeId) return `/watch/episode/${item.episodeId}`;
+/**
+ * Where an item opens, relative to the TV's base path. Episodes, movies, books, audio files and songs play right away, with the playlist
+ * carried along so what comes next in the playlist plays after them; a show opens its page.
+ */
+export function playlistItemHref(item: Pick<PlaylistItemView, "id" | "episodeId" | "titleId" | "titleKind">, playlistId: string): string | null {
+  const queue = `?playlist=${playlistId}&item=${item.id}`;
+  if (item.episodeId) return `/watch/episode/${item.episodeId}${queue}`;
   if (!item.titleId) return null;
   if (item.titleKind === "photo" || item.titleKind === "ebook") return null; // nothing to open on a TV
   if (item.titleKind === "show") return `/show/${item.titleId}`;
-  if (item.titleKind === "audiobook") return `/listen/${item.titleId}`;
-  return `/title/${item.titleId}`;
+  if (item.titleKind === "audiobook") return `/listen/${item.titleId}${queue}`;
+  return `/watch/title/${item.titleId}${queue}`;
 }
 
 /** The name and small print a card shows for an item. */

@@ -2,6 +2,7 @@ import { db } from "@/lib/db/client";
 import { asUuid, notFoundPage, tvAccess } from "@/lib/tv/context";
 import { watchInfo } from "@/lib/tv/data";
 import { html, json } from "@/lib/tv/http";
+import { parseQueueContext, targetHref, tvQueueNext } from "@/lib/tv/queue";
 import { watchConfig, watchPage } from "@/tv/render";
 
 /** How long the "Up next" countdown runs. */
@@ -23,7 +24,13 @@ export async function GET(request: Request, ctx: RouteContext<"/tv/s/[serverId]/
     : b.kind === "show" ? `${access.base}/show/${b.id}?season=${b.season}`
     : b.kind === "photoGrid" ? `${access.base}/library/${b.libraryId}${b.after ? `?after=${encodeURIComponent(b.after)}` : ""}`
     : `${access.base}/library/${b.libraryId}${b.path ? `?path=${encodeURIComponent(b.path)}` : ""}`;
-  const data = { title: info.title, subtitle: info.subtitle, ownerKind: info.ownerKind, ownerId: info.ownerId, back, next: info.next ? `${access.base}/watch/episode/${info.next.id}` : null };
+  let data = { title: info.title, subtitle: info.subtitle, ownerKind: info.ownerKind, ownerId: info.ownerId, back, next: info.next ? `${access.base}/watch/episode/${info.next.id}` : null };
+  // Playing through a playlist: what follows is the next thing in it (not the next episode of a season), and Back returns to the playlist.
+  const queue = parseQueueContext(new URL(request.url).searchParams);
+  if (queue) {
+    const q = await tvQueueNext(db, access.scope, queue, params.kind === "title" ? { titleId: id } : { episodeId: id });
+    if (q.valid) data = { ...data, back: `${access.base}/playlist/${queue.playlistId}`, next: q.next ? targetHref(access.base, q.next, queue.playlistId) : null };
+  }
   // ?json=1: the player of a newer browser asks for the next episode's details so it can carry on without loading a page.
   if (new URL(request.url).searchParams.get("json") === "1") return json({ ...watchConfig(data), title: data.title, subtitle: data.subtitle, upNextSeconds: UP_NEXT_SECONDS });
   return html(watchPage(data));

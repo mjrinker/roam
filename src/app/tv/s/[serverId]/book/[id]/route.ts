@@ -26,7 +26,7 @@ export async function GET(request: Request, ctx: RouteContext<"/tv/s/[serverId]/
       posterUrl: t.posterUrl,
       square: true,
       backHref: `${access.base}/library/${book.libraryId}`,
-      actions: [{ href: `${access.base}/listen/${id}`, label: book.resume ? `Resume from ${formatClock(book.resume.positionSeconds)}` : "Listen", primary: true }],
+      actions: [{ href: `${access.base}/listen/${id}`, label: book.resume ? `Resume from ${formatClock(book.resume.positionSeconds)}` : "Listen", primary: true }, { href: `${access.base}/add?title=${id}&back=${encodeURIComponent(`${access.base}/book/${id}`)}`, label: "Add to playlist" }],
     })
   );
 }

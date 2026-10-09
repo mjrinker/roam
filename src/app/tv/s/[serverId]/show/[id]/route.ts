@@ -25,7 +25,7 @@ export async function GET(request: Request, ctx: RouteContext<"/tv/s/[serverId]/
       posterUrl: t.posterUrl,
       backdropUrl: t.backdropUrl,
       backHref: `${access.base}/library/${show.libraryId}`,
-      actions: show.episodes.length ? [{ href: `${access.base}/watch/episode/${(show.episodes.find((e) => e.inProgress) ?? show.episodes.find((e) => !e.watched) ?? show.episodes[0]).id}`, label: show.episodes.some((e) => e.inProgress) ? "Resume" : "Play", primary: true }] : [],
+      actions: [...(show.episodes.length ? [{ href: `${access.base}/watch/episode/${(show.episodes.find((e) => e.inProgress) ?? show.episodes.find((e) => !e.watched) ?? show.episodes[0]).id}`, label: show.episodes.some((e) => e.inProgress) ? "Resume" : "Play", primary: true }] : []), { href: `${access.base}/add?title=${id}&back=${encodeURIComponent(`${access.base}/show/${id}`)}`, label: "Add to playlist" }],
       seasons: show.seasons.length > 1 ? show.seasons.map((n) => ({ href: `${here}?season=${n}`, label: `Season ${n}`, current: n === show.currentSeason })) : [],
       episodes: show.episodes.map((e) => ({ href: `${access.base}/watch/episode/${e.id}`, label: `${e.number}. ${e.name ?? `Episode ${e.number}`}`, sub: e.watched ? "Watched" : e.inProgress ? "In progress" : null })),
     })
