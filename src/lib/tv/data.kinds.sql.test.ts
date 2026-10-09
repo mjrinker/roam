@@ -6,7 +6,8 @@ import type { AccessProfile } from "@/lib/content/access";
 import type { LibraryActor } from "@/lib/content/library-access";
 import { createTestDb, joinServer, makeAccount, makeLibrary, makeServer, makeTitle, type TestDb } from "@/lib/playlists/test-db";
 import { photoFavorites } from "@/lib/db/schema";
-import { randomPhotoId } from "./data";
+import { artistSongs, randomPhotoId } from "./data";
+import { shuffled } from "./shuffle";
 import { bookDetail, gridCursorAt, recentlyAdded, continueWatching, folderLevel, listenInfo, parseFolderCursor, photoPage, photoView, tvLibrary, watchInfo, TV_FOLDER_PAGE, type TvScope } from "./data";
 
 let db: TestDb;
@@ -237,6 +238,41 @@ describe("listenInfo", () => {
     expect(await listenInfo(db, w.scope(kid), songs[1].id)).toBeNull(); // and cannot open the hidden one
     // the queue never carries a song the profile may not see
     expect((await listenInfo(db, w.scope(kid), songs[0].id))!.queue!.items.map((i) => i.title)).toEqual(["One", "Three"]);
+  });
+  it("plays all of an artist's songs across albums, oldest album first, and goes Back to the artist", async () => {
+    const w = await world();
+    const lib = await w.lib("music");
+    const [artist] = await db.insert(musicArtists).values({ libraryId: lib.id, name: "Band", nameKey: "band", sortKey: "band" }).returning();
+    const [late] = await db.insert(musicAlbums).values({ libraryId: lib.id, artistId: artist.id, name: "Late", nameKey: "late", year: 2005 }).returning();
+    const [early] = await db.insert(musicAlbums).values({ libraryId: lib.id, artistId: artist.id, name: "Early", nameKey: "early", year: 1995 }).returning();
+    const e1 = await makeTitle(db, lib.id, { kind: "audiobook", name: "E1", albumId: early.id, trackNumber: 1, sortKey: "1" });
+    const e2 = await makeTitle(db, lib.id, { kind: "audiobook", name: "E2", albumId: early.id, trackNumber: 2, sortKey: "2" });
+    const l1 = await makeTitle(db, lib.id, { kind: "audiobook", name: "L1", albumId: late.id, trackNumber: 1, sortKey: "1" });
+    const all = await artistSongs(db, w.scope(), artist.id);
+    expect(all!.songs.map((s) => s.title)).toEqual(["E1", "E2", "L1"]);
+    const info = await listenInfo(db, w.scope(), e2.id, { artistId: artist.id });
+    expect(info).toMatchObject({ back: `/artist/${artist.id}`, next: `/listen/${l1.id}` });
+    expect(info!.queue!.items.map((i) => i.title)).toEqual(["E1", "E2", "L1"]);
+    expect(info!.queue!.index).toBe(1);
+    // an artist the song does not belong to is ignored, so the album plays as usual
+    const [other] = await db.insert(musicArtists).values({ libraryId: lib.id, name: "Other", nameKey: "other", sortKey: "other" }).returning();
+    const [elseAlbum] = await db.insert(musicAlbums).values({ libraryId: lib.id, artistId: other.id, name: "Else", nameKey: "else" }).returning();
+    await makeTitle(db, lib.id, { kind: "audiobook", name: "X1", albumId: elseAlbum.id, trackNumber: 1, sortKey: "1" });
+    const plain = await listenInfo(db, w.scope(), e1.id, { artistId: other.id });
+    expect(plain).toMatchObject({ back: `/album/${early.id}` });
+    expect(plain!.queue!.items.map((i) => i.title)).toEqual(["E1", "E2"]);
+    // a shuffle seed gives one fixed order that every song's page agrees on
+    const order = shuffled(all!.songs, 99).map((s) => s.title);
+    const firstId = all!.songs.find((s) => s.title === order[0])!.id;
+    const a = await listenInfo(db, w.scope(), firstId, { artistId: artist.id, shuffleSeed: 99 });
+    expect(a!.queue!.items.map((i) => i.title)).toEqual(order);
+    expect(a!.next).toBe(`/listen/${all!.songs.find((s) => s.title === order[1])!.id}`);
+    expect((await artistSongs(db, w.scope(), other.id))!.songs.map((x) => x.title)).toEqual(["X1"]);
+    // hidden songs never enter an artist queue
+    await db.update(titles).set({ ratingAges: { ANY: 17 } }).where(eq(titles.id, e2.id));
+    expect(await artistSongs(db, w.scope(kid), artist.id)).toBeNull(); // unrated songs are all hidden from this profile
+    const hiddenWorld = await world("restricted");
+    expect(await artistSongs(db, hiddenWorld.scope(), artist.id)).toBeNull();
   });
   it("remembers the place for audiobooks and audio files, and sends Back to the book or the folder", async () => {
     const w = await world();

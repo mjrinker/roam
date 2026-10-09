@@ -237,7 +237,7 @@ export interface ListenData {
   back: string;
   next: string | null;
   /** An album's songs in order and which one this is, so newer browsers can move on to the next song without loading a new page. */
-  queue?: { items: { id: string; title: string; by: string | null }[]; index: number } | null;
+  queue?: { items: { id: string; title: string; by: string | null }[]; index: number; cover?: string | null } | null;
 }
 
 export function listenPage(d: ListenData): string {
@@ -247,8 +247,8 @@ export function listenPage(d: ListenData): string {
     title: d.title,
     bodyClass: "watch",
     body:
-      `<div class="player listen"><audio id="pa"></audio><div class="cover">${img ? `<img src="${esc(img)}" alt="">` : ""}</div>` +
-      `<div class="now"><div class="t" id="ttl">${esc(d.title)}</div><div class="by" id="by">${d.subtitle ? esc(d.subtitle) : ""}</div></div><div id="status" class="status"></div>` +
+      `<div class="player listen"><audio id="pa"></audio>${img ? `<div class="bg"><img data-src="${esc(img)}" alt=""></div>` : ""}<div class="cover">${img ? `<img src="${esc(img)}" alt="">` : ""}</div>` +
+      `<div class="now"><div class="t" id="ttl">${esc(d.title)}</div><div class="by" id="by">${d.subtitle ? esc(d.subtitle) : ""}</div></div><div id="queuelist" class="queuelist"></div><div id="status" class="status"></div>` +
       `<div id="hud" class="hud on"><div id="bar" class="track" style="display:none"><b id="fill"></b></div><div id="clock" class="clock"></div></div></div>` +
       `<script type="application/json" id="listen-config">${cfg}</script>`,
   });

@@ -456,7 +456,7 @@ interface ListenConfig {
   back: string;
   next: string | null;
   /** An album's songs and this one's place: newer browsers play on to the next song in the same page. */
-  queue?: { items: { id: string; title: string; by: string | null }[]; index: number } | null;
+  queue?: { items: { id: string; title: string; by: string | null }[]; index: number; cover?: string | null } | null;
 }
 interface AudioPart {
   index: number;
@@ -488,6 +488,43 @@ function startListening(cfg: ListenConfig) {
   let qi = cfg.queue && MODERN ? cfg.queue.index : -1;
   let prefetched: { id: string; manifest: Promise<AudioManifest> } | null = null;
   const queue = cfg.queue && MODERN ? cfg.queue.items : null;
+  const queueEl = doc.getElementById("queuelist");
+
+  /** Under the title: the next few songs, and the keys that move between songs. */
+  function paintQueue() {
+    if (!queue || !queueEl) return;
+    queueEl.innerHTML = "";
+    const upcoming = queue.slice(qi + 1, qi + 4);
+    const line = doc.createElement("div");
+    line.textContent = upcoming.length ? "Next: " + upcoming.map((x) => x.title).join(" · ") : "Last song";
+    const hint = doc.createElement("div");
+    hint.textContent = "Song " + (qi + 1) + " of " + queue.length + " · Up: previous song · Down: next song";
+    queueEl.appendChild(line);
+    queueEl.appendChild(hint);
+  }
+
+  /** Lets the system (and a newer TV's own remote handling) show and control what is playing. */
+  function tellSystem(title: string, by: string | null) {
+    const ms = (navigator as unknown as { mediaSession?: { metadata: unknown; setActionHandler(name: string, fn: (() => void) | null): void } }).mediaSession;
+    const Meta = (window as unknown as { MediaMetadata?: new (init: { title: string; artist: string; artwork: { src: string }[] }) => unknown }).MediaMetadata;
+    if (!MODERN || !ms || !Meta) return;
+    try {
+      const cover = cfg.queue && cfg.queue.cover;
+      ms.metadata = new Meta({ title: title, artist: by || "", artwork: cover ? [{ src: cover }] : [] });
+      ms.setActionHandler("play", () => (audio.paused ? toggle() : undefined));
+      ms.setActionHandler("pause", () => (audio.paused ? undefined : toggle()));
+      ms.setActionHandler("nexttrack", queue && qi + 1 < queue.length ? () => goToSong(qi + 1) : null);
+      ms.setActionHandler("previoustrack", queue ? () => previousSong() : null);
+    } catch {
+      /* some browsers refuse an action they don't know */
+    }
+  }
+
+  function previousSong() {
+    if (!queue) return;
+    if (position() > 5 || qi === 0) seekTo(0);
+    else goToSong(qi - 1);
+  }
 
   const position = () => (manifest && part ? part.startSeconds + audio.currentTime : 0);
   const say = (text: string) => {
@@ -636,11 +673,13 @@ function startListening(cfg: ListenConfig) {
     doc.title = item.title + " · Roam";
     const base = window.location.pathname.replace(/\/listen\/[^/]+$/, "");
     try {
-      window.history.replaceState(null, "", base + "/listen/" + item.id);
+      window.history.replaceState(null, "", base + "/listen/" + item.id + window.location.search);
     } catch {
       /* the address is only cosmetic */
     }
     cfg.next = i + 1 < queue.length ? base + "/listen/" + queue[i + 1].id : null;
+    paintQueue();
+    tellSystem(item.title, item.by);
     load(undefined, true);
   }
 
@@ -697,10 +736,18 @@ function startListening(cfg: ListenConfig) {
     if (action === "pause") return audio.paused ? true : (toggle(), true);
     if (action === "forward" || dirKey === "right") return seekTo(position() + (action === "forward" ? cfg.skip * 3 : cfg.skip)), true;
     if (action === "rewind" || dirKey === "left") return seekTo(position() - (action === "rewind" ? cfg.skip * 3 : cfg.skip)), true;
+    if (queue && dirKey === "down") return qi + 1 < queue.length ? (goToSong(qi + 1), true) : (showHud(), true);
+    if (queue && dirKey === "up") return previousSong(), true;
     if (dirKey === "up" || dirKey === "down") return showHud(), true;
     return false;
   };
   bar.style.display = "block";
+  if (MODERN) {
+    const bg = doc.querySelector(".listen .bg img[data-src]");
+    if (bg) bg.setAttribute("src", bg.getAttribute("data-src") || "");
+  }
+  paintQueue();
+  if (queue) tellSystem(queue[qi].title, queue[qi].by);
   load();
 }
 

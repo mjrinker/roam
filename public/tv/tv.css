@@ -79,3 +79,10 @@ button.tile { margin: 0 1.5rem 1.5rem 0; }
 .upnext small { display: block; color: #a8a8b4; font-size: 1.05rem; margin-top: 0.6rem; }
 @keyframes roamfade { from { opacity: 0; } to { opacity: 1; } }
 .modern .photo img { animation: roamfade 0.6s ease-in; }
+.listen .bg { display: none; }
+.modern .listen .bg { display: block; position: absolute; top: 0; left: 0; width: 100%; height: 100%; overflow: hidden; background: #0b0b10; }
+.modern .listen .bg img { position: absolute; top: -10%; left: -10%; width: 120%; height: 120%; object-fit: cover; opacity: 0.4; -webkit-filter: blur(2.4rem); filter: blur(2.4rem); }
+.listen .cover, .listen .now { z-index: 1; }
+.queuelist { display: none; position: absolute; left: 0; width: 100%; top: 77%; text-align: center; padding: 0 3rem; box-sizing: border-box; color: #c3c3cf; font-size: 1.2rem; line-height: 1.7; z-index: 1; }
+.modern .queuelist { display: block; }
+.queuelist b { color: #7fd8bd; font-weight: 600; }

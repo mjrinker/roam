@@ -2,6 +2,7 @@ import { db } from "@/lib/db/client";
 import { asUuid, notFoundPage, tvAccess } from "@/lib/tv/context";
 import { html } from "@/lib/tv/http";
 import { getAlbum } from "@/lib/music/browse";
+import { newSeed, shuffled } from "@/lib/tv/shuffle";
 import { formatClock } from "@/tv/client/clock";
 import { detailPage } from "@/tv/render";
 
@@ -16,6 +17,9 @@ export async function GET(request: Request, ctx: RouteContext<"/tv/s/[serverId]/
   if (!result) return notFoundPage();
   const { album, tracks } = result;
   const first = tracks[0];
+  // Shuffle: a fresh seed fixes the order, so every song's page agrees on what comes next.
+  const seed = newSeed();
+  const mixed = tracks.length > 1 ? shuffled(tracks, seed)[0] : null;
   return html(
     detailPage({
       title: album.name,
@@ -24,7 +28,7 @@ export async function GET(request: Request, ctx: RouteContext<"/tv/s/[serverId]/
       posterUrl: album.coverUrl,
       square: true,
       backHref: `${access.base}/artist/${album.artistId}`,
-      actions: first ? [{ href: `${access.base}/listen/${first.id}`, label: "Play album", primary: true }] : [],
+      actions: first ? [{ href: `${access.base}/listen/${first.id}`, label: "Play album", primary: true }, ...(mixed ? [{ href: `${access.base}/listen/${mixed.id}?shuffle=${seed}`, label: "Shuffle" }] : [])] : [],
       listHeading: "Songs",
       episodes: tracks.map((t, i) => ({ href: `${access.base}/listen/${t.id}`, label: `${t.trackNumber ?? i + 1}. ${t.name}`, sub: [t.artist, t.durationSeconds ? formatClock(t.durationSeconds) : null].filter(Boolean).join(" · ") || null })),
     })

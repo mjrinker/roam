@@ -12,7 +12,8 @@ import { episodes, libraries, seasons, titles, watchState } from "@/lib/db/schem
 import { listFolder, normalizeFolderPath, type FolderPage } from "@/lib/libraries/folder-browse";
 import type { LibraryKind } from "@/lib/db/schema";
 import { GLOBALLY_LISTED_LIBRARY_KINDS, isPhotoLibraryKind, libraryRemembersProgress, tvBrowseStyle, TV_LISTEN_KINDS, TV_WATCH_KINDS, type TvBrowseStyle } from "@/lib/libraries/profile";
-import { getAlbum } from "@/lib/music/browse";
+import { getAlbum, getArtist } from "@/lib/music/browse";
+import { shuffled } from "@/lib/tv/shuffle";
 import { listTimeline, loadPhoto, photoNeighbors, type NeighborScope, type TimelineCursor } from "@/lib/photos/timeline";
 
 type Db = PgDatabase<PgQueryResultHKT, Record<string, unknown>>;
@@ -315,12 +316,34 @@ export interface ListenInfo {
   back: string;
   /** The next song of an album, relative to the TV's base path. */
   next: string | null;
-  /** All the songs of the album this one is on (those this profile may see) and this one's place among them. */
-  queue: { items: { id: string; title: string; by: string | null }[]; index: number } | null;
+  /** The songs to play through (an album, or all of an artist's; shuffled when asked) and this one's place among them. */
+  queue: { items: QueueSong[]; index: number; cover: string | null } | null;
 }
 
+export interface QueueSong {
+  id: string;
+  title: string;
+  by: string | null;
+}
+
+/** All the songs an artist has that this profile may hear, albums oldest first, each in album order; null when the artist isn't visible. */
+export async function artistSongs(ex: Db, scope: TvScope, artistId: string): Promise<{ songs: QueueSong[]; albumIds: Set<string> } | null> {
+  const artist = await getArtist(ex, { actor: scope.actor, viewer: scope.viewer, artistId });
+  if (!artist) return null;
+  const songs: QueueSong[] = [];
+  for (const al of artist.albums) {
+    const page = await getAlbum(ex, { actor: scope.actor, viewer: scope.viewer, albumId: al.id });
+    if (page) songs.push(...page.tracks.map((x) => ({ id: x.id, title: x.name, by: x.artist ?? page.album.artistName })));
+    if (songs.length >= QUEUE_MAX) break;
+  }
+  return { songs: songs.slice(0, QUEUE_MAX), albumIds: new Set(artist.albums.map((al) => al.id)) };
+}
+
+/** Most songs a queue will hold (an artist with a huge catalogue still plays, just not past this). */
+const QUEUE_MAX = 300;
+
 /** What a listening page needs: the names, where Back goes and the next song, only for something this profile may see. */
-export async function listenInfo(ex: Db, scope: TvScope, id: string): Promise<ListenInfo | null> {
+export async function listenInfo(ex: Db, scope: TvScope, id: string, opts: { artistId?: string | null; shuffleSeed?: number | null } = {}): Promise<ListenInfo | null> {
   const [row] = await ex
     .select({ title: titles, libraryId: libraries.id, libraryKind: libraries.kind })
     .from(titles)
@@ -339,10 +362,23 @@ export async function listenInfo(ex: Db, scope: TvScope, id: string): Promise<Li
   else if (t.albumId) {
     back = `/album/${t.albumId}`;
     const album = await getAlbum(ex, { actor: scope.actor, viewer: scope.viewer, albumId: t.albumId });
-    const at = album ? album.tracks.findIndex((x) => x.id === t.id) : -1;
-    const following = album && at >= 0 ? album.tracks[at + 1] : undefined;
-    if (following) next = `/listen/${following.id}`;
-    if (album && at >= 0) queue = { items: album.tracks.map((x) => ({ id: x.id, title: x.name, by: x.artist ?? album.album.artistName })), index: at };
+    let songs: QueueSong[] = album ? album.tracks.map((x) => ({ id: x.id, title: x.name, by: x.artist ?? album.album.artistName })) : [];
+    const cover = album?.album.coverUrl ?? null;
+    // "Play all" for an artist: every song of every album, oldest album first, when this song really is one of that artist's.
+    if (opts.artistId) {
+      const all = await artistSongs(ex, scope, opts.artistId);
+      if (all && all.albumIds.has(t.albumId)) {
+        songs = all.songs;
+        back = `/artist/${opts.artistId}`;
+      }
+    }
+    if (opts.shuffleSeed) songs = shuffled(songs, opts.shuffleSeed);
+    const at = songs.findIndex((x) => x.id === t.id);
+    if (at >= 0) {
+      queue = { items: songs, index: at, cover };
+      const following = songs[at + 1];
+      if (following) next = `/listen/${following.id}`;
+    }
   }
   return { id: t.id, name: t.name, subtitle: by, coverUrl: t.posterUrl, libraryKind, remembers: libraryRemembersProgress(libraryKind), back, next, queue };
 }

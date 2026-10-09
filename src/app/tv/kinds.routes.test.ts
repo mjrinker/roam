@@ -51,6 +51,7 @@ import { GET as album } from "./s/[serverId]/album/[id]/route";
 import { GET as photo } from "./s/[serverId]/photo/[id]/route";
 import { GET as watch } from "./s/[serverId]/watch/[kind]/[id]/route";
 import { GET as title } from "./s/[serverId]/title/[id]/route";
+import { GET as artistPlay } from "./s/[serverId]/artist/[id]/play/route";
 import { GET as search } from "./s/[serverId]/search/route";
 import { GET as screensaver } from "./s/[serverId]/screensaver/route";
 import { GET as playlists } from "./s/[serverId]/playlists/route";
@@ -217,7 +218,7 @@ describe("music", () => {
     expect(first).toContain(`"next":"/tv/s/${w.server.id}/listen/${songs[1].id}"`);
     expect(first).toContain(`"back":"/tv/s/${w.server.id}/album/${al.id}"`);
     const cfg = JSON.parse(/id="listen-config">(.*?)<\/script>/.exec(first)![1]);
-    expect(cfg.queue).toEqual({ items: [{ id: songs[0].id, title: "Intro", by: "The Band" }, { id: songs[1].id, title: "Song <2>", by: "The Band" }], index: 0 });
+    expect(cfg.queue).toEqual({ items: [{ id: songs[0].id, title: "Intro", by: "The Band" }, { id: songs[1].id, title: "Song <2>", by: "The Band" }], index: 0, cover: null });
     expect(first).not.toContain("Song <2>"); // a song's name inside the page data is escaped
     expect(await text(await listen(req("/x"), ctx({ ...sid(w), id: songs[1].id })))).toContain('"next":null');
   });
@@ -235,6 +236,56 @@ describe("music", () => {
     expect([(await artist(req("/x"), ctx({ ...sid(hiddenWorld), id: a2.id }))).status, (await album(req("/x"), ctx({ ...sid(hiddenWorld), id: al2.id }))).status, (await library(req("/x"), ctx({ ...sid(hiddenWorld), id: lib.id }))).status]).toEqual([404, 404, 404]);
     expect(art.id).toBeTruthy();
     expect(al.id).toBeTruthy();
+  });
+});
+
+describe("music: shuffle and play all", () => {
+  it("offers Shuffle on an album and Play all and Shuffle on an artist, each starting a queue that carries on from song to song", async () => {
+    const w = await world();
+    const lib = await w.lib("music");
+    const [art] = await db.insert(musicArtists).values({ libraryId: lib.id, name: "Band", nameKey: "band", sortKey: "band" }).returning();
+    const [al] = await db.insert(musicAlbums).values({ libraryId: lib.id, artistId: art.id, name: "LP", nameKey: "lp", year: 2000 }).returning();
+    const songs = [];
+    for (const [i, name] of ["One", "Two", "Three", "Four"].entries()) songs.push(await makeTitle(db, lib.id, { kind: "audiobook", name, albumId: al.id, trackNumber: i + 1, sortKey: String(i) }));
+    const albumPage = await text(await album(req("/x"), ctx({ ...sid(w), id: al.id })));
+    const shuffleHref = /href="([^"]*\?shuffle=\d+)"[^>]*>Shuffle</.exec(albumPage)![1];
+    expect(shuffleHref).toMatch(new RegExp(`^/tv/s/${w.server.id}/listen/[0-9a-f-]{36}\\?shuffle=\\d+$`));
+    const artistPage = await text(await artist(req("/x"), ctx({ ...sid(w), id: art.id })));
+    expect(artistPage).toContain(`href="/tv/s/${w.server.id}/artist/${art.id}/play"`);
+    expect(artistPage).toContain(`href="/tv/s/${w.server.id}/artist/${art.id}/play?shuffle=1"`);
+
+    // a shuffled song's page lists the queue in the same order the seed gives, and its next link keeps the seed
+    const [, id, seed] = /listen\/([0-9a-f-]{36})\?shuffle=(\d+)/.exec(shuffleHref)!;
+    const page = await text(await listen(req(`/x?shuffle=${seed}`), ctx({ ...sid(w), id })));
+    const cfg = JSON.parse(/id="listen-config">(.*?)<\/script>/.exec(page)![1]);
+    expect(cfg.queue.items.map((i: { title: string }) => i.title).sort()).toEqual(["Four", "One", "Three", "Two"]);
+    expect(cfg.queue.index).toBe(0);
+    expect(cfg.next).toBe(`/tv/s/${w.server.id}/listen/${cfg.queue.items[1].id}?shuffle=${seed}`);
+
+    // the artist's play-all redirects to the first song with the artist in the address, and Back goes to the artist
+    const start = await artistPlay(req("/x"), ctx({ ...sid(w), id: art.id }));
+    expect(start.headers.get("location")).toBe(`https://roam.example/tv/s/${w.server.id}/listen/${songs[0].id}?artist=${art.id}`);
+    const playing = JSON.parse(/id="listen-config">(.*?)<\/script>/.exec(await text(await listen(req(`/x?artist=${art.id}`), ctx({ ...sid(w), id: songs[0].id }))))![1]);
+    expect(playing.back).toBe(`/tv/s/${w.server.id}/artist/${art.id}`);
+    expect(playing.next).toBe(`/tv/s/${w.server.id}/listen/${songs[1].id}?artist=${art.id}`);
+    const mixed = await artistPlay(req("/x?shuffle=1"), ctx({ ...sid(w), id: art.id }));
+    expect(mixed.headers.get("location")).toMatch(new RegExp(`/listen/[0-9a-f-]{36}\\?artist=${art.id}&shuffle=\\d+$`));
+  });
+  it("ignores a bad artist or seed in the address, and 404s play-all for hidden or missing artists", async () => {
+    const w = await world();
+    const lib = await w.lib("music");
+    const [art] = await db.insert(musicArtists).values({ libraryId: lib.id, name: "Band", nameKey: "band", sortKey: "band" }).returning();
+    const [al] = await db.insert(musicAlbums).values({ libraryId: lib.id, artistId: art.id, name: "LP", nameKey: "lp" }).returning();
+    const song = await makeTitle(db, lib.id, { kind: "audiobook", name: "One", albumId: al.id, trackNumber: 1 });
+    const plain = JSON.parse(/id="listen-config">(.*?)<\/script>/.exec(await text(await listen(req("/x?artist=not-a-uuid&shuffle=-5"), ctx({ ...sid(w), id: song.id }))))![1]);
+    expect(plain.back).toBe(`/tv/s/${w.server.id}/album/${al.id}`);
+    expect((await artistPlay(req("/x"), ctx({ ...sid(w), id: "00000000-0000-4000-8000-0000000000aa" }))).status).toBe(404);
+    const hidden = await world("restricted");
+    const hl = await hidden.lib("music");
+    const [ha] = await db.insert(musicArtists).values({ libraryId: hl.id, name: "H", nameKey: "h", sortKey: "h" }).returning();
+    const [hal] = await db.insert(musicAlbums).values({ libraryId: hl.id, artistId: ha.id, name: "HL", nameKey: "hl" }).returning();
+    await makeTitle(db, hl.id, { kind: "audiobook", name: "S", albumId: hal.id, trackNumber: 1 });
+    expect((await artistPlay(req("/x"), ctx({ ...sid(hidden), id: ha.id }))).status).toBe(404);
   });
 });
 

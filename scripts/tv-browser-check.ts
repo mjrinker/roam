@@ -145,6 +145,8 @@ async function run(label: string, exe: string, m56: boolean) {
   const { page, close } = await launch(exe, nextPort++);
   if (m56) await page.addInitScript(M56_PRELUDE);
   // A stand-in for the browser's screen wake lock (the real one is not in Chromium 69), counting what the page asks of it.
+  // And for the media session (Chromium 73+): what the page tells the system is playing.
+  await page.addInitScript(`window.MediaMetadata = function (init) { this.title = init.title; this.artist = init.artist; }; Object.defineProperty(navigator, "mediaSession", { configurable: true, value: { metadata: null, setActionHandler: function (name, fn) { (window.__msHandlers = window.__msHandlers || {})[name] = fn; } } });`);
   await page.addInitScript(`Object.defineProperty(navigator, "wakeLock", { configurable: true, value: { request: function () { window.__wl = (window.__wl || 0) + 1; return Promise.resolve({ release: function () { window.__wlr = (window.__wlr || 0) + 1; return Promise.resolve(); } }); } } });`);
   const L = (s: string) => `${label}${m56 ? "+m56" : ""}: ${s}`;
   const base = "http://localhost:8799";
@@ -298,6 +300,23 @@ async function run(label: string, exe: string, m56: boolean) {
   for (let i = 0; i < 30 && !saves.some((s) => s.finished); i++) await new Promise((r) => setTimeout(r, 100));
   check(L("a book or file's end is saved as finished"), saves.some((s) => s.finished), JSON.stringify(saves));
   await page.goto(base + "/tv/s/x/listen/2");
+
+  // The music screen: next songs listed, Down and Up move between songs in the page, and the system is told what plays.
+  check(L("the queue shows the songs coming up"), (await page.evaluate<string>(`document.getElementById("queuelist").textContent`)).indexOf("Song 2 of 2") >= 0, await page.evaluate<string>(`document.getElementById("queuelist").textContent`));
+  check(L("the system is told which song plays"), (await page.evaluate<string>(`navigator.mediaSession.metadata && navigator.mediaSession.metadata.title`)) === "Second");
+  await page.waitFor(`document.getElementById("pa").currentTime > 0.2`, 15000);
+  await page.evaluate(`window.__sameDocument = 1`);
+  await key(page, 38);
+  check(L("Up goes to the previous song in the same page"), await page.waitFor(`location.pathname === "/tv/s/x/listen/1" && document.getElementById("ttl").textContent === "Intro" && window.__sameDocument === 1`, 8000), await page.url());
+  check(L("and the system hears about it"), (await page.evaluate<string>(`navigator.mediaSession.metadata.title`)) === "Intro");
+  check(L("and the queue moves with it"), (await page.evaluate<string>(`document.getElementById("queuelist").textContent`)).indexOf("Next: Second") >= 0);
+  await page.waitFor(`document.getElementById("pa").currentTime > 0.2`, 15000);
+  await key(page, 40);
+  check(L("Down goes to the next song in the same page"), await page.waitFor(`location.pathname === "/tv/s/x/listen/2" && document.getElementById("ttl").textContent === "Second" && window.__sameDocument === 1`, 8000), await page.url());
+  await page.waitFor(`document.getElementById("pa").currentTime > 0.2`, 15000);
+  await key(page, 40);
+  check(L("Down on the last song stays put"), (await page.url()).endsWith("/tv/s/x/listen/2"));
+  check(L("the system's next-track button is off on the last song"), await page.evaluate<boolean>(`window.__msHandlers.nexttrack === null`));
 
   // A song never saves a place, and Back leaves for the album.
   saves.length = 0;
