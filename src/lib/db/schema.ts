@@ -247,8 +247,6 @@ export const libraries = pgTable(
     pruneMissing: boolean("prune_missing").notNull().default(true),
     // Music libraries: look albums up on MusicBrainz (sends the artist and album folder names there). An admin can turn it off.
     musicLookup: boolean("music_lookup").notNull().default(true),
-    // No longer used: starting speeds are per profile now (viewer_library_speeds). Kept so no data is dropped.
-    defaultPlaybackSpeed: real("default_playback_speed"),
     lastScannedAt: timestamp("last_scanned_at", { withTimezone: true }),
     // Updated at the START of every scan attempt, success or failure —
     // distinct from lastScannedAt (which only advances on completion, and

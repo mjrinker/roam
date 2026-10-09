@@ -274,6 +274,13 @@
       "when": 1791532423940,
       "tag": "0038_viewer_library_speeds",
       "breakpoints": true
+    },
+    {
+      "idx": 39,
+      "version": "7",
+      "when": 1791555519675,
+      "tag": "0039_drop_library_default_speed",
+      "breakpoints": true
     }
   ]
 }
