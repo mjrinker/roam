@@ -836,6 +836,7 @@ function startPlayer(first: PlayConfig) {
       .catch((e: Error) => say(e.message || "This can't be played right now."));
   }
 
+  let switchAsked = 0;
   /** Another resolution of the same title: same place, same play/pause state. */
   function switchQuality(label: string) {
     if (!manifest || label === manifest.version) return;
@@ -843,8 +844,11 @@ function startPlayer(first: PlayConfig) {
     const resume = !video.paused || wantPlaying;
     save();
     say("Switching…");
+    const owner = cfg.ownerId;
+    const asked = ++switchAsked;
     fetchPlay(cfg.ownerKind, cfg.ownerId, label).then(
       (m) => {
+        if (cfg.ownerId !== owner || asked !== switchAsked) return; // another episode opened, or a newer switch was asked for
         const picked = m.versions ? m.versions.filter((v) => v.label === m.version)[0] : null;
         writePreferredHeight(picked ? picked.height : null);
         manifest = m;

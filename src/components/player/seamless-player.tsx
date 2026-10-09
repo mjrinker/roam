@@ -209,6 +209,7 @@ export function SeamlessPlayer({
   const [subOffset, setSubOffset] = useState(0);
   // Playing again after a switch of resolution (the new files load, then it carries on from where it was).
   const resumePlayingRef = useRef(false);
+  const switchTokenRef = useRef(0);
   const [controlsVisible, setControlsVisible] = useState(true);
   const [hoverRatio, setHoverRatio] = useState<number | null>(null);
 
@@ -500,7 +501,7 @@ export function SeamlessPlayer({
         // Segment URL likely expired mid-playback — re-fetch a fresh
         // manifest and resume from the current global position.
         setError("Reconnecting…");
-        fetch(playManifestUrl(ownerKind, ownerId))
+        fetch(playManifestUrl(ownerKind, ownerId, manifestRef.current?.version))
           .then((r) => r.json())
           .then((data: PlayManifest) => {
             manifestRef.current = data;
@@ -546,7 +547,7 @@ export function SeamlessPlayer({
     const timer = setTimeout(async () => {
       const seg = manifestRef.current!.segments[segIndexRef.current];
       const currentGlobal = seg.startSeconds + toLocalTime(seg, videoRefs.current[frontSlotRef.current]?.currentTime ?? 0);
-      const res = await fetch(playManifestUrl(ownerKind, ownerId)).catch(() => null);
+      const res = await fetch(playManifestUrl(ownerKind, ownerId, manifestRef.current?.version)).catch(() => null);
       if (!res?.ok) return;
       const fresh: PlayManifest = await res.json();
       fresh.resumeSeconds = currentGlobal;
@@ -741,13 +742,17 @@ export function SeamlessPlayer({
       const at = currentGlobalTime();
       const wasPlaying = !(videoRefs.current[frontSlotRef.current]?.paused ?? true);
       flushRef.current();
+      const token = ++switchTokenRef.current;
       const res = await fetch(playManifestUrl(ownerKind, ownerId, label)).catch(() => null);
       if (!res || !res.ok) return; // staying on the version already playing is better than an error
       const data: PlayManifest = await res.json();
-      if (manifestRef.current !== m) return; // another video opened while this loaded
+      if (manifestRef.current !== m || token !== switchTokenRef.current) return; // another video opened, or a newer switch was asked for
       writePreferredHeight(data.versions?.find((v) => v.label === data.version)?.height ?? null);
       data.resumeSeconds = Math.min(at, Math.max(0, data.durationSeconds - 1));
       resumePlayingRef.current = wasPlaying;
+      // The old files stop now, so no late event from them is read against the new version's parts.
+      videoRefs.current.forEach((el) => el?.pause());
+      segIndexRef.current = 0;
       manifestRef.current = data;
       setManifest(data);
     },

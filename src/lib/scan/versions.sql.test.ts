@@ -14,7 +14,8 @@ import { makeAccount, makeLibrary, makeServer, makeShow, makeTitle, type TestDb 
 import type { StorageEntry } from "@/lib/storage/provider";
 import { groupByVersion, orderMediaSegments } from "./conventions";
 import { resolveEpisodeSplits } from "./episode-split-pass";
-import { upsertMediaSegments } from "./media-files";
+import { rollupTitleRuntime, upsertMediaSegments } from "./media-files";
+import { titles } from "@/lib/db/schema";
 
 let db: TestDb;
 beforeAll(() => {
@@ -72,5 +73,19 @@ describe("an episode saved in several resolutions", () => {
     const rows = await rowsOf("episode", episodes[0].id);
     expect(summary(rows)).toEqual(["1080p:0:e1a", "720p:0:e1b"]);
     expect(rows.every((r) => r.trimSource === null && r.trimDurationSeconds === null)).toBe(true);
+  });
+});
+
+describe("a movie's runtime with several versions", () => {
+  it("is one version's length, not the sum, and is not held up by a version that isn't probed", async () => {
+    const { film } = await movie();
+    await upsertMediaSegments("title", film.id, ordered([entry("a", "M - 1080p.mp4"), entry("b", "M - 4K - pt1.mp4"), entry("c", "M - 4K - pt2.mp4")]));
+    const rows = await rowsOf("title", film.id);
+    for (const r of rows) {
+      const big = r.versionLabel === "4k";
+      await db.update(mediaFiles).set({ durationSeconds: big ? 3000 : 6000, width: big ? 3840 : 1920, height: big ? 2160 : 1080 }).where(eq(mediaFiles.id, r.id));
+    }
+    await rollupTitleRuntime(film.id);
+    expect((await db.select().from(titles).where(eq(titles.id, film.id)))[0].runtimeSeconds).toBe(6000); // the 4K parts together
   });
 });

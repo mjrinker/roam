@@ -107,7 +107,7 @@ export async function readTagsAndArtwork(
       size: mediaFiles.sizeBytes,
     })
     .from(titles)
-    .innerJoin(mediaFiles, and(eq(mediaFiles.ownerKind, "title"), eq(mediaFiles.ownerId, titles.id), eq(mediaFiles.partIndex, 0)))
+    .innerJoin(mediaFiles, and(eq(mediaFiles.ownerKind, "title"), eq(mediaFiles.ownerId, titles.id), eq(mediaFiles.partIndex, 0), eq(mediaFiles.id, sql`(SELECT m2.id FROM media_files m2 WHERE m2.owner_kind = 'title' AND m2.owner_id = ${titles.id} AND m2.part_index = 0 ORDER BY m2.version_label LIMIT 1)`)))
     .where(
       and(
         eq(titles.libraryId, libraryId),
@@ -158,7 +158,7 @@ export async function readTagsAndArtwork(
   const pictureless = await db
     .select({ titleId: titles.id, fileId: mediaFiles.boxFileId, filename: mediaFiles.filename })
     .from(titles)
-    .innerJoin(mediaFiles, and(eq(mediaFiles.ownerKind, "title"), eq(mediaFiles.ownerId, titles.id), eq(mediaFiles.partIndex, 0)))
+    .innerJoin(mediaFiles, and(eq(mediaFiles.ownerKind, "title"), eq(mediaFiles.ownerId, titles.id), eq(mediaFiles.partIndex, 0), eq(mediaFiles.id, sql`(SELECT m2.id FROM media_files m2 WHERE m2.owner_kind = 'title' AND m2.owner_id = ${titles.id} AND m2.part_index = 0 ORDER BY m2.version_label LIMIT 1)`)))
     .where(
       and(
         eq(titles.libraryId, libraryId),

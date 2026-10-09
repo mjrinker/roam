@@ -10,6 +10,7 @@ import {
   estimateAudioDurationMs,
 } from "@/lib/scan/containers";
 import { parseEpisodeFileName, stripVariantSuffix, versionLabelOf } from "@/lib/scan/conventions";
+import { defaultVersionRows } from "@/lib/player/versions";
 import { probeMp3 } from "@/lib/scan/mp3-duration";
 import { probeMp4, probeMp4Codecs, type Mp4Chapter } from "@/lib/scan/mp4-duration";
 
@@ -399,9 +400,10 @@ export async function probeCodecsForPending(
 /** Recomputes a title's total runtime from its segments, once every segment has a duration. */
 export async function rollupTitleRuntime(titleId: string) {
   const segments = await db
-    .select({ durationMs: mediaFiles.durationMs, durationSeconds: mediaFiles.durationSeconds })
+    .select({ durationMs: mediaFiles.durationMs, durationSeconds: mediaFiles.durationSeconds, versionLabel: mediaFiles.versionLabel, width: mediaFiles.width, height: mediaFiles.height })
     .from(mediaFiles)
-    .where(and(eq(mediaFiles.ownerKind, "title"), eq(mediaFiles.ownerId, titleId)));
+    .where(and(eq(mediaFiles.ownerKind, "title"), eq(mediaFiles.ownerId, titleId)))
+    .then((rows) => defaultVersionRows(rows)); // a movie saved in several resolutions has one runtime, not the sum of them
   if (segments.length === 0 || segments.some((s) => s.durationSeconds == null)) return;
   const totalMs = segments.reduce((sum, s) => sum + (s.durationMs ?? (s.durationSeconds ?? 0) * 1000), 0);
   await db
