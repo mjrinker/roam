@@ -89,3 +89,7 @@ button.tile { margin: 0 1.5rem 1.5rem 0; }
 .morewrap { display: inline-block; }
 .morewrap .more-item { display: none; }
 .morewrap.open .more-item { display: inline-block; }
+.speedbox { position: absolute; top: 50%; left: 50%; width: 30rem; margin: -9rem 0 0 -15rem; padding: 2rem; text-align: center; background: rgba(20, 20, 28, 0.96); border: 0.2rem solid #7fd8bd; border-radius: 1rem; font-size: 1.4rem; z-index: 5; }
+.speedbox b { display: block; font-size: 4.2rem; margin: 0.6rem 0; color: #7fd8bd; }
+.speedbox small { display: block; color: #a8a8b4; font-size: 1.05rem; }
+.hint { margin-top: 0.5rem; font-size: 1rem; color: #8d8d99; }

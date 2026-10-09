@@ -14,6 +14,7 @@ Movies, TV shows, videos, audiobooks, audio, music and photos (eBooks are delibe
 - **Photos:** by date, by album (folder) and favourites; a full-screen viewer with a slideshow; a screensaver after five idle minutes on the home screen.
 - **Music:** artists, albums, songs; Shuffle and Play all for an artist; Up and Down move between songs.
 - **Back remembers your place** in a list.
+- **Playback speed** for video, audiobooks and audio files: Up opens a speed overlay (0.25 steps with Up and Down, 0.05 fine-tuning with Left and Right, from 0.25x to 3x). It starts at the library's default speed (an admin setting), lasts until the player is left and is never saved. Songs in a queue keep Up and Down for changing songs.
 
 Keys: arrows move, OK chooses, Back goes back; play/pause/stop/rewind/fast-forward media keys work in players.
 

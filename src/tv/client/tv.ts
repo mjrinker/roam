@@ -12,6 +12,7 @@ import { UNSUPPORTED_AUDIO_CODECS } from "@/lib/scan/codec-support";
 import { formatClock, isFinished, locate, timelineAt, type Segment } from "./clock";
 import { pickNext, type Box } from "./focus";
 import { actionOf, directionOf, TIZEN_MEDIA_KEYS, type Action } from "./keys";
+import { clampSpeed, formatSpeed, SPEED_STEP } from "@/lib/player/speed";
 
 declare const tizen: { tvinputdevice?: { registerKey(name: string): void } } | undefined;
 
@@ -197,6 +198,87 @@ function goBack() {
   else if (window.history.length > 1) window.history.back();
 }
 
+// ── Playback speed ───────────────────────────────────────────────────────
+
+const FINE_STEP = 0.05;
+
+/** The next multiple of 0.25 above (or below) a speed: 1.35 goes up to 1.5 and down to 1.25. */
+function snapStep(rate: number, direction: 1 | -1): number {
+  const n = rate / SPEED_STEP;
+  const stepped = direction === 1 ? Math.floor(n + 1e-9) + 1 : Math.ceil(n - 1e-9) - 1;
+  return clampSpeed(stepped * SPEED_STEP);
+}
+
+/**
+ * Speed for a player: starts at the library's default (until the viewer changes it), applies to the element, and is changed with an overlay
+ * the remote drives: up and down in steps of 0.25, left and right 0.05 at a time (so any speed from 0.25 to 3 can be reached), OK to close.
+ * It lasts as long as the page keeps the player (a next episode or song keeps it) and is never saved.
+ */
+function createSpeedControl(media: HTMLMediaElement, onChange: () => void) {
+  let rate = 1;
+  let touched = false;
+  let open = false;
+  const box = doc.getElementById("speedbox");
+
+  const apply = () => {
+    media.defaultPlaybackRate = rate; // so a part loaded later starts at the same speed
+    media.playbackRate = rate;
+  };
+  const draw = () => {
+    if (!box) return;
+    box.style.display = open ? "block" : "none";
+    if (!open) return;
+    box.innerHTML = "";
+    const title = doc.createElement("div");
+    title.textContent = "Playback speed";
+    const big = doc.createElement("b");
+    big.textContent = formatSpeed(rate);
+    const hint = doc.createElement("small");
+    hint.textContent = "Up and Down: 0.25 steps · Left and Right: fine tune · OK: done";
+    box.appendChild(title);
+    box.appendChild(big);
+    box.appendChild(hint);
+  };
+  const set = (next: number) => {
+    rate = clampSpeed(next);
+    touched = true;
+    apply();
+    draw();
+    onChange();
+  };
+
+  return {
+    rate: () => rate,
+    /** The library's own starting speed, used until the viewer picks one. */
+    applyDefault(defaultRate: number | null | undefined) {
+      if (touched) return;
+      rate = clampSpeed(defaultRate === null || defaultRate === undefined ? 1 : defaultRate);
+      apply();
+      onChange();
+    },
+    isOpen: () => open,
+    open() {
+      open = true;
+      draw();
+    },
+    /** While the overlay is open it takes every key. */
+    key(action: Action | null, dirKey: string | null): boolean {
+      if (dirKey === "up") set(snapStep(rate, 1));
+      else if (dirKey === "down") set(snapStep(rate, -1));
+      else if (dirKey === "right") set(rate + FINE_STEP);
+      else if (dirKey === "left") set(rate - FINE_STEP);
+      else if (action === "enter" || action === "back" || action === "stop") {
+        open = false;
+        draw();
+      }
+      return true;
+    },
+  };
+}
+
+/** " · 1.25x" after the clock when the speed is not normal. */
+const speedSuffix = (rate: number) => (Math.abs(rate - 1) < 1e-9 ? "" : "  ·  " + formatSpeed(rate));
+
 // ── Player ───────────────────────────────────────────────────────────────
 
 interface PlayConfig {
@@ -212,6 +294,7 @@ interface Manifest {
   durationSeconds: number;
   segments: Segment[];
   resumeSeconds: number;
+  defaultRate?: number | null;
 }
 
 const SAVE_EVERY_MS = 15000;
@@ -242,6 +325,7 @@ function startPlayer(first: PlayConfig) {
   let recoveries = 0;
 
   const position = () => (manifest && part ? timelineAt(part, video.currentTime) : 0);
+  const speed = createSpeedControl(video, () => paint());
 
   function say(text: string) {
     status.textContent = text;
@@ -258,7 +342,7 @@ function startPlayer(first: PlayConfig) {
     if (!manifest) return;
     const p = position();
     fill.style.width = Math.min(100, (p / Math.max(1, manifest.durationSeconds)) * 100) + "%";
-    clock.textContent = formatClock(p) + " / " + formatClock(manifest.durationSeconds);
+    clock.textContent = formatClock(p) + " / " + formatClock(manifest.durationSeconds) + speedSuffix(speed.rate());
   }
 
   /** `leaving`: the page is about to change, so use sendBeacon, which the browser finishes even then (fetch can be cancelled). */
@@ -339,6 +423,7 @@ function startPlayer(first: PlayConfig) {
     (ahead || fetchPlay(cfg.ownerKind, cfg.ownerId))
       .then((m: Manifest) => {
         manifest = m;
+        speed.applyDefault(m.defaultRate);
         const start = resumeFrom !== undefined ? resumeFrom : m.resumeSeconds > 0 && m.resumeSeconds < m.durationSeconds - 30 ? m.resumeSeconds : 0;
         const at = locate(m.segments, start);
         say("");
@@ -451,6 +536,7 @@ function startPlayer(first: PlayConfig) {
 
   /** Player keys, called from the page's key handler; returns true when it handled the key. */
   playerKeys = (action: Action | null, dirKey: string | null): boolean => {
+    if (speed.isOpen()) return speed.key(action, dirKey);
     if (upNextPending) {
       // The episode has ended and the next one's details haven't arrived: Back still stops, OK waits for them.
       if (action === "back" || action === "stop") {
@@ -475,7 +561,8 @@ function startPlayer(first: PlayConfig) {
     if (action === "pause") return video.paused ? true : (toggle(), true);
     if (action === "forward" || dirKey === "right") return seekTo(position() + (action === "forward" ? 30 : SKIP_SECONDS)), true;
     if (action === "rewind" || dirKey === "left") return seekTo(position() - (action === "rewind" ? 30 : SKIP_SECONDS)), true;
-    if (dirKey === "up" || dirKey === "down") return showHud(), true;
+    if (dirKey === "up") return speed.open(), showHud(), true;
+    if (dirKey === "down") return showHud(), true;
     return false;
   };
   bar.style.display = "block";
@@ -506,6 +593,7 @@ interface AudioManifest {
   segments: AudioPart[];
   resumeSeconds: number;
   urls: { index: number; url: string; expiresAt: string }[];
+  defaultRate?: number | null;
 }
 
 function startListening(cfg: ListenConfig) {
@@ -577,6 +665,7 @@ function startListening(cfg: ListenConfig) {
   }
 
   const position = () => (manifest && part ? part.startSeconds + audio.currentTime : 0);
+  const speed = createSpeedControl(audio, () => paint());
   const say = (text: string) => {
     status.textContent = text;
     status.style.display = text ? "block" : "none";
@@ -592,7 +681,7 @@ function startListening(cfg: ListenConfig) {
     if (!manifest) return;
     const p = position();
     fill.style.width = Math.min(100, (p / Math.max(1, manifest.durationSeconds)) * 100) + "%";
-    clock.textContent = formatClock(p) + " / " + formatClock(manifest.durationSeconds);
+    clock.textContent = formatClock(p) + " / " + formatClock(manifest.durationSeconds) + speedSuffix(speed.rate());
   }
   function save(finished?: boolean, leaving?: boolean) {
     if (!cfg.remembers || !manifest) return;
@@ -701,6 +790,7 @@ function startListening(cfg: ListenConfig) {
       .then((m: AudioManifest) => {
         if (seq !== loadSeq) return;
         manifest = m;
+        speed.applyDefault(m.defaultRate);
         const resume = cfg.remembers && m.resumeSeconds > 0 && m.resumeSeconds < m.durationSeconds - 30 ? m.resumeSeconds : 0;
         const at = partAt(resumeFrom !== undefined ? resumeFrom : resume);
         say("");
@@ -782,6 +872,7 @@ function startListening(cfg: ListenConfig) {
   window.addEventListener("pagehide", () => save(undefined, true));
 
   playerKeys = (action: Action | null, dirKey: string | null): boolean => {
+    if (speed.isOpen()) return speed.key(action, dirKey);
     if (action === "back" || action === "stop") {
       save(undefined, true);
       window.location.href = cfg.back;
@@ -794,10 +885,14 @@ function startListening(cfg: ListenConfig) {
     if (action === "rewind" || dirKey === "left") return seekTo(position() - (action === "rewind" ? cfg.skip * 3 : cfg.skip)), true;
     if (queue && dirKey === "down") return qi + 1 < queue.length ? (goToSong(qi + 1), true) : (showHud(), true);
     if (queue && dirKey === "up") return previousSong(), true;
+    // A song queue uses Up and Down for songs; anything else (an audiobook, an audio file) uses Up for the speed.
+    if (!queue && dirKey === "up") return speed.open(), showHud(), true;
     if (dirKey === "up" || dirKey === "down") return showHud(), true;
     return false;
   };
   bar.style.display = "block";
+  const speedHint = doc.getElementById("speedhint");
+  if (queue && speedHint && speedHint.parentNode) speedHint.parentNode.removeChild(speedHint);
   if (MODERN) {
     const bg = doc.querySelector(".listen .bg img[data-src]");
     if (bg) bg.setAttribute("src", bg.getAttribute("data-src") || "");

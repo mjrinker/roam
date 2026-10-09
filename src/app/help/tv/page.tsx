@@ -75,6 +75,7 @@ export default async function TvHelpPage() {
         <p className="text-sm text-muted-foreground">Use the arrow keys to move, OK to choose and Back to go back. After pressing Back, the highlight returns to what you had opened.</p>
         <ul className="list-disc space-y-1 pl-5 text-sm text-muted-foreground">
           <li><strong>Movies, TV shows, videos, audio and audiobooks:</strong> pick one and press Play or Resume. When an episode ends, the next one starts after a short countdown (OK to start it now, Back to stop).</li>
+          <li><strong>Speed:</strong> while a video, audiobook or audio file plays, press Up to change the playback speed. Up and Down move in steps of 0.25, Left and Right fine-tune, OK closes it. A library can start at its own speed, and it goes back to that when you leave the player.</li>
           <li><strong>Music:</strong> artists, then albums, then songs. Use Play all or Shuffle. While a song plays, Up and Down skip between songs.</li>
           <li><strong>Photos:</strong> browse by date, by album (folder), or your favourites. OK in the picture viewer starts a slideshow. If the home screen sits idle for a few minutes, your pictures play as a screensaver.</li>
           <li><strong>Search:</strong> on the home screen, choose Search and spell the name with the on-screen keyboard.</li>

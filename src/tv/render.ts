@@ -221,8 +221,8 @@ export function watchPage(d: WatchData): string {
     title: d.title,
     bodyClass: "watch",
     body:
-      `<div class="player"><video id="pv" playsinline></video><div id="status" class="status"></div><div id="upnext" class="upnext" style="display:none"></div>` +
-      `<div id="hud" class="hud on"><div class="t"><span id="wtitle">${esc(d.title)}</span><span id="wsub">${d.subtitle ? ` · ${esc(d.subtitle)}` : ""}</span></div><div id="bar" class="track" style="display:none"><b id="fill"></b></div><div id="clock" class="clock"></div></div></div>` +
+      `<div class="player"><video id="pv" playsinline></video><div id="status" class="status"></div><div id="upnext" class="upnext" style="display:none"></div><div id="speedbox" class="speedbox" style="display:none"></div>` +
+      `<div id="hud" class="hud on"><div class="t"><span id="wtitle">${esc(d.title)}</span><span id="wsub">${d.subtitle ? ` · ${esc(d.subtitle)}` : ""}</span></div><div id="bar" class="track" style="display:none"><b id="fill"></b></div><div id="clock" class="clock"></div><div class="hint">Up: playback speed</div></div></div>` +
       `<script type="application/json" id="play-config">${cfg}</script>`,
   });
 }
@@ -270,8 +270,8 @@ export function listenPage(d: ListenData): string {
     bodyClass: "watch",
     body:
       `<div class="player listen"><audio id="pa"></audio>${img || d.queue ? `<div class="bg"><img id="bgimg"${img ? ` data-src="${esc(img)}"` : ""} alt=""></div>` : ""}<div class="cover">${img || d.queue ? `<img id="coverimg"${img ? ` src="${esc(img)}"` : ""} alt="">` : ""}</div>` +
-      `<div class="now"><div class="t" id="ttl">${esc(d.title)}</div><div class="by" id="by">${d.subtitle ? esc(d.subtitle) : ""}</div></div><div id="queuelist" class="queuelist"></div><div id="status" class="status"></div>` +
-      `<div id="hud" class="hud on"><div id="bar" class="track" style="display:none"><b id="fill"></b></div><div id="clock" class="clock"></div></div></div>` +
+      `<div class="now"><div class="t" id="ttl">${esc(d.title)}</div><div class="by" id="by">${d.subtitle ? esc(d.subtitle) : ""}</div></div><div id="queuelist" class="queuelist"></div><div id="status" class="status"></div><div id="speedbox" class="speedbox" style="display:none"></div>` +
+      `<div id="hud" class="hud on"><div id="bar" class="track" style="display:none"><b id="fill"></b></div><div id="clock" class="clock"></div><div class="hint" id="speedhint">Up: playback speed</div></div></div>` +
       `<script type="application/json" id="listen-config">${cfg}</script>`,
   });
 }

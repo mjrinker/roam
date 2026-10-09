@@ -73,7 +73,9 @@ const server = http.createServer((req, res) => {
     manifestRequests++;
     const bad = failFirstManifestUrl && manifestRequests === 1;
     const segments = [1, 2].map((i) => ({ index: i - 1, url: bad ? "/media/missing.webm" : `/media/part${i}.webm`, durationSeconds: 12, startSeconds: (i - 1) * 12 }));
-    return void res.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify({ ownerKind: "title", ownerId: "1", durationSeconds: 24, segments, resumeSeconds: 0, expiresAt: "2099-01-01T00:00:00Z" }));
+    // the first movie's library starts at 1.5x, as an admin could have set it; everything else at normal speed
+    const defaultRate = url.pathname.endsWith("/title/1") ? 1.5 : null;
+    return void res.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify({ ownerKind: "title", ownerId: "1", durationSeconds: 24, segments, resumeSeconds: 0, expiresAt: "2099-01-01T00:00:00Z", defaultRate }));
   }
   const audioId = /^\/api\/audiobooks\/([^/]+)\/manifest$/.exec(url.pathname);
   if (audioId) {
@@ -82,7 +84,7 @@ const server = http.createServer((req, res) => {
     const segments = [0, 1].map((i) => ({ index: i, startSeconds: i * 12, durationSeconds: 12 }));
     const bad = failFirstAudioUrl && audioManifests === 1;
     const urls = [0, 1].map((i) => ({ index: i, url: bad ? "/media/missing.ogg" : `/media/aud${i + 1}.ogg`, expiresAt: "2099-01-01T00:00:00Z" }));
-    return void res.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify({ titleId: String(n), durationSeconds: 24, segments, resumeSeconds: 0, urls }));
+    return void res.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify({ titleId: String(n), durationSeconds: 24, segments, resumeSeconds: 0, urls, defaultRate: audioId[1] === "9" ? 1.25 : null }));
   }
   if (/^\/api\/audiobooks\/[^/]+\/segments\/\d+$/.test(url.pathname)) {
     const i = Number(url.pathname.split("/").pop());
@@ -452,6 +454,57 @@ async function run(label: string, exe: string, m56: boolean) {
   check(L("a picture that fails to load says so"), await page.waitFor(`document.getElementById("status").textContent.indexOf("can't be shown") >= 0`, 8000));
   await key(page, 27);
   check(L("Back leaves the picture viewer for the grid"), await page.waitFor(`location.pathname === "/tv/s/x/library/p"`));
+
+  // Playback speed: starts at the library's default, the remote changes it (steps of 0.25 up and down, 0.05 left and right, never past 0.25 to 3).
+  const speedShown = `document.getElementById("speedbox").style.display === "block"`;
+  const rateNow = `${V}.playbackRate`;
+  await page.goto(base + "/tv/s/x/watch/title/1");
+  await page.waitFor(`${V} && ${V}.currentTime > 0.3 && !${V}.paused`, 15000);
+  check(L("the video starts at the library's default speed"), (await page.evaluate<number>(rateNow)) === 1.5, String(await page.evaluate<number>(rateNow)));
+  check(L("and the clock says so"), (await page.evaluate<string>(`document.getElementById("clock").textContent`)).indexOf("1.5x") >= 0, await page.evaluate<string>(`document.getElementById("clock").textContent`));
+  await key(page, 38);
+  check(L("Up opens the speed overlay"), await page.evaluate<boolean>(speedShown) && (await page.evaluate<string>(`document.getElementById("speedbox").textContent`)).indexOf("1.5x") >= 0);
+  await key(page, 38);
+  check(L("Up in the overlay goes up a step (1.75x)"), (await page.evaluate<number>(rateNow)) === 1.75, String(await page.evaluate<number>(rateNow)));
+  await key(page, 39);
+  check(L("Right fine-tunes by 0.05 (1.8x)"), (await page.evaluate<number>(rateNow)) === 1.8, String(await page.evaluate<number>(rateNow)));
+  await key(page, 40);
+  check(L("Down snaps to the step below (1.75x)"), (await page.evaluate<number>(rateNow)) === 1.75, String(await page.evaluate<number>(rateNow)));
+  await key(page, 39);
+  await key(page, 38);
+  check(L("Up from 1.8x snaps to the step above (2x)"), (await page.evaluate<number>(rateNow)) === 2, String(await page.evaluate<number>(rateNow)));
+  for (let i = 0; i < 8; i++) await key(page, 38);
+  check(L("it stops at 3x"), (await page.evaluate<number>(rateNow)) === 3, String(await page.evaluate<number>(rateNow)));
+  for (let i = 0; i < 14; i++) await key(page, 40);
+  check(L("and at 0.25x"), (await page.evaluate<number>(rateNow)) === 0.25, String(await page.evaluate<number>(rateNow)));
+  for (let i = 0; i < 3; i++) await key(page, 38); // 0.25 -> 0.5 -> 0.75 -> 1
+  await key(page, 27);
+  check(L("Back closes the overlay but stays on the video"), !(await page.evaluate<boolean>(speedShown)) && (await page.url()).indexOf("/watch/title/1") > 0, await page.url());
+  check(L("the chosen speed is on the video and the clock"), (await page.evaluate<number>(rateNow)) === 1 && (await page.evaluate<string>(`document.getElementById("clock").textContent`)).indexOf("x") < 0, await page.evaluate<string>(`document.getElementById("clock").textContent`));
+  await key(page, 37);
+  await new Promise((r) => setTimeout(r, 300));
+  check(L("with the overlay closed, Left seeks again"), !(await page.evaluate<boolean>(speedShown)));
+
+  // A speed chosen on one episode carries to the next in the same page; an audiobook starts at its library's speed and has the same overlay; a song queue keeps Up for songs.
+  await page.goto(base + "/tv/s/x/watch/episode/1?modern=1");
+  await page.waitFor(`${V} && ${V}.currentTime > 0.3 && !${V}.paused`, 15000);
+  for (let i = 0; i < 5; i++) await key(page, 38); // open, then 1 -> 1.25 -> 1.5 -> 1.75 -> 2
+  await key(page, 13);
+  check(L("a speed chosen on an episode is on the video"), (await page.evaluate<number>(rateNow)) === 2, String(await page.evaluate<number>(rateNow)));
+  await key(page, 417);
+  await page.waitFor(`location.pathname === "/tv/s/x/watch/episode/2" && ${V}.currentTime > 0.3`, 25000);
+  check(L("and carries over to the next episode"), (await page.evaluate<number>(rateNow)) === 2, String(await page.evaluate<number>(rateNow)));
+
+  await page.goto(base + "/tv/s/x/listen/9");
+  await page.waitFor(`document.getElementById("pa").currentTime > 0.3 && !document.getElementById("pa").paused`, 15000);
+  check(L("an audiobook starts at its library's speed"), (await page.evaluate<number>(`document.getElementById("pa").playbackRate`)) === 1.25);
+  await key(page, 38);
+  await key(page, 38);
+  check(L("Up opens the same overlay for audio and steps it"), (await page.evaluate<boolean>(speedShown)) && (await page.evaluate<number>(`document.getElementById("pa").playbackRate`)) === 1.5);
+  await key(page, 13);
+  await page.goto(base + "/tv/s/x/listen/1");
+  await page.waitFor(`document.getElementById("pa").currentTime > 0.3`, 15000);
+  check(L("a song queue keeps Up for songs: no speed overlay and no speed hint"), !(await page.evaluate<boolean>(speedShown)) && (await page.evaluate<boolean>(`!document.getElementById("speedhint")`)));
 
   // Up next: a newer browser counts down and starts the next episode in the same page; Back stops it; the basic path loads the next page.
   const skipToEnd = async () => {

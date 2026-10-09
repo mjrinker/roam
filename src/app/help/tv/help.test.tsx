@@ -35,7 +35,7 @@ describe("the TV help page", () => {
   it("mentions every kind of library the TV shows (so the page can't fall behind the app), and what you can do", async () => {
     const html = renderToStaticMarkup(await TvHelpPage()).toLowerCase();
     for (const label of Object.values(TV_KIND_LABEL)) expect(html, label).toContain(label!.toLowerCase());
-    for (const word of ["search", "playlists", "shuffle", "slideshow", "screensaver", "add to playlist"]) expect(html, word).toContain(word);
+    for (const word of ["search", "playlists", "shuffle", "slideshow", "screensaver", "add to playlist", "playback speed"]) expect(html, word).toContain(word);
     expect(html).toContain("ebooks are for phones and computers");
     expect(html).not.toContain("right now the tv shows movies and tv shows");
   });
