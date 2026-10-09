@@ -5,7 +5,7 @@ import type { LibraryActor } from "@/lib/content/library-access";
 import { db } from "@/lib/db/client";
 import { listAlbums, listArtists, type Cursor } from "@/lib/music/browse";
 import { Breadcrumbs } from "@/components/shell/breadcrumbs";
-import { AlbumTile, ArtistTile, TILE_GRID } from "@/components/music/music-cards";
+import { SelectableMusicTiles } from "@/components/library/selectable-views";
 import { encodeCursor } from "@/lib/playlists/http";
 
 export type MusicView = "artists" | "albums" | "folders";
@@ -70,10 +70,7 @@ export async function MusicLibraryView({
           Nothing here yet. Songs show up once a scan has read the library&apos;s folders.
         </p>
       ) : (
-        <div className={TILE_GRID}>
-          {artists?.items.map((a) => <ArtistTile key={a.id} serverId={serverId} artist={a} />)}
-          {albums?.items.map((a) => <AlbumTile key={a.id} serverId={serverId} album={a} />)}
-        </div>
+        <SelectableMusicTiles serverId={serverId} libraryId={libraryId} view={view} albums={albums?.items ?? null} artists={artists?.items ?? null} />
       )}
       {nextHref && (
         <Link href={nextHref} className="w-fit rounded-xl bg-white/[0.08] px-5 py-2.5 text-sm font-medium hover:bg-white/[0.14]">

@@ -2,6 +2,7 @@ import Link from "next/link";
 import { Folder, FolderOpen } from "lucide-react";
 import { PosterCard } from "@/components/library/poster-card";
 import { PhotoTile } from "@/components/photos/photo-tile";
+import { SelectableFolderItems } from "@/components/library/selectable-views";
 import { folderTrail, parentFolder, type FolderItem } from "@/lib/libraries/folder-browse";
 
 /** One level of a video library, file-manager style: breadcrumbs, subfolders, then the videos in this folder. */
@@ -94,7 +95,9 @@ export function VideoFolderView({
         </ul>
       )}
 
-      {items.length > 0 && itemKind !== "photo" && (
+      {items.length > 0 && (itemKind === "movie" || itemKind === "audiobook") && <SelectableFolderItems serverId={serverId} libraryId={libraryId} path={path} items={items} itemKind={itemKind} />}
+
+      {items.length > 0 && itemKind === "ebook" && (
         <ul className="grid grid-cols-2 gap-x-4 gap-y-6 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6">
           {items.map((item) => (
             <li key={item.id} className="min-w-0">

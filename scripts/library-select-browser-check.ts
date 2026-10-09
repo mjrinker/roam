@@ -21,6 +21,12 @@ const check = (name: string, ok: boolean, detail?: unknown) => {
 const ids = Array.from({ length: 120 }, (_, i) => `00000000-0000-4000-8000-${String(i).padStart(12, "0")}`);
 const items = ids.map((id, i) => ({ id, kind: "movie", name: `Film ${String(i).padStart(3, "0")}`, year: 2000 + (i % 20), posterUrl: null, genres: [], certification: null, ratingAge: null, runtimeSeconds: 6000, addedAt: "2024-01-01T00:00:00Z" }));
 
+const folderPage = [0, 1, 2].map((i) => ({ id: ids[i], kind: "movie", name: `Clip ${i}`, year: null, posterUrl: null, runtimeSeconds: null, authors: null, width: null, height: null, favorite: false, watched: false }));
+const folderAll = ids.slice(0, 10);
+const albumCards = [0, 1, 2].map((i) => ({ id: ids[i], name: `Album ${i}`, artistId: "A", artistName: "Band", year: 2000, coverUrl: null, trackCount: 2 }));
+const albumAll = ids.slice(0, 7);
+const songsFor = (albumIds: string[]) => albumIds.flatMap((a) => [`${a}-s1`, `${a}-s2`]);
+
 const requests: { url: string; body: unknown }[] = [];
 const app = http.createServer((req, res) => {
   const url = new URL(req.url!, "http://x");
@@ -31,6 +37,9 @@ const app = http.createServer((req, res) => {
   req.on("end", () => {
     const body = raw ? JSON.parse(raw) : null;
     if (req.method !== "GET") requests.push({ url: url.pathname, body });
+    if (url.pathname === "/api/libraries/L1/folder-ids") return send("application/json", JSON.stringify({ ids: folderAll, truncated: false }));
+    if (url.pathname === "/api/libraries/L1/music-ids") return send("application/json", JSON.stringify({ ids: albumAll, truncated: false }));
+    if (url.pathname === "/api/libraries/L1/music-songs") return send("application/json", JSON.stringify({ ids: songsFor(body.albumIds), truncated: false }));
     if (url.pathname === "/api/servers/S1/playlists/editable") return send("application/json", JSON.stringify({ playlists: [{ id: "P1", name: "Weekend" }] }));
     if (url.pathname === "/api/playlists/P1/items") return send("application/json", JSON.stringify({ added: body.titleIds.length, alreadyThere: 0, unavailable: 0 }), 201);
     if (url.pathname === "/api/download/bulk") {
@@ -47,9 +56,12 @@ const app = http.createServer((req, res) => {
 async function main() {
   await build({
     stdin: {
-      contents: `import { createRoot } from "react-dom/client"; import { LibraryBrowser } from "@/components/library/library-browser"; import { Toaster } from "@/components/ui/sonner";
+      contents: `import { createRoot } from "react-dom/client"; import { LibraryBrowser } from "@/components/library/library-browser"; import { SelectableFolderItems, SelectableMusicTiles } from "@/components/library/selectable-views"; import { Toaster } from "@/components/ui/sonner";
         const items = ${JSON.stringify(items)};
-        createRoot(document.getElementById("root")!).render(<><LibraryBrowser items={items as any} serverId="S1" /><Toaster /></>);`,
+        const mode = new URLSearchParams(location.search).get("mode");
+        createRoot(document.getElementById("root")!).render(<>
+          {mode === "folder" ? <SelectableFolderItems serverId="S1" libraryId="L1" path="Trips" items={${JSON.stringify(folderPage)} as any} itemKind="movie" /> : mode === "music" ? <SelectableMusicTiles serverId="S1" libraryId="L1" view="albums" albums={${JSON.stringify(albumCards)} as any} artists={null} /> : <LibraryBrowser items={items as any} serverId="S1" />}
+          <Toaster /></>);`,
       resolveDir: process.cwd(),
       loader: "tsx",
     },
@@ -107,6 +119,33 @@ async function main() {
     await page.evaluate(`(() => { const s = document.querySelector("select"); s.value = "720"; s.dispatchEvent(new Event("change", { bubbles: true })); })()`);
     check("choosing 720p updates the total (10 GB)", await page.waitFor(`document.body.innerText.includes("10.0 GB")`, 2000));
     check("the request carried the selected ids in library order", JSON.stringify((requests.find((r) => r.url === "/api/download/bulk")?.body as { titleIds: string[] })?.titleIds) === JSON.stringify(ids.slice(10, 20)));
+    // A video or audio library's folder: Select all takes every page of the folder, not only the three shown.
+    await page.goto(`${base}/?mode=folder`);
+    await page.waitFor(`document.body.innerText.includes("Clip 0")`, 5000);
+    await page.evaluate(`[...document.querySelectorAll("button")].find(b => b.textContent.trim() === "Select").click()`);
+    await click("Select Clip 1");
+    check("in a folder, a click selects one of the files shown", (await count()) === 1);
+    await page.evaluate(`[...document.querySelectorAll('[role="toolbar"] button')].find(b => b.textContent.trim() === "Select all in this folder").click()`);
+    check("Select all in this folder takes the whole folder (10), not just the 3 shown", await page.waitFor(`document.querySelector('[role="toolbar"]').innerText.includes("10 selected")`, 3000), await page.evaluate<string>(`document.querySelector('[role="toolbar"]').innerText`));
+    await page.evaluate(`[...document.querySelectorAll('[role="toolbar"] button')].find(b => b.textContent.trim() === "Add to playlist").click()`);
+    await page.waitFor(`document.body.innerText.includes("Weekend")`, 3000);
+    requests.length = 0;
+    await page.evaluate(`[...document.querySelectorAll('[role="menuitem"]')].find(b => b.textContent.includes("Weekend")).click()`);
+    await page.waitFor(`document.body.innerText.includes('Added 10 to "Weekend"')`, 3000);
+    check("the playlist gets all ten, in folder order", JSON.stringify((requests.find((r) => r.url === "/api/playlists/P1/items")?.body as { titleIds: string[] })?.titleIds) === JSON.stringify(folderAll), requests);
+
+    // A music library's albums: the actions work on the songs of the albums chosen.
+    await page.goto(`${base}/?mode=music`);
+    await page.waitFor(`document.body.innerText.includes("Album 0")`, 5000);
+    await page.evaluate(`[...document.querySelectorAll("button")].find(b => b.textContent.trim() === "Select").click()`);
+    await page.evaluate(`[...document.querySelectorAll('[role="toolbar"] button')].find(b => b.textContent.trim() === "Select all albums").click()`);
+    check("Select all albums takes every album of the library (7), not just the 3 shown", await page.waitFor(`document.querySelector('[role="toolbar"]').innerText.includes("7 selected")`, 3000), await page.evaluate<string>(`document.querySelector('[role="toolbar"]').innerText`));
+    await page.evaluate(`[...document.querySelectorAll('[role="toolbar"] button')].find(b => b.textContent.trim() === "Add to playlist").click()`);
+    await page.waitFor(`document.body.innerText.includes("Weekend")`, 3000);
+    requests.length = 0;
+    await page.evaluate(`[...document.querySelectorAll('[role="menuitem"]')].find(b => b.textContent.includes("Weekend")).click()`);
+    await page.waitFor(`document.body.innerText.includes('Added 14 to "Weekend"')`, 3000);
+    check("the albums become their 14 songs before they go in the playlist", JSON.stringify((requests.find((r) => r.url === "/api/playlists/P1/items")?.body as { titleIds: string[] })?.titleIds) === JSON.stringify(songsFor(albumAll)) && (requests.find((r) => r.url === "/api/libraries/L1/music-songs")?.body as { albumIds: string[] }).albumIds.length === 7, requests.map((r) => r.url));
     check("without any page error", page.errors.length === 0, page.errors.slice(0, 2));
   } finally {
     browser.close();

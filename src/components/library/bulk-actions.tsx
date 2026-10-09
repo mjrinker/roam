@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { CloudDownload, ListPlus, Loader2, Plus } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -15,7 +15,7 @@ import type { DownloadOptions } from "@/lib/offline/options";
 import { offlineStorageSupported, storageUsage } from "@/lib/offline/storage";
 
 /** "Add selected to playlist": pick one of the playlists this profile can edit (or start a new one) and everything selected goes in, in order. */
-export function BulkPlaylistMenu({ serverId, titleIds, disabled }: { serverId: string; titleIds: string[]; disabled?: boolean }) {
+export function BulkPlaylistMenu({ serverId, resolve, count, disabled }: { serverId: string; resolve: () => Promise<string[]>; count: number; disabled?: boolean }) {
   const [playlists, setPlaylists] = useState<{ id: string; name: string }[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -30,10 +30,28 @@ export function BulkPlaylistMenu({ serverId, titleIds, disabled }: { serverId: s
 
   async function addTo(id: string, name: string): Promise<string | null> {
     setBusy(true);
-    const res = await playlistApi.addTitles(id, titleIds);
+    let titleIds: string[];
+    try {
+      titleIds = await resolve();
+    } catch {
+      setBusy(false);
+      return "Couldn't work out what was selected.";
+    }
+    // The server takes at most 500 at a time; a bigger selection goes in several rounds, in order.
+    let added = 0;
+    let alreadyThere = 0;
+    let unavailable = 0;
+    for (let i = 0; i < titleIds.length; i += 500) {
+      const res = await playlistApi.addTitles(id, titleIds.slice(i, i + 500));
+      if (!res.ok) {
+        setBusy(false);
+        return added > 0 ? `${res.error} (${added} were added before it stopped.)` : res.error;
+      }
+      added += res.data.added;
+      alreadyThere += res.data.alreadyThere;
+      unavailable += res.data.unavailable;
+    }
     setBusy(false);
-    if (!res.ok) return res.error;
-    const { added, alreadyThere, unavailable } = res.data;
     const extra = [alreadyThere ? `${alreadyThere} already there` : null, unavailable ? `${unavailable} couldn't be added` : null].filter(Boolean).join(", ");
     toast.success(`Added ${added} to "${name}"${extra ? ` (${extra})` : ""}.`);
     return null;
@@ -66,13 +84,13 @@ export function BulkPlaylistMenu({ serverId, titleIds, disabled }: { serverId: s
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
-      {naming && <NameDialog open onOpenChange={setNaming} title="New playlist" description={`${titleIds.length} selected will go in. It stays private to you until you share it.`} submitLabel="Create and add" onSubmit={createAndAdd} />}
+      {naming && <NameDialog open onOpenChange={setNaming} title="New playlist" description={`${count.toLocaleString()} selected will go in. It stays private to you until you share it.`} submitLabel="Create and add" onSubmit={createAndAdd} />}
     </>
   );
 }
 
 /** "Download selected": shows what the selection comes to (a show counts as its episodes), lets you choose a resolution for all, then saves them one after another. */
-export function BulkDownloadButton({ serverId, titleIds, disabled }: { serverId: string; titleIds: string[]; disabled?: boolean }) {
+export function BulkDownloadButton({ serverId, resolve, count, disabled }: { serverId: string; resolve: () => Promise<string[]>; count: number; disabled?: boolean }) {
   const supported = useSyncExternalStore(() => () => undefined, offlineStorageSupported, () => false);
   const [open, setOpen] = useState(false);
   if (!supported) return null;
@@ -81,35 +99,48 @@ export function BulkDownloadButton({ serverId, titleIds, disabled }: { serverId:
       <Button type="button" variant="secondary" disabled={disabled} onClick={() => setOpen(true)} className="h-10 gap-2 rounded-xl">
         <CloudDownload className="size-4" /> Download
       </Button>
-      {open && <BulkDownloadDialog serverId={serverId} titleIds={titleIds} onClose={() => setOpen(false)} />}
+      {open && <BulkDownloadDialog serverId={serverId} resolve={resolve} count={count} onClose={() => setOpen(false)} />}
     </>
   );
 }
 
 type Loaded = { items: DownloadOptions[]; skipped: number; truncated: boolean };
 
-function BulkDownloadDialog({ serverId, titleIds, onClose }: { serverId: string; titleIds: string[]; onClose: () => void }) {
+function BulkDownloadDialog({ serverId, resolve, count, onClose }: { serverId: string; resolve: () => Promise<string[]>; count: number; onClose: () => void }) {
   const [data, setData] = useState<Loaded | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [choice, setChoice] = useState<string>("best");
   const [space, setSpace] = useState<{ usage: number; quota: number } | null>(null);
   const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
+  // What was selected when the dialog opened is what it works on, however the page behind it re-renders.
+  const resolveOnce = useRef(resolve);
 
   useEffect(() => {
     let cancelled = false;
-    fetch("/api/download/bulk", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ titleIds }) })
-      .then(async (res) => {
-        if (res.ok) return (await res.json()) as Loaded;
-        const body = await res.json().catch(() => ({}));
-        throw new Error(typeof body.error === "string" ? body.error : "Couldn't load the download choices.");
-      })
+    // The server answers for 300 titles at a time; a bigger selection is asked about in rounds and put together.
+    (async () => {
+      const ids = await resolveOnce.current();
+      const all: Loaded = { items: [], skipped: 0, truncated: false };
+      for (let i = 0; i < ids.length; i += 300) {
+        const res = await fetch("/api/download/bulk", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ titleIds: ids.slice(i, i + 300) }) });
+        if (!res.ok) {
+          const body = await res.json().catch(() => ({}));
+          throw new Error(typeof body.error === "string" ? body.error : "Couldn't load the download choices.");
+        }
+        const part = (await res.json()) as Loaded;
+        all.items.push(...part.items);
+        all.skipped += part.skipped;
+        all.truncated ||= part.truncated;
+      }
+      return all;
+    })()
       .then((d) => !cancelled && setData(d))
       .catch((e: Error) => !cancelled && setError(e.message || "Couldn't reach the server."));
     storageUsage().then((s) => !cancelled && setSpace(s));
     return () => {
       cancelled = true;
     };
-  }, [titleIds]);
+  }, []);
 
   const target: QualityTarget = choice === "best" ? { kind: "best" } : choice === "smallest" ? { kind: "smallest" } : { kind: "height", height: Number(choice) };
   const choices = useMemo(() => (data ? qualityChoices(data.items) : []), [data]);
@@ -148,7 +179,7 @@ function BulkDownloadDialog({ serverId, titleIds, onClose }: { serverId: string;
     <Dialog open onOpenChange={(o) => !o && !progress && onClose()}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle>Download {titleIds.length} selected</DialogTitle>
+          <DialogTitle>Download {count.toLocaleString()} selected</DialogTitle>
           <DialogDescription>Saved on this device, to watch and listen without a connection.</DialogDescription>
         </DialogHeader>
         {error && <p role="alert" className="text-sm text-destructive">{error}</p>}

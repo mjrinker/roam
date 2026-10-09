@@ -184,3 +184,40 @@ export async function listFolder(
     nextCursor: itemRows.length > limit && last ? { key: last.listKey, id: last.id } : null,
   };
 }
+
+/** The most ids "select all" in a folder or music view reads. */
+export const MAX_SELECT_IDS = 5000;
+
+/**
+ * The ids of every playable file directly in a folder (all pages of it, in the order the folder is shown), for "select all" - the same
+ * visibility as listFolder. Pictures and books are not playable and are left out. Null when the library isn't visible to this viewer.
+ */
+export async function folderPlayableIds(
+  ex: Db,
+  args: { actor: LibraryActor; viewer: AccessProfile; libraryId: string; path: string; max?: number }
+): Promise<{ ids: string[]; truncated: boolean } | null> {
+  const max = args.max ?? MAX_SELECT_IDS;
+  const listKey = sql<string>`coalesce(${titles.sortKey}, lower(${titles.name}))`;
+  const [lib] = await ex
+    .select({ id: libraries.id })
+    .from(libraries)
+    .where(and(eq(libraries.id, args.libraryId), inArray(libraries.kind, [...FILE_TREE_KINDS]), libraryVisible(ex, args.actor)))
+    .limit(1);
+  if (!lib) return null;
+  const rows = await ex
+    .select({ id: titles.id })
+    .from(titles)
+    .innerJoin(libraries, eq(libraries.id, titles.libraryId))
+    .where(
+      and(
+        eq(titles.libraryId, args.libraryId),
+        inArray(titles.kind, ["movie", "audiobook"]),
+        sql`coalesce(${titles.folderPath}, '') = ${args.path}`,
+        libraryVisible(ex, args.actor),
+        contentFilter(args.viewer, titles.ratingAges)
+      )
+    )
+    .orderBy(asc(listKey), asc(titles.id))
+    .limit(max + 1);
+  return { ids: rows.slice(0, max).map((r) => r.id), truncated: rows.length > max };
+}

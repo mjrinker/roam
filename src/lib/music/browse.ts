@@ -214,3 +214,51 @@ export async function artistSongIds(ex: Db, scope: Scope & { artistId: string },
   }
   return ids.slice(0, max);
 }
+
+/** The ids of every album or artist of a music library (all pages, in the order they are shown), for "select all". Null when the library isn't visible. */
+export async function musicCardIds(
+  ex: Db,
+  scope: Scope & { libraryId: string; view: "albums" | "artists"; max: number }
+): Promise<{ ids: string[]; truncated: boolean } | null> {
+  const ids: string[] = [];
+  let after: Cursor | null = null;
+  for (;;) {
+    const page: { items: { id: string }[]; next: Cursor | null } | null =
+      scope.view === "albums"
+        ? await listAlbums(ex, { actor: scope.actor, viewer: scope.viewer, libraryId: scope.libraryId, limit: 500, after })
+        : await listArtists(ex, { actor: scope.actor, viewer: scope.viewer, libraryId: scope.libraryId, limit: 500, after });
+    if (!page) return ids.length === 0 && after === null ? null : { ids, truncated: false };
+    ids.push(...page.items.map((i) => i.id));
+    if (ids.length > scope.max) return { ids: ids.slice(0, scope.max), truncated: true };
+    if (!page.next) return { ids, truncated: false };
+    after = page.next;
+  }
+}
+
+/**
+ * The songs of the albums and artists selected, in the order given (an artist's: albums oldest first), each song once, at most `max`.
+ * Only songs this viewer may see.
+ */
+export async function selectedSongIds(
+  ex: Db,
+  scope: Scope & { albumIds: string[]; artistIds: string[]; max: number }
+): Promise<{ ids: string[]; truncated: boolean }> {
+  const seen = new Set<string>();
+  const ids: string[] = [];
+  const add = (songs: string[] | null) => {
+    for (const id of songs ?? []) {
+      if (seen.has(id)) continue;
+      seen.add(id);
+      ids.push(id);
+    }
+  };
+  for (const albumId of scope.albumIds) {
+    if (ids.length > scope.max) break;
+    add(await albumSongIds(ex, { actor: scope.actor, viewer: scope.viewer, albumId }));
+  }
+  for (const artistId of scope.artistIds) {
+    if (ids.length > scope.max) break;
+    add(await artistSongIds(ex, { actor: scope.actor, viewer: scope.viewer, artistId }, scope.max + 1));
+  }
+  return { ids: ids.slice(0, scope.max), truncated: ids.length > scope.max };
+}
