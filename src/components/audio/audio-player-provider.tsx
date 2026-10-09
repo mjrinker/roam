@@ -23,6 +23,8 @@ import {
 import type { AudiobookManifest, AudiobookSegmentUrl } from "@/lib/player/types";
 import { shouldContinueQueue, type BookQueue } from "@/components/audio/queue-handoff";
 import { nextIndex, previousStep, type ListQueue } from "@/lib/music/list-queue";
+import { localAudioFor, offlineAudioManifest, openLocalFiles, type LocalFiles } from "@/lib/offline/local-playback";
+import { queueProgress } from "@/lib/offline/sync";
 
 // One <audio> element for the whole book, mounted above the pages so audio
 // keeps playing as you browse. A single element (rather than the video
@@ -147,6 +149,8 @@ interface Engine {
   queue: (BookQueue & { titleId: string }) | null;
   /** The songs being played in order (an album), if any; dropped when something outside it starts. */
   list: ListQueue | null;
+  /** The downloaded files the book is playing from, if it is a downloaded one (their addresses are let go when it ends). */
+  localFiles: LocalFiles | null;
 }
 
 /** Exported for tests; the provider below is the only real caller. */
@@ -170,6 +174,7 @@ export function createPlayer(
     playRequested: false,
     queue: null,
     list: null,
+    localFiles: null,
   };
 
   const patch = (p: Partial<AudioPlayerState>) => setState((s) => ({ ...s, ...p }));
@@ -199,6 +204,11 @@ export function createPlayer(
       finished: isEffectivelyFinished(e.position, book.durationSeconds),
     });
     e.lastSaveAt = Date.now();
+    // With no connection the progress waits on this device and is sent once there is one.
+    if (typeof navigator !== "undefined" && !navigator.onLine) {
+      void queueProgress({ ownerKind: "title", ownerId: book.titleId, positionSeconds: Math.max(0, Math.floor(e.position)), durationSeconds: Math.floor(book.durationSeconds), finished: isEffectivelyFinished(e.position, book.durationSeconds) });
+      return;
+    }
     // sendBeacon (POST) survives page unload; fetch is the fallback.
     if (typeof navigator !== "undefined" && navigator.sendBeacon) {
       navigator.sendBeacon("/api/watch-state", new Blob([payload], { type: "application/json" }));
@@ -419,15 +429,39 @@ export function createPlayer(
       patch({ status: "loading", error: null, buffering: true });
 
       try {
-        const res = await fetch(`/api/audiobooks/${titleId}/manifest`);
+        // A downloaded copy plays from this device. The server is still asked when it can be (where the listener left off, the speed);
+        // with no connection, what was saved is enough.
+        const downloaded = await localAudioFor(titleId).catch(() => null);
+        const res = await fetch(`/api/audiobooks/${titleId}/manifest`).catch(() => null);
         if (e.token !== token) return { ok: true }; // a newer load took over while this one was fetching
-        if (!res.ok) {
-          const body = await res.json().catch(() => ({}));
-          throw new Error(typeof body.error === "string" ? body.error : "Couldn't load this audiobook.");
+        let manifest: AudiobookManifest;
+        let local: LocalFiles | null = null;
+        if (res && res.ok) {
+          manifest = (await res.json()) as AudiobookManifest;
+          if (downloaded && downloaded.files.length === manifest.segments.length) {
+            local = await openLocalFiles(downloaded).catch(() => null);
+            if (local) {
+              const expiresAt = new Date(Date.now() + 365 * 24 * 3600_000).toISOString();
+              manifest.urls = local.urls.map((url, index) => ({ index, url, expiresAt }));
+            }
+          }
+        } else if (downloaded && (!res || res.status >= 500)) {
+          local = await openLocalFiles(downloaded).catch(() => null);
+          const offline = local ? await offlineAudioManifest(downloaded, local) : null;
+          if (!local || !offline) throw new Error("This download can't be opened. Remove it and download it again.");
+          manifest = offline;
+        } else {
+          const body = res ? await res.json().catch(() => ({})) : {};
+          throw new Error(typeof body.error === "string" ? body.error : res ? "Couldn't load this audiobook." : "You're offline, and this isn't downloaded.");
         }
-        const { urls, resumeSeconds, ...book } = (await res.json()) as AudiobookManifest;
+        if (e.token !== token) {
+          local?.release();
+          return { ok: true };
+        }
+        e.localFiles?.release();
+        e.localFiles = local;
+        const { urls, resumeSeconds, ...book } = manifest;
         const { defaultRate } = book;
-        if (e.token !== token) return { ok: true };
 
         // Starting from nothing (the player was closed): begin at this library's speed. Moving between books or songs keeps the speed in use.
         if (e.book === null) {
@@ -512,6 +546,8 @@ export function createPlayer(
       e.playRequested = false;
       e.book = null;
       e.urls.clear();
+      e.localFiles?.release();
+      e.localFiles = null;
       clearSleep();
       e.rate = 1; // closing the player ends the speed too
       const el = audio();

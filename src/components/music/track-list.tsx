@@ -8,6 +8,7 @@ import { shuffled } from "@/lib/music/list-queue";
 import { Button } from "@/components/ui/button";
 import { useAudioPlayer } from "@/components/audio/audio-player-provider";
 import { AddToPlaylistMenu } from "@/components/playlists/add-to-playlist-menu";
+import { DownloadButton } from "@/components/offline/download-button";
 
 export interface TrackListItem {
   id: string;
@@ -81,7 +82,7 @@ export function TrackList({ tracks, serverId }: { tracks: TrackListItem[]; serve
               onClick={() => playFrom(i)}
               disabled={!p}
               className={cn(
-                "group flex w-full items-center gap-4 rounded-lg py-2.5 pr-14 pl-3 text-left outline-none transition-colors hover:bg-white/[0.06] focus-visible:ring-2 focus-visible:ring-primary",
+                "group flex w-full items-center gap-4 rounded-lg py-2.5 pr-24 pl-3 text-left outline-none transition-colors hover:bg-white/[0.06] focus-visible:ring-2 focus-visible:ring-primary",
                 isCurrent && "bg-white/[0.06]"
               )}
             >
@@ -104,7 +105,8 @@ export function TrackList({ tracks, serverId }: { tracks: TrackListItem[]; serve
               {t.done && <Check className="size-4 shrink-0 text-primary" role="img" aria-label="Listened to" />}
               <span className="shrink-0 text-xs text-muted-foreground tabular-nums">{t.durationSeconds != null ? formatClock(t.durationSeconds) : ""}</span>
             </button>
-            <div className="absolute top-1/2 right-2 -translate-y-1/2">
+            <div className="absolute top-1/2 right-2 flex -translate-y-1/2 items-center gap-1">
+              <DownloadButton serverId={serverId} ownerKind="title" ownerId={t.id} variant="icon" />
               <AddToPlaylistMenu serverId={serverId} target={{ titleId: t.id }} variant="icon" />
             </div>
             </div>

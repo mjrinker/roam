@@ -9,6 +9,7 @@ import { savedBytes } from "@/lib/offline/manager";
 import { offlineStorageSupported, storageUsage } from "@/lib/offline/storage";
 import type { DownloadRecord } from "@/lib/offline/types";
 import { useDownloads } from "@/lib/offline/use-downloads";
+import { useAudioActions } from "@/components/audio/audio-player-provider";
 import { ProgressBar, progressText, RowActions } from "@/components/offline/download-button";
 
 function Poster({ blob, kind }: { blob: Blob | null; kind: DownloadRecord["kind"] }) {
@@ -38,6 +39,7 @@ function Poster({ blob, kind }: { blob: Blob | null; kind: DownloadRecord["kind"
  * that plays a finished one (online: the watch page; offline: the offline player).
  */
 export function DownloadsList({ playTo }: { playTo: (record: DownloadRecord) => string }) {
+  const audio = useAudioActions();
   const records = useDownloads();
   const supported = useSyncExternalStore(() => () => undefined, offlineStorageSupported, () => false);
   const [space, setSpace] = useState<{ usage: number; quota: number } | null>(null);
@@ -74,11 +76,16 @@ export function DownloadsList({ playTo }: { playTo: (record: DownloadRecord) => 
               {r.status === "downloading" && <ProgressBar record={r} />}
               {r.error && <p className="mt-1 text-xs text-destructive">{r.error}</p>}
             </div>
-            {r.status === "complete" && (
-              <Button render={<a href={playTo(r)} />} size="sm" className="rounded-lg">
-                Play
-              </Button>
-            )}
+            {r.status === "complete" &&
+              (r.kind === "listen" ? (
+                <Button type="button" size="sm" className="rounded-lg" disabled={!audio} onClick={() => void audio?.load(r.ownerId, { autoplay: true })}>
+                  Play
+                </Button>
+              ) : (
+                <Button render={<a href={playTo(r)} />} size="sm" className="rounded-lg">
+                  Play
+                </Button>
+              ))}
             <RowActions record={r} />
           </li>
         ))}

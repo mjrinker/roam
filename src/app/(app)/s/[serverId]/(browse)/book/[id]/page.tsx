@@ -14,6 +14,7 @@ import { TitleResyncButton } from "@/components/admin/title-resync-button";
 import { AddToPlaylistMenu } from "@/components/playlists/add-to-playlist-menu";
 import { MarkDoneButton } from "@/components/library/mark-done-button";
 import { MoreMenu } from "@/components/shell/more-menu";
+import { DownloadButton } from "@/components/offline/download-button";
 import { libraryHasDoneState } from "@/lib/libraries/profile";
 import { BookChapters, BookPlayButton, BookQueueAutoStart } from "@/components/audio/book-controls";
 import { isUuid } from "@/lib/playlists/http";
@@ -189,6 +190,7 @@ export default async function BookDetailPage({ params, searchParams }: PageProps
             <div className="flex flex-wrap justify-center gap-2 md:justify-start">
               <AddToPlaylistMenu serverId={serverId} target={{ titleId: book.id }} />
               <MoreMenu>
+                <DownloadButton serverId={serverId} ownerKind="title" ownerId={book.id} />
                 {libraryHasDoneState(row.libraryKind) && <MarkDoneButton kind="title" id={book.id} done={!!state?.finished} media="listen" />}
                 {role === "admin" && libraryKindUsesExternalMetadata(row.libraryKind) && <AudibleMatchButton titleId={book.id} titleName={book.name} author={book.folderAuthor} />}
                 {role === "admin" && libraryKindUsesExternalMetadata(row.libraryKind) && <TitleResyncButton titleId={book.id} titleName={book.name} />}

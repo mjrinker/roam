@@ -5,6 +5,7 @@ import { useDownloads } from "@/lib/offline/use-downloads";
 import { DownloadsList } from "@/components/offline/downloads-list";
 import { SeamlessPlayer } from "@/components/player/seamless-player";
 import { AudioPlayerProvider } from "@/components/audio/audio-player-provider";
+import { MiniPlayer } from "@/components/audio/mini-player";
 
 const subscribeToLocation = () => () => undefined;
 const playParam = () => new URLSearchParams(window.location.search).get("play");
@@ -27,6 +28,7 @@ export default function OfflinePage() {
     );
   }
   return (
+    <AudioPlayerProvider>
     <main className="mx-auto flex min-h-dvh max-w-3xl flex-col gap-6 px-4 py-10 sm:px-8">
       <header>
         <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">{online ? "Downloads" : "You're offline"}</h1>
@@ -34,6 +36,8 @@ export default function OfflinePage() {
       </header>
       <DownloadsList playTo={(r) => `/offline?play=${encodeURIComponent(r.id)}`} />
     </main>
+    <MiniPlayer serverId="offline" />
+    </AudioPlayerProvider>
   );
 }
 

@@ -91,6 +91,11 @@ const app = http.createServer((req, res) => {
     const segments = files.map((f, i) => ({ index: i, url: `${base}/${f}?n=${manifestCalls}`, durationSeconds: i === 0 ? 6 : 40, startSeconds: i === 0 ? 0 : 6, sizeBytes: bytes[f].length }));
     return send("application/json", JSON.stringify({ ownerKind: "title", ownerId: "T1", durationSeconds: 46, segments, resumeSeconds: 0, expiresAt: "2099-01-01T00:00:00Z", version: "720p", versions: [{ label: "720p", name: "720p", height: 720 }], libraryId: "L1", defaultRate: null }));
   }
+  if (url.pathname === "/api/audiobooks/B1/manifest") {
+    manifestCalls++;
+    const base = `http://127.0.0.1:${(media.address() as { port: number }).port}`;
+    return send("application/json", JSON.stringify({ titleId: "B1", name: "A Song", authors: ["Someone"], narrators: [], seriesName: null, seriesPosition: null, coverUrl: null, albumId: null, durationSeconds: 6, segments: [{ index: 0, startSeconds: 0, durationSeconds: 6 }], chapters: [], resumeSeconds: 0, urls: [{ index: 0, url: `${base}/a.mp4?n=${manifestCalls}`, expiresAt: "2099-01-01T00:00:00Z" }], libraryId: "L2", defaultRate: null }));
+  }
   if (url.pathname === "/api/watch-state" && req.method === "PATCH") {
     let raw = "";
     req.on("data", (c) => (raw += c));
@@ -186,6 +191,17 @@ async function main() {
     await page.evaluate(`H.manager.startDownload("S1", ${options}, ${choice})`);
     check("an expired address is refreshed and the download still completes", await page.waitFor(`H.manager.getSnapshot()[0]?.status === "complete"`, 30000), await state().then((r) => [r.status, r.error, manifestCalls - callsBefore]));
     check("by asking the server for new addresses", manifestCalls - callsBefore >= 2, manifestCalls - callsBefore);
+    await page.evaluate(`H.manager.removeDownload(H.manager.getSnapshot()[0].id)`);
+
+    // 6b. A song or audiobook is saved the same way and plays offline from where it was left.
+    const audioOptions = JSON.stringify({ kind: "listen", ownerKind: "title", ownerId: "B1", title: "A Song", subtitle: null, posterUrl: null, options: [] });
+    const audioChoice = JSON.stringify({ label: "", name: "Audio", height: null, sizeBytes: bytes["a.mp4"].length, parts: 1 });
+    await page.evaluate(`H.manager.startDownload("S1", ${audioOptions}, ${audioChoice})`);
+    check("an audio download completes", await page.waitFor(`H.manager.getSnapshot()[0]?.status === "complete"`, 20000), await state().then((r) => [r.status, r.error]));
+    await page.evaluate(`H.sync.queueProgress({ ownerKind: "title", ownerId: "B1", positionSeconds: 3, durationSeconds: 6, finished: false })`);
+    const audioManifest = await page.evaluate<{ name: string; resume: number; url: string; found: boolean }>(`(async () => { const r = await H.local.localAudioFor("B1"); const files = await H.local.openLocalFiles(r); const m = await H.local.offlineAudioManifest(r, files); const out = { name: m.name, resume: m.resumeSeconds, url: m.urls[0].url.slice(0, 5), found: !!r }; files.release(); return out; })()`);
+    check("the saved song's timeline plays from this device, resuming from offline progress", audioManifest.found && audioManifest.name === "A Song" && audioManifest.resume === 3 && audioManifest.url === "blob:", audioManifest);
+    await page.evaluate(`H.sync.flushProgress()`);
     await page.evaluate(`H.manager.removeDownload(H.manager.getSnapshot()[0].id)`);
 
     // 7. The service worker opens the offline page when the server is gone.

@@ -1,5 +1,5 @@
 /** Playing a downloaded item from the files on this device. Browser only. */
-import type { PlayManifest } from "@/lib/player/types";
+import type { AudiobookManifest, PlayManifest } from "@/lib/player/types";
 import { listPendingProgress } from "./db";
 import { findCompleteDownload, initDownloads } from "./manager";
 import { openSavedFile } from "./storage";
@@ -30,6 +30,24 @@ export async function openLocalFiles(record: DownloadRecord): Promise<LocalFiles
 export async function localVideoFor(ownerKind: PlayManifest["ownerKind"], ownerId: string, version?: string): Promise<DownloadRecord | null> {
   await initDownloads();
   return findCompleteDownload("watch", ownerKind, ownerId, version);
+}
+
+/** The completed audio download (a song or audiobook) to play for this item, if there is one. */
+export async function localAudioFor(titleId: string): Promise<DownloadRecord | null> {
+  await initDownloads();
+  return findCompleteDownload("listen", "title", titleId);
+}
+
+/** A downloaded song/audiobook as the audio player's manifest, for when the server can't be asked. Resumes from progress made offline. */
+export async function offlineAudioManifest(record: DownloadRecord, files: LocalFiles): Promise<AudiobookManifest | null> {
+  if (!record.book) return null;
+  const pending = (await listPendingProgress().catch(() => [])).find((p) => p.key === `${record.ownerKind}:${record.ownerId}`);
+  const expiresAt = new Date(Date.now() + 365 * 24 * 3600_000).toISOString();
+  return {
+    ...record.book,
+    resumeSeconds: pending && !pending.finished ? pending.positionSeconds : 0,
+    urls: files.urls.map((url, index) => ({ index, url, expiresAt })),
+  };
 }
 
 /**
