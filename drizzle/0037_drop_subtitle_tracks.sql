@@ -1,0 +1,1 @@
+DROP TABLE "subtitle_tracks" CASCADE;

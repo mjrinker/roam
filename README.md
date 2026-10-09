@@ -108,7 +108,7 @@ How it's built (the interesting part, for reviewers): a server's admin can switc
 
 ### Subtitles
 
-The server's admin can add subtitles to any movie, video or episode from its **Subtitles** page (reached from the title page, or the captions menu in the player): upload an SRT, WebVTT or ASS file (2 MB at most), or search OpenSubtitles. Searching needs `OPENSUBTITLES_API_KEY`, `OPENSUBTITLES_USERNAME` and `OPENSUBTITLES_PASSWORD` (see `.env.example`); without them uploading still works. Only the words and timing are kept, never the file. Everyone who can watch the title can pick a track (web: the captions button or `C`; TV: Down), and the language last chosen is remembered per device.
+Anyone who can watch a movie, video or episode can load subtitles for that viewing: in the player's captions menu (web) or with Down (TV), find one on OpenSubtitles, or on the web load an SRT, WebVTT or ASS file from the device (2 MB at most). Nothing is stored: subtitles are gone when the player closes, and each time the player loads you choose them again. Searching OpenSubtitles needs `OPENSUBTITLES_API_KEY`, `OPENSUBTITLES_USERNAME` and `OPENSUBTITLES_PASSWORD` (see `.env.example`); every download comes out of that one account's daily allowance.
 
 ### Turning on the CAPTCHA
 

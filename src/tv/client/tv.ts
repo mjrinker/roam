@@ -14,7 +14,6 @@ import { pickNext, type Box } from "./focus";
 import { actionOf, directionOf, TIZEN_MEDIA_KEYS, type Action } from "./keys";
 import { clampSpeed, formatSpeed, SPEED_STEP } from "@/lib/player/speed";
 import { activeCues, type Cue } from "@/lib/subtitles/cues";
-import { pickInitialTrack, readChoice, rememberedChoice, writeChoice } from "@/lib/subtitles/choice";
 
 declare const tizen: { tvinputdevice?: { registerKey(name: string): void } } | undefined;
 
@@ -280,33 +279,51 @@ function createSpeedControl(media: HTMLMediaElement, onChange: () => void) {
 
 // ── Subtitles ────────────────────────────────────────────────────────────
 
-interface SubtitleTrack {
+interface LoadedSubtitle {
   id: string;
-  language: string;
   label: string;
-  hearingImpaired: boolean;
+  cues: Cue[];
+}
+
+interface SubtitleFound {
+  fileId: number;
+  language: string;
+  release: string;
+  fileName: string;
+  downloads: number;
 }
 
 const SUBTITLE_DELAY_STEP = 0.5;
+const FIND_LANGUAGES = ["en", "es", "fr", "de", "it", "pt", "nl", "ja", "ko", "zh-CN"];
 
 /**
- * Subtitles on the TV: the words drawn over the picture from the player's clock, and a picker the remote drives (Down opens it: up and
- * down choose Off or a track, left and right move the delay by half a second, OK closes). The language last chosen on this TV is
- * switched on by itself when a video has it.
+ * Subtitles on the TV, for this viewing only (nothing is remembered): the words drawn over the picture from the player's clock, and a
+ * picker the remote drives. Down opens it: Off, anything already loaded, and "Find subtitles" which searches OpenSubtitles in a language
+ * (Left and Right change it) and lists what was found; OK downloads one. With a loaded track on, Left and Right move the delay by half a second.
  */
 function createSubtitleControl(getTime: () => number) {
-  let tracks: SubtitleTrack[] = [];
+  let owner: { kind: string; id: string } | null = null;
+  let loaded: LoadedSubtitle[] = [];
   let activeId: string | null = null;
-  let cues: Cue[] | null = null;
   let offset = 0;
   let open = false;
   let cursor = 0;
+  let langIndex = 0;
+  let found: SubtitleFound[] | null = null; // the results list is showing
+  let note = "";
+  let busy = false;
   let shown = "";
   const words = doc.getElementById("subs");
   const picker = doc.getElementById("subpicker");
 
+  const activeCuesList = (): Cue[] | null => {
+    for (let i = 0; i < loaded.length; i++) if (loaded[i].id === activeId) return loaded[i].cues;
+    return null;
+  };
+
   const drawWords = () => {
     if (!words) return;
+    const cues = activeCuesList();
     const now = cues ? activeCues(cues, getTime(), offset) : [];
     const key = now.map((c) => c[0] + ":" + c[1]).join("|");
     if (key === shown) return;
@@ -320,6 +337,12 @@ function createSubtitleControl(getTime: () => number) {
   };
   window.setInterval(drawWords, 120);
 
+  /** The rows the picker is showing right now. */
+  const rows = (): string[] => {
+    if (found) return found.map((f) => (f.release || f.fileName || "Subtitle") + "  (" + f.downloads + " downloads)");
+    return ["Off"].concat(loaded.map((t) => t.label), ["Find subtitles: " + FIND_LANGUAGES[langIndex] + (owner ? "" : " (unavailable)")]);
+  };
+
   const drawPicker = () => {
     if (!picker) return;
     picker.style.display = open ? "block" : "none";
@@ -327,72 +350,141 @@ function createSubtitleControl(getTime: () => number) {
     picker.className = "speedbox subpick";
     picker.innerHTML = "";
     const title = doc.createElement("div");
-    title.textContent = "Subtitles";
+    title.textContent = found ? "Found on OpenSubtitles" : "Subtitles";
     picker.appendChild(title);
-    const rows = ["Off"].concat(tracks.map((t) => t.label));
-    for (let i = 0; i < rows.length; i++) {
+    const list = rows();
+    if (found && list.length === 0) list.push("Nothing found in that language");
+    for (let i = 0; i < list.length; i++) {
       const row = doc.createElement("div");
       row.className = "row2" + (i === cursor ? " on" : "");
-      const isActive = i === 0 ? activeId === null : tracks[i - 1].id === activeId;
-      row.textContent = (i === cursor ? "▶ " : "   ") + rows[i] + (isActive ? "  ✓" : "");
+      const isActive = !found && (i === 0 ? activeId === null : i <= loaded.length && loaded[i - 1].id === activeId);
+      row.textContent = (i === cursor ? "▶ " : "   ") + list[i] + (isActive ? "  ✓" : "");
       picker.appendChild(row);
     }
     const hint = doc.createElement("small");
-    hint.textContent = "Up and Down: choose · OK: select" + (activeId ? " · Left and Right: delay " + (offset > 0 ? "+" : "") + offset.toFixed(1) + "s" : "");
+    hint.textContent = busy
+      ? "Working…"
+      : note ||
+        (found
+          ? "Up and Down: choose · OK: use it · Back: return"
+          : "Up and Down: choose · OK: select" + (activeId ? " · Left and Right: delay " + (offset > 0 ? "+" : "") + offset.toFixed(1) + "s" : " · on Find: Left and Right: language"));
     picker.appendChild(hint);
   };
 
-  /** Switches a track on or off without remembering it (what happens when a video loads); `choose` is for the viewer's own choice. */
-  const apply = (id: string | null) => {
+  const select = (id: string | null) => {
     activeId = id;
-    cues = null;
     shown = "";
     if (words) words.innerHTML = ""; // whatever was on screen goes now, not at the next tick
-    if (id) {
-      fetch("/api/subtitles/" + id, { credentials: "same-origin" })
-        .then((r) => (r.ok ? r.json() : Promise.reject(new Error("no cues"))))
-        .then((body: { cues: Cue[] }) => {
-          if (activeId === id) cues = body.cues;
-        })
-        .catch(() => {
-          if (activeId === id) activeId = null;
-        });
-    }
     drawWords();
   };
-  const choose = (id: string | null) => {
-    apply(id);
-    writeChoice(rememberedChoice(tracks.filter((t) => t.id === id)[0] || null));
+
+  const post = (url: string, body: string): Promise<{ ok: boolean; data: { cues?: Cue[]; error?: string } }> =>
+    fetch(url, { method: "POST", credentials: "same-origin", headers: { "Content-Type": "application/json" }, body: body }).then((r) =>
+      r.json().then(
+        (data) => ({ ok: r.ok, data: data }),
+        () => ({ ok: false, data: {} })
+      )
+    );
+
+  const search = () => {
+    if (!owner || busy) return;
+    busy = true;
+    note = "";
+    drawPicker();
+    fetch("/api/subtitles/search?ownerKind=" + owner.kind + "&ownerId=" + owner.id + "&languages=" + FIND_LANGUAGES[langIndex], { credentials: "same-origin" })
+      .then((r) => r.json().then((data) => ({ ok: r.ok, data: data }), () => ({ ok: false, data: {} })))
+      .then((res) => {
+        busy = false;
+        if (res.ok) {
+          found = res.data.results || [];
+          cursor = 0;
+        } else note = res.data.error || "The search failed.";
+        drawPicker();
+      }, () => {
+        busy = false;
+        note = "Couldn't reach the server.";
+        drawPicker();
+      });
+  };
+
+  const download = (item: SubtitleFound) => {
+    if (!owner || busy) return;
+    busy = true;
+    note = "";
+    drawPicker();
+    post("/api/subtitles/download", JSON.stringify({ ownerKind: owner.kind, ownerId: owner.id, fileId: item.fileId })).then(
+      (res) => {
+        busy = false;
+        if (res.ok) {
+          const t = { id: "os-" + item.fileId + "-" + Date.now(), label: item.language.toUpperCase() + " " + (item.release || item.fileName || "OpenSubtitles"), cues: res.data.cues || [] };
+          loaded.push(t);
+          offset = 0;
+          select(t.id);
+          found = null;
+          open = false;
+        } else note = res.data.error || "Couldn't get that subtitle.";
+        drawPicker();
+      },
+      () => {
+        busy = false;
+        note = "Couldn't reach the server.";
+        drawPicker();
+      }
+    );
   };
 
   return {
-    hasTracks: () => tracks.length > 0,
-    /** A video's tracks (from its manifest): resets the delay and switches on the remembered language, if there is one. */
-    setTracks(next: SubtitleTrack[] | undefined) {
-      tracks = next || [];
+    hasPicker: () => true,
+    /** A new video: forget anything loaded for the last one and start with subtitles off. */
+    setOwner(kind: string, id: string) {
+      // The same video loading again (a fresh link, a retry) keeps what was loaded; another video starts clean.
+      if (owner && owner.id === id && owner.kind === kind) return;
+      owner = { kind: kind, id: id };
+      loaded = [];
       offset = 0;
       open = false;
-      apply(null);
-      const wanted = pickInitialTrack(tracks, readChoice());
-      if (wanted) apply(wanted.id);
+      found = null;
+      note = "";
+      select(null);
       const hint = doc.getElementById("vhint");
-      if (hint) hint.textContent = "Up: playback speed" + (tracks.length ? "  ·  Down: subtitles" : "");
+      if (hint) hint.textContent = "Up: playback speed  ·  Down: subtitles";
     },
     isOpen: () => open,
     open() {
       open = true;
-      cursor = activeId === null ? 0 : 1 + Math.max(0, tracks.map((t) => t.id).indexOf(activeId));
+      found = null;
+      note = "";
+      cursor = activeId === null ? 0 : 1 + Math.max(0, loaded.map((t) => t.id).indexOf(activeId));
       drawPicker();
     },
     key(action: Action | null, dirKey: string | null): boolean {
+      if (busy) return true;
+      const count = Math.max(1, rows().length);
+      const onFind = !found && cursor === loaded.length + 1;
+      note = "";
       if (dirKey === "up") cursor = Math.max(0, cursor - 1);
-      else if (dirKey === "down") cursor = Math.min(tracks.length, cursor + 1);
-      else if (dirKey === "left" && activeId) offset = Math.round((offset - SUBTITLE_DELAY_STEP) * 10) / 10;
-      else if (dirKey === "right" && activeId) offset = Math.round((offset + SUBTITLE_DELAY_STEP) * 10) / 10;
-      else if (action === "enter") {
-        choose(cursor === 0 ? null : tracks[cursor - 1].id);
+      else if (dirKey === "down") cursor = Math.min(count - 1, cursor + 1);
+      else if (dirKey === "left" || dirKey === "right") {
+        const step = dirKey === "left" ? -1 : 1;
+        if (onFind) langIndex = (langIndex + step + FIND_LANGUAGES.length) % FIND_LANGUAGES.length;
+        else if (!found && activeId) offset = Math.round((offset + step * SUBTITLE_DELAY_STEP) * 10) / 10;
+      } else if (action === "enter") {
+        if (found) {
+          if (found[cursor]) download(found[cursor]);
+          return true;
+        }
+        if (onFind) {
+          search();
+          return true;
+        }
+        select(cursor === 0 ? null : loaded[cursor - 1].id);
         open = false;
-      } else if (action === "back" || action === "stop") open = false;
+      } else if (action === "back" || action === "stop") {
+        if (found) {
+          found = null;
+          cursor = loaded.length + 1;
+        } else open = false;
+      }
       drawPicker();
       drawWords();
       return true;
@@ -419,7 +511,6 @@ interface Manifest {
   segments: Segment[];
   resumeSeconds: number;
   defaultRate?: number | null;
-  subtitles?: SubtitleTrack[];
 }
 
 const SAVE_EVERY_MS = 15000;
@@ -550,7 +641,7 @@ function startPlayer(first: PlayConfig) {
       .then((m: Manifest) => {
         manifest = m;
         speed.applyDefault(m.defaultRate);
-        subs.setTracks(m.subtitles);
+        subs.setOwner(cfg.ownerKind, cfg.ownerId);
         const start = resumeFrom !== undefined ? resumeFrom : m.resumeSeconds > 0 && m.resumeSeconds < m.durationSeconds - 30 ? m.resumeSeconds : 0;
         const at = locate(m.segments, start);
         say("");
@@ -690,7 +781,7 @@ function startPlayer(first: PlayConfig) {
     if (action === "forward" || dirKey === "right") return seekTo(position() + (action === "forward" ? 30 : SKIP_SECONDS)), true;
     if (action === "rewind" || dirKey === "left") return seekTo(position() - (action === "rewind" ? 30 : SKIP_SECONDS)), true;
     if (dirKey === "up") return speed.open(), showHud(), true;
-    if (dirKey === "down") return subs.hasTracks() ? (subs.open(), showHud(), true) : (showHud(), true);
+    if (dirKey === "down") return (subs.open(), showHud(), true);
     return false;
   };
   bar.style.display = "block";

@@ -260,6 +260,13 @@
       "when": 1791527332028,
       "tag": "0036_subtitle_tracks",
       "breakpoints": true
+    },
+    {
+      "idx": 37,
+      "version": "7",
+      "when": 1791531187836,
+      "tag": "0037_drop_subtitle_tracks",
+      "breakpoints": true
     }
   ]
 }

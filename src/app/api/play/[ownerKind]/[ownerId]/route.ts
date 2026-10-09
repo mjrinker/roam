@@ -1,12 +1,10 @@
 import { NextResponse } from "next/server";
-import { db } from "@/lib/db/client";
 import { checkDemoPlay, secondsUntilWindowRenews } from "@/lib/auth/demo-limits";
 import { authorizeOwner } from "@/lib/auth/resolve-server";
 import { buildPlayManifest } from "@/lib/player/manifest";
 import { isPhotoLibraryKind } from "@/lib/libraries/profile";
 import { parseUnsupportedCodecs } from "@/lib/player/variant-selection";
 import { libraryDefaultSpeed } from "@/lib/player/library-speed";
-import { listTracks } from "@/lib/subtitles/service";
 
 // authorizeOwner covers server membership AND the profile's rating limit —
 // see lib/content/access. A title blocked by the limit 404s exactly like a
@@ -34,13 +32,5 @@ export async function GET(
   if (!result.ok) {
     return NextResponse.json({ error: result.error }, { status: result.status });
   }
-  // Subtitles ride along (not for pictures' clips, which have none). Only the track list: the words are fetched when one is chosen.
-  const subtitles = isPhotoLibraryKind(auth.libraryKind) ? [] : await listTracks(db, { kind: ownerKind, id: ownerId });
-  const canManageSubtitles = auth.member.role === "admin" && auth.member.viewer.role !== "limited" && !isPhotoLibraryKind(auth.libraryKind);
-  return NextResponse.json({
-    ...result.manifest,
-    defaultRate: await libraryDefaultSpeed(auth.libraryId),
-    subtitles: subtitles.map((t) => ({ id: t.id, language: t.language, label: t.label, hearingImpaired: t.hearingImpaired })),
-    canManageSubtitles,
-  });
+  return NextResponse.json({ ...result.manifest, defaultRate: await libraryDefaultSpeed(auth.libraryId) });
 }

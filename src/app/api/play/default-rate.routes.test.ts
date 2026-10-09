@@ -47,12 +47,6 @@ describe("the manifests' defaultRate", () => {
     expect((await (await play(new Request("http://x"), playCtx(w.film.id))).json()).defaultRate).toBe(1.5);
     expect((await (await bookManifest(new Request("http://x"), bookCtx(w.book.id))).json()).defaultRate).toBe(2.25);
   });
-  it("carries the title's subtitle tracks (just the list) and whether this viewer can manage them", async () => {
-    const w = await world();
-    const json = await (await play(new Request("http://x"), playCtx(w.film.id))).json();
-    expect(json.subtitles).toEqual([]);
-    expect(json.canManageSubtitles).toBe(false); // the signed-in viewer here is an ordinary member
-  });
   it("ignores a stored value that is not an allowed speed", async () => {
     const w = await world();
     await db.update(libraries).set({ defaultPlaybackSpeed: 9 }).where(eq(libraries.id, w.movies.id));

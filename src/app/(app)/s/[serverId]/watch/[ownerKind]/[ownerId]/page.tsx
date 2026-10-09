@@ -149,7 +149,6 @@ export default async function WatchPage({
       nextHref={nextHref}
       nextLabel={nextLabel}
       watchHref={`/s/${serverId}/watch/${ownerKind}/${ownerId}${queueQuery}`}
-      manageSubtitlesHref={`/s/${serverId}/subtitles/${ownerKind}/${ownerId}`}
     />
   );
 }

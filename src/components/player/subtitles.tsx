@@ -1,16 +1,17 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import Link from "next/link";
-import { Captions } from "lucide-react";
+import { Captions, Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { activeCues, type Cue } from "@/lib/subtitles/cues";
+import { activeCues, parseSubtitleBytes, MAX_SUBTITLE_BYTES, type Cue } from "@/lib/subtitles/cues";
+import { SUBTITLE_LANGUAGES } from "@/lib/subtitles/languages";
+import type { SubtitleResult } from "@/lib/subtitles/opensubtitles";
 
-export interface PlayerTrack {
+/** Subtitles the viewer loaded for this viewing (nothing about them is stored). */
+export interface LoadedTrack {
   id: string;
-  language: string;
   label: string;
-  hearingImpaired: boolean;
+  cues: Cue[];
 }
 
 /**
@@ -48,9 +49,105 @@ export function SubtitleOverlay({ cues, getTime, offset, lifted }: { cues: reado
 
 const DELAY_STEP = 0.1;
 
-/** The captions button and its menu: off, each track, a delay control, and (for the admin) a link to add or remove subtitles. Drawn inside the player so it works in fullscreen. */
-export function SubtitleMenu({ tracks, activeId, onSelect, offset, onOffset, manageHref }: { tracks: readonly PlayerTrack[]; activeId: string | null; onSelect: (id: string | null) => void; offset: number; onOffset: (seconds: number) => void; manageHref?: string }) {
+async function errorOf(res: Response, fallback: string): Promise<string> {
+  const body = await res.json().catch(() => ({}));
+  return typeof body.error === "string" ? body.error : fallback;
+}
+
+/** Find a subtitle on OpenSubtitles or load a file from the device. What comes back is handed on and used for this viewing only. */
+function SubtitleFinder({ ownerKind, ownerId, onLoaded, onDone }: { ownerKind: string; ownerId: string; onLoaded: (t: LoadedTrack) => void; onDone: () => void }) {
+  const [language, setLanguage] = useState("en");
+  const [busy, setBusy] = useState<number | "search" | null>(null);
+  const [results, setResults] = useState<SubtitleResult[] | null>(null);
+  const [message, setMessage] = useState<string | null>(null);
+  const field = "h-8 rounded-md border border-white/20 bg-black/40 px-2 text-sm text-white";
+
+  async function search() {
+    setBusy("search");
+    setMessage(null);
+    const res = await fetch(`/api/subtitles/search?ownerKind=${ownerKind}&ownerId=${ownerId}&languages=${encodeURIComponent(language)}`).catch(() => null);
+    setBusy(null);
+    if (!res || !res.ok) {
+      setResults(null);
+      setMessage(res ? await errorOf(res, "The search failed.") : "Couldn't reach the server.");
+      return;
+    }
+    setResults((await res.json()).results as SubtitleResult[]);
+  }
+  async function pick(r: SubtitleResult) {
+    setBusy(r.fileId);
+    setMessage(null);
+    const res = await fetch("/api/subtitles/download", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ownerKind, ownerId, fileId: r.fileId }) }).catch(() => null);
+    setBusy(null);
+    if (!res || !res.ok) return setMessage(res ? await errorOf(res, "Couldn't get that subtitle.") : "Couldn't reach the server.");
+    const body = (await res.json()) as { cues: Cue[] };
+    onLoaded({ id: `os-${r.fileId}-${crypto.randomUUID()}`, label: `${r.language.toUpperCase()} · ${r.release || r.fileName || "OpenSubtitles"}`.slice(0, 60), cues: body.cues });
+    onDone();
+  }
+  async function file(f: File | undefined) {
+    if (!f) return;
+    if (f.size > MAX_SUBTITLE_BYTES) return setMessage("That file is too large for a subtitle file (2 MB at most).");
+    const parsed = parseSubtitleBytes(new Uint8Array(await f.arrayBuffer()));
+    if (!parsed.ok) return setMessage(parsed.error);
+    onLoaded({ id: `file-${crypto.randomUUID()}`, label: f.name.replace(/\.[^.]+$/, "").slice(0, 60) || "Subtitles", cues: parsed.cues });
+    onDone();
+  }
+
+  return (
+    <div className="flex flex-col gap-2 p-2 text-sm">
+      <label className="flex flex-col gap-1">
+        <span className="text-white/70">Load a file from this device</span>
+        <input type="file" accept=".srt,.vtt,.ass,.ssa,text/plain,text/vtt" aria-label="Subtitle file" onChange={(e) => void file(e.target.files?.[0])} className="text-xs file:mr-2 file:rounded-md file:border-0 file:bg-white/15 file:px-2 file:py-1 file:text-white" />
+      </label>
+      <div className="flex flex-col gap-1 border-t border-white/15 pt-2">
+        <span className="text-white/70">Find on OpenSubtitles</span>
+        <div className="flex items-center gap-2">
+          <select aria-label="Language to search for" value={language} onChange={(e) => setLanguage(e.target.value)} className={field}>
+            {SUBTITLE_LANGUAGES.map((l) => (
+              <option key={l.code} value={l.code}>
+                {l.name}
+              </option>
+            ))}
+          </select>
+          <button type="button" onClick={() => void search()} disabled={busy !== null} className="flex h-8 items-center gap-1 rounded-md bg-white/20 px-3 hover:bg-white/30 disabled:opacity-60">
+            {busy === "search" && <Loader2 className="size-3.5 animate-spin" />} Search
+          </button>
+        </div>
+      </div>
+      {message && (
+        <p role="alert" className="text-xs text-red-300">
+          {message}
+        </p>
+      )}
+      {results && results.length === 0 && <p className="text-xs text-white/60">Nothing found in that language.</p>}
+      {results && results.length > 0 && (
+        <ul className="max-h-44 overflow-y-auto">
+          {results.map((r) => (
+            <li key={r.fileId}>
+              <button type="button" disabled={busy !== null} onClick={() => void pick(r)} className="flex w-full items-center justify-between gap-2 rounded-md px-2 py-1.5 text-left hover:bg-white/15 disabled:opacity-60">
+                <span className="min-w-0">
+                  <span className="block truncate">{r.release || r.fileName || "Subtitle"}</span>
+                  <span className="block text-xs text-white/60">
+                    {r.downloads.toLocaleString()} downloads{r.trusted ? " · trusted" : ""}{r.hearingImpaired ? " · SDH" : ""}{r.aiTranslated ? " · machine translated" : ""}
+                  </span>
+                </span>
+                {busy === r.fileId && <Loader2 className="size-4 shrink-0 animate-spin" />}
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+      <button type="button" onClick={onDone} className="self-start rounded-md px-2 py-1 text-white/70 hover:bg-white/15">
+        Back
+      </button>
+    </div>
+  );
+}
+
+/** The captions button and its menu: off, what has been loaded for this viewing, a delay control, and a way to load more. Drawn inside the player so it works in fullscreen. */
+export function SubtitleMenu({ ownerKind, ownerId, tracks, activeId, onSelect, onLoaded, offset, onOffset }: { ownerKind: string; ownerId: string; tracks: readonly LoadedTrack[]; activeId: string | null; onSelect: (id: string | null) => void; onLoaded: (t: LoadedTrack) => void; offset: number; onOffset: (seconds: number) => void }) {
   const [open, setOpen] = useState(false);
+  const [finding, setFinding] = useState(false);
   const box = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (!open) return;
@@ -64,8 +161,6 @@ export function SubtitleMenu({ tracks, activeId, onSelect, offset, onOffset, man
     };
   }, [open]);
 
-  // Nothing to choose and nobody who can add any: no button at all.
-  if (tracks.length === 0 && !manageHref) return null;
   const item = "flex w-full items-center justify-between rounded-lg px-3 py-1.5 text-left text-sm outline-none hover:bg-white/15 focus-visible:bg-white/15";
   return (
     <div ref={box} className="relative">
@@ -75,49 +170,52 @@ export function SubtitleMenu({ tracks, activeId, onSelect, offset, onOffset, man
         aria-expanded={open}
         aria-label={activeId ? "Subtitles, on" : "Subtitles, off"}
         title="Subtitles"
-        onClick={() => setOpen((o) => !o)}
+        onClick={() => (setOpen((o) => !o), setFinding(false))}
         className={cn("flex size-10 items-center justify-center rounded-full outline-none hover:bg-white/15 focus-visible:ring-2 focus-visible:ring-ring", open && "bg-white/15", activeId && "text-primary")}
       >
         <Captions className="size-5" />
       </button>
       {open && (
-        <div role="menu" aria-label="Subtitles" className="absolute right-0 bottom-full z-10 mb-2 w-60 rounded-xl bg-black/90 p-1.5 text-white shadow-xl ring-1 ring-white/15 backdrop-blur">
-          <ul className="max-h-60 overflow-y-auto">
-            <li>
-              <button type="button" role="menuitemradio" aria-checked={activeId === null} onClick={() => (onSelect(null), setOpen(false))} className={cn(item, activeId === null && "font-semibold text-primary")}>
-                Off {activeId === null && <span aria-hidden>✓</span>}
-              </button>
-            </li>
-            {tracks.map((t) => (
-              <li key={t.id}>
-                <button type="button" role="menuitemradio" aria-checked={activeId === t.id} onClick={() => (onSelect(t.id), setOpen(false))} className={cn(item, activeId === t.id && "font-semibold text-primary")}>
-                  <span className="truncate">{t.label}</span>
-                  {activeId === t.id && <span aria-hidden>✓</span>}
+        <div role="menu" aria-label="Subtitles" className="absolute right-0 bottom-full z-10 mb-2 w-72 rounded-xl bg-black/90 p-1.5 text-white shadow-xl ring-1 ring-white/15 backdrop-blur">
+          {finding ? (
+            <SubtitleFinder ownerKind={ownerKind} ownerId={ownerId} onLoaded={onLoaded} onDone={() => (setFinding(false), setOpen(false))} />
+          ) : (
+            <>
+              <ul className="max-h-60 overflow-y-auto">
+                <li>
+                  <button type="button" role="menuitemradio" aria-checked={activeId === null} onClick={() => (onSelect(null), setOpen(false))} className={cn(item, activeId === null && "font-semibold text-primary")}>
+                    Off {activeId === null && <span aria-hidden>✓</span>}
+                  </button>
+                </li>
+                {tracks.map((t) => (
+                  <li key={t.id}>
+                    <button type="button" role="menuitemradio" aria-checked={activeId === t.id} onClick={() => (onSelect(t.id), setOpen(false))} className={cn(item, activeId === t.id && "font-semibold text-primary")}>
+                      <span className="truncate">{t.label}</span>
+                      {activeId === t.id && <span aria-hidden>✓</span>}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+              {activeId && (
+                <div className="mt-1 flex items-center justify-between gap-2 border-t border-white/15 px-3 pt-2 pb-1 text-sm">
+                  <span className="text-white/70">Delay</span>
+                  <span className="flex items-center gap-1">
+                    <button type="button" aria-label="Subtitles earlier" onClick={() => onOffset(Math.round((offset - DELAY_STEP) * 10) / 10)} className="size-7 rounded-md bg-white/15 hover:bg-white/25">
+                      −
+                    </button>
+                    <span className="w-14 text-center tabular-nums">{offset > 0 ? "+" : ""}{offset.toFixed(1)}s</span>
+                    <button type="button" aria-label="Subtitles later" onClick={() => onOffset(Math.round((offset + DELAY_STEP) * 10) / 10)} className="size-7 rounded-md bg-white/15 hover:bg-white/25">
+                      +
+                    </button>
+                  </span>
+                </div>
+              )}
+              <div className="mt-1 border-t border-white/15 pt-1">
+                <button type="button" onClick={() => setFinding(true)} className={item}>
+                  Find or load subtitles…
                 </button>
-              </li>
-            ))}
-            {tracks.length === 0 && <li className="px-3 py-1.5 text-sm text-white/60">No subtitles yet</li>}
-          </ul>
-          {activeId && (
-            <div className="mt-1 flex items-center justify-between gap-2 border-t border-white/15 px-3 pt-2 pb-1 text-sm">
-              <span className="text-white/70">Delay</span>
-              <span className="flex items-center gap-1">
-                <button type="button" aria-label="Subtitles earlier" onClick={() => onOffset(Math.round((offset - DELAY_STEP) * 10) / 10)} className="size-7 rounded-md bg-white/15 hover:bg-white/25">
-                  −
-                </button>
-                <span className="w-14 text-center tabular-nums">{offset > 0 ? "+" : ""}{offset.toFixed(1)}s</span>
-                <button type="button" aria-label="Subtitles later" onClick={() => onOffset(Math.round((offset + DELAY_STEP) * 10) / 10)} className="size-7 rounded-md bg-white/15 hover:bg-white/25">
-                  +
-                </button>
-              </span>
-            </div>
-          )}
-          {manageHref && (
-            <div className="mt-1 border-t border-white/15 pt-1">
-              <Link href={manageHref} className={item}>
-                Add or remove subtitles…
-              </Link>
-            </div>
+              </div>
+            </>
           )}
         </div>
       )}

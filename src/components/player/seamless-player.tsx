@@ -21,9 +21,7 @@ import { cn } from "@/lib/utils";
 import { useAudioActions } from "@/components/audio/audio-player-provider";
 import { InlineSpeedMenu } from "@/components/player/speed-menu";
 import { clampSpeed } from "@/lib/player/speed";
-import { SubtitleMenu, SubtitleOverlay, type PlayerTrack } from "@/components/player/subtitles";
-import { pickInitialTrack, readChoice, rememberedChoice, writeChoice } from "@/lib/subtitles/choice";
-import type { Cue } from "@/lib/subtitles/cues";
+import { SubtitleMenu, SubtitleOverlay, type LoadedTrack } from "@/components/player/subtitles";
 import type { PlayManifest, PlayOwnerKind } from "@/lib/player/types";
 import { UNSUPPORTED_AUDIO_CODECS } from "@/lib/scan/codec-support";
 import {
@@ -65,8 +63,6 @@ interface SeamlessPlayerProps {
   ownerKind: PlayOwnerKind;
   ownerId: string;
   title: string;
-  /** Where the admin goes to add or remove this video's subtitles (shown in the subtitles menu). */
-  manageSubtitlesHref?: string;
   /** Secondary line under the title, e.g. "S1 · E3 · Pilot". */
   subtitle?: string | null;
   /** Where the back arrow (and the finished screen's back button) goes. */
@@ -142,7 +138,6 @@ export function SeamlessPlayer({
   ownerKind,
   ownerId,
   title,
-  manageSubtitlesHref,
   subtitle,
   backHref,
   nextHref,
@@ -198,11 +193,10 @@ export function SeamlessPlayer({
   // viewer picked is kept when the next episode loads into the same player.
   const [rate, setRate] = useState(1);
   const rateTouchedRef = useRef(false);
-  // Subtitles: the tracks this title has, the one switched on, its words, and a delay for this viewing.
-  const [tracks, setTracks] = useState<PlayerTrack[]>([]);
-  const [canManage, setCanManage] = useState(false);
+  // Subtitles are for this viewing only: whatever the viewer loads (a file, or one from OpenSubtitles), the one switched on, and a delay.
+  // Nothing is stored, and each new video starts with none.
+  const [tracks, setTracks] = useState<LoadedTrack[]>([]);
   const [activeTrack, setActiveTrack] = useState<string | null>(null);
-  const [cues, setCues] = useState<Cue[] | null>(null);
   const [subOffset, setSubOffset] = useState(0);
   const [controlsVisible, setControlsVisible] = useState(true);
   const [hoverRatio, setHoverRatio] = useState<number | null>(null);
@@ -240,12 +234,6 @@ export function SeamlessPlayer({
       manifestRef.current = data;
       setManifest(data);
       if (!rateTouchedRef.current) setRate(clampSpeed(data.defaultRate ?? 1));
-      // The subtitle choice remembered on this device switches a track on by itself, if this title has one in that language.
-      const available = data.subtitles ?? [];
-      setTracks(available);
-      setCanManage(!!data.canManageSubtitles);
-      setSubOffset(0);
-      setActiveTrack(pickInitialTrack(available, readChoice())?.id ?? null);
     })();
     return () => {
       cancelled = true;
@@ -268,9 +256,7 @@ export function SeamlessPlayer({
       setError(null);
       setGlobalTime(0);
       setTracks([]);
-      setCanManage(false);
       setActiveTrack(null);
-      setCues(null);
     };
   }, [ownerKind, ownerId]);
 
@@ -556,37 +542,12 @@ export function SeamlessPlayer({
     return () => clearTimeout(timer);
   }, [manifest, ownerKind, ownerId]);
 
-  // The words of the chosen track.
-  useEffect(() => {
-    if (!activeTrack) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect
-      setCues(null);
-      return;
-    }
-    let cancelled = false;
-    fetch(`/api/subtitles/${activeTrack}`)
-      .then((r) => (r.ok ? r.json() : Promise.reject(new Error("failed"))))
-      .then((body: { cues: Cue[] }) => {
-        if (!cancelled) setCues(body.cues);
-      })
-      .catch(() => {
-        if (!cancelled) {
-          setCues(null);
-          setActiveTrack(null);
-        }
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [activeTrack]);
-
-  const chooseTrack = useCallback(
-    (id: string | null) => {
-      setActiveTrack(id);
-      writeChoice(rememberedChoice(tracks.find((t) => t.id === id) ?? null));
-    },
-    [tracks]
-  );
+  const cues = tracks.find((t) => t.id === activeTrack)?.cues ?? null;
+  const addTrack = useCallback((track: LoadedTrack) => {
+    setTracks((all) => [...all, track]);
+    setActiveTrack(track.id);
+    setSubOffset(0);
+  }, []);
 
   // ── Controls ─────────────────────────────────────────────────────────
   const togglePlay = useCallback(() => {
@@ -724,9 +685,9 @@ export function SeamlessPlayer({
           break;
         case "KeyC":
           if (e.ctrlKey || e.metaKey || e.altKey) break;
-          // Subtitles on/off: off turns them off; on picks the remembered language, else the first track.
-          if (activeTrack) chooseTrack(null);
-          else if (tracks.length) chooseTrack((pickInitialTrack(tracks, readChoice()) ?? tracks[0]).id);
+          // Subtitles off, or back on with the last one loaded in this viewing.
+          if (activeTrack) setActiveTrack(null);
+          else if (tracks.length) setActiveTrack(tracks[tracks.length - 1].id);
           break;
         case "KeyF":
           toggleFullscreen();
@@ -738,7 +699,7 @@ export function SeamlessPlayer({
     }
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [mode, globalTime, seekTo, togglePlay, toggleFullscreen, showControls, activeTrack, tracks, chooseTrack]);
+  }, [mode, globalTime, seekTo, togglePlay, toggleFullscreen, showControls, activeTrack, tracks]);
 
   useEffect(() => {
     videoRefs.current.forEach((el) => {
@@ -1045,7 +1006,7 @@ export function SeamlessPlayer({
               Next
             </Button>
           )}
-          <SubtitleMenu tracks={tracks} activeId={activeTrack} onSelect={chooseTrack} offset={subOffset} onOffset={setSubOffset} manageHref={canManage ? manageSubtitlesHref : undefined} />
+          <SubtitleMenu ownerKind={ownerKind} ownerId={ownerId} tracks={tracks} activeId={activeTrack} onSelect={setActiveTrack} onLoaded={addTrack} offset={subOffset} onOffset={setSubOffset} />
           <InlineSpeedMenu rate={rate} onChange={changeRate} />
           <Button
             variant="ghost"

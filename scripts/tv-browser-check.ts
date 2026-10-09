@@ -75,7 +75,7 @@ const server = http.createServer((req, res) => {
     const segments = [1, 2].map((i) => ({ index: i - 1, url: bad ? "/media/missing.webm" : `/media/part${i}.webm`, durationSeconds: 12, startSeconds: (i - 1) * 12 }));
     // the first movie's library starts at 1.5x, as an admin could have set it; everything else at normal speed
     const defaultRate = url.pathname.endsWith("/title/1") ? 1.5 : null;
-    return void res.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify({ ownerKind: "title", ownerId: "1", durationSeconds: 24, segments, resumeSeconds: 0, expiresAt: "2099-01-01T00:00:00Z", defaultRate, subtitles: url.pathname.endsWith("/title/1") ? [{ id: "s1", language: "en", label: "English", hearingImpaired: false }, { id: "s2", language: "es", label: "Español", hearingImpaired: false }] : [] }));
+    return void res.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify({ ownerKind: "title", ownerId: "1", durationSeconds: 24, segments, resumeSeconds: 0, expiresAt: "2099-01-01T00:00:00Z", defaultRate }));
   }
   const audioId = /^\/api\/audiobooks\/([^/]+)\/manifest$/.exec(url.pathname);
   if (audioId) {
@@ -90,9 +90,11 @@ const server = http.createServer((req, res) => {
     const i = Number(url.pathname.split("/").pop());
     return void res.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify({ index: i, url: `/media/aud${i + 1}.ogg`, expiresAt: "2099-01-01T00:00:00Z" }));
   }
-  const subId = /^\/api\/subtitles\/(s\d)$/.exec(url.pathname);
-  if (subId) {
-    return void res.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify({ id: subId[1], cues: [[0, 1000, subId[1] === "s1" ? "Hello subtitle" : "Hola subtitulo"]] }));
+  if (url.pathname === "/api/subtitles/search") {
+    return void res.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify({ results: [{ fileId: 11, language: url.searchParams.get("languages"), release: "Release One", fileName: "a.srt", downloads: 5 }] }));
+  }
+  if (url.pathname === "/api/subtitles/download") {
+    return void res.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify({ cues: [[0, 1000, "Hello subtitle"]], remaining: 9 }));
   }
   if (url.pathname === "/api/watch-state") {
     let body = "";
@@ -489,44 +491,39 @@ async function run(label: string, exe: string, m56: boolean) {
   await new Promise((r) => setTimeout(r, 300));
   check(L("with the overlay closed, Left seeks again"), !(await page.evaluate<boolean>(speedShown)));
 
-  // Subtitles: the Down key opens a picker, a choice is drawn over the picture and remembered on this TV, a title without any stays quiet.
-  await page.evaluate(`localStorage.removeItem("roam-subtitle-choice")`);
+  // Subtitles (this viewing only): Down opens a picker; "Find subtitles" searches, OK on a result downloads it and draws its words;
+  // nothing is remembered for the next video.
   await page.goto(base + "/tv/s/x/watch/title/1");
   await page.waitFor(`${V} && ${V}.currentTime > 0.3 && !${V}.paused`, 15000);
   const subsText = `document.getElementById("subs").textContent`;
+  const pickerText = `document.getElementById("subpicker").textContent`;
   const pickerShown = `document.getElementById("subpicker").style.display === "block"`;
-  check(L("a title with subtitles says Down opens them"), (await page.evaluate<string>(`document.getElementById("vhint").textContent`)).indexOf("Down: subtitles") >= 0);
-  check(L("no subtitles are drawn until one is chosen"), (await page.evaluate<string>(subsText)) === "");
+  check(L("the hint says Down opens subtitles"), (await page.evaluate<string>(`document.getElementById("vhint").textContent`)).indexOf("Down: subtitles") >= 0);
+  check(L("no subtitles are drawn until one is loaded"), (await page.evaluate<string>(subsText)) === "");
   await key(page, 40);
-  check(L("Down opens the subtitle picker, listing Off and each track"), (await page.evaluate<boolean>(pickerShown)) && /Off[\s\S]*English[\s\S]*Español/.test(await page.evaluate<string>(`document.getElementById("subpicker").textContent`)));
-  await key(page, 40);
-  await key(page, 13);
-  check(L("choosing a track closes the picker and draws its words"), !(await page.evaluate<boolean>(pickerShown)) && (await page.waitFor(`document.getElementById("subs").textContent.indexOf("Hello subtitle") >= 0`, 5000)), await page.evaluate<string>(subsText));
-  check(L("the choice is remembered on this TV"), (await page.evaluate<string>(`localStorage.getItem("roam-subtitle-choice")`)) === "en");
-  await page.goto(base + "/tv/s/x/watch/title/1");
-  await page.waitFor(`${V} && ${V}.currentTime > 0.3`, 15000);
-  check(L("next time the remembered language switches on by itself"), await page.waitFor(`document.getElementById("subs").textContent.indexOf("Hello subtitle") >= 0`, 5000), await page.evaluate<string>(subsText));
-  await key(page, 40);
+  check(L("Down opens the subtitle picker with Off and Find subtitles"), (await page.evaluate<boolean>(pickerShown)) && /Off[\s\S]*Find subtitles: en/.test(await page.evaluate<string>(pickerText)), await page.evaluate<string>(pickerText));
   await key(page, 40);
   await key(page, 39);
-  check(L("Left and Right in the picker move the delay by half a second"), (await page.evaluate<string>(`document.getElementById("subpicker").textContent`)).indexOf("+0.5s") >= 0, await page.evaluate<string>(`document.getElementById("subpicker").textContent`));
+  check(L("Left and Right on Find change the search language"), (await page.evaluate<string>(pickerText)).indexOf("Find subtitles: es") >= 0, await page.evaluate<string>(pickerText));
   await key(page, 13);
-  await key(page, 40);
-  await key(page, 13);
-  check(L("choosing another language switches the words"), await page.waitFor(`document.getElementById("subs").textContent.indexOf("Hola subtitulo") >= 0`, 5000), await page.evaluate<string>(subsText));
-  await key(page, 40);
+  check(L("OK on Find lists what OpenSubtitles has"), await page.waitFor(`document.getElementById("subpicker").textContent.indexOf("Release One") >= 0`, 5000), await page.evaluate<string>(pickerText));
   await key(page, 27);
-  check(L("Back closes the picker and stays on the video"), !(await page.evaluate<boolean>(pickerShown)) && (await page.url()).indexOf("/watch/title/1") > 0);
+  check(L("Back from the results returns to the picker, not the video's page"), (await page.evaluate<string>(pickerText)).indexOf("Find subtitles") >= 0 && (await page.url()).indexOf("/watch/title/1") > 0);
+  await key(page, 13);
+  await page.waitFor(`document.getElementById("subpicker").textContent.indexOf("Release One") >= 0`, 5000);
+  await key(page, 13);
+  check(L("choosing a result closes the picker and draws its words"), await page.waitFor(`document.getElementById("subs").textContent.indexOf("Hello subtitle") >= 0 && !(${pickerShown})`, 5000), await page.evaluate<string>(subsText));
+  await key(page, 40);
   await key(page, 40);
   await key(page, 38);
   await key(page, 38);
   await key(page, 13);
-  const offOk = await page.waitFor(`document.getElementById("subs").textContent === ""`, 5000);
-  check(L("choosing Off clears the words and is remembered"), offOk && (await page.evaluate<string>(`localStorage.getItem("roam-subtitle-choice")`)) === "off", `${await page.evaluate<string>(subsText)} | ${await page.evaluate<string>(`localStorage.getItem("roam-subtitle-choice")`)} | ${await page.evaluate<string>(`document.getElementById("subpicker").style.display + " " + document.getElementById("subpicker").textContent`)}`);
-  await page.goto(base + "/tv/s/x/watch/episode/1?modern=1");
+  check(L("choosing Off clears the words at once"), await page.waitFor(`document.getElementById("subs").textContent === ""`, 5000), await page.evaluate<string>(subsText));
+  await page.goto(base + "/tv/s/x/watch/title/1");
   await page.waitFor(`${V} && ${V}.currentTime > 0.3`, 15000);
   await key(page, 40);
-  check(L("a video with no subtitles has no picker and no hint"), !(await page.evaluate<boolean>(pickerShown)) && (await page.evaluate<string>(`document.getElementById("vhint").textContent`)).indexOf("subtitles") < 0);
+  check(L("nothing is remembered: the next load has only Off and Find"), !/Release One|EN /.test(await page.evaluate<string>(pickerText)) && (await page.evaluate<string>(subsText)) === "");
+  await key(page, 27);
 
   // A speed chosen on one episode carries to the next in the same page; an audiobook starts at its library's speed and has the same overlay; a song queue keeps Up for songs.
   await page.goto(base + "/tv/s/x/watch/episode/1?modern=1");

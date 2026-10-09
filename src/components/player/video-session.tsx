@@ -144,7 +144,6 @@ export function VideoSessionProvider({ children, initial = NO_SESSION }: { child
               ownerKind={session.ownerKind}
               ownerId={session.ownerId}
               title={session.title}
-              manageSubtitlesHref={session.manageSubtitlesHref}
               subtitle={session.subtitle}
               backHref={session.backHref}
               nextHref={session.nextHref}

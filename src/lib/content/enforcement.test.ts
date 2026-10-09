@@ -23,7 +23,6 @@ const ENFORCEMENT_IMPORTS = ["@/lib/content/library-access", "@/lib/auth/resolve
 // path (relative to src/app) -> why it doesn't need to import the above.
 const ALLOWLIST: Record<string, string> = {
   "(app)/s/[serverId]/(browse)/admin/page.tsx": "admin-only (requireServerAdmin requires an unrestricted profile)",
-  "(app)/s/[serverId]/(browse)/subtitles/[ownerKind]/[ownerId]/page.tsx": "admin-only, and gated by authorizeSubtitles (lib/subtitles/http), which runs authorizeOwner; it then reads only the name of that title or episode",
   "api/audiobooks/search/route.ts": "admin-only (getCurrentServerAdmin)",
   "api/titles/[id]/match/route.ts": "admin-only (getCurrentServerAdmin)",
   "api/titles/[id]/match-audible/route.ts": "admin-only (getCurrentServerAdmin)",
