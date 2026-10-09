@@ -914,6 +914,36 @@ export const photoFavorites = pgTable(
   ]
 ).enableRLS();
 
+// ── subtitles ────────────────────────────────────────────────────────────
+// One row per subtitle track of a movie, video or episode: the words and their timing, already read out of the file (an upload or an
+// OpenSubtitles download) so nothing raw is kept or served. cues is [[start seconds, end seconds, text], ...], sorted by start.
+// Exactly one of title_id / episode_id is set, and either is a real foreign key, so a title leaving Roam takes its subtitles with it.
+export const subtitleTracks = pgTable(
+  "subtitle_tracks",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    titleId: uuid("title_id").references(() => titles.id, { onDelete: "cascade" }),
+    episodeId: uuid("episode_id").references(() => episodes.id, { onDelete: "cascade" }),
+    language: text("language").notNull(),
+    label: text("label").notNull(),
+    source: text("source").$type<"opensubtitles" | "upload">().notNull(),
+    // OpenSubtitles' file id, so the same file can't be added twice; null for uploads.
+    externalId: text("external_id"),
+    hearingImpaired: boolean("hearing_impaired").notNull().default(false),
+    cues: jsonb("cues").$type<[number, number, string][]>().notNull(),
+    cueCount: integer("cue_count").notNull(),
+    createdBy: uuid("created_by").references(() => profiles.id, { onDelete: "set null" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("subtitle_tracks_title_idx").on(t.titleId),
+    index("subtitle_tracks_episode_idx").on(t.episodeId),
+    uniqueIndex("subtitle_tracks_title_external_idx").on(t.titleId, t.source, t.externalId).where(sql`${t.externalId} IS NOT NULL AND ${t.titleId} IS NOT NULL`),
+    uniqueIndex("subtitle_tracks_episode_external_idx").on(t.episodeId, t.source, t.externalId).where(sql`${t.externalId} IS NOT NULL AND ${t.episodeId} IS NOT NULL`),
+    check("subtitle_tracks_one_owner", sql`(${t.titleId} IS NULL) <> (${t.episodeId} IS NULL)`),
+  ]
+).enableRLS();
+
 export const watchStateRelations = relations(watchState, ({ one }) => ({
   viewer: one(viewers, {
     fields: [watchState.viewerId],

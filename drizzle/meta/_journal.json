@@ -253,6 +253,13 @@
       "when": 1791520323191,
       "tag": "0035_library_default_playback_speed",
       "breakpoints": true
+    },
+    {
+      "idx": 36,
+      "version": "7",
+      "when": 1791527332028,
+      "tag": "0036_subtitle_tracks",
+      "breakpoints": true
     }
   ]
 }
