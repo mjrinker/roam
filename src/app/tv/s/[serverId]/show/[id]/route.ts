@@ -24,6 +24,12 @@ export async function GET(request: Request, ctx: RouteContext<"/tv/s/[serverId]/
       overview: t.overview,
       posterUrl: t.posterUrl,
       backdropUrl: t.backdropUrl,
+      posts: show.episodes.length === 0 ? [] : [
+        { action: `${access.base}/mark`, label: show.showWatched ? "Mark show as unwatched" : "Mark show as watched", fields: { kind: "show", id, done: show.showWatched ? "0" : "1", back: here } },
+        ...(show.currentSeasonId && show.seasons.length > 1
+          ? [{ action: `${access.base}/mark`, label: show.episodes.every((e) => e.watched) ? `Mark season ${show.currentSeason} as unwatched` : `Mark season ${show.currentSeason} as watched`, fields: { kind: "season", id: show.currentSeasonId, done: show.episodes.every((e) => e.watched) ? "0" : "1", back: `${here}?season=${show.currentSeason}` } }]
+          : []),
+      ],
       backHref: `${access.base}/library/${show.libraryId}`,
       actions: [...(show.episodes.length ? [{ href: `${access.base}/watch/episode/${(show.episodes.find((e) => e.inProgress) ?? show.episodes.find((e) => !e.watched) ?? show.episodes[0]).id}`, label: show.episodes.some((e) => e.inProgress) ? "Resume" : "Play", primary: true }] : []), { href: `${access.base}/add?title=${id}&back=${encodeURIComponent(`${access.base}/show/${id}`)}`, label: "Add to playlist" }],
       seasons: show.seasons.length > 1 ? show.seasons.map((n) => ({ href: `${here}?season=${n}`, label: `Season ${n}`, current: n === show.currentSeason })) : [],

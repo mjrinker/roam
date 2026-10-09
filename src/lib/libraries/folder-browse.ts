@@ -8,7 +8,7 @@ import { and, asc, eq, gt, inArray, or, sql } from "drizzle-orm";
 import type { PgDatabase, PgQueryResultHKT } from "drizzle-orm/pg-core";
 import { contentFilter, type AccessProfile } from "@/lib/content/access";
 import { libraryVisible, type LibraryActor } from "@/lib/content/library-access";
-import { libraries, photoFavorites, titles } from "@/lib/db/schema";
+import { libraries, photoFavorites, titles, watchState } from "@/lib/db/schema";
 import { FILE_TREE_KINDS } from "@/lib/libraries/profile";
 
 type Db = PgDatabase<PgQueryResultHKT, Record<string, unknown>>;
@@ -66,6 +66,8 @@ export interface FolderItem {
   height: number | null;
   /** Whether the viewer asking has hearted it (photo libraries). */
   favorite: boolean;
+  /** Whether the viewer asking has watched, listened to or read it (marked or finished). */
+  watched: boolean;
 }
 
 export interface FolderPage {
@@ -132,6 +134,7 @@ export async function listFolder(
       width: titles.width,
       height: titles.height,
       favorite: args.viewerId ? sql<boolean>`EXISTS (SELECT 1 FROM ${photoFavorites} f WHERE f.title_id = ${titles.id} AND f.viewer_id = ${args.viewerId})` : sql<boolean>`false`,
+      watched: args.viewerId ? sql<boolean>`EXISTS (SELECT 1 FROM ${watchState} w WHERE w.owner_kind = 'title' AND w.owner_id = ${titles.id} AND w.viewer_id = ${args.viewerId} AND w.finished)` : sql<boolean>`false`,
       listKey,
     })
     .from(titles)
@@ -176,6 +179,7 @@ export async function listFolder(
       width: r.width,
       height: r.height,
       favorite: r.favorite === true,
+      watched: r.watched === true,
     })),
     nextCursor: itemRows.length > limit && last ? { key: last.listKey, id: last.id } : null,
   };

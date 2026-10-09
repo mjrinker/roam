@@ -3,6 +3,7 @@ import { asUuid, notFoundPage, tvAccess } from "@/lib/tv/context";
 import { html } from "@/lib/tv/http";
 import { bookDetail } from "@/lib/tv/data";
 import { formatClock } from "@/tv/client/clock";
+import { doneWords } from "@/lib/watch/words";
 import { detailPage } from "@/tv/render";
 
 export async function GET(request: Request, ctx: RouteContext<"/tv/s/[serverId]/book/[id]">) {
@@ -26,6 +27,7 @@ export async function GET(request: Request, ctx: RouteContext<"/tv/s/[serverId]/
       posterUrl: t.posterUrl,
       square: true,
       backHref: `${access.base}/library/${book.libraryId}`,
+      posts: [{ action: `${access.base}/mark`, label: book.finished ? doneWords("listen").markUndone : doneWords("listen").markDone, fields: { kind: "title", id, done: book.finished ? "0" : "1", back: `${access.base}/book/${id}` } }],
       actions: [{ href: `${access.base}/listen/${id}`, label: book.resume ? `Resume from ${formatClock(book.resume.positionSeconds)}` : "Listen", primary: true }, { href: `${access.base}/add?title=${id}&back=${encodeURIComponent(`${access.base}/book/${id}`)}`, label: "Add to playlist" }],
     })
   );

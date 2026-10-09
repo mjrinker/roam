@@ -87,6 +87,22 @@ describe("folderLevel (video and audio libraries)", () => {
     expect(level!.folders).toEqual(["Kids"]);
     expect(await folderLevel(db, w.scope(kid), lib.id, "Adults Only", null)).toBeNull();
   });
+  it("flags the files this profile has watched or marked, for this profile only", async () => {
+    const w = await world();
+    const lib = await w.lib("video");
+    const seen = await makeTitle(db, lib.id, { kind: "movie", name: "Seen", folderPath: "", sortKey: "a" });
+    await makeTitle(db, lib.id, { kind: "movie", name: "Unseen", folderPath: "", sortKey: "b" });
+    const started = await makeTitle(db, lib.id, { kind: "movie", name: "Started", folderPath: "", sortKey: "c" });
+    await db.insert(watchState).values([
+      { viewerId: w.member.viewer.id, ownerKind: "title", ownerId: seen.id, positionSeconds: 0, finished: true },
+      { viewerId: w.member.viewer.id, ownerKind: "title", ownerId: started.id, positionSeconds: 50, durationSeconds: 100, finished: false },
+    ]);
+    const other = await makeAccount(db, "other");
+    const mine = await folderLevel(db, w.scope(), lib.id, null, null);
+    expect(mine!.items.map((i) => [i.name, i.watched])).toEqual([["Seen", true], ["Unseen", false], ["Started", false]]);
+    const theirs = await folderLevel(db, { ...w.scope(), viewerId: other.viewer.id }, lib.id, null, null);
+    expect(theirs!.items.every((i) => !i.watched)).toBe(true);
+  });
   it("reads a cursor from a URL only when it is well formed", () => {
     const id = "0f8fad5b-d9cb-469f-a165-70867728950e";
     expect(parseFolderCursor(null)).toBeNull();

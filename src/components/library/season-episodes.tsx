@@ -6,6 +6,7 @@ import Link from "next/link";
 import { Check, Loader2, Play, Tv } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { AddToPlaylistMenu } from "@/components/playlists/add-to-playlist-menu";
+import { MarkDoneButton } from "@/components/library/mark-done-button";
 
 export interface EpisodeRowData {
   id: string;
@@ -96,14 +97,15 @@ function EpisodeRow({ ep, serverId }: { ep: EpisodeRowData; serverId: string }) 
       {ep.ready ? (
         <Link
           href={`/s/${serverId}/watch/episode/${ep.id}`}
-          className={cn(classes, "pr-12 hover:bg-white/[0.05]")}
+          className={cn(classes, "pr-24 hover:bg-white/[0.05]")}
         >
           {body}
         </Link>
       ) : (
-        <div className={cn(classes, "pr-12 opacity-70")}>{body}</div>
+        <div className={cn(classes, "pr-24 opacity-70")}>{body}</div>
       )}
-      <div className="absolute top-2 right-2">
+      <div className="absolute top-2 right-2 flex items-center gap-1.5">
+        <MarkDoneButton kind="episode" id={ep.id} done={ep.watched} media="watch" variant="icon" />
         <AddToPlaylistMenu serverId={serverId} target={{ episodeId: ep.id }} variant="icon" />
       </div>
     </div>
@@ -158,6 +160,12 @@ export function SeasonEpisodes({
           </button>
         ))}
       </div>
+
+      {visible.length > 0 && (
+        <div>
+          <MarkDoneButton key={seasonId} kind="season" id={seasonId} done={visible.every((e) => e.watched)} media="watch" scope="season" compact />
+        </div>
+      )}
 
       <div className="flex flex-col gap-1">
         {visible.length === 0 ? (

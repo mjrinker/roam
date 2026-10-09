@@ -36,11 +36,17 @@ vi.mock("@/lib/auth/guards", async () => {
     getCurrentProfile: async () => h.profile,
     getServerMembership: async (profileId: string, serverId: string) =>
       (await h.testDb.db.select({ role: serverMembers.role }).from(serverMembers).where(and(eq(serverMembers.profileId, profileId), eq(serverMembers.serverId, serverId))).limit(1))[0] ?? null,
+    getCurrentServerMember: async (serverId: string) => {
+      const r = h.resolution as { account: { id: string }; viewer: unknown } | null;
+      if (!r?.viewer) return null;
+      const m = (await h.testDb.db.select({ role: serverMembers.role }).from(serverMembers).where(and(eq(serverMembers.profileId, r.account.id), eq(serverMembers.serverId, serverId))).limit(1))[0];
+      return m ? { profile: r.account, viewer: r.viewer, role: m.role } : null;
+    },
   };
 });
 vi.mock("@/lib/supabase/server", () => ({ createSupabaseServerClient: async () => ({ auth: { signOut: async () => void h.signedOut++ } }) }));
 
-import { musicAlbums, musicArtists, photoFavorites, profiles, viewers } from "@/lib/db/schema";
+import { episodes as episodesTable, musicAlbums, musicArtists, photoFavorites, profiles, seasons as seasonsTable, viewers, watchState } from "@/lib/db/schema";
 import { addMember, addEpisodeFile, addItem, joinServer, makeAccount, makeLibrary, makePlaylist, makeServer, makeShow, makeTitle, type TestDb } from "@/lib/playlists/test-db";
 import { GET as home } from "./s/[serverId]/route";
 import { GET as library } from "./s/[serverId]/library/[id]/route";
@@ -57,6 +63,8 @@ import { GET as screensaver } from "./s/[serverId]/screensaver/route";
 import { GET as playlists } from "./s/[serverId]/playlists/route";
 import { GET as playlist } from "./s/[serverId]/playlist/[id]/route";
 import { tvPlaylist } from "@/lib/tv/playlists";
+import { GET as markGet, POST as markPost } from "./s/[serverId]/mark/route";
+import { GET as show } from "./s/[serverId]/show/[id]/route";
 import { GET as addGet, POST as addPost } from "./s/[serverId]/add/route";
 import { GET as playlistPlay } from "./s/[serverId]/playlist/[id]/play/route";
 
@@ -500,6 +508,69 @@ describe("playing a playlist through", () => {
     await signIn(w.member);
     const kidE2 = cfgOf(await text(await watch(req(`/x?playlist=${list.id}&item=${si.id}`), ctx({ ...sid(w), kind: "episode", id: eps[1].id }))));
     expect(kidE2.next).toBe(`/tv/s/${w.server.id}/watch/title/${movie.id}?playlist=${list.id}&item=${mi.id}`);
+  });
+});
+
+describe("marking watched, listened to and read from the TV", () => {
+  const post = (w: { server: { id: string } }, fields: Record<string, string>, headers: Record<string, string> = {}) =>
+    markPost(new Request(`https://roam.example/tv/s/${w.server.id}/mark`, { method: "POST", body: new URLSearchParams(fields), headers }), ctx(sid(w)));
+  const doneRows = async (viewerId: string) => (await db.select().from(watchState).where(eq(watchState.viewerId, viewerId))).filter((r) => r.finished);
+
+  it("marks a movie watched and unwatched, with the button's words following the state, and returns to the page", async () => {
+    const w = await world();
+    const film = await makeTitle(db, (await w.lib("movies")).id, { kind: "movie", name: "Film" });
+    const page = async () => text(await title(req("/x"), ctx({ ...sid(w), id: film.id })));
+    expect(await page()).toContain("Mark as watched");
+    const back = `/tv/s/${w.server.id}/title/${film.id}`;
+    const res = await post(w, { kind: "title", id: film.id, done: "1", back });
+    expect([res.status, res.headers.get("location")]).toEqual([302, `https://roam.example${back}`]);
+    expect((await doneRows(w.member.viewer.id)).map((r) => r.ownerId)).toEqual([film.id]);
+    expect(await page()).toContain("Mark as unwatched");
+    await post(w, { kind: "title", id: film.id, done: "0", back });
+    expect(await doneRows(w.member.viewer.id)).toEqual([]);
+    expect(await page()).toContain("Mark as watched");
+  });
+  it("says listened to for a book, and marks a show and a season with their own buttons", async () => {
+    const w = await world();
+    const b = await makeTitle(db, (await w.lib("audiobooks")).id, { kind: "audiobook", name: "Book" });
+    expect(await text(await book(req("/x"), ctx({ ...sid(w), id: b.id })))).toContain("Mark as listened to");
+    await post(w, { kind: "title", id: b.id, done: "1" });
+    expect(await text(await book(req("/x"), ctx({ ...sid(w), id: b.id })))).toContain("Mark as not listened to");
+
+    const { show: s, season, episodes: eps } = await makeShow(db, (await w.lib("shows")).id, 2, { name: "Show" });
+    const [s2] = await db.insert(seasonsTable).values({ titleId: s.id, number: 2, boxFolderId: `x-${s.id}` }).returning();
+    await db.insert(episodesTable).values({ seasonId: s2.id, number: 1, name: "S2E1" });
+    const showPage = async () => text(await show(req("/x"), ctx({ ...sid(w), id: s.id })));
+    const first = await showPage();
+    expect(first).toContain("Mark show as watched");
+    expect(first).toContain("Mark season 1 as watched");
+    await post(w, { kind: "season", id: season.id, done: "1" });
+    const afterSeason = await showPage();
+    expect(afterSeason).toContain("Mark season 1 as unwatched");
+    expect(afterSeason).toContain("Mark show as watched"); // season two is still to watch
+    await post(w, { kind: "show", id: s.id, done: "1" });
+    expect(await showPage()).toContain("Mark show as unwatched");
+    expect((await doneRows(w.member.viewer.id)).filter((r) => r.ownerKind === "episode")).toHaveLength(3);
+    expect(eps).toHaveLength(2);
+  });
+  it("offers nothing on a clip beside pictures, and refuses to mark what can't be marked, hidden items, another site's post and a wrong 'back'", async () => {
+    const w = await world();
+    const clip = await makeTitle(db, (await w.lib("photos")).id, { kind: "movie", name: "Clip", takenAt: new Date() });
+    expect(await text(await title(req("/x"), ctx({ ...sid(w), id: clip.id })))).not.toContain("Mark as");
+    expect((await post(w, { kind: "title", id: clip.id, done: "1" })).status).toBe(404);
+    const film = await makeTitle(db, (await w.lib("movies")).id, { kind: "movie", name: "Film" });
+    expect((await post(w, { kind: "title", id: film.id, done: "1" }, { origin: "https://evil.example" })).status).toBe(404);
+    const bads: Record<string, string>[] = [{ kind: "movie", id: film.id, done: "1" }, { kind: "title", id: "nope", done: "1" }, { kind: "title", id: film.id, done: "2" }, { kind: "title", id: film.id }];
+    for (const bad of bads) expect((await post(w, bad)).status, JSON.stringify(bad)).toBe(404);
+    const evil = await post(w, { kind: "title", id: film.id, done: "1", back: "https://evil.example/" });
+    expect(evil.headers.get("location")).toBe(`https://roam.example/tv/s/${w.server.id}`);
+    const hidden = await world("restricted");
+    const secret = await makeTitle(db, (await hidden.lib("movies")).id, { kind: "movie", name: "Secret" });
+    const refused = await post(hidden, { kind: "title", id: secret.id, done: "1" });
+    expect(refused.status).toBe(404);
+    expect(await doneRows(hidden.member.viewer.id)).toEqual([]);
+    const opened = await markGet(req("/x"), ctx(sid(w)));
+    expect([opened.status, opened.headers.get("location")]).toEqual([302, `https://roam.example/tv/s/${w.server.id}`]); // a plain visit marks nothing
   });
 });
 

@@ -7,7 +7,8 @@ import { requireServerMember } from "@/lib/auth/guards";
 import { isAllowed } from "@/lib/content/access";
 import { libraryActor, libraryVisible } from "@/lib/content/library-access";
 import { db } from "@/lib/db/client";
-import { libraries, mediaFiles, titles } from "@/lib/db/schema";
+import { libraries, mediaFiles, titles, watchState } from "@/lib/db/schema";
+import { MarkDoneButton } from "@/components/library/mark-done-button";
 import { formatFileSize } from "@/lib/format";
 import { isUuid } from "@/lib/playlists/http";
 import { Breadcrumbs } from "@/components/shell/breadcrumbs";
@@ -32,6 +33,13 @@ export default async function EbookPage({ params }: PageProps<"/s/[serverId]/ebo
     .select({ filename: mediaFiles.filename, sizeBytes: mediaFiles.sizeBytes, container: mediaFiles.container })
     .from(mediaFiles)
     .where(and(eq(mediaFiles.ownerKind, "title"), eq(mediaFiles.ownerId, id), eq(mediaFiles.partIndex, 0)))
+    .limit(1);
+
+  // Whether this profile has marked it read (an eBook has no resume position, only this flag).
+  const [readState] = await db
+    .select({ finished: watchState.finished })
+    .from(watchState)
+    .where(and(eq(watchState.viewerId, viewer.id), eq(watchState.ownerKind, "title"), eq(watchState.ownerId, id)))
     .limit(1);
 
   const authors = book.authors?.length ? book.authors : book.folderPath ? [book.folderPath.split("/")[0]] : [];
@@ -73,6 +81,7 @@ export default async function EbookPage({ params }: PageProps<"/s/[serverId]/ebo
             <a href={href} className="inline-flex h-12 items-center gap-2.5 rounded-xl bg-white/[0.08] px-6 text-base font-medium ring-1 ring-white/10 transition hover:bg-white/[0.14]">
               <Download className="size-5" /> Download
             </a>
+            <MarkDoneButton kind="title" id={id} done={!!readState?.finished} media="read" />
           </div>
           {book.overview && <p className="max-w-prose text-sm leading-relaxed text-muted-foreground">{book.overview}</p>}
         </div>

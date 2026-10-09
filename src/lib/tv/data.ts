@@ -14,6 +14,7 @@ import type { LibraryKind } from "@/lib/db/schema";
 import { GLOBALLY_LISTED_LIBRARY_KINDS, isPhotoLibraryKind, libraryRemembersProgress, tvBrowseStyle, TV_LISTEN_KINDS, TV_WATCH_KINDS, type TvBrowseStyle } from "@/lib/libraries/profile";
 import { getAlbum, getArtist } from "@/lib/music/browse";
 import { shuffled } from "@/lib/tv/shuffle";
+import { watchedShowIds } from "@/lib/watch/shows";
 import { listTimeline, loadPhoto, photoNeighbors, type NeighborScope, type TimelineCursor } from "@/lib/photos/timeline";
 
 type Db = PgDatabase<PgQueryResultHKT, Record<string, unknown>>;
@@ -163,7 +164,7 @@ export async function movieDetail(ex: Db, scope: TvScope, id: string) {
   if (!row) return null;
   const [state] = await stateFor(ex, scope.viewerId, "title", [id]);
   const resumable = !!state && !state.finished && state.positionSeconds > 0;
-  return { ...row, resume: resumable ? { positionSeconds: state.positionSeconds, durationSeconds: state.durationSeconds } : null };
+  return { ...row, finished: !!state?.finished, resume: resumable ? { positionSeconds: state.positionSeconds, durationSeconds: state.durationSeconds } : null };
 }
 
 export async function showDetail(ex: Db, scope: TvScope, id: string, seasonNumber?: number) {
@@ -173,8 +174,11 @@ export async function showDetail(ex: Db, scope: TvScope, id: string, seasonNumbe
   const current = allSeasons.find((s) => s.number === seasonNumber) ?? allSeasons[0] ?? null;
   const eps = current ? await ex.select().from(episodes).where(eq(episodes.seasonId, current.id)).orderBy(asc(episodes.number)) : [];
   const states = await stateFor(ex, scope.viewerId, "episode", eps.map((e) => e.id));
+  const showWatched = (await watchedShowIds(ex, scope.viewerId, [id])).has(id);
   return {
     ...row,
+    showWatched,
+    currentSeasonId: current?.id ?? null,
     seasons: allSeasons.map((s) => s.number),
     currentSeason: current?.number ?? null,
     episodes: eps.map((e) => {
@@ -301,7 +305,7 @@ export async function bookDetail(ex: Db, scope: TvScope, id: string) {
   if (!row) return null;
   const [state] = await stateFor(ex, scope.viewerId, "title", [id]);
   const resumable = !!state && !state.finished && state.positionSeconds > 0;
-  return { ...row, resume: resumable ? { positionSeconds: state.positionSeconds, durationSeconds: state.durationSeconds } : null };
+  return { ...row, finished: !!state?.finished, resume: resumable ? { positionSeconds: state.positionSeconds, durationSeconds: state.durationSeconds } : null };
 }
 
 export interface ListenInfo {

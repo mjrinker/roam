@@ -3,6 +3,7 @@ import Link from "next/link";
 import { BookOpen, Check, Film, Headphones, Play, Tv } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { TitleKind } from "@/lib/db/schema";
+import { doneKindOf, doneWords } from "@/lib/watch/words";
 
 export interface PosterCardData {
   id: string;
@@ -75,7 +76,7 @@ export function PosterCard({
         {title.watched && (
           <span
             className="absolute top-2 right-2 flex size-6 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-md"
-            title="Watched"
+            title={doneWords(doneKindOf(title.kind)).done}
           >
             <Check className="size-3.5" strokeWidth={3} />
           </span>

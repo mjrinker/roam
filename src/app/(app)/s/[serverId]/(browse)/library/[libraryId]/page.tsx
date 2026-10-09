@@ -4,6 +4,7 @@ import { notFound } from "next/navigation";
 import { z } from "zod";
 import { AudioLines, Clapperboard, Film, BookOpen, Headphones, Images, Music, Tv } from "lucide-react";
 import { db } from "@/lib/db/client";
+import { watchedShowIds } from "@/lib/watch/shows";
 import { episodes, libraries, mediaFiles, seasons, titles, watchState } from "@/lib/db/schema";
 import { requireServerMember } from "@/lib/auth/guards";
 import { libraryActor, libraryVisible } from "@/lib/content/library-access";
@@ -245,6 +246,8 @@ export default async function LibraryDetailPage({
     }
     for (const [titleId, titleRows] of byTitle) if (needsAudioFix(titleRows)) audioFixIds.add(titleId);
   }
+  // A show counts as watched when it has episodes and this profile has finished (or marked) every one of them.
+  const watchedShows = library.kind === "shows" ? await watchedShowIds(db, viewer.id, libraryTitles.map((t) => t.id)) : new Set<string>();
   const country = countryFromLocale(viewer.locale);
 
   const items: LibraryBrowserItem[] = libraryTitles.map((t) => {
@@ -268,7 +271,7 @@ export default async function LibraryDetailPage({
       imdbRating: t.imdbRating,
       rottenTomatoesScore: t.rottenTomatoesScore,
       needsAudioFix: audioFixIds.has(t.id),
-      watched: state?.finished ?? false,
+      watched: t.kind === "show" ? watchedShows.has(t.id) : (state?.finished ?? false),
       progressFraction:
         state && !state.finished && state.durationSeconds
           ? state.positionSeconds / state.durationSeconds

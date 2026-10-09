@@ -151,6 +151,8 @@ export interface DetailData {
   posterUrl: string | null;
   backHref: string;
   actions: { href: string; label: string; primary?: boolean }[];
+  /** Buttons that change something (a POST), shown with the actions: "Mark as watched". */
+  posts?: { action: string; label: string; fields: Record<string, string> }[];
   /** Episodes of one season, for a show. */
   episodes?: { href: string; label: string; sub?: string | null }[];
   /** The heading over `episodes` (songs on an album); "Episodes" by default. */
@@ -166,7 +168,9 @@ export function detailPage(d: DetailData): string {
   const img = safeUrl(d.posterUrl);
   const back = safeUrl(d.backdropUrl);
   const backdrop = back ? `<div class="backdrop"><img data-src="${esc(back)}" alt=""></div>` : "";
-  const actions = d.actions.map((a, i) => `<a class="btn${a.primary ? " primary" : ""}" data-f${i === 0 ? " data-autofocus" : ""} href="${esc(safeUrl(a.href) ?? "/tv")}">${esc(a.label)}</a>`).join("");
+  const actions =
+    d.actions.map((a, i) => `<a class="btn${a.primary ? " primary" : ""}" data-f${i === 0 ? " data-autofocus" : ""} href="${esc(safeUrl(a.href) ?? "/tv")}">${esc(a.label)}</a>`).join("") +
+    (d.posts ?? []).map((p, i) => postButton(p.action, p.label, { fields: p.fields, autofocus: d.actions.length === 0 && i === 0 })).join("");
   const seasons = d.seasons?.length ? `<div class="row">${d.seasons.map((s) => `<a class="btn${s.current ? " primary" : ""}" data-f href="${esc(safeUrl(s.href) ?? "/tv")}">${esc(s.label)}</a>`).join("")}</div>` : "";
   const eps = d.episodes?.length ? `<h2>${esc(d.listHeading ?? "Episodes")}</h2>${d.episodes.map((e) => `<a class="ep" data-f href="${esc(safeUrl(e.href) ?? "/tv")}">${esc(e.label)}${e.sub ? `<small>${esc(e.sub)}</small>` : ""}</a>`).join("")}` : "";
   return tvDocument({

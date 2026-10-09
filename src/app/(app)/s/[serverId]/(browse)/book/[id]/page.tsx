@@ -12,6 +12,8 @@ import { Badge } from "@/components/ui/badge";
 import { AudibleMatchButton } from "@/components/admin/audible-match-dialog";
 import { TitleResyncButton } from "@/components/admin/title-resync-button";
 import { AddToPlaylistMenu } from "@/components/playlists/add-to-playlist-menu";
+import { MarkDoneButton } from "@/components/library/mark-done-button";
+import { libraryHasDoneState } from "@/lib/libraries/profile";
 import { BookChapters, BookPlayButton, BookQueueAutoStart } from "@/components/audio/book-controls";
 import { isUuid } from "@/lib/playlists/http";
 import { queueNext } from "@/lib/playlists/next";
@@ -185,6 +187,7 @@ export default async function BookDetailPage({ params, searchParams }: PageProps
             )}
             <div className="flex flex-wrap justify-center gap-2 md:justify-start">
               <AddToPlaylistMenu serverId={serverId} target={{ titleId: book.id }} />
+              {libraryHasDoneState(row.libraryKind) && <MarkDoneButton kind="title" id={book.id} done={!!state?.finished} media="listen" />}
             </div>
             {role === "admin" && libraryKindUsesExternalMetadata(row.libraryKind) && (
               <div className="flex flex-wrap justify-center gap-2 md:justify-start">

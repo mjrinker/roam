@@ -107,6 +107,7 @@ export function VideoFolderView({
                   year: item.year,
                   posterUrl: item.posterUrl,
                   subtitle: item.authors && item.authors.length > 0 ? item.authors.join(", ") : null,
+                  watched: item.watched,
                 }}
               />
             </li>

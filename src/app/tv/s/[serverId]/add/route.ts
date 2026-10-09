@@ -2,25 +2,12 @@ import { db } from "@/lib/db/client";
 import { episodes, titles } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
 import { asUuid, notFoundPage, tvAccess } from "@/lib/tv/context";
+import { safeBack, sameHost } from "@/lib/tv/form";
 import { html } from "@/lib/tv/http";
 import { tvPlaylists } from "@/lib/tv/playlists";
 import { findAddableTarget } from "@/lib/playlists/items";
 import { addItem } from "@/lib/playlists/item-service";
 import { addToPlaylistPage, messagePage } from "@/tv/render";
-
-/** A "back" address from a form or link, kept only if it is one of this server's TV pages. */
-function safeBack(base: string, raw: string | null): string {
-  return raw && raw.startsWith(`${base}/`) && !/[\\\u0000-\u001f]|\/\//.test(raw.slice(base.length)) && raw.length < 600 ? raw : base;
-}
-
-/** Whether an Origin header names the same host as the request ("null" and anything unparsable are not the same). */
-function sameHost(origin: string, requestUrl: string): boolean {
-  try {
-    return new URL(origin).host === new URL(requestUrl).host;
-  } catch {
-    return false;
-  }
-}
 
 const targetFrom = (get: (name: string) => string | null | undefined) => {
   const title = asUuid(get("title") ?? "");
