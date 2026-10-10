@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { SongViewTabs } from "@/components/library/audio-views";
 import { Music } from "lucide-react";
 import type { AccessProfile } from "@/lib/content/access";
 import type { LibraryActor } from "@/lib/content/library-access";
@@ -7,29 +8,6 @@ import { listAlbums, listArtists, type Cursor } from "@/lib/music/browse";
 import { Breadcrumbs } from "@/components/shell/breadcrumbs";
 import { SelectableMusicTiles } from "@/components/library/selectable-views";
 import { encodeCursor } from "@/lib/playlists/http";
-
-export type MusicView = "artists" | "albums" | "folders";
-
-/** Artists | Albums | Folders, for a music library. */
-export function MusicViewTabs({ serverId, libraryId, active }: { serverId: string; libraryId: string; active: MusicView }) {
-  const base = `/s/${serverId}/library/${libraryId}`;
-  const tab = (view: MusicView, label: string) => (
-    <Link
-      href={view === "artists" ? base : `${base}?view=${view}`}
-      aria-current={active === view ? "page" : undefined}
-      className={`rounded-lg px-4 py-1.5 text-sm font-medium transition ${active === view ? "bg-white/[0.12] text-foreground" : "text-muted-foreground hover:text-foreground"}`}
-    >
-      {label}
-    </Link>
-  );
-  return (
-    <nav aria-label="Music views" className="flex w-fit gap-1 rounded-xl bg-white/[0.05] p-1 ring-1 ring-white/[0.08]">
-      {tab("artists", "Artists")}
-      {tab("albums", "Albums")}
-      {tab("folders", "Folders")}
-    </nav>
-  );
-}
 
 /** A music library's Artists or Albums tab: one page of tiles, with a link to the next. */
 export async function MusicLibraryView({
@@ -64,7 +42,7 @@ export async function MusicLibraryView({
         </span>
         <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">{libraryName}</h1>
       </div>
-      <MusicViewTabs serverId={serverId} libraryId={libraryId} active={view} />
+      <SongViewTabs serverId={serverId} libraryId={libraryId} kind="music" active={view} />
       {page.items.length === 0 ? (
         <p className="rounded-xl bg-white/[0.04] px-4 py-10 text-center text-sm text-muted-foreground ring-1 ring-white/[0.06]">
           Nothing here yet. Songs show up once a scan has read the library&apos;s folders.

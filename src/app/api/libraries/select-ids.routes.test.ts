@@ -74,6 +74,21 @@ describe("every playable file in a folder", () => {
     expect(await ids("q=zed&path=One")).toEqual([a.id, b.id]); // the folder is ignored while searching
     expect(await ids("q=%20%20")).toEqual([]); // an empty search is no search: the (empty) root folder
   });
+  it("lists the whole library (all=1) or one artist, album or genre of it, in the sort asked for", async () => {
+    const w = await world();
+    const lib = await makeLibrary(db, w.server.id, "audio", "everyone");
+    const a = await makeTitle(db, lib.id, { kind: "audiobook", name: "A", folderPath: "One", sortKey: "a", runtimeSeconds: 10, authors: ["Zed"], seriesName: "Alb", genres: ["Rock"] });
+    const b = await makeTitle(db, lib.id, { kind: "audiobook", name: "B", folderPath: "Two", sortKey: "b", runtimeSeconds: 30, authors: ["Zed"], seriesName: "Other", genres: ["Pop"] });
+    const c = await makeTitle(db, lib.id, { kind: "audiobook", name: "C", folderPath: "", sortKey: "c", runtimeSeconds: 20, authors: ["Mia"], genres: ["Rock", "Pop"] });
+    const ids = async (query: string) => (await (await get(folderIds, lib.id, query)).json()).ids;
+    expect(await ids("all=1")).toEqual([a.id, b.id, c.id]);
+    expect(await ids("all=1&sort=duration&dir=desc")).toEqual([b.id, c.id, a.id]);
+    expect(await ids("all=1&groupKind=artist&group=zed")).toEqual([a.id, b.id]);
+    expect(await ids("all=1&groupKind=album&group=Alb")).toEqual([a.id]);
+    expect(await ids("all=1&groupKind=genre&group=pop")).toEqual([b.id, c.id]);
+    expect(await ids("all=1&groupKind=genre&group=__unknown__")).toEqual([]);
+    expect(await ids("all=1&groupKind=nonsense&group=x")).toEqual([a.id, b.id, c.id]); // an unknown kind of group is no group
+  });
   it("leaves out what an age limit hides, and is the same 404 for a hidden library, another server's, a bad path or id", async () => {
     const w = await world();
     const lib = await makeLibrary(db, w.server.id, "video", "everyone");

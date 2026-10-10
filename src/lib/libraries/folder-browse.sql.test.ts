@@ -2,6 +2,7 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { folderLink, folderPlayableIds, folderTrail, listFolder, normalizeFolderPath, parentFolder, parseFolderSearch, parseFolderSort } from "./folder-browse";
 import { naturalSortKey } from "./sort-key";
+import { listAudioGroups, UNKNOWN_GROUP } from "./audio-groups";
 import type { LibraryActor } from "@/lib/content/library-access";
 import { createTestDb, joinServer, makeAccount, makeLibrary, makeServer, makeTitle, type TestDb } from "@/lib/playlists/test-db";
 
@@ -304,5 +305,61 @@ describe("search text and links", () => {
     expect(folderLink({ base, sort: parseFolderSort("duration", "desc"), q: "a b", path: "My Music/Rock" })).toBe(`${base}?sort=duration&dir=desc&q=a%20b&path=My%20Music%2FRock`);
     expect(folderLink({ base, extra: "view=folders&", q: "x" })).toBe(`${base}?view=folders&q=x`);
     expect(folderLink({ base, path: "A" })).toBe(`${base}?path=A`);
+  });
+});
+
+describe("the whole library, and one artist, album or genre of it", () => {
+  async function shelf() {
+    const w = await world();
+    await w.add("Midnight City", "Pop/M83", { authors: ["M83"], seriesName: "Dreaming", genres: ["Electronic", "Pop"], kind: "audiobook" });
+    await w.add("Wait", "Pop/M83", { authors: ["m83 "], seriesName: "Dreaming", genres: ["Electronic"], kind: "audiobook" });
+    await w.add("Intro", "Rock/Others", { authors: ["The Xx", "Guest"], seriesName: "xx", genres: ["Indie", "pop"], kind: "audiobook" });
+    await w.add("Loose", "", { authors: null, genres: [], kind: "audiobook" });
+    return w;
+  }
+  const list = async (w: Awaited<ReturnType<typeof world>>, extra: Record<string, unknown>) =>
+    (await listFolder(db, { actor: w.actor(w.member), viewer: adult, libraryId: w.library.id, path: "Somewhere/else", ...extra }))?.items.map((i) => i.name).sort();
+
+  it("lists every file of the library, whatever folder it was asked from, with no subfolders", async () => {
+    const w = await shelf();
+    expect(await list(w, { all: true })).toEqual(["Intro", "Loose", "Midnight City", "Wait"]);
+    expect((await listFolder(db, { actor: w.actor(w.member), viewer: adult, libraryId: w.library.id, path: "", all: true }))?.folders).toEqual([]);
+  });
+  it("lists the files of one artist, album or genre, ignoring case and edge spaces, and the unknown ones", async () => {
+    const w = await shelf();
+    expect(await list(w, { group: { kind: "artist", name: "M83" } })).toEqual(["Midnight City", "Wait"]);
+    expect(await list(w, { group: { kind: "artist", name: "the xx" } })).toEqual(["Intro"]); // the first artist only
+    expect(await list(w, { group: { kind: "artist", name: UNKNOWN_GROUP } })).toEqual(["Loose"]);
+    expect(await list(w, { group: { kind: "album", name: "dreaming" } })).toEqual(["Midnight City", "Wait"]);
+    expect(await list(w, { group: { kind: "album", name: UNKNOWN_GROUP } })).toEqual(["Loose"]);
+    expect(await list(w, { group: { kind: "genre", name: "POP" } })).toEqual(["Intro", "Midnight City"]);
+    expect(await list(w, { group: { kind: "genre", name: "Electronic" } })).toEqual(["Midnight City", "Wait"]);
+    expect(await list(w, { group: { kind: "genre", name: UNKNOWN_GROUP } })).toEqual(["Loose"]);
+    expect(await list(w, { group: { kind: "genre", name: "Nothing" } })).toEqual([]);
+    expect(await list(w, { group: { kind: "genre", name: "Pop" }, search: "city" })).toEqual(["Midnight City"]); // a search narrows a group
+  });
+  it("builds the lists of artists, albums and genres with counts, a page at a time, leaving out what an age limit hides", async () => {
+    const w = await world();
+    const lib = await makeLibrary(db, w.server.id, "audio", "everyone");
+    const add = (name: string, over: Record<string, unknown>) => makeTitle(db, lib.id, { name, kind: "audiobook", boxFolderId: `file:${Math.random()}`, ...over });
+    await add("Midnight City", { authors: ["M83"], seriesName: "Dreaming", genres: ["Electronic", "Pop"], ratingAges: { ANY: 0 } });
+    await add("Wait", { authors: ["m83 "], seriesName: "Dreaming", genres: ["Electronic"], ratingAges: { ANY: 0 } });
+    await add("Intro", { authors: ["The Xx", "Guest"], seriesName: "xx", genres: ["Indie", "pop"], ratingAges: { ANY: 0 } });
+    await add("Loose", { authors: null, genres: [], ratingAges: { ANY: 0 } });
+    await add("Adult", { authors: ["Hidden Artist"], genres: ["Hidden"], ratingAges: { ANY: 17 } });
+    const seen = (kind: "artist" | "album" | "genre", viewer: typeof adult | typeof kid = adult) => listAudioGroups(db, { actor: w.actor(w.member), viewer, libraryId: lib.id, kind });
+    expect((await seen("artist"))?.items.map((g) => [g.label, g.count])).toEqual([["Hidden Artist", 1], ["M83", 2], ["The Xx", 1], ["Unknown artist", 1]]);
+    expect((await seen("artist", kid))?.items.map((g) => g.label)).toEqual(["M83", "The Xx", "Unknown artist"]); // the adult song is hidden from this kid
+    expect((await seen("genre"))?.items.map((g) => [g.label, g.count])).toEqual([["Electronic", 2], ["Hidden", 1], ["Indie", 1], ["Pop", 2], ["Unknown genre", 1]]);
+    const first = await listAudioGroups(db, { actor: w.actor(w.member), viewer: adult, libraryId: lib.id, kind: "album", limit: 1 });
+    expect(first?.items.map((g) => g.label)).toEqual(["Dreaming"]);
+    const second = await listAudioGroups(db, { actor: w.actor(w.member), viewer: adult, libraryId: lib.id, kind: "album", limit: 1, after: first?.next });
+    expect(second?.items.map((g) => g.label)).toEqual(["xx"]);
+  });
+  it("is null for a library that isn't audio or music, or isn't visible", async () => {
+    const w = await world("restricted");
+    expect(await listAudioGroups(db, { actor: w.actor(w.member), viewer: adult, libraryId: w.library.id, kind: "artist" })).toBeNull();
+    const open = await world();
+    expect(await listAudioGroups(db, { actor: open.actor(open.member), viewer: adult, libraryId: open.library.id, kind: "artist" })).toBeNull(); // a video library
   });
 });

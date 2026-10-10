@@ -16,8 +16,10 @@ import { Button } from "@/components/ui/button";
 import { Breadcrumbs } from "@/components/shell/breadcrumbs";
 import { VideoFolderView } from "@/components/library/video-folder-view";
 import { folderSortQuery, listFolder as listVideoFolder, normalizeFolderPath, parseFolderSearch, parseFolderSort } from "@/lib/libraries/folder-browse";
-import { isFileTreeLibraryKind, isMusicLibraryKind, isPhotoLibraryKind } from "@/lib/libraries/profile";
-import { MusicLibraryView, MusicViewTabs } from "@/components/music/music-library-view";
+import { isFileTreeLibraryKind, isPhotoLibraryKind } from "@/lib/libraries/profile";
+import { MusicLibraryView } from "@/components/music/music-library-view";
+import { AudioGroupGrid, parseSongView, SongsView, SongViewTabs } from "@/components/library/audio-views";
+import { listAudioGroups, UNKNOWN_GROUP, type GroupKind } from "@/lib/libraries/audio-groups";
 import { parseSearch } from "@/lib/photos/search";
 import { listMonths, listTimeline } from "@/lib/photos/timeline";
 import { favoriteWords } from "@/lib/photos/favorite-word";
@@ -121,13 +123,71 @@ export default async function LibraryDetailPage({
     );
   }
 
-  // A music library opens to its artists (or albums); its Folders tab is the plain folder view below.
-  const musicView = isMusicLibraryKind(library.kind) ? (query.view === "albums" ? "albums" : query.view === "folders" ? "folders" : "artists") : null;
-  if (musicView === "artists" || musicView === "albums") {
-    const after = decodeCursor(typeof query.after === "string" ? query.after : null, folderCursorSchema);
-    const view = await MusicLibraryView({ serverId, libraryId, libraryName: library.name, view: musicView, actor: lib, viewer, after: after === "invalid" ? null : after });
-    if (!view) notFound();
-    return view;
+  // A song library (music, or generic audio) is browsed by Artists / Albums / Songs (Tracks) / Genres, and Audio also by Folders.
+  const songKind = library.kind === "music" || library.kind === "audio" ? library.kind : null;
+  const songView = songKind ? parseSongView(songKind, typeof query.view === "string" ? query.view : null) : null;
+  if (songKind && songView && songView !== "folders") {
+    const after = typeof query.after === "string" ? query.after : null;
+    // Music's artists and albums come from its own tables (and have pages of their own).
+    if (songKind === "music" && (songView === "artists" || songView === "albums")) {
+      const cursor = decodeCursor(after, folderCursorSchema);
+      const view = await MusicLibraryView({ serverId, libraryId, libraryName: library.name, view: songView, actor: lib, viewer, after: cursor === "invalid" ? null : cursor });
+      if (!view) notFound();
+      return view;
+    }
+    const groupKind: GroupKind | null = songView === "artists" ? "artist" : songView === "albums" ? "album" : songView === "genres" ? "genre" : null;
+    const groupName = groupKind && typeof query.group === "string" && query.group !== "" ? query.group.slice(0, 200) : null;
+    const SongIcon = KIND_ICON[library.kind];
+    const header = (
+      <>
+        <Breadcrumbs serverId={serverId} trail={[{ label: library.name }]} className="-mb-2" />
+        <div className="flex items-center gap-3">
+          <span className="flex size-10 items-center justify-center rounded-xl bg-white/[0.06] ring-1 ring-white/10">
+            <SongIcon className="size-5 text-primary" />
+          </span>
+          <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">{library.name}</h1>
+        </div>
+        <SongViewTabs serverId={serverId} libraryId={libraryId} kind={songKind} active={songView} />
+      </>
+    );
+    const base = `/s/${serverId}/library/${libraryId}`;
+
+    // The artists, albums or genres themselves, as tiles.
+    if (groupKind && !groupName) {
+      const groups = await listAudioGroups(db, { actor: lib, viewer, libraryId, kind: groupKind, after: after && after.length <= 200 ? after : null });
+      if (!groups) notFound();
+      return (
+        <div className="flex flex-col gap-6 px-4 py-8 sm:px-8">
+          {header}
+          <AudioGroupGrid serverId={serverId} libraryId={libraryId} kind={groupKind} groups={groups.items} nextHref={groups.next ? `${base}?view=${songView}&after=${encodeURIComponent(groups.next)}` : null} />
+        </div>
+      );
+    }
+
+    // A list of songs: the whole library's, or one artist's, album's or genre's.
+    const cursor = decodeCursor(after, folderCursorSchema);
+    const sort = parseFolderSort(typeof query.sort === "string" ? query.sort : null, typeof query.dir === "string" ? query.dir : null);
+    const search = parseFolderSearch(typeof query.q === "string" ? query.q : null);
+    const group = groupKind && groupName ? { kind: groupKind, name: groupName } : null;
+    const page = await listVideoFolder(db, { actor: lib, viewer, viewerId: viewer.id, libraryId, path: "", limit: 60, after: cursor === "invalid" ? null : cursor, sort, search, all: true, group });
+    if (!page) notFound();
+    const extra = `view=${songView}${group ? `&group=${encodeURIComponent(group.name)}` : ""}`;
+    const label = group ? (group.name === UNKNOWN_GROUP ? `Unknown ${group.kind}` : group.name) : "";
+    return (
+      <div className="flex flex-col gap-6 px-4 py-8 sm:px-8">
+        {header}
+        <SongsView
+          serverId={serverId}
+          libraryId={libraryId}
+          extra={extra}
+          group={group ? { kind: group.kind, name: group.name, label } : null}
+          items={page.items}
+          sort={sort}
+          search={search}
+          nextHref={page.nextCursor ? `${base}?${extra}&${folderSortQuery(sort)}${search ? `q=${encodeURIComponent(search)}&` : ""}after=${encodeCursor(page.nextCursor)}` : null}
+        />
+      </div>
+    );
   }
 
   // A file-tree library (video, audio, and a photo library's albums) is browsed folder by folder (the folder and the page of files come from the URL).
@@ -150,7 +210,7 @@ export default async function LibraryDetailPage({
       search,
     });
     if (!page) notFound();
-    const here = `/s/${serverId}/library/${libraryId}?${photoView ? "view=albums&" : ""}${musicView ? "view=folders&" : ""}${folderSortQuery(sort)}${search ? `q=${encodeURIComponent(search)}&` : ""}${path ? `path=${encodeURIComponent(path)}&` : ""}`;
+    const here = `/s/${serverId}/library/${libraryId}?${photoView ? "view=albums&" : ""}${library.kind === "audio" ? "view=folders&" : ""}${folderSortQuery(sort)}${search ? `q=${encodeURIComponent(search)}&` : ""}${path ? `path=${encodeURIComponent(path)}&` : ""}`;
     return (
       <div className="flex flex-col gap-6 px-4 py-8 sm:px-8">
         <Breadcrumbs serverId={serverId} trail={[{ label: library.name }]} className="-mb-2" />
@@ -164,7 +224,7 @@ export default async function LibraryDetailPage({
           <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">{library.name}</h1>
         </div>
         {photoView && <PhotoViewTabs serverId={serverId} libraryId={libraryId} active="albums" favoritesLabel={words.plural} />}
-        {musicView && <MusicViewTabs serverId={serverId} libraryId={libraryId} active="folders" />}
+        {library.kind === "audio" && <SongViewTabs serverId={serverId} libraryId={libraryId} kind="audio" active="folders" />}
         <VideoFolderView
           serverId={serverId}
           libraryId={libraryId}
@@ -174,7 +234,7 @@ export default async function LibraryDetailPage({
           items={page.items}
           nextHref={page.nextCursor ? `${here}after=${encodeCursor(page.nextCursor)}` : null}
           itemKind={photoView ? "photo" : library.kind === "audio" || library.kind === "music" ? "audiobook" : library.kind === "ebooks" ? "ebook" : "movie"}
-          extraQuery={photoView ? "view=albums" : musicView ? "view=folders" : undefined}
+          extraQuery={photoView ? "view=albums" : library.kind === "audio" ? "view=folders" : undefined}
           sort={sort}
           sortable={library.kind === "audio"}
           search={search}

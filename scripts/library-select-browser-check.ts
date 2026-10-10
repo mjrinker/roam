@@ -56,11 +56,11 @@ const app = http.createServer((req, res) => {
 async function main() {
   await build({
     stdin: {
-      contents: `import { createRoot } from "react-dom/client"; import { LibraryBrowser } from "@/components/library/library-browser"; import { SelectableFolderItems, SelectableMusicTiles } from "@/components/library/selectable-views"; import { VideoFolderView } from "@/components/library/video-folder-view"; import { parseFolderSort } from "@/lib/libraries/folder-browse"; import { Toaster } from "@/components/ui/sonner";
+      contents: `import { createRoot } from "react-dom/client"; import { LibraryBrowser } from "@/components/library/library-browser"; import { SelectableFolderItems, SelectableMusicTiles } from "@/components/library/selectable-views"; import { VideoFolderView } from "@/components/library/video-folder-view"; import { AudioGroupGrid, SongViewTabs, SongsView } from "@/components/library/audio-views"; import { AudioPlayerProvider } from "@/components/audio/audio-player-provider"; import { parseFolderSort } from "@/lib/libraries/folder-browse"; import { Toaster } from "@/components/ui/sonner";
         const items = ${JSON.stringify(items)};
         const mode = new URLSearchParams(location.search).get("mode");
         createRoot(document.getElementById("root")!).render(<>
-          {mode === "audio" ? <VideoFolderView serverId="S1" libraryId="L1" libraryName="Audio" path="Mix" folders={[]} items={${JSON.stringify(folderPage)} as any} nextHref={null} itemKind="audiobook" sortable search={new URLSearchParams(location.search).get("q")} sort={parseFolderSort(new URLSearchParams(location.search).get("sort"), new URLSearchParams(location.search).get("dir"))} /> : mode === "folder" ? <SelectableFolderItems serverId="S1" libraryId="L1" path="Trips" items={${JSON.stringify(folderPage)} as any} itemKind="movie" sort={parseFolderSort(null, null)} /> : mode === "music" ? <SelectableMusicTiles serverId="S1" libraryId="L1" view="albums" albums={${JSON.stringify(albumCards)} as any} artists={null} /> : <LibraryBrowser items={items as any} serverId="S1" />}
+          {mode === "tabs-music" ? <SongViewTabs serverId="S1" libraryId="L1" kind="music" active="songs" /> : mode === "tabs-audio" ? <SongViewTabs serverId="S1" libraryId="L1" kind="audio" active="songs" /> : mode === "groups" ? <AudioGroupGrid serverId="S1" libraryId="L1" kind="genre" groups={[{ name: "Rock", label: "Rock", count: 3, coverUrl: null }, { name: "__unknown__", label: "Unknown genre", count: 1, coverUrl: null }] as any} nextHref="/more" /> : mode === "songs" ? <AudioPlayerProvider><SongsView serverId="S1" libraryId="L1" extra="view=genres&group=Rock" group={{ kind: "genre", name: "Rock", label: "Rock" }} items={${JSON.stringify(folderPage)} as any} sort={parseFolderSort(null, null)} search={null} nextHref="/next" /></AudioPlayerProvider> : mode === "audio" ? <VideoFolderView serverId="S1" libraryId="L1" libraryName="Audio" path="Mix" folders={[]} items={${JSON.stringify(folderPage)} as any} nextHref={null} itemKind="audiobook" sortable search={new URLSearchParams(location.search).get("q")} sort={parseFolderSort(new URLSearchParams(location.search).get("sort"), new URLSearchParams(location.search).get("dir"))} /> : mode === "folder" ? <SelectableFolderItems serverId="S1" libraryId="L1" path="Trips" items={${JSON.stringify(folderPage)} as any} itemKind="movie" sort={parseFolderSort(null, null)} /> : mode === "music" ? <SelectableMusicTiles serverId="S1" libraryId="L1" view="albums" albums={${JSON.stringify(albumCards)} as any} artists={null} /> : <LibraryBrowser items={items as any} serverId="S1" />}
           <Toaster /></>);`,
       resolveDir: process.cwd(),
       loader: "tsx",
@@ -159,6 +159,32 @@ async function main() {
     await page.evaluate(`[...document.querySelectorAll('[role="toolbar"] button')].find(b => b.textContent.trim() === "Select all results").click()`);
     await page.waitFor(`document.querySelector('[role="toolbar"]').innerText.includes("10 selected")`, 3000);
     check("Select all results asks for the same search in the same order", seenUrls.some((u) => u.startsWith("/api/libraries/L1/folder-ids") && u.includes("sort=duration&dir=desc") && u.includes("q=m83")), seenUrls);
+
+    // The views of a song library: music's, then generic audio's (Tracks first, Folders last).
+    const tabs = () => page.evaluate<string>(`[...document.querySelectorAll('nav[aria-label="Views"] a')].map(a => a.textContent.trim() + (a.getAttribute("aria-current") ? "*" : "") + ">" + a.getAttribute("href")).join(" | ")`);
+    await page.goto(`${base}/?mode=tabs-music`);
+    await page.waitFor(`!!document.querySelector('nav[aria-label="Views"]')`, 5000);
+    check("music has Artists, Albums, Songs and Genres (no Folders)", (await tabs()) === "Artists>/s/S1/library/L1 | Albums>/s/S1/library/L1?view=albums | Songs*>/s/S1/library/L1?view=songs | Genres>/s/S1/library/L1?view=genres", await tabs());
+    await page.goto(`${base}/?mode=tabs-audio`);
+    await page.waitFor(`!!document.querySelector('nav[aria-label="Views"]')`, 5000);
+    check("generic audio has Tracks, Artists, Albums, Genres, then Folders", (await tabs()) === "Tracks*>/s/S1/library/L1 | Artists>/s/S1/library/L1?view=artists | Albums>/s/S1/library/L1?view=albums | Genres>/s/S1/library/L1?view=genres | Folders>/s/S1/library/L1?view=folders", await tabs());
+    await page.goto(`${base}/?mode=groups`);
+    await page.waitFor(`document.body.innerText.includes("Rock")`, 5000);
+    check("a genre tile opens that genre; the unknown group has its own link; Show more is there", (await page.evaluate<string>(`[...document.querySelectorAll("a")].map(a => a.getAttribute("href")).join(" ")`)).includes("view=genres&group=Rock") && (await page.evaluate<string>(`[...document.querySelectorAll("a")].map(a => a.getAttribute("href")).join(" ")`)).includes("group=__unknown__") && (await page.evaluate<boolean>(`document.body.innerText.includes("Show more") && document.body.innerText.includes("3 songs")`)));
+    await page.goto(`${base}/?mode=songs`);
+    await page.waitFor(`document.body.innerText.includes("Clip 0")`, 5000);
+    check("a genre's songs page has its name, a way back, Play and Shuffle, a search box and a sort menu, and Select", await page.evaluate<boolean>(`document.body.innerText.includes("Rock") && document.body.innerText.includes("All genres") && [...document.querySelectorAll("button")].some(b => b.textContent.trim() === "Shuffle" && !b.disabled) && !!document.querySelector('input[aria-label="Search this library"]') && !!document.querySelector('button[aria-label="Sort"]') && [...document.querySelectorAll("button")].some(b => b.textContent.trim() === "Select")`));
+    const idsSeen: string[] = [];
+    app.on("request", (r) => idsSeen.push(r.url!));
+    await page.evaluate(`[...document.querySelectorAll("button")].find(b => b.textContent.trim() === "Shuffle").click()`);
+    await page.waitFor(`true`, 100);
+    await new Promise((r) => setTimeout(r, 700));
+    check("Shuffle asks for every song of the genre (not only the page shown)", idsSeen.some((u) => u.startsWith("/api/libraries/L1/folder-ids?all=1&groupKind=genre&group=Rock")), idsSeen);
+    await page.evaluate(`[...document.querySelectorAll("button")].find(b => b.textContent.trim() === "Select").click()`);
+    idsSeen.length = 0;
+    await page.evaluate(`[...document.querySelectorAll('[role="toolbar"] button')].find(b => b.textContent.trim() === "Select all").click()`);
+    await new Promise((r) => setTimeout(r, 500));
+    check("Select all in a genre reads that genre's songs", idsSeen.some((u) => u.includes("all=1") && u.includes("groupKind=genre") && u.includes("group=Rock")), idsSeen);
 
     // A music library's albums: the actions work on the songs of the albums chosen.
     await page.goto(`${base}/?mode=music`);

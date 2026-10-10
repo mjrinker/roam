@@ -10,6 +10,7 @@ import { contentFilter, type AccessProfile } from "@/lib/content/access";
 import { libraryVisible, type LibraryActor } from "@/lib/content/library-access";
 import { libraries, photoFavorites, titles, watchState } from "@/lib/db/schema";
 import { FILE_TREE_KINDS } from "@/lib/libraries/profile";
+import { groupMatch, type GroupKind } from "@/lib/libraries/audio-groups";
 
 type Db = PgDatabase<PgQueryResultHKT, Record<string, unknown>>;
 
@@ -157,6 +158,10 @@ export async function listFolder(
     sort?: FolderSort;
     /** Looks through the whole library for files whose name, artist, album or folder contain this text (the folder `path` is then ignored, and no subfolders are listed). */
     search?: string | null;
+    /** Lists every file of the library (the folder `path` is ignored, no subfolders): a Songs / Tracks view. */
+    all?: boolean;
+    /** Only the files of one artist, album or genre (across the whole library, like `all`). */
+    group?: { kind: GroupKind; name: string } | null;
   }
 ): Promise<FolderPage | null> {
   const limit = Math.min(Math.max(args.limit ?? 60, 1), 200);
@@ -174,7 +179,8 @@ export async function listFolder(
       : sql`${titles.folderPath} LIKE ${escapeLike(args.path) + "/%"} ESCAPE '\\'`;
 
   const firstPage = !args.after;
-  const searching = !!args.search;
+  // A search, a whole-library list and a group all look across folders: no folder is "here", and none are listed.
+  const searching = !!args.search || !!args.all || !!args.group;
   const folderRows = firstPage && !searching
     ? await ex
         .selectDistinct({ name: sql<string>`split_part(${titles.folderPath}, '/', ${depth + 1})` })
@@ -209,7 +215,9 @@ export async function listFolder(
     .where(
       and(
         visible,
-        searching ? matchesSearch(args.search as string) : sql`coalesce(${titles.folderPath}, '') = ${here}`,
+        searching ? undefined : sql`coalesce(${titles.folderPath}, '') = ${here}`,
+        args.search ? matchesSearch(args.search) : undefined,
+        args.group ? groupMatch(args.group.kind, args.group.name) : undefined,
         args.after
           ? or(descending ? sql`${listKey} < ${args.after.key}` : sql`${listKey} > ${args.after.key}`, and(sql`${listKey} = ${args.after.key}`, descending ? lt(titles.id, args.after.id) : gt(titles.id, args.after.id)))
           : undefined
@@ -263,7 +271,7 @@ export const MAX_SELECT_IDS = 5000;
  */
 export async function folderPlayableIds(
   ex: Db,
-  args: { actor: LibraryActor; viewer: AccessProfile; libraryId: string; path: string; max?: number; sort?: FolderSort; search?: string | null }
+  args: { actor: LibraryActor; viewer: AccessProfile; libraryId: string; path: string; max?: number; sort?: FolderSort; search?: string | null; all?: boolean; group?: { kind: GroupKind; name: string } | null }
 ): Promise<{ ids: string[]; truncated: boolean } | null> {
   const max = args.max ?? MAX_SELECT_IDS;
   const sort = args.sort ?? DEFAULT_FOLDER_SORT;
@@ -282,7 +290,9 @@ export async function folderPlayableIds(
       and(
         eq(titles.libraryId, args.libraryId),
         inArray(titles.kind, ["movie", "audiobook"]),
-        args.search ? matchesSearch(args.search) : sql`coalesce(${titles.folderPath}, '') = ${args.path}`,
+        args.search || args.all || args.group ? undefined : sql`coalesce(${titles.folderPath}, '') = ${args.path}`,
+        args.search ? matchesSearch(args.search) : undefined,
+        args.group ? groupMatch(args.group.kind, args.group.name) : undefined,
         libraryVisible(ex, args.actor),
         contentFilter(args.viewer, titles.ratingAges)
       )
