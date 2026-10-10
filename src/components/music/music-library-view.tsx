@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { SongViewTabs } from "@/components/library/audio-views";
+import { ChooseButton } from "@/components/choose/choose-entry";
 import { Music } from "lucide-react";
 import type { AccessProfile } from "@/lib/content/access";
 import type { LibraryActor } from "@/lib/content/library-access";
@@ -41,6 +42,7 @@ export async function MusicLibraryView({
           <Music className="size-5 text-primary" />
         </span>
         <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">{libraryName}</h1>
+        <ChooseButton serverId={serverId} libraryId={libraryId} className="ml-auto" />
       </div>
       <SongViewTabs serverId={serverId} libraryId={libraryId} kind="music" active={view} />
       {page.items.length === 0 ? (

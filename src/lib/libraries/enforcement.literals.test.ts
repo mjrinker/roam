@@ -20,6 +20,8 @@ const ALLOWED: Record<string, string> = {
   "lib/db/schema.ts": "defines the library_kind enum",
   "app/api/libraries/route.ts": "the creation request's list of accepted kinds",
   "components/library/audio-views.tsx": "the view tabs of the two song-library kinds (music, audio) - what each offers is the point of the file",
+  "lib/choose/kinds.ts": "the list of library kinds a choice can be made from - the point of the file",
+  "lib/choose/pick.ts": "what a random pick means in each kind of library (a video, an audio track, an album...) - the point of the file",
   "lib/player/codec-query.ts": "creates a DOM <video> element to test codec support, not a library kind",
   "tv/client/tv.ts": "creates a DOM <video> element to test codec support, not a library kind",
   "lib/libraries/profile.ts": "the one place that says which kinds are which",

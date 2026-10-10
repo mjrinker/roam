@@ -18,6 +18,7 @@ import { VideoFolderView } from "@/components/library/video-folder-view";
 import { folderSortQuery, listFolder as listVideoFolder, normalizeFolderPath, parseFolderSearch, parseFolderSort } from "@/lib/libraries/folder-browse";
 import { isFileTreeLibraryKind, isPhotoLibraryKind } from "@/lib/libraries/profile";
 import { MusicLibraryView } from "@/components/music/music-library-view";
+import { ChooseButton } from "@/components/choose/choose-entry";
 import { AudioGroupGrid, parseSongView, SongsView, SongViewTabs } from "@/components/library/audio-views";
 import { listAudioGroups, UNKNOWN_GROUP, type GroupKind } from "@/lib/libraries/audio-groups";
 import { parseSearch } from "@/lib/photos/search";
@@ -146,6 +147,7 @@ export default async function LibraryDetailPage({
             <SongIcon className="size-5 text-primary" />
           </span>
           <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">{library.name}</h1>
+          <ChooseButton serverId={serverId} libraryId={libraryId} className="ml-auto" />
         </div>
         <SongViewTabs serverId={serverId} libraryId={libraryId} kind={songKind} active={songView} />
       </>
@@ -222,6 +224,7 @@ export default async function LibraryDetailPage({
             })()}
           </span>
           <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">{library.name}</h1>
+          {!photoView && <ChooseButton serverId={serverId} libraryId={libraryId} className="ml-auto" />}
         </div>
         {photoView && <PhotoViewTabs serverId={serverId} libraryId={libraryId} active="albums" favoritesLabel={words.plural} />}
         {library.kind === "audio" && <SongViewTabs serverId={serverId} libraryId={libraryId} kind="audio" active="folders" />}
@@ -374,6 +377,7 @@ export default async function LibraryDetailPage({
             {KIND_LABEL[library.kind]}
           </p>
         </div>
+        {items.length > 0 && <ChooseButton serverId={serverId} libraryId={libraryId} className="ml-auto" />}
       </div>
 
       {items.length === 0 ? (

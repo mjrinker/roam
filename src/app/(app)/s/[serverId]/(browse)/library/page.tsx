@@ -6,6 +6,8 @@ import { episodes, libraries, seasons, titles, watchState } from "@/lib/db/schem
 import { requireServerMember } from "@/lib/auth/guards";
 import { libraryActor, libraryVisible } from "@/lib/content/library-access";
 import { GLOBALLY_LISTED_LIBRARY_KINDS } from "@/lib/libraries/profile";
+import { isChoosableKind } from "@/lib/choose/kinds";
+import { ChooseHomeButton } from "@/components/choose/choose-entry";
 import { formatRemaining } from "@/lib/format";
 import { Button } from "@/components/ui/button";
 import { HeroBanner, type HeroBannerData } from "@/components/library/hero-banner";
@@ -232,6 +234,12 @@ export default async function LibraryHomePage({
       {hero && <HeroBanner hero={hero} />}
 
       <div className={hero ? "flex flex-col gap-10 pt-2" : "flex flex-col gap-10 pt-8"}>
+        {hasContent && (
+          <div className="flex px-4 sm:px-8">
+            <ChooseHomeButton serverId={serverId} libraries={serverLibraries.filter((l) => isChoosableKind(l.kind)).map((l) => ({ id: l.id, name: l.name }))} />
+          </div>
+        )}
+
         {continueWatching.length > 0 && (
           <MediaRow title="Continue Watching">
             {continueWatching.map((item) => (
