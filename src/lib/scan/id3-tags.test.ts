@@ -48,9 +48,9 @@ function fetcherFor(file: number[], log?: { ranges: number[] }) {
   };
 }
 const probe = (file: number[], log?: { ranges: number[] }) => probeMp3Tags(fetcherFor(file, log), file.length);
-const v1 = (o: { title?: string; artist?: string; album?: string; year?: string }) => {
+const v1 = (o: { title?: string; artist?: string; album?: string; year?: string; genre?: number }) => {
   const pad = (s: string | undefined, n: number) => [...latin1((s ?? "").slice(0, n)), ...new Array(n - Math.min(n, (s ?? "").length)).fill(0)];
-  return [...bytes("TAG"), ...pad(o.title, 30), ...pad(o.artist, 30), ...pad(o.album, 30), ...pad(o.year, 4), ...new Array(31).fill(0)];
+  return [...bytes("TAG"), ...pad(o.title, 30), ...pad(o.artist, 30), ...pad(o.album, 30), ...pad(o.year, 4), ...new Array(30).fill(0), o.genre ?? 255];
 };
 
 describe("probeMp3Tags: ID3v2.3", () => {
@@ -69,6 +69,23 @@ describe("probeMp3Tags: ID3v2.3", () => {
     expect(t).toMatchObject({ title: "Café Society", artist: "The Band", album: "First Album", year: 1999 });
     expect(t.cover?.contentType).toBe("image/jpeg");
     expect(Array.from(t.cover!.bytes)).toEqual(JPEG);
+  });
+
+  it("reads genres: text, numbers, (number) references and several at once, in every version", async () => {
+    const genres = async (ver: Ver, id: string, payload: number[]) => (await probe([...tag(ver, [frame(ver, id, text(0, payload))]), ...AUDIO])).genres;
+    expect(await genres(3, "TCON", latin1("Jazz"))).toEqual(["Jazz"]);
+    expect(await genres(3, "TCON", latin1("(17)"))).toEqual(["Rock"]);
+    expect(await genres(3, "TCON", latin1("(17)Rock"))).toEqual(["Rock"]);
+    expect(await genres(4, "TCON", [...latin1("Rock"), 0, ...latin1("Pop")])).toEqual(["Rock", "Pop"]);
+    expect(await genres(2, "TCO", latin1("(13)"))).toEqual(["Pop"]);
+    expect(await genres(3, "TCON", latin1("(RX)"))).toEqual([]);
+  });
+
+  it("uses an ID3v1 genre byte when the v2 tag names none, and the v2 genre when both do", async () => {
+    expect((await probe([...AUDIO, ...v1({ title: "Old", genre: 17 })])).genres).toEqual(["Rock"]);
+    expect((await probe([...AUDIO, ...v1({ title: "Old", genre: 255 })])).genres).toEqual([]);
+    const both = [...tag(3, [frame(3, "TCON", text(0, latin1("Jazz")))]), ...AUDIO, ...v1({ title: "Old", genre: 17 })];
+    expect((await probe(both)).genres).toEqual(["Jazz"]);
   });
 
   it("decodes every text encoding: Latin-1, UTF-16 with either BOM, UTF-16BE without one, UTF-8", async () => {
@@ -210,7 +227,7 @@ describe("probeMp3Tags: artist, picture and fallbacks", () => {
   });
 
   it("returns all nulls for a file with no tags, or one that isn't tagged like an MP3 at all", async () => {
-    const none = { title: null, artist: null, album: null, year: null, cover: null };
+    const none = { title: null, artist: null, album: null, year: null, genres: [], cover: null };
     expect(await probe(AUDIO)).toEqual(none);
     expect(await probe(bytes("RIFF....WAVEfmt "))).toEqual(none);
     expect(await probe([])).toEqual(none);

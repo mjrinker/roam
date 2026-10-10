@@ -12,6 +12,7 @@
 import type { ByteRangeFetcher } from "@/lib/scan/range-reader";
 import { RangeReader } from "@/lib/scan/range-reader";
 import { cleanTagString } from "@/lib/scan/tag-text";
+import { genreFromIndex, normalizeGenres } from "@/lib/scan/genres";
 
 /** The most tag bytes ever looked at, however large the tag claims to be. */
 export const MAX_TAG_BYTES = 1024 * 1024;
@@ -25,10 +26,12 @@ export interface AudioTags {
   artist: string | null;
   album: string | null;
   year: number | null;
+  /** The genres the tag names ("Rock"), cleaned and without repeats; empty when it names none. */
+  genres: string[];
   cover: { contentType: "image/jpeg" | "image/png"; bytes: Uint8Array } | null;
 }
 
-const empty = (): AudioTags => ({ title: null, artist: null, album: null, year: null, cover: null });
+const empty = (): AudioTags => ({ title: null, artist: null, album: null, year: null, genres: [], cover: null });
 
 // ── helpers ──────────────────────────────────────────────────────────────
 
@@ -128,12 +131,13 @@ function readPicture(body: Uint8Array, v22: boolean): Pic | null {
   return contentType ? { type, contentType, bytes: bytes.slice() } : null;
 }
 
-const TEXT_IDS: Record<string, "title" | "artist" | "artist2" | "album" | "year"> = {
+const TEXT_IDS: Record<string, "title" | "artist" | "artist2" | "album" | "year" | "genre"> = {
   TIT2: "title", TT2: "title",
   TPE1: "artist", TP1: "artist",
   TPE2: "artist2", TP2: "artist2",
   TALB: "album", TAL: "album",
   TDRC: "year", TYER: "year", TYE: "year",
+  TCON: "genre", TCO: "genre",
 };
 
 function parseV2(
@@ -195,6 +199,8 @@ function parseV2(
       if (values.length === 0) continue;
       if (kind === "year") {
         if (out.year === null) out.year = yearOf(values[0]);
+      } else if (kind === "genre") {
+        if (out.genres.length === 0) out.genres = normalizeGenres(values);
       } else if (kind === "artist2") {
         scratch.artist2 ??= clean(values.join(", "));
       } else if (kind === "artist") {
@@ -218,6 +224,10 @@ function parseV1(tail: Uint8Array, out: AudioTags) {
   out.artist ??= field(33, 30);
   out.album ??= field(63, 30);
   if (out.year === null) out.year = yearOf(field(93, 4) ?? "");
+  if (out.genres.length === 0) {
+    const genre = genreFromIndex(tail[tail.length - 1]);
+    if (genre) out.genres = [genre];
+  }
 }
 
 // ── entry point ──────────────────────────────────────────────────────────
@@ -260,7 +270,7 @@ export async function probeMp3Tags(fetchRange: ByteRangeFetcher, fileSizeBytes: 
   if (scratch.pic) out.cover = { contentType: scratch.pic.contentType, bytes: scratch.pic.bytes };
 
   // ID3v1 fills in whatever the v2 tag didn't say.
-  if (fileSizeBytes >= 128 && (out.title === null || out.artist === null || out.album === null || out.year === null)) {
+  if (fileSizeBytes >= 128 && (out.title === null || out.artist === null || out.album === null || out.year === null || out.genres.length === 0)) {
     try {
       const tail = await r.read(fileSizeBytes - 128, 128, 128);
       parseV1(new Uint8Array(tail.buffer, tail.byteOffset, tail.byteLength), out);

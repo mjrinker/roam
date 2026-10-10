@@ -18,6 +18,11 @@ import { storeArtwork } from "@/lib/scan/artwork-store";
 import { VIDEO_PROFILE, type TreeProfile } from "@/lib/scan/tree-profile";
 
 export const MAX_TAG_ATTEMPTS = 3;
+/**
+ * Audio files whose tags were read before this moment did not have their genre read. They are read again (once: the read stamps them
+ * with a later time), so genres appear without anyone rescanning from scratch or touching the database.
+ */
+export const GENRE_TAGS_SINCE = new Date("2026-10-10T00:00:00Z");
 export const MAX_THUMB_ATTEMPTS = 3;
 /** Box may still be generating a thumbnail; wait this long between asks. */
 const THUMB_RETRY_AFTER_MS = 10 * 60 * 1000;
@@ -41,6 +46,8 @@ interface FileTags {
   album: string | null;
   year: number | null;
   description: string | null;
+  /** The genres the file names (audio only; empty for everything else). */
+  genres?: string[];
   /** Every author, when the file names several (the first is `artist`). */
   authors?: string[];
   /** Where the book sits in its series ("2"). */
@@ -85,7 +92,7 @@ function titleColumns(tags: FileTags, profile: TreeProfile, currentName: string)
   const effectiveTitle = (tags.title ?? currentName).trim().toLowerCase();
   const album = tags.album && tags.album.trim().toLowerCase() !== effectiveTitle ? tags.album : null;
   const authors = tags.authors?.length ? tags.authors.map((a) => a.toWellFormed()) : tags.artist ? [tags.artist.toWellFormed()] : null;
-  return { ...base, authors, seriesName: album?.toWellFormed() ?? null, ...(tags.seriesPosition ? { seriesPosition: tags.seriesPosition } : {}) };
+  return { ...base, authors, genres: tags.genres ?? [], seriesName: album?.toWellFormed() ?? null, ...(tags.seriesPosition ? { seriesPosition: tags.seriesPosition } : {}) };
 }
 
 /** Returns true when work remains (batch cap or deadline hit), so the scan stays incomplete and another pass follows. */
@@ -112,7 +119,8 @@ export async function readTagsAndArtwork(
       and(
         eq(titles.libraryId, libraryId),
         ne(titles.kind, "photo"),
-        isNull(titles.tagsAttemptedAt),
+        // Never read, or (audio) read before genres were: those are read once more so their genre is picked up.
+        profile.artistAsAuthor ? or(isNull(titles.tagsAttemptedAt), lt(titles.tagsAttemptedAt, GENRE_TAGS_SINCE)) : isNull(titles.tagsAttemptedAt),
         lt(titles.tagAttempts, MAX_TAG_ATTEMPTS),
         eq(mediaFiles.probeStatus, "ok"),
         isNotNull(mediaFiles.sizeBytes)

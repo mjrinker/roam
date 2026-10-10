@@ -25,6 +25,7 @@
 
 import { RangeReader, type ByteRangeFetcher } from "./range-reader";
 import { cleanTagString } from "./tag-text";
+import { genreFromIndex, normalizeGenres } from "./genres";
 
 export type { ByteRangeFetcher };
 
@@ -354,6 +355,8 @@ export interface Mp4Tags {
   album: string | null;
   year: number | null;
   description: string | null;
+  /** The genres the file names (©gen, or the numbered gnre), cleaned; empty when it names none. */
+  genres: string[];
   /** The first embedded image that is a real JPEG/PNG within the size cap, else null. */
   cover: { contentType: "image/jpeg" | "image/png"; bytes: Uint8Array } | null;
 }
@@ -389,11 +392,12 @@ function applyText(tags: Mp4Tags, atom: string, text: string | null) {
     const y = Number(/^(\d{4})/.exec(text)?.[1]);
     if (y >= 1888 && y <= 2100) tags.year = y;
   } else if ((atom === "desc" || atom === "ldes") && tags.description === null) tags.description = text;
+  else if (atom === ATOM("gen") && tags.genres.length === 0) tags.genres = normalizeGenres([text]);
 }
 
 /** An iTunes-style `ilst` atom's `data` children: u8 version, u24 type flags, u32 locale, then the value. */
 const tagsComplete = (t: Mp4Tags) =>
-  t.title !== null && t.artist !== null && t.album !== null && t.year !== null && t.description !== null && t.cover !== null;
+  t.title !== null && t.artist !== null && t.album !== null && t.year !== null && t.description !== null && t.genres.length > 0 && t.cover !== null;
 /** A file whose tags take more than this many atom reads to find is hostile or broken: stop. */
 const MAX_TAG_ATOM_READS = 64;
 
@@ -403,7 +407,7 @@ async function readIlst(r: RangeReader, ilst: Box, tags: Mp4Tags) {
     if (tagsComplete(tags) || reads >= MAX_TAG_ATOM_READS) return;
     const wanted =
       atom.type === ATOM("nam") || atom.type === ATOM("ART") || atom.type === "aART" || atom.type === ATOM("alb") ||
-      atom.type === ATOM("day") || atom.type === "desc" || atom.type === "ldes" || atom.type === "covr";
+      atom.type === ATOM("day") || atom.type === "desc" || atom.type === "ldes" || atom.type === "covr" || atom.type === ATOM("gen") || atom.type === "gnre";
     if (!wanted) continue;
     for await (const data of childBoxes(r, atom, 4096)) {
       if (data.type !== "data") continue;
@@ -417,6 +421,13 @@ async function readIlst(r: RangeReader, ilst: Box, tags: Mp4Tags) {
         const bytes = new Uint8Array(view.buffer, view.byteOffset, view.byteLength).slice();
         const contentType = imageType(bytes);
         if (contentType) tags.cover = { contentType, bytes };
+      } else if (atom.type === "gnre") {
+        // The numbered form: a 16-bit ID3v1 genre number plus one.
+        const view = await r.read(data.contentStart + 8, 2, 2);
+        if (view.byteLength >= 2 && tags.genres.length === 0) {
+          const genre = genreFromIndex(view.getUint16(0, false) - 1);
+          if (genre) tags.genres = [genre];
+        }
       } else {
         const want = Math.min(length, MAX_TAG_TEXT * 4);
         const view = await r.read(data.contentStart + 8, want, want);
@@ -440,7 +451,7 @@ async function readUdtaTags(r: RangeReader, udta: Box, tags: Mp4Tags) {
   for await (const child of childBoxes(r, udta, MOOV_PREFETCH)) {
     if (child.type === "meta") {
       await readMetaTags(r, child, tags);
-    } else if (child.type === ATOM("nam") || child.type === ATOM("day") || child.type === ATOM("ART") || child.type === ATOM("alb")) {
+    } else if (child.type === ATOM("nam") || child.type === ATOM("day") || child.type === ATOM("ART") || child.type === ATOM("alb") || child.type === ATOM("gen")) {
       // QuickTime text atom: u16 length, u16 language, then the text.
       const length = child.end - child.contentStart - 4;
       if (length <= 0) continue;
@@ -460,7 +471,7 @@ async function readUdtaTags(r: RangeReader, udta: Box, tags: Mp4Tags) {
 export async function probeMp4Tags(fetchRange: ByteRangeFetcher, fileSizeBytes: number): Promise<Mp4Tags> {
   const r = new RangeReader(fetchRange, fileSizeBytes);
   const moov = await findMoov(r, fileSizeBytes);
-  const tags: Mp4Tags = { title: null, artist: null, album: null, year: null, description: null, cover: null };
+  const tags: Mp4Tags = { title: null, artist: null, album: null, year: null, description: null, genres: [], cover: null };
   try {
     for await (const child of childBoxes(r, moov, MOOV_PREFETCH)) {
       try {

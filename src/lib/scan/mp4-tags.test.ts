@@ -70,6 +70,15 @@ describe("probeMp4Tags", () => {
     expect(tags).toMatchObject({ title: "Direct", description: "The long one." });
   });
 
+  it("reads the genre from the text atom (©gen) or the numbered one (gnre), text first", async () => {
+    expect((await probe(file(box("udta", isoMeta(textItem("gen", "Jazz")))))).genres).toEqual(["Jazz"]);
+    expect((await probe(file(box("udta", isoMeta(box("gnre", data(0, u16be(18)))))))).genres).toEqual(["Rock"]); // 17 + 1
+    expect((await probe(file(box("udta", isoMeta(textItem("gen", "Indie"), box("gnre", data(0, u16be(18)))))))).genres).toEqual(["Indie"]);
+    expect((await probe(file(box("udta", isoMeta(box("gnre", data(0, u16be(0)))))))).genres).toEqual([]); // no genre 0 - 1
+    expect((await probe(file(box("udta", isoMeta(textItem("gen", "Folk; Rock")))))).genres).toEqual(["Folk", "Rock"]);
+    expect((await probe(file(box("udta", isoMeta(textItem("nam", "No genre")))))).genres).toEqual([]);
+  });
+
   it("takes the first valid cover when there are several, skipping broken ones", async () => {
     const tags = await probe(file(box("udta", isoMeta(box("covr", [...data(13, [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]), ...data(14, PNG), ...data(13, JPEG)])))));
     expect(tags.cover?.contentType).toBe("image/png");
@@ -84,8 +93,8 @@ describe("probeMp4Tags", () => {
   });
 
   it("returns all nulls for a file with no tags", async () => {
-    expect(await probe(file())).toEqual({ title: null, artist: null, album: null, year: null, description: null, cover: null });
-    expect(await probe(file(box("udta", [])))).toEqual({ title: null, artist: null, album: null, year: null, description: null, cover: null });
+    expect(await probe(file())).toEqual({ title: null, artist: null, album: null, year: null, description: null, genres: [], cover: null });
+    expect(await probe(file(box("udta", [])))).toEqual({ title: null, artist: null, album: null, year: null, description: null, genres: [], cover: null });
   });
 
   it("keeps what it read before a malformed section instead of failing", async () => {
