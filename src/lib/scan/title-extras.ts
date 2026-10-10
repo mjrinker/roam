@@ -6,7 +6,7 @@ import { extraCategoryOfFile, extraCategoryOfFolder, extraDisplayName, type Extr
 import { isBrowserFriendlyVariant, isVideoFile } from "@/lib/scan/conventions";
 import type { StorageEntry, StorageProvider } from "@/lib/storage/provider";
 
-/** A "video" smaller than this is a stub (e.g. a 90-byte QuickTime reference file), not something to play. */
+/** A video file smaller than this is a stub (e.g. a 90-byte QuickTime reference file), not something to play. */
 const MIN_EXTRA_BYTES = 10_000;
 
 export interface FoundExtra {
