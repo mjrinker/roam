@@ -23,6 +23,8 @@
  *   --only movies|shows
  *   --library <id>       only this library
  *   --title <id>         only this movie/show
+ *   --video-codec hev1   only films/episodes whose original is in this video codec (the fourcc Roam recorded, e.g. hev1: HEVC that
+ *                        iOS can't play). The lower versions are H.264, which plays everywhere.
  *   --rungs 720,480      only these rungs (default: the whole ladder below the original)
  *   --limit <n>          stop after n films/episodes
  *   --skip-rename        make the lower versions but leave the original's name alone
@@ -60,6 +62,7 @@ const flag = (name: string) => {
 const only = flag("--only");
 const libraryFilter = flag("--library");
 const titleFilter = flag("--title");
+const codecFilter = flag("--video-codec")?.toLowerCase();
 const limit = Number(flag("--limit") ?? Infinity);
 const preset = flag("--preset") ?? "medium";
 const crf = Number(flag("--crf") ?? 23);
@@ -82,6 +85,7 @@ type Part = {
   height: number | null;
   durationSeconds: number | null;
   audioCodec: string | null;
+  videoCodec: string | null;
   codecProbed: boolean;
   variants: Variant[];
 };
@@ -109,6 +113,7 @@ async function loadGroups(): Promise<{ groups: Group[]; skipped: string[] }> {
     height: number | null;
     durationSeconds: number | null;
     audioCodec: string | null;
+    videoCodec: string | null;
     codecProbed: boolean;
     trimDurationSeconds: number | null;
     serverId: string;
@@ -130,6 +135,7 @@ async function loadGroups(): Promise<{ groups: Group[]; skipped: string[] }> {
     height: mediaFiles.height,
     durationSeconds: mediaFiles.durationSeconds,
     audioCodec: mediaFiles.audioCodec,
+    videoCodec: mediaFiles.videoCodec,
     codecProbed: mediaFiles.codecProbed,
     trimDurationSeconds: mediaFiles.trimDurationSeconds,
     serverId: libraries.serverId,
@@ -173,6 +179,7 @@ async function loadGroups(): Promise<{ groups: Group[]; skipped: string[] }> {
     };
     const best = [...versions.entries()].sort(([la, a], [lb, b]) => height(b) - height(a) || (la === "" ? -1 : lb === "" ? 1 : la.localeCompare(lb)))[0][1];
     const parts = [...best].sort((a, b) => a.partIndex - b.partIndex);
+    if (codecFilter && parts[0].videoCodec?.toLowerCase() !== codecFilter) continue;
     // A piece of a combined multi-episode file that is also split into parts can't be joined into one file for one episode.
     if (parts.some((r) => r.trimDurationSeconds !== null)) {
       skipped.push(`${parts[0].label}: part of a multi-episode file (not handled)`);
@@ -192,7 +199,7 @@ async function loadGroups(): Promise<{ groups: Group[]; skipped: string[] }> {
       folderId: parts[0].folderId,
       label: parts.length > 1 ? `${parts[0].label} (+${parts.length - 1} more part${parts.length > 2 ? "s" : ""})` : parts[0].label,
       owners: [{ kind: parts[0].ownerKind, id: parts[0].ownerId }],
-      parts: parts.map((r) => ({ boxFileId: r.boxFileId, filename: r.filename, sizeBytes: r.sizeBytes, width: r.width, height: r.height, durationSeconds: r.durationSeconds, audioCodec: r.audioCodec, codecProbed: r.codecProbed, variants: [] })),
+      parts: parts.map((r) => ({ boxFileId: r.boxFileId, filename: r.filename, sizeBytes: r.sizeBytes, width: r.width, height: r.height, durationSeconds: r.durationSeconds, audioCodec: r.audioCodec, videoCodec: r.videoCodec, codecProbed: r.codecProbed, variants: [] })),
     });
   }
   const out = [...groups.values()].sort((a, b) => a.parts[0].filename.localeCompare(b.parts[0].filename));

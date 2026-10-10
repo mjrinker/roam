@@ -89,7 +89,7 @@ describe("preferring the browser-friendly version", () => {
 });
 
 describe("resolution versions", () => {
-  async function film(versions: { label: string; w: number; h: number; parts?: number; probed?: boolean }[]) {
+  async function film(versions: { label: string; w: number; h: number; parts?: number; probed?: boolean; codec?: string }[]) {
     const owner = await makeAccount(db, "ov");
     const server = await makeServer(db, owner.accountId);
     const lib = await makeLibrary(db, server.id, "movies", "everyone");
@@ -98,13 +98,32 @@ describe("resolution versions", () => {
       for (let p = 0; p < (v.parts ?? 1); p++) {
         await db.insert(mediaFiles).values({
           ownerKind: "title", ownerId: t.id, partIndex: p, versionLabel: v.label, boxFileId: `${v.label || "orig"}-${p}-${n}`, filename: `f-${v.label}.mp4`, sizeBytes: 1000, container: "mp4",
-          probeStatus: v.probed === false ? "pending" : "ok", durationSeconds: v.probed === false ? null : 100 + p, width: v.w, height: v.h,
+          probeStatus: v.probed === false ? "pending" : "ok", durationSeconds: v.probed === false ? null : 100 + p, width: v.w, height: v.h, videoCodec: v.codec ?? null,
         });
       }
     }
     return { t, server, owner };
   }
-  const play = (f: Awaited<ReturnType<typeof film>>, choice = {}) => buildPlayManifest("title", f.t.id, f.owner.viewer.id, f.server.id, [], false, choice);
+  const play = (f: Awaited<ReturnType<typeof film>>, choice = {}, unsupported: string[] = []) => buildPlayManifest("title", f.t.id, f.owner.viewer.id, f.server.id, unsupported, false, choice);
+
+  it("skips versions in a video format this device can't decode, so the best one it can play is used", async () => {
+    const f = await film([{ label: "720p", w: 1280, h: 720, codec: "hev1" }, { label: "480p", w: 854, h: 480, codec: "avc1" }, { label: "360p", w: 640, h: 360 }]);
+    const ios = await play(f, {}, ["hev1"]);
+    expect(ios.ok && [ios.manifest.version, ios.manifest.versions?.map((v) => v.label)]).toEqual(["480p", ["480p", "360p"]]);
+    const asked = await play(f, { version: "720p" }, ["hev1"]); // even when asked for, a version that can't play isn't used
+    expect(asked.ok && asked.manifest.version).toBe("480p");
+    const capable = await play(f, {}, []);
+    expect(capable.ok && capable.manifest.version).toBe("720p");
+    const otherTag = await play(f, {}, ["hvc1"]); // hvc1 being unsupported doesn't touch an hev1 file
+    expect(otherTag.ok && otherTag.manifest.version).toBe("720p");
+  });
+  it("says so plainly when every version is in a format the device can't decode", async () => {
+    const f = await film([{ label: "", w: 1280, h: 720, codec: "hev1" }]);
+    const r = await play(f, {}, ["hev1", "hvc1"]);
+    expect(r).toMatchObject({ ok: false, status: 415 });
+    expect(!r.ok && r.error).toMatch(/format/);
+    expect((await play(f, {}, ["ac-3"])).ok).toBe(true); // an audio codec being unsupported is a different matter
+  });
 
   it("plays the highest version by default and offers all of them, best first, with only that version's parts", async () => {
     const f = await film([{ label: "1080p", w: 1920, h: 1080 }, { label: "4k", w: 3840, h: 2160, parts: 2 }, { label: "720p", w: 1280, h: 720 }]);

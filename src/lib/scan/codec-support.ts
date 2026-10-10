@@ -29,6 +29,17 @@ export const UNSUPPORTED_AUDIO_CODECS = [
 ] as const;
 
 /**
+ * Video codecs a browser may not decode, each with a full codec string to ask `canPlayType` about (it wants more than the bare fourcc).
+ * "hev1" and "hvc1" are both HEVC (H.265); the tag only says where the stream's parameters live, but Safari and iOS refuse hev1 files
+ * outright while playing hvc1, and browsers without an HEVC decoder (most desktop Chrome and Firefox) refuse both.
+ */
+export const VIDEO_CODEC_TESTS: Record<string, string> = {
+  hvc1: "hvc1.1.6.L93.B0",
+  hev1: "hev1.1.6.L93.B0",
+};
+export const isVideoCodecToken = (token: string): boolean => token in VIDEO_CODEC_TESTS;
+
+/**
  * `mp4a` (AAC or MP3-in-MP4) is universally safe. Anything else we don't
  * recognize is ALSO treated as safe — never flag a codec we've simply never
  * seen, since a false "this needs fixing" is worse than missing a genuinely

@@ -25,8 +25,13 @@ export async function ensureFfmpeg(): Promise<string> {
   if (ffmpegPath) return ffmpegPath;
   const installer = (await import("@ffmpeg-installer/ffmpeg")).default;
   const dest = join(tmpdir(), "roam-ffmpeg");
-  await copyFile(installer.path, dest);
-  await chmod(dest, 0o755);
+  try {
+    await copyFile(installer.path, dest);
+    await chmod(dest, 0o755);
+  } catch (err) {
+    // Another run is executing the copy made earlier (it can't be overwritten while running): that is the same binary, so use it.
+    if ((err as NodeJS.ErrnoException).code !== "ETXTBSY") throw err;
+  }
   ffmpegPath = dest;
   return dest;
 }

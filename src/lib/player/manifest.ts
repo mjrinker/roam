@@ -6,14 +6,15 @@ import { BoxReauthRequiredError } from "@/lib/storage/box-token-storage";
 import type { PlayManifest, PlayOwnerKind, PlaySegment } from "@/lib/player/types";
 import { buildPlaySegment } from "@/lib/player/timeline";
 import { shouldUseVariant } from "@/lib/player/variant-selection";
-import { describeVersions, offeredRows, pickVersion } from "@/lib/player/versions";
+import { describeVersions, offeredRows, pickVersion, withoutUndecodableVideo } from "@/lib/player/versions";
+import { isVideoCodecToken } from "@/lib/scan/codec-support";
 
 /** How long to wait for Box to make its browser-friendly version of a video the first time it is opened (it is quick afterwards). */
 export const BROWSER_VERSION_WAIT_MS = 40_000;
 
 export type BuildManifestResult =
   | { ok: true; manifest: PlayManifest }
-  | { ok: false; status: 404 | 409 | 424; error: string };
+  | { ok: false; status: 404 | 409 | 415 | 424; error: string };
 
 /**
  * Builds a play manifest for a movie (ownerKind="title") or an episode
@@ -54,7 +55,14 @@ export async function buildPlayManifest(
     .orderBy(asc(mediaFiles.versionLabel), asc(mediaFiles.partIndex));
 
   // A version whose files are not all probed yet can't be played (it has no length), so it is not offered until it is.
-  const offered = offeredRows(everyRow);
+  const playable = offeredRows(everyRow);
+  // Versions in a video format this device can't decode (HEVC on iOS or most PCs) are left out, so it plays one it can; if none is
+  // left it says so plainly rather than loading forever.
+  const badVideo = unsupportedCodecs.filter(isVideoCodecToken);
+  const offered = badVideo.length === 0 ? playable : withoutUndecodableVideo(playable, badVideo);
+  if (playable.length > 0 && offered.length === 0) {
+    return { ok: false, status: 415, error: "This device can't play this video: it is stored in a format (HEVC) that your browser doesn't support, and there is no other version of it yet." };
+  }
   const versions = describeVersions(offered);
   const version = pickVersion(versions, choice.version ?? null, choice.preferredHeight ?? null);
   const allRows = offered.filter((r) => r.versionLabel === version);

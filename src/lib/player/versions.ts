@@ -105,3 +105,10 @@ export function defaultVersionRows<T extends VersionRowLike>(rows: readonly T[])
   const label = pickVersion(describeVersions(rows), null, null);
   return rows.filter((r) => r.versionLabel === label);
 }
+
+/** The rows left after dropping every version that has a file in one of the video codecs (lowercase fourccs) the device can't decode. */
+export function withoutUndecodableVideo<T extends VersionRowLike & { videoCodec: string | null }>(rows: readonly T[], undecodable: readonly string[]): T[] {
+  const bad = new Set<string>();
+  for (const r of rows) if (r.videoCodec && undecodable.includes(r.videoCodec.toLowerCase())) bad.add(r.versionLabel);
+  return rows.filter((r) => !bad.has(r.versionLabel));
+}
