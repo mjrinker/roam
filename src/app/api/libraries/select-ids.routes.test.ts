@@ -51,6 +51,18 @@ describe("every playable file in a folder", () => {
     expect(await res.json()).toEqual({ ids, truncated: false });
     expect((await (await get(folderIds, lib.id, "path=")).json()).ids).toEqual([]); // the root holds nothing directly
   });
+  it("lists them in the sort asked for (the order the page shows), and falls back to name order for a sort it doesn't know", async () => {
+    const w = await world();
+    const lib = await makeLibrary(db, w.server.id, "audio", "everyone");
+    const a = await makeTitle(db, lib.id, { kind: "audiobook", name: "A", folderPath: "Mix", sortKey: "a", runtimeSeconds: 100 });
+    const b = await makeTitle(db, lib.id, { kind: "audiobook", name: "B", folderPath: "Mix", sortKey: "b", runtimeSeconds: 300 });
+    const c = await makeTitle(db, lib.id, { kind: "audiobook", name: "C", folderPath: "Mix", sortKey: "c", runtimeSeconds: 200 });
+    const order = async (query: string) => (await (await get(folderIds, lib.id, `path=Mix&${query}`)).json()).ids;
+    expect(await order("sort=duration&dir=desc")).toEqual([b.id, c.id, a.id]);
+    expect(await order("sort=duration&dir=asc")).toEqual([a.id, c.id, b.id]);
+    expect(await order("sort=name&dir=desc")).toEqual([c.id, b.id, a.id]);
+    expect(await order("sort=nonsense")).toEqual([a.id, b.id, c.id]);
+  });
   it("leaves out what an age limit hides, and is the same 404 for a hidden library, another server's, a bad path or id", async () => {
     const w = await world();
     const lib = await makeLibrary(db, w.server.id, "video", "everyone");

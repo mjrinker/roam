@@ -5,7 +5,7 @@ import { toast } from "sonner";
 import { PosterCard } from "@/components/library/poster-card";
 import { AlbumTile, ArtistTile, TILE_GRID } from "@/components/music/music-cards";
 import { SelectionBar, SelectOverlay, SelectToggle, useSelection } from "@/components/library/selection";
-import type { FolderItem } from "@/lib/libraries/folder-browse";
+import { folderSortQuery, type FolderItem, type FolderSort } from "@/lib/libraries/folder-browse";
 import type { AlbumCard, ArtistCard } from "@/lib/music/browse";
 import { cn } from "@/lib/utils";
 
@@ -34,7 +34,7 @@ function inOrder(selected: ReadonlySet<string>, shown: readonly string[], whole:
  * The files of one folder of a video or audio library, with Select: choose some, or "Select all in this folder" (every page of it, not
  * only the ones loaded), then add them to a playlist or download them.
  */
-export function SelectableFolderItems({ serverId, libraryId, path, items, itemKind }: { serverId: string; libraryId: string; path: string; items: FolderItem[]; itemKind: "movie" | "audiobook" }) {
+export function SelectableFolderItems({ serverId, libraryId, path, items, itemKind, sort }: { serverId: string; libraryId: string; path: string; items: FolderItem[]; itemKind: "movie" | "audiobook"; sort: FolderSort }) {
   const sel = useSelection();
   const [whole, setWhole] = useState<string[] | null>(null);
   const [reading, setReading] = useState(false);
@@ -44,7 +44,7 @@ export function SelectableFolderItems({ serverId, libraryId, path, items, itemKi
   async function selectAll() {
     setReading(true);
     try {
-      const ids = await getIds(`/api/libraries/${libraryId}/folder-ids?path=${encodeURIComponent(path)}`);
+      const ids = await getIds(`/api/libraries/${libraryId}/folder-ids?${folderSortQuery(sort)}path=${encodeURIComponent(path)}`);
       setWhole(ids);
       sel.selectMany(ids);
     } catch (e) {

@@ -56,11 +56,11 @@ const app = http.createServer((req, res) => {
 async function main() {
   await build({
     stdin: {
-      contents: `import { createRoot } from "react-dom/client"; import { LibraryBrowser } from "@/components/library/library-browser"; import { SelectableFolderItems, SelectableMusicTiles } from "@/components/library/selectable-views"; import { Toaster } from "@/components/ui/sonner";
+      contents: `import { createRoot } from "react-dom/client"; import { LibraryBrowser } from "@/components/library/library-browser"; import { SelectableFolderItems, SelectableMusicTiles } from "@/components/library/selectable-views"; import { VideoFolderView } from "@/components/library/video-folder-view"; import { parseFolderSort } from "@/lib/libraries/folder-browse"; import { Toaster } from "@/components/ui/sonner";
         const items = ${JSON.stringify(items)};
         const mode = new URLSearchParams(location.search).get("mode");
         createRoot(document.getElementById("root")!).render(<>
-          {mode === "folder" ? <SelectableFolderItems serverId="S1" libraryId="L1" path="Trips" items={${JSON.stringify(folderPage)} as any} itemKind="movie" /> : mode === "music" ? <SelectableMusicTiles serverId="S1" libraryId="L1" view="albums" albums={${JSON.stringify(albumCards)} as any} artists={null} /> : <LibraryBrowser items={items as any} serverId="S1" />}
+          {mode === "audio" ? <VideoFolderView serverId="S1" libraryId="L1" libraryName="Audio" path="Mix" folders={[]} items={${JSON.stringify(folderPage)} as any} nextHref={null} itemKind="audiobook" sortable sort={parseFolderSort(new URLSearchParams(location.search).get("sort"), new URLSearchParams(location.search).get("dir"))} /> : mode === "folder" ? <SelectableFolderItems serverId="S1" libraryId="L1" path="Trips" items={${JSON.stringify(folderPage)} as any} itemKind="movie" sort={parseFolderSort(null, null)} /> : mode === "music" ? <SelectableMusicTiles serverId="S1" libraryId="L1" view="albums" albums={${JSON.stringify(albumCards)} as any} artists={null} /> : <LibraryBrowser items={items as any} serverId="S1" />}
           <Toaster /></>);`,
       resolveDir: process.cwd(),
       loader: "tsx",
@@ -133,6 +133,27 @@ async function main() {
     await page.evaluate(`[...document.querySelectorAll('[role="menuitem"]')].find(b => b.textContent.includes("Weekend")).click()`);
     await page.waitFor(`document.body.innerText.includes('Added 10 to "Weekend"')`, 3000);
     check("the playlist gets all ten, in folder order", JSON.stringify((requests.find((r) => r.url === "/api/playlists/P1/items")?.body as { titleIds: string[] })?.titleIds) === JSON.stringify(folderAll), requests);
+
+    // A generic Audio library's folder: sort by name, duration or artist; the choice is kept in the links and used by Select all.
+    await page.goto(`${base}/?mode=audio`);
+    await page.waitFor(`document.body.innerText.includes("Sort by")`, 5000);
+    const links = () => page.evaluate<Record<string, string>>(`Object.fromEntries([...document.querySelectorAll('nav[aria-label="Sort"] a')].map(a => [a.textContent.trim(), a.getAttribute("href") + (a.getAttribute("aria-current") ? " (current)" : "")]))`);
+    let l = await links();
+    check("the sort choices are Name (current), Duration and Artist", Object.keys(l).join() === "Name,Duration,Artist" && l.Name.endsWith("(current)"), l);
+    check("Duration starts longest first; Artist starts A to Z", l.Duration.includes("sort=duration&dir=desc") && l.Artist.includes("sort=artist&dir=asc"), l);
+    check("choosing the current sort turns it around", l.Name.includes("sort=name&dir=desc"), l);
+    await page.goto(`${base}/?mode=audio&sort=duration&dir=desc`);
+    await page.waitFor(`document.body.innerText.includes("Sort by")`, 5000);
+    l = await links();
+    check("with duration (longest first) chosen, it is current and flips to shortest first", l.Duration.endsWith("(current)") && l.Duration.includes("sort=duration&dir=asc"), l);
+    check("and Name goes back to the plain link (no sort in it)", l.Name === "/s/S1/library/L1?path=Mix", l);
+    requests.length = 0;
+    await page.evaluate(`[...document.querySelectorAll("button")].find(b => b.textContent.trim() === "Select").click()`);
+    const seenUrls: string[] = [];
+    app.on("request", (r) => seenUrls.push(r.url!));
+    await page.evaluate(`[...document.querySelectorAll('[role="toolbar"] button')].find(b => b.textContent.trim() === "Select all in this folder").click()`);
+    await page.waitFor(`document.querySelector('[role="toolbar"]').innerText.includes("10 selected")`, 3000);
+    check("Select all asks for the folder in the same order", seenUrls.some((u) => u.startsWith("/api/libraries/L1/folder-ids") && u.includes("sort=duration&dir=desc")), seenUrls);
 
     // A music library's albums: the actions work on the songs of the albums chosen.
     await page.goto(`${base}/?mode=music`);

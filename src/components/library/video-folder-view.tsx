@@ -3,7 +3,8 @@ import { Folder, FolderOpen } from "lucide-react";
 import { PosterCard } from "@/components/library/poster-card";
 import { PhotoTile } from "@/components/photos/photo-tile";
 import { SelectableFolderItems } from "@/components/library/selectable-views";
-import { folderTrail, parentFolder, type FolderItem } from "@/lib/libraries/folder-browse";
+import { DEFAULT_FOLDER_SORT, folderSortQuery, folderTrail, parentFolder, parseFolderSort, type FolderItem, type FolderSort, type FolderSortKey } from "@/lib/libraries/folder-browse";
+import { ArrowDown, ArrowUp } from "lucide-react";
 
 /** One level of a video library, file-manager style: breadcrumbs, subfolders, then the videos in this folder. */
 export function VideoFolderView({
@@ -16,6 +17,8 @@ export function VideoFolderView({
   nextHref,
   itemKind = "movie",
   extraQuery,
+  sort = DEFAULT_FOLDER_SORT,
+  sortable = false,
 }: {
   serverId: string;
   libraryId: string;
@@ -30,10 +33,19 @@ export function VideoFolderView({
   itemKind?: "movie" | "audiobook" | "photo" | "ebook";
   /** Kept on every link (a photo library's `view=albums`). */
   extraQuery?: string;
+  /** How the files are ordered (by name when omitted). */
+  sort?: FolderSort;
+  /** Whether to offer the Sort by choices (a generic Audio library). */
+  sortable?: boolean;
 }) {
   const base = `/s/${serverId}/library/${libraryId}`;
   const extra = extraQuery ? `${extraQuery}&` : "";
-  const at = (p: string) => (p === "" ? (extraQuery ? `${base}?${extraQuery}` : base) : `${base}?${extra}path=${encodeURIComponent(p)}`);
+  // A link to a folder (or this one) with a given sort kept, so choosing a sort or going into a folder doesn't lose it.
+  const link = (p: string, s: FolderSort) => {
+    const query = `${extra}${folderSortQuery(s)}${p === "" ? "" : `path=${encodeURIComponent(p)}`}`.replace(/&$/, "");
+    return query ? `${base}?${query}` : base;
+  };
+  const at = (p: string) => link(p, sort);
   const parent = parentFolder(path);
   const trail = folderTrail(path);
   const empty = folders.length === 0 && items.length === 0;
@@ -95,7 +107,29 @@ export function VideoFolderView({
         </ul>
       )}
 
-      {items.length > 0 && (itemKind === "movie" || itemKind === "audiobook") && <SelectableFolderItems serverId={serverId} libraryId={libraryId} path={path} items={items} itemKind={itemKind} />}
+      {sortable && items.length > 1 && (
+        <nav aria-label="Sort" className="flex flex-wrap items-center gap-2 text-sm">
+          <span className="text-muted-foreground">Sort by</span>
+          {(["name", "duration", "artist"] as FolderSortKey[]).map((key) => {
+            const active = sort.key === key;
+            // Choosing the sort already in use turns it around; choosing another starts it the usual way round.
+            const next = active ? { key, dir: sort.dir === "asc" ? ("desc" as const) : ("asc" as const) } : parseFolderSort(key, null);
+            return (
+              <Link
+                key={key}
+                href={link(path, next)}
+                aria-current={active ? "true" : undefined}
+                className={`flex items-center gap-1 rounded-full px-3 py-1 ring-1 transition ${active ? "bg-primary/15 text-primary ring-primary/40" : "bg-white/[0.06] text-muted-foreground ring-white/[0.08] hover:bg-white/[0.1] hover:text-foreground"}`}
+              >
+                {key === "name" ? "Name" : key === "duration" ? "Duration" : "Artist"}
+                {active && (sort.dir === "asc" ? <ArrowUp className="size-3.5" /> : <ArrowDown className="size-3.5" />)}
+              </Link>
+            );
+          })}
+        </nav>
+      )}
+
+      {items.length > 0 && (itemKind === "movie" || itemKind === "audiobook") && <SelectableFolderItems serverId={serverId} libraryId={libraryId} path={path} items={items} itemKind={itemKind} sort={sort} />}
 
       {items.length > 0 && itemKind === "ebook" && (
         <ul className="grid grid-cols-2 gap-x-4 gap-y-6 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6">

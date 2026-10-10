@@ -1,6 +1,6 @@
 /** Folder browsing for video libraries: path rules, nesting, hiding, and paging on a real in-memory Postgres. */
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { folderTrail, listFolder, normalizeFolderPath, parentFolder } from "./folder-browse";
+import { folderPlayableIds, folderTrail, listFolder, normalizeFolderPath, parentFolder, parseFolderSort } from "./folder-browse";
 import { naturalSortKey } from "./sort-key";
 import type { LibraryActor } from "@/lib/content/library-access";
 import { createTestDb, joinServer, makeAccount, makeLibrary, makeServer, makeTitle, type TestDb } from "@/lib/playlists/test-db";
@@ -180,5 +180,60 @@ describe("listFolder", () => {
       after = page.nextCursor;
     }
     expect(seen).toEqual(["v1", "v2", "v3", "v4", "v5"]);
+  });
+});
+
+describe("sorting a folder's files", () => {
+  async function album() {
+    const w = await world();
+    await w.add("Gamma", "Mix", { runtimeSeconds: 300, authors: ["Zed"], kind: "audiobook" });
+    await w.add("Alpha", "Mix", { runtimeSeconds: 100, authors: ["Mia"], kind: "audiobook" });
+    await w.add("Delta", "Mix", { runtimeSeconds: 100, authors: ["Zed", "Guest"], kind: "audiobook" });
+    await w.add("Beta", "Mix", { runtimeSeconds: 200, authors: null, kind: "audiobook" });
+    return w;
+  }
+  const names = async (w: Awaited<ReturnType<typeof world>>, sort: Parameters<typeof parseFolderSort>) => (await listFolder(db, { actor: w.actor(w.member), viewer: adult, libraryId: w.library.id, path: "Mix", sort: parseFolderSort(...sort) }))?.items.map((i) => i.name);
+
+  it("parses the sort from a URL, falling back to the default", () => {
+    expect(parseFolderSort(undefined, undefined)).toEqual({ key: "name", dir: "asc" });
+    expect(parseFolderSort("duration", undefined)).toEqual({ key: "duration", dir: "desc" });
+    expect(parseFolderSort("artist", "desc")).toEqual({ key: "artist", dir: "desc" });
+    expect(parseFolderSort("duration", "sideways")).toEqual({ key: "duration", dir: "desc" });
+    expect(parseFolderSort("rubbish", "asc")).toEqual({ key: "name", dir: "asc" });
+  });
+  it("orders by name, duration or artist, either way, with ties in name order", async () => {
+    const w = await album();
+    expect(await names(w, ["name", "asc"])).toEqual(["Alpha", "Beta", "Delta", "Gamma"]);
+    expect(await names(w, ["name", "desc"])).toEqual(["Gamma", "Delta", "Beta", "Alpha"]);
+    expect(await names(w, ["duration", "asc"])).toEqual(["Alpha", "Delta", "Beta", "Gamma"]);
+    expect(await names(w, ["duration", "desc"])).toEqual(["Gamma", "Beta", "Delta", "Alpha"]);
+    expect(await names(w, ["artist", "asc"])).toEqual(["Beta", "Alpha", "Delta", "Gamma"]); // no artist first, then Mia, then Zed (Delta before Gamma)
+    expect(await names(w, ["artist", "desc"])).toEqual(["Gamma", "Delta", "Alpha", "Beta"]);
+  });
+  it("pages through every sort without skipping or repeating a file", async () => {
+    const w = await world();
+    for (let i = 0; i < 25; i++) await w.add(`Song ${String(i).padStart(2, "0")}`, "Mix", { runtimeSeconds: (i % 5) * 60, authors: [`Artist ${i % 3}`], kind: "audiobook" });
+    for (const sort of [parseFolderSort("name", "asc"), parseFolderSort("name", "desc"), parseFolderSort("duration", "asc"), parseFolderSort("duration", "desc"), parseFolderSort("artist", "asc"), parseFolderSort("artist", "desc")]) {
+      const all = (await folderPlayableIds(db, { actor: w.actor(w.member), viewer: adult, libraryId: w.library.id, path: "Mix", sort }))!.ids;
+      const seen: string[] = [];
+      let after: { key: string; id: string } | null = null;
+      for (let guard = 0; guard < 10; guard++) {
+        const page: Awaited<ReturnType<typeof listFolder>> = await listFolder(db, { actor: w.actor(w.member), viewer: adult, libraryId: w.library.id, path: "Mix", limit: 4, after, sort });
+        seen.push(...page!.items.map((i) => i.id));
+        after = page!.nextCursor;
+        if (!after) break;
+      }
+      expect(seen, JSON.stringify(sort)).toEqual(all);
+      expect(new Set(seen).size).toBe(25);
+    }
+  });
+  it("gives select-all the same order as the page, and a file with no length sorts as zero", async () => {
+    const w = await album();
+    await w.add("Unknown length", "Mix", { runtimeSeconds: null, kind: "audiobook" });
+    const sort = parseFolderSort("duration", "asc");
+    const page = (await listFolder(db, { actor: w.actor(w.member), viewer: adult, libraryId: w.library.id, path: "Mix", sort }))!.items.map((i) => i.id);
+    const ids = (await folderPlayableIds(db, { actor: w.actor(w.member), viewer: adult, libraryId: w.library.id, path: "Mix", sort }))!.ids;
+    expect(ids).toEqual(page);
+    expect((await names(w, ["duration", "asc"]))?.[0]).toBe("Unknown length");
   });
 });

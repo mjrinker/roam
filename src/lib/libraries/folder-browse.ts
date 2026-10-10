@@ -4,7 +4,7 @@
  * the viewer can actually see (library access and age limit applied BEFORE grouping), so a folder
  * that is empty or holds only hidden videos never appears and its name never leaks.
  */
-import { and, asc, eq, gt, inArray, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gt, inArray, lt, or, sql } from "drizzle-orm";
 import type { PgDatabase, PgQueryResultHKT } from "drizzle-orm/pg-core";
 import { contentFilter, type AccessProfile } from "@/lib/content/access";
 import { libraryVisible, type LibraryActor } from "@/lib/content/library-access";
@@ -45,6 +45,37 @@ export function parentFolder(path: string): string | null {
   if (path === "") return null;
   const i = path.lastIndexOf("/");
   return i === -1 ? "" : path.slice(0, i);
+}
+
+// ── Sorting a folder's files ─────────────────────────────────────────────
+
+export type FolderSortKey = "name" | "duration" | "artist";
+export interface FolderSort {
+  key: FolderSortKey;
+  dir: "asc" | "desc";
+}
+export const FOLDER_SORT_KEYS: readonly FolderSortKey[] = ["name", "duration", "artist"];
+const DEFAULT_FOLDER_DIR: Record<FolderSortKey, "asc" | "desc"> = { name: "asc", artist: "asc", duration: "desc" };
+export const DEFAULT_FOLDER_SORT: FolderSort = { key: "name", dir: "asc" };
+
+/** A sort from URL parameters; anything unrecognised is the default (by name), and a missing direction is the key's usual one. */
+export function parseFolderSort(key: string | null | undefined, dir: string | null | undefined): FolderSort {
+  const k = FOLDER_SORT_KEYS.find((x) => x === key);
+  if (!k) return DEFAULT_FOLDER_SORT;
+  return { key: k, dir: dir === "asc" || dir === "desc" ? dir : DEFAULT_FOLDER_DIR[k] };
+}
+
+/** The query-string part for a sort ("sort=duration&dir=desc&"), empty for the default so ordinary links stay clean. */
+export function folderSortQuery(sort: FolderSort): string {
+  return sort.key === DEFAULT_FOLDER_SORT.key && sort.dir === DEFAULT_FOLDER_SORT.dir ? "" : `sort=${sort.key}&dir=${sort.dir}&`;
+}
+
+/** The value a file sorts by, as text so one cursor shape fits every sort: ties fall back to the file name's natural order. */
+function sortValue(sort: FolderSort) {
+  const name = sql`coalesce(${titles.sortKey}, lower(${titles.name}))`;
+  if (sort.key === "duration") return sql<string>`lpad(coalesce(${titles.runtimeSeconds}, 0)::text, 10, '0') || chr(1) || ${name}`;
+  if (sort.key === "artist") return sql<string>`coalesce(lower(${titles.authors}->>0), '') || chr(1) || ${name}`;
+  return sql<string>`${name}`;
 }
 
 const escapeLike = (s: string) => s.replace(/[\\%_]/g, (c) => `\\${c}`);
@@ -93,6 +124,8 @@ export async function listFolder(
     path: string;
     limit?: number;
     after?: { key: string; id: string } | null;
+    /** How the files are ordered (by name when omitted); a cursor is only good for the sort it came from. */
+    sort?: FolderSort;
   }
 ): Promise<FolderPage | null> {
   const limit = Math.min(Math.max(args.limit ?? 60, 1), 200);
@@ -120,8 +153,10 @@ export async function listFolder(
     : [];
 
   const here = args.path;
-  // The natural-order key (file name with padded numbers); titles scanned before it existed fall back to their name.
-  const listKey = sql<string>`coalesce(${titles.sortKey}, lower(${titles.name}))`;
+  // What the files are ordered by (by default the natural-order key: the file name with padded numbers; titles scanned before it existed fall back to their name).
+  const sort = args.sort ?? DEFAULT_FOLDER_SORT;
+  const listKey = sortValue(sort);
+  const descending = sort.dir === "desc";
   const itemRows = await ex
     .select({
       id: titles.id,
@@ -143,10 +178,12 @@ export async function listFolder(
       and(
         visible,
         sql`coalesce(${titles.folderPath}, '') = ${here}`,
-        args.after ? or(sql`${listKey} > ${args.after.key}`, and(sql`${listKey} = ${args.after.key}`, gt(titles.id, args.after.id))) : undefined
+        args.after
+          ? or(descending ? sql`${listKey} < ${args.after.key}` : sql`${listKey} > ${args.after.key}`, and(sql`${listKey} = ${args.after.key}`, descending ? lt(titles.id, args.after.id) : gt(titles.id, args.after.id)))
+          : undefined
       )
     )
-    .orderBy(asc(listKey), asc(titles.id))
+    .orderBy(descending ? desc(listKey) : asc(listKey), descending ? desc(titles.id) : asc(titles.id))
     .limit(limit + 1);
 
   const folders = folderRows.map((r) => r.name).filter((n) => n !== "").sort((a, b) => collator.compare(a, b));
@@ -194,10 +231,11 @@ export const MAX_SELECT_IDS = 5000;
  */
 export async function folderPlayableIds(
   ex: Db,
-  args: { actor: LibraryActor; viewer: AccessProfile; libraryId: string; path: string; max?: number }
+  args: { actor: LibraryActor; viewer: AccessProfile; libraryId: string; path: string; max?: number; sort?: FolderSort }
 ): Promise<{ ids: string[]; truncated: boolean } | null> {
   const max = args.max ?? MAX_SELECT_IDS;
-  const listKey = sql<string>`coalesce(${titles.sortKey}, lower(${titles.name}))`;
+  const sort = args.sort ?? DEFAULT_FOLDER_SORT;
+  const listKey = sortValue(sort);
   const [lib] = await ex
     .select({ id: libraries.id })
     .from(libraries)
@@ -217,7 +255,7 @@ export async function folderPlayableIds(
         contentFilter(args.viewer, titles.ratingAges)
       )
     )
-    .orderBy(asc(listKey), asc(titles.id))
+    .orderBy(sort.dir === "desc" ? desc(listKey) : asc(listKey), sort.dir === "desc" ? desc(titles.id) : asc(titles.id))
     .limit(max + 1);
   return { ids: rows.slice(0, max).map((r) => r.id), truncated: rows.length > max };
 }

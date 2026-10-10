@@ -15,7 +15,7 @@ import { needsAudioFix } from "@/lib/scan/codec-support";
 import { Button } from "@/components/ui/button";
 import { Breadcrumbs } from "@/components/shell/breadcrumbs";
 import { VideoFolderView } from "@/components/library/video-folder-view";
-import { listFolder as listVideoFolder, normalizeFolderPath } from "@/lib/libraries/folder-browse";
+import { folderSortQuery, listFolder as listVideoFolder, normalizeFolderPath, parseFolderSort } from "@/lib/libraries/folder-browse";
 import { isFileTreeLibraryKind, isMusicLibraryKind, isPhotoLibraryKind } from "@/lib/libraries/profile";
 import { MusicLibraryView, MusicViewTabs } from "@/components/music/music-library-view";
 import { parseSearch } from "@/lib/photos/search";
@@ -135,6 +135,8 @@ export default async function LibraryDetailPage({
     const path = normalizeFolderPath(typeof query.path === "string" ? query.path : null);
     if (path === null) notFound();
     const after = decodeCursor(typeof query.after === "string" ? query.after : null, folderCursorSchema);
+    // Only a generic Audio library can be sorted by name, duration or artist.
+    const sort = parseFolderSort(library.kind === "audio" && typeof query.sort === "string" ? query.sort : null, library.kind === "audio" && typeof query.dir === "string" ? query.dir : null);
     const page = await listVideoFolder(db, {
       actor: lib,
       viewer,
@@ -143,9 +145,10 @@ export default async function LibraryDetailPage({
       path,
       limit: 60,
       after: after === "invalid" ? null : after,
+      sort,
     });
     if (!page) notFound();
-    const here = `/s/${serverId}/library/${libraryId}?${photoView ? "view=albums&" : ""}${musicView ? "view=folders&" : ""}${path ? `path=${encodeURIComponent(path)}&` : ""}`;
+    const here = `/s/${serverId}/library/${libraryId}?${photoView ? "view=albums&" : ""}${musicView ? "view=folders&" : ""}${folderSortQuery(sort)}${path ? `path=${encodeURIComponent(path)}&` : ""}`;
     return (
       <div className="flex flex-col gap-6 px-4 py-8 sm:px-8">
         <Breadcrumbs serverId={serverId} trail={[{ label: library.name }]} className="-mb-2" />
@@ -170,6 +173,8 @@ export default async function LibraryDetailPage({
           nextHref={page.nextCursor ? `${here}after=${encodeCursor(page.nextCursor)}` : null}
           itemKind={photoView ? "photo" : library.kind === "audio" || library.kind === "music" ? "audiobook" : library.kind === "ebooks" ? "ebook" : "movie"}
           extraQuery={photoView ? "view=albums" : musicView ? "view=folders" : undefined}
+          sort={sort}
+          sortable={library.kind === "audio"}
         />
       </div>
     );
