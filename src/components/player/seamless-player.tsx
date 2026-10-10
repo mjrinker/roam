@@ -350,7 +350,8 @@ export function SeamlessPlayer({
   const saveProgress = useCallback(
     (positionSeconds: number, isFinished: boolean) => {
       const m = manifestRef.current;
-      if (!m) return;
+      // A trailer or other extra never keeps a place.
+      if (!m || m.ownerKind === "extra") return;
       const payload = JSON.stringify({
         ownerKind: m.ownerKind,
         ownerId: m.ownerId,

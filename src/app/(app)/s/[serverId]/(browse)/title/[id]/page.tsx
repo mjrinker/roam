@@ -21,6 +21,8 @@ import { MarkDoneButton } from "@/components/library/mark-done-button";
 import { MoreMenu } from "@/components/shell/more-menu";
 import { DownloadButton } from "@/components/offline/download-button";
 import { libraryHasDoneState } from "@/lib/libraries/profile";
+import { loadTitleExtras } from "@/lib/extras/load";
+import { ExtrasSection } from "@/components/library/extras-section";
 import { Breadcrumbs } from "@/components/shell/breadcrumbs";
 import { isFileTreeLibraryKind } from "@/lib/libraries/profile";
 
@@ -71,6 +73,8 @@ export default async function TitleDetailPage({
     )
     .limit(1);
 
+  const extras = await loadTitleExtras(db, title.id);
+
   const ready = segments.length > 0 && segments.every((s) => s.durationSeconds != null);
   const hasProgress = !!state && !state.finished && state.positionSeconds > 0;
   const noFiles = segments.length === 0;
@@ -99,6 +103,7 @@ export default async function TitleDetailPage({
           ]}
         />
       }
+      below={<ExtrasSection serverId={serverId} groups={extras} />}
       meta={[
         title.year ? String(title.year) : null,
         displayCertification(title.certifications, countryFromLocale(viewer.locale)),

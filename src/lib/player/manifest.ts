@@ -158,7 +158,7 @@ export async function buildPlayManifest(
       durationSeconds: cursor,
       segments,
       // Phone videos in a photo library always start from the beginning, like opening a picture.
-      resumeSeconds: preferBrowserVersion || existingState?.finished ? 0 : (existingState?.positionSeconds ?? 0),
+      resumeSeconds: preferBrowserVersion || ownerKind === "extra" || existingState?.finished ? 0 : (existingState?.positionSeconds ?? 0),
       version,
       versions,
       expiresAt: (earliestExpiry ?? new Date(Date.now() + 60_000)).toISOString(),

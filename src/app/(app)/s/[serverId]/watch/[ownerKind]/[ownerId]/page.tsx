@@ -1,7 +1,8 @@
 import { notFound } from "next/navigation";
 import { and, asc, eq, gt } from "drizzle-orm";
 import { db } from "@/lib/db/client";
-import { episodes, libraries, seasons, titles } from "@/lib/db/schema";
+import { episodes, libraries, seasons, titleExtras, titles } from "@/lib/db/schema";
+import { EXTRA_LABELS } from "@/lib/extras/categories";
 import { requireServerMember } from "@/lib/auth/guards";
 import { libraryActor, libraryVisible, type LibraryActor } from "@/lib/content/library-access";
 import { isAllowed } from "@/lib/content/access";
@@ -31,6 +32,25 @@ async function loadMovie(lib: LibraryActor, id: string) {
     nextHref: undefined,
     nextLabel: undefined,
     ratingAges: movie.ratingAges,
+  };
+}
+
+/** A trailer or other extra of a movie: plays like the movie does, back goes to the movie, and nothing is remembered. */
+async function loadExtra(lib: LibraryActor, id: string) {
+  const [row] = await db
+    .select({ extra: titleExtras, movie: titles })
+    .from(titleExtras)
+    .innerJoin(titles, eq(titleExtras.titleId, titles.id))
+    .where(and(eq(titleExtras.id, id), eq(titles.kind, "movie"), libraryVisible(db, lib)))
+    .limit(1);
+  if (!row) return null;
+  return {
+    displayTitle: row.extra.name,
+    subtitle: `${row.movie.name} · ${EXTRA_LABELS[row.extra.category]}`,
+    backHref: `/s/${lib.serverId}/title/${row.movie.id}`,
+    nextHref: undefined,
+    nextLabel: undefined,
+    ratingAges: row.movie.ratingAges,
   };
 }
 
@@ -104,12 +124,14 @@ export default async function WatchPage({
   const { profile, viewer, role } = await requireServerMember(serverId);
   const lib = libraryActor({ profile, role }, serverId);
 
-  if (ownerKind !== "title" && ownerKind !== "episode") notFound();
+  if (ownerKind !== "title" && ownerKind !== "episode" && ownerKind !== "extra") notFound();
 
   const loaded =
     ownerKind === "title"
       ? await loadMovie(lib, ownerId)
-      : await loadEpisode(lib, ownerId);
+      : ownerKind === "extra"
+        ? await loadExtra(lib, ownerId)
+        : await loadEpisode(lib, ownerId);
   // A blocked title 404s exactly like a nonexistent one — see lib/content/access.
   if (!loaded || !isAllowed(viewer, loaded.ratingAges)) notFound();
 

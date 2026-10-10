@@ -1,6 +1,6 @@
 /** Shared between the /api/play route and the client-side player. */
 
-export type PlayOwnerKind = "title" | "episode";
+export type PlayOwnerKind = "title" | "episode" | "extra";
 
 export interface PlaySegment {
   index: number;

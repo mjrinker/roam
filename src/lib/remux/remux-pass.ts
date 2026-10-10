@@ -323,7 +323,7 @@ export async function getActiveJobByToken(
     .from(mediaFiles)
     .where(and(eq(mediaFiles.remuxCallbackToken, jobToken), eq(mediaFiles.remuxStatus, "in_progress")));
   const first = rows[0];
-  if (!first || !first.ownerKind || !first.ownerId) return null;
+  if (!first || !first.ownerKind || first.ownerKind === "extra" || !first.ownerId) return null;
   const ctx = await resolveOwnerContext(first.ownerKind, first.ownerId);
   if (!ctx) return null;
   return { ...ctx, boxFileId: first.boxFileId, rowIds: rows.map((r) => r.id), filename: first.filename };

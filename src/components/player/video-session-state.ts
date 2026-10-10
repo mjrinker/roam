@@ -1,7 +1,9 @@
+import type { PlayOwnerKind } from "@/lib/player/types";
+
 /** The video the floating player bar carries: what is open, and whether it fills the screen. Pure, so the rules can be tested. */
 
 export interface VideoSessionInfo {
-  ownerKind: "title" | "episode";
+  ownerKind: PlayOwnerKind;
   ownerId: string;
   title: string;
   subtitle?: string | null;

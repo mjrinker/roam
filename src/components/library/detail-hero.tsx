@@ -15,6 +15,7 @@ export function DetailHero({
   genres,
   overview,
   breadcrumbs,
+  below,
   children,
 }: {
   kind: TitleKind;
@@ -26,12 +27,15 @@ export function DetailHero({
   genres?: string[] | null;
   overview?: string | null;
   breadcrumbs?: React.ReactNode;
+  /** Sections under the header (a movie's extras). */
+  below?: React.ReactNode;
   children?: React.ReactNode;
 }) {
   const Icon = kind === "show" ? Tv : kind === "audiobook" ? Headphones : Film;
   const metaItems = meta.filter(Boolean) as string[];
 
   return (
+    <>
     <section className="relative isolate -mt-16 overflow-hidden">
       {backdropUrl ? (
         <Image
@@ -113,5 +117,7 @@ export function DetailHero({
         </div>
       </div>
     </section>
+    {below}
+    </>
   );
 }

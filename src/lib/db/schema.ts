@@ -19,6 +19,7 @@ import {
   type AnyPgColumn,
 } from "drizzle-orm/pg-core";
 import { relations, sql } from "drizzle-orm";
+import type { ExtraCategory } from "@/lib/extras/categories";
 
 // ── Enums ────────────────────────────────────────────────────────────────
 
@@ -37,7 +38,7 @@ export const titleKindEnum = pgEnum("title_kind", ["movie", "show", "audiobook",
 export type LibraryAccess = (typeof libraryAccessEnum.enumValues)[number];
 export type LibraryKind = (typeof libraryKindEnum.enumValues)[number];
 export type TitleKind = (typeof titleKindEnum.enumValues)[number];
-export const ownerKindEnum = pgEnum("owner_kind", ["title", "episode"]);
+export const ownerKindEnum = pgEnum("owner_kind", ["title", "episode", "extra"]);
 export const metadataStatusEnum = pgEnum("metadata_status", [
   "pending",
   "matched",
@@ -682,6 +683,28 @@ export const mediaFiles = pgTable(
     // `upsertVariant` (media-files.ts) targets this directly.
     uniqueIndex("media_files_variant_of_idx").on(t.variantOfMediaFileId),
   ]
+);
+
+// ── title_extras ─────────────────────────────────────────────────────────
+// A movie's trailers, behind-the-scenes videos and other extras, found in its folder by Plex's naming (a "-trailer" style suffix on a
+// file, or a "Trailers" style subfolder). Each one's video is a media_files row with owner_kind='extra' and owner_id = this row's id,
+// so probing and playing work as for any video. Extras never record watch progress.
+
+export const titleExtras = pgTable(
+  "title_extras",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    titleId: uuid("title_id")
+      .notNull()
+      .references(() => titles.id, { onDelete: "cascade" }),
+    category: text("category").$type<ExtraCategory>().notNull(),
+    // Shown name: the file's name without its type suffix and extension.
+    name: text("name").notNull(),
+    // The video's Box file id: what ties a rescan's file to this row.
+    boxFileId: text("box_file_id").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex("title_extras_title_file_idx").on(t.titleId, t.boxFileId), index("title_extras_title_idx").on(t.titleId)]
 );
 
 // ── watch_state ──────────────────────────────────────────────────────────

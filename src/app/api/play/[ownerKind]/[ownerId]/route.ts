@@ -14,7 +14,7 @@ export async function GET(
   ctx: RouteContext<"/api/play/[ownerKind]/[ownerId]">
 ) {
   const { ownerKind, ownerId } = await ctx.params;
-  if (ownerKind !== "title" && ownerKind !== "episode") {
+  if (ownerKind !== "title" && ownerKind !== "episode" && ownerKind !== "extra") {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
 

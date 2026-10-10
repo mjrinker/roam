@@ -8,6 +8,8 @@ import type { DownloadOption, DownloadOptions } from "./options";
 
 /** Null when the owner has no files to offer (nothing downloadable yet). */
 export async function buildDownloadOptions(ownerKind: PlayOwnerKind, ownerId: string): Promise<DownloadOptions | null> {
+  // Extras (trailers and the like) aren't offered for download.
+  if (ownerKind === "extra") return null;
   const everyRow = await db
     .select()
     .from(mediaFiles)

@@ -13,9 +13,11 @@ import {
   mediaFiles,
   scanRuns,
   seasons,
+  titleExtras,
   titles,
   type TitleKind,
 } from "@/lib/db/schema";
+import { findExtras, syncTitleExtras } from "@/lib/scan/title-extras";
 import { createBoxProviderForServer } from "@/lib/storage/box";
 import { BoxReauthRequiredError } from "@/lib/storage/box-token-storage";
 import type { StorageEntry, StorageProvider } from "@/lib/storage/provider";
@@ -530,6 +532,13 @@ async function syncMovieFolder(
   await upsertMediaSegments("title", title.id, videoFiles);
   await linkVariantFiles("title", [title.id], videoFiles, variantFiles);
   await enrichMovieMetadataIfNeeded(title.id, name, year, { tmdbId, imdbId });
+  // Trailers, featurettes and the like (Plex's naming) sit beside the film; a failure here never fails the film's own scan.
+  try {
+    const extras = await findExtras(provider, children);
+    await syncTitleExtras(title.id, extras.found, extras.complete);
+  } catch (err) {
+    console.error(`extras for ${title.id}:`, err);
+  }
 
   return !existing;
 }
@@ -900,7 +909,11 @@ async function probePendingDurations(
 ): Promise<boolean> {
   const { titleIds, episodeIds } = await resolveLibraryOwnerIds(libraryId);
 
-  const [pendingTitleFiles, pendingEpisodeFiles, pendingVariantFiles] = await Promise.all([
+  // A movie's extras are probed like any video, so they can be played.
+  const extraIds = titleIds.length
+    ? (await db.select({ id: titleExtras.id }).from(titleExtras).where(inArray(titleExtras.titleId, titleIds))).map((e) => e.id)
+    : [];
+  const [pendingTitleFiles, pendingEpisodeFiles, pendingVariantFiles, pendingExtraFiles] = await Promise.all([
     titleIds.length
       ? db
           .select()
@@ -935,8 +948,11 @@ async function probePendingDurations(
         ? db.select().from(mediaFiles).where(and(pendingProbeCondition, variantScope("episode", episodeIds)))
         : [],
     ]).then(([a, b]) => [...a, ...b]),
+    extraIds.length
+      ? db.select().from(mediaFiles).where(and(pendingProbeCondition, eq(mediaFiles.ownerKind, "extra"), inArray(mediaFiles.ownerId, extraIds)))
+      : Promise.resolve([]),
   ]);
-  const pending = [...pendingTitleFiles, ...pendingEpisodeFiles, ...pendingVariantFiles];
+  const pending = [...pendingTitleFiles, ...pendingEpisodeFiles, ...pendingVariantFiles, ...pendingExtraFiles];
   const incomplete = await probeFiles(provider, pending, deadline, errors);
 
   await backfillCodecs(provider, titleIds, episodeIds, deadline);
@@ -1154,6 +1170,12 @@ async function probeTitlePendingDurations(
       .from(mediaFiles)
       .where(and(pendingProbeCondition, variantScope(titleOwned ? "title" : "episode", ownerIdsForVariants)));
     pending = [...pending, ...variants];
+  }
+  if (kind === "movie") {
+    const extraIds = (await db.select({ id: titleExtras.id }).from(titleExtras).where(eq(titleExtras.titleId, titleId))).map((e) => e.id);
+    if (extraIds.length > 0) {
+      pending = [...pending, ...(await db.select().from(mediaFiles).where(and(pendingProbeCondition, eq(mediaFiles.ownerKind, "extra"), inArray(mediaFiles.ownerId, extraIds))))];
+    }
   }
 
   await probeFiles(provider, pending, deadline, errors);

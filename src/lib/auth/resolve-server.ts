@@ -1,6 +1,6 @@
 import { eq } from "drizzle-orm";
 import { db } from "@/lib/db/client";
-import { episodes, libraries, seasons, titles, type LibraryKind, type TitleKind } from "@/lib/db/schema";
+import { episodes, libraries, seasons, titleExtras, titles, type LibraryKind, type TitleKind } from "@/lib/db/schema";
 import type { PlayOwnerKind } from "@/lib/player/types";
 import { getCurrentServerMember, type ServerMembership } from "@/lib/auth/guards";
 import { isAllowed } from "@/lib/content/access";
@@ -25,6 +25,16 @@ export async function resolveServerIdForOwner(
       .from(titles)
       .innerJoin(libraries, eq(titles.libraryId, libraries.id))
       .where(eq(titles.id, ownerId))
+      .limit(1);
+    return row?.serverId ?? null;
+  }
+  if (ownerKind === "extra") {
+    const [row] = await db
+      .select({ serverId: libraries.serverId })
+      .from(titleExtras)
+      .innerJoin(titles, eq(titleExtras.titleId, titles.id))
+      .innerJoin(libraries, eq(titles.libraryId, libraries.id))
+      .where(eq(titleExtras.id, ownerId))
       .limit(1);
     return row?.serverId ?? null;
   }
@@ -55,6 +65,17 @@ export async function resolveOwner(
       .from(titles)
       .innerJoin(libraries, eq(titles.libraryId, libraries.id))
       .where(eq(titles.id, ownerId))
+      .limit(1);
+    return row ?? null;
+  }
+  if (ownerKind === "extra") {
+    // An extra is always rated and shown like the movie it belongs to.
+    const [row] = await db
+      .select({ serverId: libraries.serverId, libraryId: libraries.id, libraryKind: libraries.kind, ratingAges: titles.ratingAges, titleKind: titles.kind })
+      .from(titleExtras)
+      .innerJoin(titles, eq(titleExtras.titleId, titles.id))
+      .innerJoin(libraries, eq(titles.libraryId, libraries.id))
+      .where(eq(titleExtras.id, ownerId))
       .limit(1);
     return row ?? null;
   }
