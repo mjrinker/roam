@@ -32,7 +32,7 @@ function Card({ item, state, onChoose }: { item: ChooseItem; state: "open" | "ch
   const Icon = item.verb === "Watch" ? Film : Headphones;
   const runtime = formatChooseRuntime(item.runtimeSeconds);
   return (
-    <div className={cn("flex min-w-0 flex-col gap-3 rounded-2xl p-3 ring-1 transition", state === "chosen" ? "bg-primary/10 ring-primary/60" : "bg-white/[0.04] ring-white/[0.08]", state === "passed" && "opacity-50")}>
+    <div className={cn("flex min-w-0 flex-col gap-2 rounded-2xl p-2 ring-1 transition sm:gap-3 sm:p-3", state === "chosen" ? "bg-primary/10 ring-primary/60" : "bg-white/[0.04] ring-white/[0.08]", state === "passed" && "opacity-50")}>
       <button
         type="button"
         onClick={onChoose}
@@ -56,10 +56,10 @@ function Card({ item, state, onChoose }: { item: ChooseItem; state: "open" | "ch
         )}
       </button>
       <div className="min-w-0">
-        <p className="text-lg leading-snug font-semibold">{item.name}</p>
+        <p className="text-sm leading-snug font-semibold sm:text-lg">{item.name}</p>
         <p className="mt-0.5 text-sm text-muted-foreground">{[item.subtitle, runtime].filter(Boolean).join(" · ")}</p>
         <p className="mt-0.5 text-xs text-muted-foreground/80">From {item.libraryName}</p>
-        {item.overview && <p className="mt-2 line-clamp-3 text-sm text-foreground/80">{item.overview}</p>}
+        {item.overview && <p className="mt-2 hidden line-clamp-3 sm:block text-sm text-foreground/80">{item.overview}</p>}
         <a href={item.pageHref} target="_blank" rel="noreferrer" className="mt-2 inline-block text-xs text-muted-foreground underline-offset-2 hover:text-foreground hover:underline">
           Details
         </a>
@@ -214,24 +214,6 @@ export function ChooseSession({ serverId, libraries }: { serverId: string; libra
         </div>
       )}
 
-      {(phase === "pick" || phase === "confirm" || phase === "tired") && (
-        <>
-          <p className="text-sm text-muted-foreground" aria-live="polite">
-            {phase === "tired" ? "" : phase === "pick" ? `Round ${round}: which one?` : `Round ${round}`}
-          </p>
-          <div className={cn("grid gap-4", pair.length > 1 ? "sm:grid-cols-2" : "mx-auto w-full max-w-sm")}>
-            {pair.map((item) => (
-              <Card
-                key={item.id}
-                item={item}
-                state={chosen ? (chosen.id === item.id ? "chosen" : "passed") : "open"}
-                onChoose={phase === "pick" ? () => (setChosen(item), setPhase("confirm")) : undefined}
-              />
-            ))}
-          </div>
-        </>
-      )}
-
       {phase === "confirm" && chosen && (
         <div className="flex flex-col gap-3 rounded-2xl bg-white/[0.05] p-4 ring-1 ring-white/10">
           <p className="font-medium">
@@ -279,6 +261,24 @@ export function ChooseSession({ serverId, libraries }: { serverId: string; libra
             ))}
           </div>
         </div>
+      )}
+
+      {(phase === "pick" || phase === "confirm" || phase === "tired") && (
+        <>
+          <p className="text-sm text-muted-foreground" aria-live="polite">
+            {phase === "tired" ? "" : phase === "pick" ? `Round ${round}: which one?` : `Round ${round}`}
+          </p>
+          <div className={cn("grid gap-2 sm:gap-4", pair.length > 1 ? "grid-cols-2" : "mx-auto w-full max-w-[50%] sm:max-w-sm")}>
+            {pair.map((item) => (
+              <Card
+                key={item.id}
+                item={item}
+                state={chosen ? (chosen.id === item.id ? "chosen" : "passed") : "open"}
+                onChoose={phase === "pick" ? () => (setChosen(item), setPhase("confirm")) : undefined}
+              />
+            ))}
+          </div>
+        </>
       )}
     </div>
   );
