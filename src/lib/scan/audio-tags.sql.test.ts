@@ -65,6 +65,18 @@ describe("audio tags onto titles", () => {
     expect(title.posterUrl).toContain(`/api/titles/${title.id}/artwork`);
   });
 
+  it("reads genres, and reads audio once more that was read before genres were, saving the genre", async () => {
+    const t = await setup([{ name: "song.mp3", bytes: mp3WithTags({ title: "Song", artist: "Band", genre: "Jazz" }) }]);
+    await db.update(titles).set({ tagsAttemptedAt: new Date("2026-09-01T00:00:00Z"), genres: null }).where(eq(titles.libraryId, t.lib.id));
+    await run(t);
+    const title = (await t.rows())[t.key(0)];
+    expect(title.genres).toEqual(["Jazz"]);
+    expect(title.tagsAttemptedAt!.getTime()).toBeGreaterThan(new Date("2026-10-10T00:00:00Z").getTime()); // stamped, so not read a third time
+    t.provider.fetchByteRange.mockClear();
+    await run(t);
+    expect(t.provider.fetchByteRange).not.toHaveBeenCalled();
+  });
+
   it("reads an M4A/M4B the same way, including the description as the overview", async () => {
     const t = await setup([{ name: "book.m4b", bytes: mp4WithTags({ title: "A Long Book", artist: "Some Author", album: "The Series", description: "What it is about.", year: "2015" }) }]);
     await run(t);

@@ -27,6 +27,10 @@ export const MAX_THUMB_ATTEMPTS = 3;
 /** Box may still be generating a thumbnail; wait this long between asks. */
 const THUMB_RETRY_AFTER_MS = 10 * 60 * 1000;
 const BATCH = 100;
+
+/** Titles whose tags still need reading: never read, or (audio) read before genres were. The save uses the same test, so a concurrent scan can't save twice. */
+const notReadYet = (profile: TreeProfile) =>
+  profile.artistAsAuthor ? or(isNull(titles.tagsAttemptedAt), lt(titles.tagsAttemptedAt, GENRE_TAGS_SINCE)) : isNull(titles.tagsAttemptedAt);
 const CONCURRENCY = 3;
 
 async function inBatches<T>(items: T[], deadline: number, fn: (item: T) => Promise<void>): Promise<boolean> {
@@ -120,7 +124,7 @@ export async function readTagsAndArtwork(
         eq(titles.libraryId, libraryId),
         ne(titles.kind, "photo"),
         // Never read, or (audio) read before genres were: those are read once more so their genre is picked up.
-        profile.artistAsAuthor ? or(isNull(titles.tagsAttemptedAt), lt(titles.tagsAttemptedAt, GENRE_TAGS_SINCE)) : isNull(titles.tagsAttemptedAt),
+        notReadYet(profile),
         lt(titles.tagAttempts, MAX_TAG_ATTEMPTS),
         eq(mediaFiles.probeStatus, "ok"),
         isNotNull(mediaFiles.sizeBytes)
@@ -148,7 +152,7 @@ export async function readTagsAndArtwork(
               tagAttempts: sql`greatest(${titles.tagAttempts} - 1, 0)`,
               updatedAt: now,
             })
-            .where(and(eq(titles.id, t.titleId), isNull(titles.tagsAttemptedAt)));
+            .where(and(eq(titles.id, t.titleId), notReadYet(profile)));
           if (tags.cover) await storeArtwork(tx, t.titleId, tags.cover, "embedded");
         });
       } catch (err) {

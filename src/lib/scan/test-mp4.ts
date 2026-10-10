@@ -32,7 +32,7 @@ export function rangeOf(bytes: Uint8Array) {
 }
 
 /** A tiny MP3: an ID3v2.3 tag (any of title, artist, album, year, front cover) followed by filler "audio". */
-export function mp3WithTags(tags: { title?: string; artist?: string; album?: string; year?: string; cover?: number[] } = {}): Uint8Array {
+export function mp3WithTags(tags: { title?: string; artist?: string; album?: string; year?: string; genre?: string; cover?: number[] } = {}): Uint8Array {
   const sync = (n: number) => [(n >>> 21) & 0x7f, (n >>> 14) & 0x7f, (n >>> 7) & 0x7f, n & 0x7f];
   const frame = (id: string, body: number[]) => [...fourcc(id), ...u32be(body.length), 0, 0, ...body];
   const text = (v: string) => [3, ...utf8(v)]; // UTF-8
@@ -41,6 +41,7 @@ export function mp3WithTags(tags: { title?: string; artist?: string; album?: str
     tags.artist ? frame("TPE1", text(tags.artist)) : [],
     tags.album ? frame("TALB", text(tags.album)) : [],
     tags.year ? frame("TYER", text(tags.year)) : [],
+    tags.genre ? frame("TCON", text(tags.genre)) : [],
     tags.cover ? frame("APIC", [0, ...fourcc("image/jpeg").slice(0, 10), 0, 3, 0, ...tags.cover]) : [],
   ].flat();
   const body = frames;
