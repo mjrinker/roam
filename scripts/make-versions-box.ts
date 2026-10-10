@@ -25,6 +25,9 @@
  *   --title <id>         only this movie/show
  *   --video-codec hev1   only films/episodes whose original is in this video codec (the fourcc Roam recorded, e.g. hev1: HEVC that
  *                        iOS can't play). The lower versions are H.264, which plays everywhere.
+ *   --h264-copy          instead of the lower rungs, make ONE H.264 copy at the original's own resolution ("<name> - 720p.mp4") and
+ *                        rename the original to "<name> - 720p HEVC.mp4" (use with --video-codec). The lower rungs are left to a
+ *                        normal run, which then works from the H.264 copy. Needs the original's height to be a ladder rung.
  *   --rungs 720,480      only these rungs (default: the whole ladder below the original)
  *   --limit <n>          stop after n films/episodes
  *   --skip-rename        make the lower versions but leave the original's name alone
@@ -49,7 +52,7 @@ import { ensureFreshAccessToken, withBoxClient } from "@/lib/storage/box-token-s
 import { downloadToFile, runFfmpeg, uploadFile, type TokenProvider } from "@/lib/remux/remux-core.mjs";
 import { parseAudioKbps, parseFirstAudioStream, parseVideoInfo } from "@/lib/remux/ffmpeg-probe";
 import { ensureFfmpeg } from "@/lib/remux/tier1";
-import { audioNeedsAacCopy, buildVersionArgs, MAX_OUTPUT_BYTES, originalLabel, rungLabel, rungsBelow, videoKbps } from "@/lib/remux/version-plan";
+import { audioNeedsAacCopy, buildVersionArgs, MAX_OUTPUT_BYTES, originalLabel, RUNGS, rungLabel, rungsBelow, videoKbps } from "@/lib/remux/version-plan";
 import { effectiveHeight } from "@/lib/player/versions";
 
 const args = process.argv.slice(2);
@@ -62,6 +65,7 @@ const flag = (name: string) => {
 const only = flag("--only");
 const libraryFilter = flag("--library");
 const titleFilter = flag("--title");
+const h264Copy = args.includes("--h264-copy");
 const codecFilter = flag("--video-codec")?.toLowerCase();
 const limit = Number(flag("--limit") ?? Infinity);
 const preset = flag("--preset") ?? "medium";
@@ -330,12 +334,15 @@ async function plan(g: Group): Promise<Plan | { skip: string } | null> {
   }
   if (!sized.width || !sized.height) return { skip: "its picture size isn't known" };
   const parsed = splitVersionLabel(first.filename);
-  const srcLabel = parsed.label || originalLabel(sized.width, sized.height);
+  const ownLabel = originalLabel(sized.width, sized.height);
+  const srcLabel = parsed.label || (h264Copy ? `${ownLabel} HEVC` : ownLabel);
   const baseName = withoutSplitMarker(parsed.rest);
   const names = await namesIn(g.serverId, g.folderId);
+  const ownRung = Number.parseInt(ownLabel, 10);
+  if (h264Copy && !(RUNGS as readonly number[]).includes(ownRung)) return { skip: `its height (${ownLabel}) isn't a rung of the ladder` };
   // The original's audio, when Roam has read it, says whether each rung also wants an AAC copy; otherwise that is decided at encode time.
   const wantsAac = first.codecProbed && !isBrowserSafeAudioCodec(first.audioCodec);
-  const missing = rungsBelow(sized.width, sized.height, wanted).filter((r) => {
+  const missing = (h264Copy ? [ownRung] : rungsBelow(sized.width, sized.height, wanted)).filter((r) => {
     const main = withVersionLabel(baseName, rungLabel(r)).toLowerCase();
     return !names.has(main) || (wantsAac && !names.has(variantFileName(main).toLowerCase()));
   });
