@@ -26,7 +26,7 @@ beforeAll(() => {
   db = h.testDb.db;
 });
 
-const file = (id: string, name: string, size = 1000): StorageEntry => ({ id, name, kind: "file", sizeBytes: size }) as StorageEntry;
+const file = (id: string, name: string, size = 5_000_000): StorageEntry => ({ id, name, kind: "file", sizeBytes: size }) as StorageEntry;
 const folder = (id: string, name: string): StorageEntry => ({ id, name, kind: "folder" }) as StorageEntry;
 const provider = (listings: Record<string, StorageEntry[] | Error>) => ({
   listFolder: async (id: string) => {
@@ -53,6 +53,7 @@ describe("finding extras in a movie folder", () => {
       file("t", "Teaser-trailer.mp4"),
       file("v", "Variant-trailer.aac.mp4"), // a remuxed copy, not a separate extra
       file("txt", "Notes-trailer.txt"),
+      file("stub", "Stub-trailer.mov", 90), // a 90-byte QuickTime reference stub, not a video
       folder("f1", "Behind The Scenes"),
       folder("f2", "Subs"),
       folder("f3", "Trailers"),
@@ -78,17 +79,17 @@ describe("keeping a movie's extras in step with its folder", () => {
   it("adds, renames and removes them, with their files, and leaves them alone when the listing was incomplete", async () => {
     const { film } = await movie();
     const found = async (children: StorageEntry[], listings = {}) => (await findExtras(provider(listings), children)).found;
-    await syncTitleExtras(film.id, await found([file("t", "One-trailer.mp4", 10), file("s", "Opening-scene.mp4", 20)]));
+    await syncTitleExtras(film.id, await found([file("t", "One-trailer.mp4", 10_000_000), file("s", "Opening-scene.mp4", 20_000_000)]));
     let rows = await extrasOf(film.id);
     expect(rows.map((r) => [r.category, r.name]).sort()).toEqual([["scenes", "Opening"], ["trailers", "One"]]);
     const trailer = rows.find((r) => r.boxFileId === "t")!;
-    expect((await filesOf(trailer.id)).map((f) => [f.boxFileId, f.filename, f.sizeBytes, f.container, f.partIndex, f.versionLabel])).toEqual([["t", "One-trailer.mp4", 10, "mp4", 0, ""]]);
+    expect((await filesOf(trailer.id)).map((f) => [f.boxFileId, f.filename, f.sizeBytes, f.container, f.partIndex, f.versionLabel])).toEqual([["t", "One-trailer.mp4", 10_000_000, "mp4", 0, ""]]);
 
     // renamed and moved to another type: same row, new name and type
-    await syncTitleExtras(film.id, await found([file("t", "Uno-featurette.mp4", 11), file("s", "Opening-scene.mp4", 20)]));
+    await syncTitleExtras(film.id, await found([file("t", "Uno-featurette.mp4", 11_000_000), file("s", "Opening-scene.mp4", 20_000_000)]));
     rows = await extrasOf(film.id);
     expect(rows.find((r) => r.boxFileId === "t")).toMatchObject({ id: trailer.id, category: "featurettes", name: "Uno" });
-    expect((await filesOf(trailer.id))[0]).toMatchObject({ filename: "Uno-featurette.mp4", sizeBytes: 11 });
+    expect((await filesOf(trailer.id))[0]).toMatchObject({ filename: "Uno-featurette.mp4", sizeBytes: 11_000_000 });
 
     // an incomplete listing never removes anything
     await syncTitleExtras(film.id, [], false);
@@ -96,7 +97,7 @@ describe("keeping a movie's extras in step with its folder", () => {
 
     // a complete listing without the scene removes it and its file
     const scene = rows.find((r) => r.boxFileId === "s")!;
-    await syncTitleExtras(film.id, await found([file("t", "Uno-featurette.mp4", 11)]));
+    await syncTitleExtras(film.id, await found([file("t", "Uno-featurette.mp4", 11_000_000)]));
     expect((await extrasOf(film.id)).map((r) => r.boxFileId)).toEqual(["t"]);
     expect(await filesOf(scene.id)).toEqual([]);
     await syncTitleExtras(film.id, []);
@@ -125,6 +126,14 @@ describe("showing and playing extras", () => {
       ["interviews", [["Chat", 300]]],
     ]);
     expect(await loadTitleExtras(db, (await makeTitle(db, (await movie()).lib.id, { kind: "movie" })).id)).toEqual([]);
+  });
+  it("leaves out an extra in a format browsers can't play, but keeps it recorded", async () => {
+    const { film } = await movie();
+    await syncTitleExtras(film.id, (await findExtras(provider({}), [file("a", "Good-trailer.mp4"), file("b", "Old-trailer.mov"), file("c", "OldSound-trailer.mov")])).found);
+    const codecs: Record<string, [string | null, string | null]> = { a: ["avc1", "mp4a"], b: ["svq3", "qdm2"], c: ["avc1", "qdm2"] };
+    for (const [id, [v, a]] of Object.entries(codecs)) await db.update(mediaFiles).set({ durationSeconds: 60, probeStatus: "ok", videoCodec: v, audioCodec: a }).where(and(eq(mediaFiles.ownerKind, "extra"), eq(mediaFiles.boxFileId, id)));
+    expect((await loadTitleExtras(db, film.id)).flatMap((g) => g.items.map((i) => i.name))).toEqual(["Good"]);
+    expect(await extrasOf(film.id)).toHaveLength(3);
   });
   it("is owned by its movie for access, and plays through the play manifest without ever resuming", async () => {
     const { film, server, owner } = await movie();

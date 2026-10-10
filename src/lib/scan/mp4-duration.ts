@@ -23,6 +23,7 @@
  * from "read fine, there's no such track" via `codecsProbed`.
  */
 
+import { inflateSync } from "node:zlib";
 import { RangeReader, type ByteRangeFetcher } from "./range-reader";
 import { cleanTagString } from "./tag-text";
 import { genreFromIndex, normalizeGenres } from "./genres";
@@ -54,6 +55,8 @@ const MAX_TOP_LEVEL_BOXES = 128; // guards against malformed/adversarial files
 const MAX_CHILD_BOXES = 256;
 const MAX_TABLE_BYTES = 512 * 1024; // cap on any single sample table we read
 const MAX_CHAPTERS = 2000;
+const MAX_COMPRESSED_MOOV_BYTES = 8 * 1024 * 1024; // old QuickTime files can zlib-compress their whole header (cmov)
+const MAX_INFLATED_MOOV_BYTES = 64 * 1024 * 1024;
 
 export class Mp4DurationError extends Error {}
 
@@ -165,9 +168,39 @@ export async function probeMp4(
   fileSizeBytes: number,
   opts: { chapters?: boolean } = {}
 ): Promise<Mp4Probe> {
+  const { r, moov, compressed } = await locateMoov(fetchRange, fileSizeBytes);
+  // A compressed header was inflated into memory, so chapter tables (which point into the file itself) can't be read from it.
+  return probeMoov(r, moov, !!opts.chapters && !compressed);
+}
+
+/** `moov` and a reader that can walk it: for a compressed header (`moov/cmov`, zlib), the inflated header in memory. */
+async function locateMoov(fetchRange: ByteRangeFetcher, fileSizeBytes: number): Promise<{ r: RangeReader; moov: Box; compressed: boolean }> {
   const r = new RangeReader(fetchRange, fileSizeBytes);
   const moov = await findMoov(r, fileSizeBytes);
-  return probeMoov(r, moov, !!opts.chapters);
+  const first = await readBox(r, moov.contentStart, moov.end, MOOV_PREFETCH);
+  if (!first || first.type !== "cmov") return { r, moov, compressed: false };
+
+  let algorithm: string | null = null;
+  let cmvd: Box | null = null;
+  for await (const child of childBoxes(r, first, 4096)) {
+    if (child.type === "dcom") algorithm = fourcc(await r.read(child.contentStart, 4, 4), 0);
+    else if (child.type === "cmvd") cmvd = child;
+  }
+  if (algorithm !== "zlib" || !cmvd) throw new Mp4DurationError(`moov is compressed with ${algorithm ?? "an unknown method"}, which isn't supported`);
+  const length = cmvd.end - cmvd.contentStart;
+  if (length <= 4 || length > MAX_COMPRESSED_MOOV_BYTES) throw new Mp4DurationError("compressed moov has an unreasonable size");
+  const payload = await r.read(cmvd.contentStart, length, length);
+  // 4 bytes of uncompressed size, then the zlib stream; the result is a complete moov box.
+  let inflated: Uint8Array;
+  try {
+    inflated = inflateSync(new Uint8Array(payload.buffer, payload.byteOffset + 4, payload.byteLength - 4), { maxOutputLength: MAX_INFLATED_MOOV_BYTES });
+  } catch {
+    throw new Mp4DurationError("compressed moov could not be decompressed");
+  }
+  const mem = new RangeReader(async (start, end) => inflated.slice(start, end + 1).buffer as ArrayBuffer, inflated.byteLength);
+  const inner = await readBox(mem, 0, inflated.byteLength, MOOV_PREFETCH);
+  if (!inner || inner.type !== "moov") throw new Mp4DurationError("compressed moov did not contain a moov box");
+  return { r: mem, moov: inner, compressed: true };
 }
 
 /**
@@ -197,15 +230,13 @@ export async function probeMp4Codecs(
   fetchRange: ByteRangeFetcher,
   fileSizeBytes: number
 ): Promise<{ audioCodec: string | null; videoCodec: string | null; width: number | null; height: number | null; codecsProbed: boolean }> {
-  const r = new RangeReader(fetchRange, fileSizeBytes);
-  const moov = await findMoov(r, fileSizeBytes);
+  const { r, moov } = await locateMoov(fetchRange, fileSizeBytes);
   return readCodecsFromTracks(r, moov);
 }
 
 /** The first video track's picture size, read from the file's header over range requests (nothing is downloaded). Null when there is no video track. */
 export async function probeMp4VideoSize(fetchRange: ByteRangeFetcher, fileSizeBytes: number): Promise<{ width: number; height: number } | null> {
-  const r = new RangeReader(fetchRange, fileSizeBytes);
-  const moov = await findMoov(r, fileSizeBytes);
+  const { r, moov } = await locateMoov(fetchRange, fileSizeBytes);
   for await (const child of childBoxes(r, moov, MOOV_PREFETCH)) {
     if (child.type !== "trak") continue;
     const info = await readTrakInfo(r, child);
@@ -224,8 +255,7 @@ export async function probeMp4AudioTrack(
   fetchRange: ByteRangeFetcher,
   fileSizeBytes: number
 ): Promise<{ audioCodec: string | null; channels: number | null }> {
-  const r = new RangeReader(fetchRange, fileSizeBytes);
-  const moov = await findMoov(r, fileSizeBytes);
+  const { r, moov } = await locateMoov(fetchRange, fileSizeBytes);
   for await (const child of childBoxes(r, moov, MOOV_PREFETCH)) {
     if (child.type !== "trak") continue;
     const info = await readTrakInfo(r, child);

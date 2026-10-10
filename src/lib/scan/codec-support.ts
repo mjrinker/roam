@@ -40,6 +40,21 @@ export const VIDEO_CODEC_TESTS: Record<string, string> = {
 export const isVideoCodecToken = (token: string): boolean => token in VIDEO_CODEC_TESTS;
 
 /**
+ * Video formats browsers actually play inside MP4/MOV (H.264, HEVC, VP9, AV1). Used only where a file is OFFERED to play with no other
+ * version to fall back on (a movie's extras): old QuickTime trailers in Sorenson (svq3) or Cinepak are not worth listing.
+ */
+const PLAYABLE_VIDEO_CODECS = new Set(["avc1", "avc3", "hvc1", "hev1", "vp09", "av01"]);
+/** Audio in old QuickTime files that no browser decodes. */
+const UNPLAYABLE_AUDIO_CODECS = new Set(["qdm2", "qdmc", "samr", "sawb", "ima4", "agsm"]);
+
+/** False only when the file's video or audio is a format known not to play in browsers; an unread codec counts as playable. */
+export function isBrowserPlayableMedia(videoCodec: string | null, audioCodec: string | null): boolean {
+  if (videoCodec && !PLAYABLE_VIDEO_CODECS.has(videoCodec.toLowerCase())) return false;
+  if (audioCodec && UNPLAYABLE_AUDIO_CODECS.has(audioCodec.toLowerCase())) return false;
+  return true;
+}
+
+/**
  * `mp4a` (AAC or MP3-in-MP4) is universally safe. Anything else we don't
  * recognize is ALSO treated as safe — never flag a codec we've simply never
  * seen, since a false "this needs fixing" is worse than missing a genuinely

@@ -6,6 +6,9 @@ import { extraCategoryOfFile, extraCategoryOfFolder, extraDisplayName, type Extr
 import { isBrowserFriendlyVariant, isVideoFile } from "@/lib/scan/conventions";
 import type { StorageEntry, StorageProvider } from "@/lib/storage/provider";
 
+/** A "video" smaller than this is a stub (e.g. a 90-byte QuickTime reference file), not something to play. */
+const MIN_EXTRA_BYTES = 10_000;
+
 export interface FoundExtra {
   entry: StorageEntry;
   category: ExtraCategory;
@@ -22,6 +25,7 @@ export async function findExtras(provider: Pick<StorageProvider, "listFolder">, 
   const seen = new Set<string>();
   const add = (entry: StorageEntry, category: ExtraCategory) => {
     if (seen.has(entry.id) || !isVideoFile(entry.name) || isBrowserFriendlyVariant(entry.name)) return;
+    if (entry.sizeBytes != null && entry.sizeBytes < MIN_EXTRA_BYTES) return;
     seen.add(entry.id);
     found.push({ entry, category, name: extraDisplayName(entry.name) });
   };

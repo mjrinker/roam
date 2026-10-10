@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { deflateSync } from "node:zlib";
 import { Mp4DurationError, probeMp4, probeMp4AudioTrack, probeMp4Codecs, probeMp4DurationSeconds, probeMp4VideoSize } from "./mp4-duration";
 
 // ── Minimal MP4 box builders ────────────────────────────────────────────
@@ -470,5 +471,40 @@ describe("probeMp4 codecs", () => {
       audioCodec: null,
       channels: null,
     });
+  });
+});
+
+// ── Compressed headers (old QuickTime trailers) ──────────────────────────
+
+/** A moov whose whole contents are one zlib-compressed `cmov`, as Apple's old .mov trailers have. */
+function compressedMoov(inner: number[], algorithm = "zlib", corrupt = false): number[] {
+  const z = Array.from(deflateSync(Uint8Array.from(inner)));
+  if (corrupt) z.splice(2, z.length - 4);
+  return box("moov", box("cmov", [...box("dcom", fourcc(algorithm)), ...box("cmvd", [...u32be(inner.length), ...z])]));
+}
+
+describe("probeMp4 with a compressed header (moov/cmov)", () => {
+  const plain = box("moov", [...mvhdV0(600, 6000), ...trakWithCodec(1, "vide", 30_000, "avc1"), ...trakWithCodec(2, "soun", 44100, "mp4a")]);
+  const mov = (moov: number[]) => {
+    const mdat = box("mdat", new Array(5000).fill(1));
+    return [...FTYP, ...mdat, ...moov]; // the header after the picture data, as in a file not yet optimised for streaming
+  };
+
+  it("reads the duration and codecs from the inflated header", async () => {
+    const bytes = mov(compressedMoov(plain));
+    const result = await probeMp4(fetcherFromSegments([{ offset: 0, bytes }]), bytes.length);
+    expect(result).toMatchObject({ durationSeconds: 10, videoCodec: "avc1", audioCodec: "mp4a", codecsProbed: true });
+  });
+  it("works for the codec-only and picture-size reads too, and with chapters asked for", async () => {
+    const bytes = mov(compressedMoov(plain));
+    const fetch = fetcherFromSegments([{ offset: 0, bytes }]);
+    expect(await probeMp4Codecs(fetch, bytes.length)).toMatchObject({ videoCodec: "avc1", audioCodec: "mp4a" });
+    expect(await probeMp4AudioTrack(fetch, bytes.length)).toMatchObject({ audioCodec: "mp4a" });
+    expect((await probeMp4(fetch, bytes.length, { chapters: true })).durationSeconds).toBe(10);
+  });
+  it("refuses a method it doesn't know, and a header that won't inflate, with a plain error", async () => {
+    for (const bytes of [mov(compressedMoov(plain, "lzma")), mov(compressedMoov(plain, "zlib", true))]) {
+      await expect(probeMp4(fetcherFromSegments([{ offset: 0, bytes }]), bytes.length)).rejects.toBeInstanceOf(Mp4DurationError);
+    }
   });
 });
