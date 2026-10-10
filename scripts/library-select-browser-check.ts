@@ -60,7 +60,7 @@ async function main() {
         const items = ${JSON.stringify(items)};
         const mode = new URLSearchParams(location.search).get("mode");
         createRoot(document.getElementById("root")!).render(<>
-          {mode === "audio" ? <VideoFolderView serverId="S1" libraryId="L1" libraryName="Audio" path="Mix" folders={[]} items={${JSON.stringify(folderPage)} as any} nextHref={null} itemKind="audiobook" sortable sort={parseFolderSort(new URLSearchParams(location.search).get("sort"), new URLSearchParams(location.search).get("dir"))} /> : mode === "folder" ? <SelectableFolderItems serverId="S1" libraryId="L1" path="Trips" items={${JSON.stringify(folderPage)} as any} itemKind="movie" sort={parseFolderSort(null, null)} /> : mode === "music" ? <SelectableMusicTiles serverId="S1" libraryId="L1" view="albums" albums={${JSON.stringify(albumCards)} as any} artists={null} /> : <LibraryBrowser items={items as any} serverId="S1" />}
+          {mode === "audio" ? <VideoFolderView serverId="S1" libraryId="L1" libraryName="Audio" path="Mix" folders={[]} items={${JSON.stringify(folderPage)} as any} nextHref={null} itemKind="audiobook" sortable search={new URLSearchParams(location.search).get("q")} sort={parseFolderSort(new URLSearchParams(location.search).get("sort"), new URLSearchParams(location.search).get("dir"))} /> : mode === "folder" ? <SelectableFolderItems serverId="S1" libraryId="L1" path="Trips" items={${JSON.stringify(folderPage)} as any} itemKind="movie" sort={parseFolderSort(null, null)} /> : mode === "music" ? <SelectableMusicTiles serverId="S1" libraryId="L1" view="albums" albums={${JSON.stringify(albumCards)} as any} artists={null} /> : <LibraryBrowser items={items as any} serverId="S1" />}
           <Toaster /></>);`,
       resolveDir: process.cwd(),
       loader: "tsx",
@@ -69,7 +69,7 @@ async function main() {
     platform: "browser",
     format: "iife",
     jsx: "automatic",
-    alias: { "@": "./src", "next/link": "./scripts/stubs/next-link.tsx", "next/image": "./scripts/stubs/next-image.tsx" },
+    alias: { "@": "./src", "next/link": "./scripts/stubs/next-link.tsx", "next/image": "./scripts/stubs/next-image.tsx", "next/navigation": "./scripts/stubs/next-navigation.tsx" },
     define: { "process.env.NODE_ENV": '"development"' },
     outfile: `${dir}/bundle.js`,
     logLevel: "error",
@@ -134,26 +134,31 @@ async function main() {
     await page.waitFor(`document.body.innerText.includes('Added 10 to "Weekend"')`, 3000);
     check("the playlist gets all ten, in folder order", JSON.stringify((requests.find((r) => r.url === "/api/playlists/P1/items")?.body as { titleIds: string[] })?.titleIds) === JSON.stringify(folderAll), requests);
 
-    // A generic Audio library's folder: sort by name, duration or artist; the choice is kept in the links and used by Select all.
+    // A generic Audio library's folder: a search box and a sort menu like the Movies page's.
     await page.goto(`${base}/?mode=audio`);
-    await page.waitFor(`document.body.innerText.includes("Sort by")`, 5000);
-    const links = () => page.evaluate<Record<string, string>>(`Object.fromEntries([...document.querySelectorAll('nav[aria-label="Sort"] a')].map(a => [a.textContent.trim(), a.getAttribute("href") + (a.getAttribute("aria-current") ? " (current)" : "")]))`);
-    let l = await links();
-    check("the sort choices are Name (current), Duration and Artist", Object.keys(l).join() === "Name,Duration,Artist" && l.Name.endsWith("(current)"), l);
-    check("Duration starts longest first; Artist starts A to Z", l.Duration.includes("sort=duration&dir=desc") && l.Artist.includes("sort=artist&dir=asc"), l);
-    check("choosing the current sort turns it around", l.Name.includes("sort=name&dir=desc"), l);
-    await page.goto(`${base}/?mode=audio&sort=duration&dir=desc`);
-    await page.waitFor(`document.body.innerText.includes("Sort by")`, 5000);
-    l = await links();
-    check("with duration (longest first) chosen, it is current and flips to shortest first", l.Duration.endsWith("(current)") && l.Duration.includes("sort=duration&dir=asc"), l);
-    check("and Name goes back to the plain link (no sort in it)", l.Name === "/s/S1/library/L1?path=Mix", l);
+    check("the audio folder has a search box and a Sort menu", await page.waitFor(`!!document.querySelector('input[aria-label="Search this library"]') && !!document.querySelector('button[aria-label="Sort"]')`, 5000));
+    check("the sort menu shows the current sort (Name, A to Z)", (await page.evaluate<string>(`document.querySelector('button[aria-label="Sort"]').innerText`)).includes("Name"));
+    const navs = () => page.evaluate<string[]>(`window.__nav || []`);
+    await page.evaluate(`document.querySelector('button[aria-label="Sort"]').click()`);
+    await page.waitFor(`document.querySelectorAll('[role="menuitem"]').length === 3`, 3000);
+    check("the menu lists Name, Duration and Artist", (await page.evaluate<string>(`[...document.querySelectorAll('[role="menuitem"]')].map(i => i.textContent.trim()).join()`)) === "Name,Duration,Artist");
+    await page.evaluate(`[...document.querySelectorAll('[role="menuitem"]')].find(i => i.textContent.includes("Duration")).click()`);
+    check("choosing Duration opens the page sorted longest first", (await navs()).pop() === "/s/S1/library/L1?sort=duration&dir=desc&path=Mix", await navs());
+    await page.evaluate(`window.__nav = []; const i = document.querySelector('input[aria-label="Search this library"]'); const set = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set; set.call(i, "m83"); i.dispatchEvent(new Event("input", { bubbles: true }));`);
+    check("typing in the search box opens the results after a short pause", await page.waitFor(`(window.__nav || []).includes("/s/S1/library/L1?q=m83&path=Mix")`, 2000), await navs());
+    await page.goto(`${base}/?mode=audio&sort=duration&dir=desc&q=m83`);
+    await page.waitFor(`!!document.querySelector('input[aria-label="Search this library"]')`, 5000);
+    check("with a search, the results line shows and the folder trail goes", await page.evaluate<boolean>(`document.body.innerText.includes("Results for") && !document.querySelector('nav[aria-label="Folder"]')`));
+    check("the box keeps the search, and the sort menu keeps the sort", (await page.evaluate<string>(`document.querySelector('input[aria-label="Search this library"]').value`)) === "m83" && (await page.evaluate<string>(`document.querySelector('button[aria-label="Sort"]').innerText`)).includes("Duration"));
+    await page.evaluate(`window.__nav = []; document.querySelector('button[aria-label="Clear search"]').click()`);
+    check("clearing the search goes back to the folder, keeping the sort", (await navs()).pop() === "/s/S1/library/L1?sort=duration&dir=desc&path=Mix", await navs());
     requests.length = 0;
     await page.evaluate(`[...document.querySelectorAll("button")].find(b => b.textContent.trim() === "Select").click()`);
     const seenUrls: string[] = [];
     app.on("request", (r) => seenUrls.push(r.url!));
-    await page.evaluate(`[...document.querySelectorAll('[role="toolbar"] button')].find(b => b.textContent.trim() === "Select all in this folder").click()`);
+    await page.evaluate(`[...document.querySelectorAll('[role="toolbar"] button')].find(b => b.textContent.trim() === "Select all results").click()`);
     await page.waitFor(`document.querySelector('[role="toolbar"]').innerText.includes("10 selected")`, 3000);
-    check("Select all asks for the folder in the same order", seenUrls.some((u) => u.startsWith("/api/libraries/L1/folder-ids") && u.includes("sort=duration&dir=desc")), seenUrls);
+    check("Select all results asks for the same search in the same order", seenUrls.some((u) => u.startsWith("/api/libraries/L1/folder-ids") && u.includes("sort=duration&dir=desc") && u.includes("q=m83")), seenUrls);
 
     // A music library's albums: the actions work on the songs of the albums chosen.
     await page.goto(`${base}/?mode=music`);

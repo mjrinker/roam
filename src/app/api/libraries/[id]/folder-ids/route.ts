@@ -4,7 +4,7 @@ import { getCurrentServerMember } from "@/lib/auth/guards";
 import { resolveServerIdForLibrary } from "@/lib/auth/resolve-server";
 import { libraryActor } from "@/lib/content/library-access";
 import { db } from "@/lib/db/client";
-import { folderPlayableIds, normalizeFolderPath, parseFolderSort } from "@/lib/libraries/folder-browse";
+import { folderPlayableIds, normalizeFolderPath, parseFolderSearch, parseFolderSort } from "@/lib/libraries/folder-browse";
 
 const headers = { "Cache-Control": "private, no-store", Vary: "Cookie" };
 const notFound = () => NextResponse.json({ error: "Not found" }, { status: 404, headers });
@@ -20,6 +20,6 @@ export async function GET(request: Request, ctx: RouteContext<"/api/libraries/[i
   const serverId = await resolveServerIdForLibrary(id);
   const member = serverId ? await getCurrentServerMember(serverId) : null;
   if (!serverId || !member) return notFound();
-  const result = await folderPlayableIds(db, { actor: libraryActor(member, serverId), viewer: member.viewer, libraryId: id, path, sort });
+  const result = await folderPlayableIds(db, { actor: libraryActor(member, serverId), viewer: member.viewer, libraryId: id, path, sort, search: parseFolderSearch(params.get("q")) });
   return result ? NextResponse.json(result, { headers }) : notFound();
 }

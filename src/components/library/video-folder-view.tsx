@@ -3,8 +3,8 @@ import { Folder, FolderOpen } from "lucide-react";
 import { PosterCard } from "@/components/library/poster-card";
 import { PhotoTile } from "@/components/photos/photo-tile";
 import { SelectableFolderItems } from "@/components/library/selectable-views";
-import { DEFAULT_FOLDER_SORT, folderSortQuery, folderTrail, parentFolder, parseFolderSort, type FolderItem, type FolderSort, type FolderSortKey } from "@/lib/libraries/folder-browse";
-import { ArrowDown, ArrowUp } from "lucide-react";
+import { DEFAULT_FOLDER_SORT, folderLink, folderTrail, parentFolder, type FolderItem, type FolderSort } from "@/lib/libraries/folder-browse";
+import { FolderToolbar } from "@/components/library/folder-toolbar";
 
 /** One level of a video library, file-manager style: breadcrumbs, subfolders, then the videos in this folder. */
 export function VideoFolderView({
@@ -19,6 +19,7 @@ export function VideoFolderView({
   extraQuery,
   sort = DEFAULT_FOLDER_SORT,
   sortable = false,
+  search = null,
 }: {
   serverId: string;
   libraryId: string;
@@ -37,14 +38,13 @@ export function VideoFolderView({
   sort?: FolderSort;
   /** Whether to offer the Sort by choices (a generic Audio library). */
   sortable?: boolean;
+  /** A search through the whole library (instead of one folder), when there is one. */
+  search?: string | null;
 }) {
   const base = `/s/${serverId}/library/${libraryId}`;
   const extra = extraQuery ? `${extraQuery}&` : "";
   // A link to a folder (or this one) with a given sort kept, so choosing a sort or going into a folder doesn't lose it.
-  const link = (p: string, s: FolderSort) => {
-    const query = `${extra}${folderSortQuery(s)}${p === "" ? "" : `path=${encodeURIComponent(p)}`}`.replace(/&$/, "");
-    return query ? `${base}?${query}` : base;
-  };
+  const link = (p: string, s: FolderSort) => folderLink({ base, extra, path: p, sort: s });
   const at = (p: string) => link(p, sort);
   const parent = parentFolder(path);
   const trail = folderTrail(path);
@@ -52,6 +52,15 @@ export function VideoFolderView({
 
   return (
     <div className="flex flex-col gap-6">
+      {sortable && <FolderToolbar base={base} extra={extra} path={path} sort={sort} q={search} />}
+
+      {search && (
+        <p className="text-sm text-muted-foreground">
+          Results for &ldquo;{search}&rdquo; across the whole library.
+        </p>
+      )}
+
+      {!search && (
       <nav aria-label="Folder" className="flex flex-wrap items-center gap-1.5 text-sm text-muted-foreground">
         <Link href={at("")} className={path === "" ? "font-medium text-foreground" : "hover:text-foreground"}>
           {libraryName}
@@ -69,14 +78,15 @@ export function VideoFolderView({
           </span>
         ))}
       </nav>
+      )}
 
-      {parent !== null && (
+      {!search && parent !== null && (
         <Link href={at(parent)} className="flex w-fit items-center gap-2 rounded-lg px-2 py-1 text-sm text-muted-foreground hover:bg-white/[0.06] hover:text-foreground">
           <FolderOpen className="size-4" /> Up one level
         </Link>
       )}
 
-      {folders.length > 0 && (
+      {!search && folders.length > 0 && (
         <ul className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
           {folders.map((name) => (
             <li key={name}>
@@ -107,29 +117,7 @@ export function VideoFolderView({
         </ul>
       )}
 
-      {sortable && items.length > 1 && (
-        <nav aria-label="Sort" className="flex flex-wrap items-center gap-2 text-sm">
-          <span className="text-muted-foreground">Sort by</span>
-          {(["name", "duration", "artist"] as FolderSortKey[]).map((key) => {
-            const active = sort.key === key;
-            // Choosing the sort already in use turns it around; choosing another starts it the usual way round.
-            const next = active ? { key, dir: sort.dir === "asc" ? ("desc" as const) : ("asc" as const) } : parseFolderSort(key, null);
-            return (
-              <Link
-                key={key}
-                href={link(path, next)}
-                aria-current={active ? "true" : undefined}
-                className={`flex items-center gap-1 rounded-full px-3 py-1 ring-1 transition ${active ? "bg-primary/15 text-primary ring-primary/40" : "bg-white/[0.06] text-muted-foreground ring-white/[0.08] hover:bg-white/[0.1] hover:text-foreground"}`}
-              >
-                {key === "name" ? "Name" : key === "duration" ? "Duration" : "Artist"}
-                {active && (sort.dir === "asc" ? <ArrowUp className="size-3.5" /> : <ArrowDown className="size-3.5" />)}
-              </Link>
-            );
-          })}
-        </nav>
-      )}
-
-      {items.length > 0 && (itemKind === "movie" || itemKind === "audiobook") && <SelectableFolderItems serverId={serverId} libraryId={libraryId} path={path} items={items} itemKind={itemKind} sort={sort} />}
+      {items.length > 0 && (itemKind === "movie" || itemKind === "audiobook") && <SelectableFolderItems serverId={serverId} libraryId={libraryId} path={path} items={items} itemKind={itemKind} sort={sort} search={search} />}
 
       {items.length > 0 && itemKind === "ebook" && (
         <ul className="grid grid-cols-2 gap-x-4 gap-y-6 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6">
@@ -156,7 +144,7 @@ export function VideoFolderView({
         <div className="mx-auto flex max-w-sm flex-col items-center gap-3 py-24 text-center">
           <Folder className="size-8 text-muted-foreground/60" />
           <p className="text-lg font-medium">Nothing here</p>
-          <p className="text-sm text-muted-foreground">There is nothing in this folder yet.</p>
+          <p className="text-sm text-muted-foreground">{search ? `No files match “${search}”.` : "There is nothing in this folder yet."}</p>
         </div>
       )}
 

@@ -63,6 +63,17 @@ describe("every playable file in a folder", () => {
     expect(await order("sort=name&dir=desc")).toEqual([c.id, b.id, a.id]);
     expect(await order("sort=nonsense")).toEqual([a.id, b.id, c.id]);
   });
+  it("lists the files a search finds across the whole library, in the sort asked for", async () => {
+    const w = await world();
+    const lib = await makeLibrary(db, w.server.id, "audio", "everyone");
+    const a = await makeTitle(db, lib.id, { kind: "audiobook", name: "Song A", folderPath: "One", sortKey: "a", runtimeSeconds: 10, authors: ["Zed"] });
+    const b = await makeTitle(db, lib.id, { kind: "audiobook", name: "Song B", folderPath: "Two", sortKey: "b", runtimeSeconds: 30, authors: ["Zed"] });
+    await makeTitle(db, lib.id, { kind: "audiobook", name: "Other", folderPath: "One", sortKey: "c", runtimeSeconds: 20, authors: ["Mia"] });
+    const ids = async (query: string) => (await (await get(folderIds, lib.id, query)).json()).ids;
+    expect(await ids("q=zed&sort=duration&dir=desc")).toEqual([b.id, a.id]);
+    expect(await ids("q=zed&path=One")).toEqual([a.id, b.id]); // the folder is ignored while searching
+    expect(await ids("q=%20%20")).toEqual([]); // an empty search is no search: the (empty) root folder
+  });
   it("leaves out what an age limit hides, and is the same 404 for a hidden library, another server's, a bad path or id", async () => {
     const w = await world();
     const lib = await makeLibrary(db, w.server.id, "video", "everyone");

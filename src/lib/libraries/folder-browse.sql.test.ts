@@ -1,6 +1,6 @@
 /** Folder browsing for video libraries: path rules, nesting, hiding, and paging on a real in-memory Postgres. */
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { folderPlayableIds, folderTrail, listFolder, normalizeFolderPath, parentFolder, parseFolderSort } from "./folder-browse";
+import { folderLink, folderPlayableIds, folderTrail, listFolder, normalizeFolderPath, parentFolder, parseFolderSearch, parseFolderSort } from "./folder-browse";
 import { naturalSortKey } from "./sort-key";
 import type { LibraryActor } from "@/lib/content/library-access";
 import { createTestDb, joinServer, makeAccount, makeLibrary, makeServer, makeTitle, type TestDb } from "@/lib/playlists/test-db";
@@ -235,5 +235,74 @@ describe("sorting a folder's files", () => {
     const ids = (await folderPlayableIds(db, { actor: w.actor(w.member), viewer: adult, libraryId: w.library.id, path: "Mix", sort }))!.ids;
     expect(ids).toEqual(page);
     expect((await names(w, ["duration", "asc"]))?.[0]).toBe("Unknown length");
+  });
+});
+
+describe("searching a library's files", () => {
+  async function shelf() {
+    const w = await world();
+    await w.add("Midnight City", "Pop/M83", { authors: ["M83"], seriesName: "Hurry Up, We're Dreaming", kind: "audiobook" });
+    await w.add("Wait", "Pop/M83", { authors: ["M83"], seriesName: "Hurry Up, We're Dreaming", kind: "audiobook" });
+    await w.add("Intro", "Rock/Others", { authors: ["The Xx"], seriesName: "xx", kind: "audiobook" });
+    await w.add("100% pure_fun", "", { authors: null, kind: "audiobook" });
+    return w;
+  }
+  const search = async (w: Awaited<ReturnType<typeof world>>, text: string, path = "") =>
+    (await listFolder(db, { actor: w.actor(w.member), viewer: adult, libraryId: w.library.id, path, search: text }))?.items.map((i) => i.name);
+
+  it("finds files by name, artist, album or folder across the whole library, ignoring case", async () => {
+    const w = await shelf();
+    expect(await search(w, "midnight")).toEqual(["Midnight City"]);
+    expect((await search(w, "m83"))?.sort()).toEqual(["Midnight City", "Wait"]); // by artist (and folder)
+    expect((await search(w, "hurry up"))?.sort()).toEqual(["Midnight City", "Wait"]); // by album
+    expect(await search(w, "THE XX")).toEqual(["Intro"]);
+    expect(await search(w, "rock/oth")).toEqual(["Intro"]); // by folder
+    expect(await search(w, "nothing like this")).toEqual([]);
+  });
+  it("takes % and _ literally, ignores the folder it was asked from, and lists no folders", async () => {
+    const w = await shelf();
+    expect(await search(w, "100%")).toEqual(["100% pure_fun"]);
+    expect(await search(w, "e_f")).toEqual(["100% pure_fun"]);
+    expect(await search(w, "%")).toEqual(["100% pure_fun"]); // not "everything"
+    expect(await search(w, "m83", "Rock")).toHaveLength(2);
+    const page = await listFolder(db, { actor: w.actor(w.member), viewer: adult, libraryId: w.library.id, path: "", search: "m83" });
+    expect(page?.folders).toEqual([]);
+  });
+  it("never finds what this profile can't see, and follows the sort and the paging", async () => {
+    const w = await world();
+    await w.add("Kid song", "", { authors: ["Zed"], runtimeSeconds: 10, ratingAges: { ANY: 0 }, kind: "audiobook" });
+    await w.add("Adult song", "", { authors: ["Zed"], runtimeSeconds: 99, ratingAges: { ANY: 17 }, kind: "audiobook" });
+    expect(await listFolder(db, { actor: w.actor(w.member), viewer: kid, libraryId: w.library.id, path: "", search: "zed" }).then((p) => p?.items.map((i) => i.name))).toEqual(["Kid song"]);
+    for (let i = 0; i < 9; i++) await w.add(`Zed track ${i}`, "Zed", { authors: ["Zed"], runtimeSeconds: i * 10, kind: "audiobook" });
+    const sort = parseFolderSort("duration", "asc");
+    const all = (await folderPlayableIds(db, { actor: w.actor(w.member), viewer: adult, libraryId: w.library.id, path: "", search: "zed", sort }))!.ids;
+    const seen: string[] = [];
+    let after: { key: string; id: string } | null = null;
+    for (let guard = 0; guard < 10; guard++) {
+      const page: Awaited<ReturnType<typeof listFolder>> = await listFolder(db, { actor: w.actor(w.member), viewer: adult, libraryId: w.library.id, path: "", search: "zed", limit: 3, after, sort });
+      seen.push(...page!.items.map((i) => i.id));
+      after = page!.nextCursor;
+      if (!after) break;
+    }
+    expect(seen).toEqual(all);
+    expect(all).toHaveLength(11);
+  });
+});
+
+describe("search text and links", () => {
+  it("cleans a search from a URL", () => {
+    expect(parseFolderSearch("  hello \n")).toBe("hello");
+    expect(parseFolderSearch("")).toBeNull();
+    expect(parseFolderSearch(undefined)).toBeNull();
+    expect(parseFolderSearch("   ")).toBeNull();
+    expect(parseFolderSearch("x".repeat(200))).toHaveLength(64);
+  });
+  it("builds a library address from what the page carries, in a fixed order, leaving out the defaults", () => {
+    const base = "/s/S/library/L";
+    expect(folderLink({ base })).toBe(base);
+    expect(folderLink({ base, sort: parseFolderSort("name", "asc") })).toBe(base);
+    expect(folderLink({ base, sort: parseFolderSort("duration", "desc"), q: "a b", path: "My Music/Rock" })).toBe(`${base}?sort=duration&dir=desc&q=a%20b&path=My%20Music%2FRock`);
+    expect(folderLink({ base, extra: "view=folders&", q: "x" })).toBe(`${base}?view=folders&q=x`);
+    expect(folderLink({ base, path: "A" })).toBe(`${base}?path=A`);
   });
 });

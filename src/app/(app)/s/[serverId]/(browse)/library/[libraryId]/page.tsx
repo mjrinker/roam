@@ -15,7 +15,7 @@ import { needsAudioFix } from "@/lib/scan/codec-support";
 import { Button } from "@/components/ui/button";
 import { Breadcrumbs } from "@/components/shell/breadcrumbs";
 import { VideoFolderView } from "@/components/library/video-folder-view";
-import { folderSortQuery, listFolder as listVideoFolder, normalizeFolderPath, parseFolderSort } from "@/lib/libraries/folder-browse";
+import { folderSortQuery, listFolder as listVideoFolder, normalizeFolderPath, parseFolderSearch, parseFolderSort } from "@/lib/libraries/folder-browse";
 import { isFileTreeLibraryKind, isMusicLibraryKind, isPhotoLibraryKind } from "@/lib/libraries/profile";
 import { MusicLibraryView, MusicViewTabs } from "@/components/music/music-library-view";
 import { parseSearch } from "@/lib/photos/search";
@@ -137,6 +137,7 @@ export default async function LibraryDetailPage({
     const after = decodeCursor(typeof query.after === "string" ? query.after : null, folderCursorSchema);
     // Only a generic Audio library can be sorted by name, duration or artist.
     const sort = parseFolderSort(library.kind === "audio" && typeof query.sort === "string" ? query.sort : null, library.kind === "audio" && typeof query.dir === "string" ? query.dir : null);
+    const search = library.kind === "audio" ? parseFolderSearch(typeof query.q === "string" ? query.q : null) : null;
     const page = await listVideoFolder(db, {
       actor: lib,
       viewer,
@@ -146,9 +147,10 @@ export default async function LibraryDetailPage({
       limit: 60,
       after: after === "invalid" ? null : after,
       sort,
+      search,
     });
     if (!page) notFound();
-    const here = `/s/${serverId}/library/${libraryId}?${photoView ? "view=albums&" : ""}${musicView ? "view=folders&" : ""}${folderSortQuery(sort)}${path ? `path=${encodeURIComponent(path)}&` : ""}`;
+    const here = `/s/${serverId}/library/${libraryId}?${photoView ? "view=albums&" : ""}${musicView ? "view=folders&" : ""}${folderSortQuery(sort)}${search ? `q=${encodeURIComponent(search)}&` : ""}${path ? `path=${encodeURIComponent(path)}&` : ""}`;
     return (
       <div className="flex flex-col gap-6 px-4 py-8 sm:px-8">
         <Breadcrumbs serverId={serverId} trail={[{ label: library.name }]} className="-mb-2" />
@@ -175,6 +177,7 @@ export default async function LibraryDetailPage({
           extraQuery={photoView ? "view=albums" : musicView ? "view=folders" : undefined}
           sort={sort}
           sortable={library.kind === "audio"}
+          search={search}
         />
       </div>
     );

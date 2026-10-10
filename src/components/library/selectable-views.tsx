@@ -34,7 +34,7 @@ function inOrder(selected: ReadonlySet<string>, shown: readonly string[], whole:
  * The files of one folder of a video or audio library, with Select: choose some, or "Select all in this folder" (every page of it, not
  * only the ones loaded), then add them to a playlist or download them.
  */
-export function SelectableFolderItems({ serverId, libraryId, path, items, itemKind, sort }: { serverId: string; libraryId: string; path: string; items: FolderItem[]; itemKind: "movie" | "audiobook"; sort: FolderSort }) {
+export function SelectableFolderItems({ serverId, libraryId, path, items, itemKind, sort, search = null }: { serverId: string; libraryId: string; path: string; items: FolderItem[]; itemKind: "movie" | "audiobook"; sort: FolderSort; search?: string | null }) {
   const sel = useSelection();
   const [whole, setWhole] = useState<string[] | null>(null);
   const [reading, setReading] = useState(false);
@@ -44,7 +44,7 @@ export function SelectableFolderItems({ serverId, libraryId, path, items, itemKi
   async function selectAll() {
     setReading(true);
     try {
-      const ids = await getIds(`/api/libraries/${libraryId}/folder-ids?${folderSortQuery(sort)}path=${encodeURIComponent(path)}`);
+      const ids = await getIds(`/api/libraries/${libraryId}/folder-ids?${folderSortQuery(sort)}${search ? `q=${encodeURIComponent(search)}&` : ""}path=${encodeURIComponent(path)}`);
       setWhole(ids);
       sel.selectMany(ids);
     } catch (e) {
@@ -63,7 +63,7 @@ export function SelectableFolderItems({ serverId, libraryId, path, items, itemKi
         <SelectionBar
           serverId={serverId}
           count={sel.selected.size}
-          selectAllLabel="Select all in this folder"
+          selectAllLabel={search ? "Select all results" : "Select all in this folder"}
           allSelected={allSelected}
           selectingAll={reading}
           onSelectAll={selectAll}

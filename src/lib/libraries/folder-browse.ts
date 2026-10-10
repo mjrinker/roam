@@ -70,6 +70,35 @@ export function folderSortQuery(sort: FolderSort): string {
   return sort.key === DEFAULT_FOLDER_SORT.key && sort.dir === DEFAULT_FOLDER_SORT.dir ? "" : `sort=${sort.key}&dir=${sort.dir}&`;
 }
 
+/** The longest search the folder views take. */
+export const MAX_FOLDER_SEARCH = 64;
+
+/** A search from a URL: trimmed, limited in length, null when there is nothing to look for. */
+export function parseFolderSearch(raw: string | null | undefined): string | null {
+  const text = (raw ?? "").replace(/[\u0000-\u001f\u007f]/g, " ").trim().slice(0, MAX_FOLDER_SEARCH);
+  return text === "" ? null : text;
+}
+
+/**
+ * The address of a library page: the extra query it always carries, the sort, a search, and the folder - in a fixed order so links are
+ * stable. The default sort and an empty search leave nothing in the address.
+ */
+export function folderLink(args: { base: string; extra?: string; path?: string; sort?: FolderSort; q?: string | null }): string {
+  const parts = [
+    args.extra ? args.extra.replace(/&$/, "") : "",
+    args.sort ? folderSortQuery(args.sort).replace(/&$/, "") : "",
+    args.q ? `q=${encodeURIComponent(args.q)}` : "",
+    args.path ? `path=${encodeURIComponent(args.path)}` : "",
+  ].filter(Boolean);
+  return parts.length ? `${args.base}?${parts.join("&")}` : args.base;
+}
+
+/** SQL: the file's name, artist, album (its tags') or folder contains the text (case-insensitive, `%` and `_` taken literally). */
+function matchesSearch(text: string) {
+  const like = `%${escapeLike(text)}%`;
+  return sql`(${titles.name} ILIKE ${like} ESCAPE '\\' OR coalesce(${titles.authors}::text, '') ILIKE ${like} ESCAPE '\\' OR coalesce(${titles.seriesName}, '') ILIKE ${like} ESCAPE '\\' OR coalesce(${titles.folderPath}, '') ILIKE ${like} ESCAPE '\\')`;
+}
+
 /** The value a file sorts by, as text so one cursor shape fits every sort: ties fall back to the file name's natural order. */
 function sortValue(sort: FolderSort) {
   const name = sql`coalesce(${titles.sortKey}, lower(${titles.name}))`;
@@ -126,6 +155,8 @@ export async function listFolder(
     after?: { key: string; id: string } | null;
     /** How the files are ordered (by name when omitted); a cursor is only good for the sort it came from. */
     sort?: FolderSort;
+    /** Looks through the whole library for files whose name, artist, album or folder contain this text (the folder `path` is then ignored, and no subfolders are listed). */
+    search?: string | null;
   }
 ): Promise<FolderPage | null> {
   const limit = Math.min(Math.max(args.limit ?? 60, 1), 200);
@@ -143,7 +174,8 @@ export async function listFolder(
       : sql`${titles.folderPath} LIKE ${escapeLike(args.path) + "/%"} ESCAPE '\\'`;
 
   const firstPage = !args.after;
-  const folderRows = firstPage
+  const searching = !!args.search;
+  const folderRows = firstPage && !searching
     ? await ex
         .selectDistinct({ name: sql<string>`split_part(${titles.folderPath}, '/', ${depth + 1})` })
         .from(titles)
@@ -177,7 +209,7 @@ export async function listFolder(
     .where(
       and(
         visible,
-        sql`coalesce(${titles.folderPath}, '') = ${here}`,
+        searching ? matchesSearch(args.search as string) : sql`coalesce(${titles.folderPath}, '') = ${here}`,
         args.after
           ? or(descending ? sql`${listKey} < ${args.after.key}` : sql`${listKey} > ${args.after.key}`, and(sql`${listKey} = ${args.after.key}`, descending ? lt(titles.id, args.after.id) : gt(titles.id, args.after.id)))
           : undefined
@@ -191,10 +223,10 @@ export async function listFolder(
   const last = page[page.length - 1];
 
   // A non-root folder with nothing visible in it (no videos, no visible subfolders) doesn't exist for this viewer.
-  if (args.path !== "" && firstPage && folders.length === 0 && page.length === 0) return null;
+  if (!searching && args.path !== "" && firstPage && folders.length === 0 && page.length === 0) return null;
   // The library itself must be visible and of the right kind even when it's empty: a library with
   // no visible titles at the root is an empty page, but only for a library that passes the checks.
-  if (args.path === "" && firstPage && folders.length === 0 && page.length === 0) {
+  if ((searching || args.path === "") && firstPage && folders.length === 0 && page.length === 0) {
     const [lib] = await ex
       .select({ id: libraries.id })
       .from(libraries)
@@ -231,7 +263,7 @@ export const MAX_SELECT_IDS = 5000;
  */
 export async function folderPlayableIds(
   ex: Db,
-  args: { actor: LibraryActor; viewer: AccessProfile; libraryId: string; path: string; max?: number; sort?: FolderSort }
+  args: { actor: LibraryActor; viewer: AccessProfile; libraryId: string; path: string; max?: number; sort?: FolderSort; search?: string | null }
 ): Promise<{ ids: string[]; truncated: boolean } | null> {
   const max = args.max ?? MAX_SELECT_IDS;
   const sort = args.sort ?? DEFAULT_FOLDER_SORT;
@@ -250,7 +282,7 @@ export async function folderPlayableIds(
       and(
         eq(titles.libraryId, args.libraryId),
         inArray(titles.kind, ["movie", "audiobook"]),
-        sql`coalesce(${titles.folderPath}, '') = ${args.path}`,
+        args.search ? matchesSearch(args.search) : sql`coalesce(${titles.folderPath}, '') = ${args.path}`,
         libraryVisible(ex, args.actor),
         contentFilter(args.viewer, titles.ratingAges)
       )
