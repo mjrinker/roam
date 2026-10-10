@@ -2,6 +2,7 @@
 
 import { createContext, useContext, useEffect, useMemo, useReducer, useRef, useState, type ReactNode } from "react";
 import { usePathname } from "next/navigation";
+import { trackPage } from "@/lib/player/previous-page";
 import { useAudioActions, useAudioPlayer } from "@/components/audio/audio-player-provider";
 import { FloatingVideoBar } from "@/components/player/floating-video-bar";
 import { SeamlessPlayer, type PlayerControls, type PlayerStatus } from "@/components/player/seamless-player";
@@ -53,6 +54,7 @@ export function VideoSessionProvider({ children, initial = NO_SESSION }: { child
   const audio = useAudioActions();
   const audioHasBook = !!useAudioPlayer()?.book;
   const pathname = usePathname();
+  useEffect(() => trackPage(pathname), [pathname]);
 
   const actions = useMemo<VideoSessionActions>(
     () => ({

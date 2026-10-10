@@ -1,5 +1,6 @@
 "use client";
 
+import { cameFrom } from "@/lib/player/previous-page";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ArrowLeft,
@@ -874,6 +875,11 @@ export function SeamlessPlayer({
             }
             setLeaving(true);
             setTimeout(() => setLeaving(false), 8000);
+            // Came from that page: step back to it rather than adding it to the history again.
+            if (cameFrom(backHref)) {
+              e.preventDefault();
+              window.history.back();
+            }
           }}
           className={cn(
             "flex size-10 shrink-0 items-center justify-center rounded-full bg-white/10 text-white backdrop-blur transition hover:bg-white/25",
@@ -935,7 +941,13 @@ export function SeamlessPlayer({
                     if (onBack) {
                       e.preventDefault();
                       onBack();
-                    } else setLeaving(true);
+                    } else {
+                      setLeaving(true);
+                      if (cameFrom(backHref)) {
+                        e.preventDefault();
+                        window.history.back();
+                      }
+                    }
                   }}
                 />
               }
