@@ -158,10 +158,18 @@ export interface TmdbCastMember {
   order?: number;
 }
 
-/** A movie's or show's billed cast, top-billed first (a show's is its main cast across the run). */
-export async function getCredits(kind: "movie" | "show", tmdbId: number): Promise<TmdbCastMember[]> {
-  const data = await tmdbFetch<{ cast?: TmdbCastMember[] }>(kind === "movie" ? `/movie/${tmdbId}/credits` : `/tv/${tmdbId}/credits`);
-  return [...(data.cast ?? [])].sort((a, b) => (a.order ?? 9999) - (b.order ?? 9999));
+export interface TmdbCrewMember {
+  id: number;
+  name: string;
+  job?: string | null;
+  department?: string | null;
+  profile_path?: string | null;
+}
+
+/** A movie's or show's billed cast (top-billed first; a show's is its main cast across the run) and its crew in TMDB's order. */
+export async function getCredits(kind: "movie" | "show", tmdbId: number): Promise<{ cast: TmdbCastMember[]; crew: TmdbCrewMember[] }> {
+  const data = await tmdbFetch<{ cast?: TmdbCastMember[]; crew?: TmdbCrewMember[] }>(kind === "movie" ? `/movie/${tmdbId}/credits` : `/tv/${tmdbId}/credits`);
+  return { cast: [...(data.cast ?? [])].sort((a, b) => (a.order ?? 9999) - (b.order ?? 9999)), crew: data.crew ?? [] };
 }
 
 export async function getSeasonEpisodes(tmdbId: number, seasonNumber: number): Promise<TmdbEpisode[]> {

@@ -707,6 +707,26 @@ export const titleCast = pgTable(
   (t) => [primaryKey({ columns: [t.titleId, t.personId] }), index("title_cast_person_idx").on(t.personId)]
 );
 
+// ── title_crew ───────────────────────────────────────────────────────────
+// The key crew of a movie or show from TMDB (directors, writers, producers, composer ...), one row per person per job. As with the cast,
+// a person is their TMDB person id, so the same director links across titles.
+
+export const titleCrew = pgTable(
+  "title_crew",
+  {
+    titleId: uuid("title_id")
+      .notNull()
+      .references(() => titles.id, { onDelete: "cascade" }),
+    personId: integer("person_id").notNull(),
+    name: text("name").notNull(),
+    job: text("job").notNull(),
+    photoUrl: text("photo_url"),
+    // Order within the title: by how key the job is, then TMDB's own order.
+    position: integer("position").notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.titleId, t.personId, t.job] }), index("title_crew_person_idx").on(t.personId)]
+);
+
 // ── title_extras ─────────────────────────────────────────────────────────
 // A movie's trailers, behind-the-scenes videos and other extras, found in its folder by Plex's naming (a "-trailer" style suffix on a
 // file, or a "Trailers" style subfolder). Each one's video is a media_files row with owner_kind='extra' and owner_id = this row's id,

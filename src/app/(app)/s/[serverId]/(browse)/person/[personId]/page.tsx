@@ -38,7 +38,7 @@ export default async function PersonPage({ params }: PageProps<"/s/[serverId]/pe
       <ul className="grid grid-cols-2 gap-x-4 gap-y-6 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6">
         {person.items.map((item) => (
           <li key={item.id} className="min-w-0">
-            <PosterCard serverId={serverId} title={{ id: item.id, kind: item.kind, name: item.name, year: item.year, posterUrl: item.posterUrl, subtitle: [item.year, item.character ? `as ${item.character}` : null].filter(Boolean).join(" · ") || null }} />
+            <PosterCard serverId={serverId} title={{ id: item.id, kind: item.kind, name: item.name, year: item.year, posterUrl: item.posterUrl, subtitle: [item.year, ...item.roles].filter(Boolean).join(" · ") || null }} />
           </li>
         ))}
       </ul>

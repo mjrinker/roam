@@ -21,8 +21,9 @@ import { MarkDoneButton } from "@/components/library/mark-done-button";
 import { MoreMenu } from "@/components/shell/more-menu";
 import { DownloadButton } from "@/components/offline/download-button";
 import { libraryHasDoneState } from "@/lib/libraries/profile";
-import { loadTitleCast } from "@/lib/cast/queries";
+import { loadTitleCast, loadTitleCrew } from "@/lib/cast/queries";
 import { CastRow } from "@/components/library/cast-row";
+import { CrewRow } from "@/components/library/crew-row";
 import { loadTitleExtras } from "@/lib/extras/load";
 import { ExtrasSection } from "@/components/library/extras-section";
 import { Breadcrumbs } from "@/components/shell/breadcrumbs";
@@ -77,6 +78,7 @@ export default async function TitleDetailPage({
 
   const extras = await loadTitleExtras(db, title.id);
   const cast = await loadTitleCast(db, title.id);
+  const crew = await loadTitleCrew(db, title.id);
 
   const ready = segments.length > 0 && segments.every((s) => s.durationSeconds != null);
   const hasProgress = !!state && !state.finished && state.positionSeconds > 0;
@@ -109,6 +111,7 @@ export default async function TitleDetailPage({
       below={
         <>
           <CastRow serverId={serverId} cast={cast} />
+          <CrewRow serverId={serverId} crew={crew} />
           <ExtrasSection serverId={serverId} groups={extras} />
         </>
       }
