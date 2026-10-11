@@ -562,6 +562,36 @@ async function readChpl(r: RangeReader, udta: Box): Promise<Mp4Chapter[] | null>
  * read (matching a single codec per track, which is what ffmpeg's default
  * stream selection sees too).
  */
+/** The object type of an `mp4a` sample entry's esds (0x40 is AAC, 0x6B and 0x69 are MP3), or null when it can't be read. `from` is where the entry's child boxes start. */
+function esdsObjectType(view: DataView, from: number): number | null {
+  const bytes = new Uint8Array(view.buffer, view.byteOffset, view.byteLength);
+  for (let i = from; i + 12 <= bytes.length; i++) {
+    if (bytes[i] !== 0x65 || bytes[i + 1] !== 0x73 || bytes[i + 2] !== 0x64 || bytes[i + 3] !== 0x73) continue; // "esds"
+    let p = i + 8; // past the type and the version/flags
+    // A descriptor is a tag, a length of 1 to 4 bytes (high bit = more follow), then its body.
+    const readLength = (): number | null => {
+      let len = 0;
+      for (let n = 0; n < 4; n++) {
+        if (p >= bytes.length) return null;
+        const b = bytes[p++];
+        len = (len << 7) | (b & 0x7f);
+        if (!(b & 0x80)) return len;
+      }
+      return null;
+    };
+    if (bytes[p++] !== 0x03 || readLength() === null) return null; // ES descriptor
+    p += 2; // ES_ID
+    const flags = bytes[p++];
+    if (flags & 0x80) p += 2;
+    if (flags & 0x40) p += 1 + bytes[p];
+    if (flags & 0x20) p += 2;
+    if (bytes[p++] !== 0x04 || readLength() === null) return null; // decoder config descriptor
+    return p < bytes.length ? bytes[p] : null;
+  }
+  return null;
+}
+const isMp3ObjectType = (t: number | null): boolean => t === 0x6b || t === 0x69;
+
 async function readStsdCodec(r: RangeReader, stbl: Box): Promise<{ codec: string | null; channelCount: number | null }> {
   for await (const child of childBoxes(r, stbl, 4096)) {
     if (child.type !== "stsd") continue;
@@ -569,7 +599,10 @@ async function readStsdCodec(r: RangeReader, stbl: Box): Promise<{ codec: string
     if (view.byteLength < 16) break;
     // An audio sample entry puts its 16-bit channelcount 24 bytes past the entry's format fourcc (stsd payload offset 32).
     const channelCount = view.byteLength >= 34 ? view.getUint16(32, false) : null;
-    return { codec: fourcc(view, 12), channelCount: channelCount || null };
+    let codec = fourcc(view, 12);
+    // "mp4a" is also how MP3 is filed inside an MP4; the sample entry's esds says which (object type 0x6B or 0x69 is MP3).
+    if (codec === "mp4a" && isMp3ObjectType(esdsObjectType(view, 44))) codec = "mp3";
+    return { codec, channelCount: channelCount || null };
   }
   return { codec: null, channelCount: null };
 }

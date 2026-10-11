@@ -190,6 +190,16 @@ function stsd(codec: string): number[] {
   return box("stsd", [0, 0, 0, 0, ...u32be(1), ...entry]);
 }
 
+/** An `mp4a` stsd whose entry carries an esds naming this object type (0x40 AAC, 0x6B MP3). */
+function stsdMp4a(objectType: number): number[] {
+  const dec = [0x04, 0x80, 0x80, 0x80, 0x11, objectType, 0x15, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+  const es = [0x03, 0x80, 0x80, 0x80, 0x22, 0, 1, 0, ...dec, 0x06, 0x80, 0x80, 0x80, 0x01, 0x02];
+  const esds = box("esds", [0, 0, 0, 0, ...es]);
+  const entryBody = [...zeros(6), 0, 1, ...zeros(8), 0, 2, 0, 16, 0, 0, 0, 0, 0xac, 0x44, 0, 0, ...esds];
+  const entry = [...u32be(8 + entryBody.length), ...fourcc("mp4a"), ...entryBody];
+  return box("stsd", [0, 0, 0, 0, ...u32be(1), ...entry]);
+}
+
 function trakWithCodec(trackId: number, handler: string, timescale: number, codec: string): number[] {
   return box("trak", [
     ...tkhd(trackId),
@@ -506,5 +516,19 @@ describe("probeMp4 with a compressed header (moov/cmov)", () => {
     for (const bytes of [mov(compressedMoov(plain, "lzma")), mov(compressedMoov(plain, "zlib", true))]) {
       await expect(probeMp4(fetcherFromSegments([{ offset: 0, bytes }]), bytes.length)).rejects.toBeInstanceOf(Mp4DurationError);
     }
+  });
+});
+
+describe("probeMp4 audio object type", () => {
+  const audioTrak = (objectType: number) =>
+    box("trak", [...tkhd(1), ...box("mdia", [...mdhd(44100), ...hdlr("soun"), ...box("minf", box("stbl", stsdMp4a(objectType)))])]);
+  const probe = async (objectType: number) => {
+    const bytes = [...FTYP, ...box("moov", [...mvhdV0(1000, 60_000), ...audioTrak(objectType)])];
+    return (await probeMp4(fetcherFromSegments([{ offset: 0, bytes }]), bytes.length)).audioCodec;
+  };
+  it("reports MP3 filed under mp4a as mp3, and leaves AAC as mp4a", async () => {
+    expect(await probe(0x6b)).toBe("mp3");
+    expect(await probe(0x69)).toBe("mp3");
+    expect(await probe(0x40)).toBe("mp4a");
   });
 });
