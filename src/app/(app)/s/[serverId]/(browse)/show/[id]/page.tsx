@@ -20,6 +20,8 @@ import { MarkDoneButton } from "@/components/library/mark-done-button";
 import { MoreMenu } from "@/components/shell/more-menu";
 import { AddToPlaylistMenu } from "@/components/playlists/add-to-playlist-menu";
 import { Breadcrumbs } from "@/components/shell/breadcrumbs";
+import { loadTitleCast } from "@/lib/cast/queries";
+import { CastRow } from "@/components/library/cast-row";
 import { SeasonEpisodes, type EpisodeRowData } from "@/components/library/season-episodes";
 
 export default async function ShowDetailPage({
@@ -140,6 +142,7 @@ export default async function ShowDetailPage({
     : null;
 
   const totalEpisodes = allEpisodes.length;
+  const cast = await loadTitleCast(db, show.id);
 
   return (
     <div className="flex flex-col gap-8">
@@ -191,6 +194,9 @@ export default async function ShowDetailPage({
         episodes={rows}
         initialSeasonId={nextRow?.seasonId ?? allSeasons[0]?.id ?? ""}
       />
+      <div className="pb-16">
+        <CastRow serverId={serverId} cast={cast} />
+      </div>
     </div>
   );
 }

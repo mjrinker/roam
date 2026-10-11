@@ -417,6 +417,8 @@ export const titles = pgTable(
     rottenTomatoesScore: integer("rotten_tomatoes_score"),
     metascore: integer("metascore"),
     externalRatingsAttemptedAt: timestamp("external_ratings_attempted_at", { withTimezone: true }),
+    // When this title's cast was last asked of TMDB (null = not yet); the cast itself is in title_cast.
+    castAttemptedAt: timestamp("cast_attempted_at", { withTimezone: true }),
 
     addedAt: timestamp("added_at", { withTimezone: true })
       .notNull()
@@ -683,6 +685,26 @@ export const mediaFiles = pgTable(
     // `upsertVariant` (media-files.ts) targets this directly.
     uniqueIndex("media_files_variant_of_idx").on(t.variantOfMediaFileId),
   ]
+);
+
+// ── title_cast ───────────────────────────────────────────────────────────
+// The billed cast of a movie or show, from TMDB. A person is identified by their TMDB person id, so the same actor links across titles;
+// there is no separate people table (the name and photo are copied onto each row).
+
+export const titleCast = pgTable(
+  "title_cast",
+  {
+    titleId: uuid("title_id")
+      .notNull()
+      .references(() => titles.id, { onDelete: "cascade" }),
+    personId: integer("person_id").notNull(),
+    name: text("name").notNull(),
+    character: text("character"),
+    photoUrl: text("photo_url"),
+    // Billing order: 0 is the top-billed.
+    position: integer("position").notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.titleId, t.personId] }), index("title_cast_person_idx").on(t.personId)]
 );
 
 // ── title_extras ─────────────────────────────────────────────────────────

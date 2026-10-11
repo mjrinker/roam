@@ -67,6 +67,7 @@ import {
 import { ratingsFromMovieDetails, ratingsFromTvDetails } from "@/lib/content/ratings";
 import { backfillRatings } from "@/lib/content/ratings-backfill";
 import { backfillExternalRatings } from "@/lib/content/external-ratings-backfill";
+import { backfillCast } from "@/lib/content/cast-backfill";
 
 function assertNever(value: never): never {
   throw new Error(`Unhandled kind: ${String(value)}`);
@@ -327,7 +328,8 @@ export async function scanLibrary(
       } else {
         const moreRatings = await backfillRatings(library.id, enrichDeadline);
         const moreExternalRatings = await backfillExternalRatings(library.id, enrichDeadline);
-        incomplete = incomplete || moreRatings || moreExternalRatings;
+        const moreCast = await backfillCast(library.id, enrichDeadline);
+        incomplete = incomplete || moreRatings || moreExternalRatings || moreCast;
       }
       const audibleRegion = library.kind === "audiobooks" ? library.audibleRegion : null;
       const probeIncomplete =
@@ -1093,8 +1095,9 @@ export async function syncSingleTitle(titleId: string): Promise<{ errors: string
       await resolveAudiobookChaptersWhenProbed(titleId, library.audibleRegion);
     } else if (title.tmdbId) {
       // An explicit resync retries even a title OMDb previously had nothing for.
-      await db.update(titles).set({ externalRatingsAttemptedAt: null }).where(eq(titles.id, titleId));
+      await db.update(titles).set({ externalRatingsAttemptedAt: null, castAttemptedAt: null }).where(eq(titles.id, titleId));
       await backfillExternalRatings(library.id, deadline, titleId);
+      await backfillCast(library.id, deadline, titleId);
     }
   } catch (err) {
     if (err instanceof BoxReauthRequiredError) {

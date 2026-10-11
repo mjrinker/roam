@@ -150,6 +150,20 @@ export async function getTvShowDetails(
   return tmdbFetch<TmdbTvDetails>(`/tv/${tmdbId}`, { append_to_response: opts.append });
 }
 
+export interface TmdbCastMember {
+  id: number;
+  name: string;
+  character?: string | null;
+  profile_path?: string | null;
+  order?: number;
+}
+
+/** A movie's or show's billed cast, top-billed first (a show's is its main cast across the run). */
+export async function getCredits(kind: "movie" | "show", tmdbId: number): Promise<TmdbCastMember[]> {
+  const data = await tmdbFetch<{ cast?: TmdbCastMember[] }>(kind === "movie" ? `/movie/${tmdbId}/credits` : `/tv/${tmdbId}/credits`);
+  return [...(data.cast ?? [])].sort((a, b) => (a.order ?? 9999) - (b.order ?? 9999));
+}
+
 export async function getSeasonEpisodes(tmdbId: number, seasonNumber: number): Promise<TmdbEpisode[]> {
   const data = await tmdbFetch<{ episodes: TmdbEpisode[] }>(`/tv/${tmdbId}/season/${seasonNumber}`);
   return data.episodes ?? [];
