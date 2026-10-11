@@ -1,7 +1,8 @@
 import { notFound } from "next/navigation";
 import { and, asc, eq, gt } from "drizzle-orm";
 import { db } from "@/lib/db/client";
-import { episodes, libraries, seasons, titleExtras, titles } from "@/lib/db/schema";
+import { episodes, libraries, seasons, titles } from "@/lib/db/schema";
+import { loadExtraForWatch } from "@/lib/extras/load";
 import { EXTRA_LABELS } from "@/lib/extras/categories";
 import { requireServerMember } from "@/lib/auth/guards";
 import { libraryActor, libraryVisible, type LibraryActor } from "@/lib/content/library-access";
@@ -37,12 +38,7 @@ async function loadMovie(lib: LibraryActor, id: string) {
 
 /** A trailer or other extra of a movie: plays like the movie does, back goes to the movie, and nothing is remembered. */
 async function loadExtra(lib: LibraryActor, id: string) {
-  const [row] = await db
-    .select({ extra: titleExtras, movie: titles })
-    .from(titleExtras)
-    .innerJoin(titles, eq(titleExtras.titleId, titles.id))
-    .where(and(eq(titleExtras.id, id), eq(titles.kind, "movie"), libraryVisible(db, lib)))
-    .limit(1);
+  const row = await loadExtraForWatch(db, lib, id);
   if (!row) return null;
   return {
     displayTitle: row.extra.name,

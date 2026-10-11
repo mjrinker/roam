@@ -28,6 +28,7 @@
  *   --h264-copy          instead of the lower rungs, make ONE H.264 copy at the original's own resolution ("<name> - 720p.mp4") and
  *                        rename the original to "<name> - 720p HEVC.mp4" (use with --video-codec). The lower rungs are left to a
  *                        normal run, which then works from the H.264 copy. Needs the original's height to be a ladder rung.
+ *   --skip-file <text>   leave out any part whose file name contains this text (a stray whole-film copy filed as a part); it stays as it is
  *   --rungs 720,480      only these rungs (default: the whole ladder below the original)
  *   --limit <n>          stop after n films/episodes
  *   --skip-rename        make the lower versions but leave the original's name alone
@@ -65,6 +66,7 @@ const flag = (name: string) => {
 const only = flag("--only");
 const libraryFilter = flag("--library");
 const titleFilter = flag("--title");
+const skipFile = flag("--skip-file")?.toLowerCase();
 const h264Copy = args.includes("--h264-copy");
 const codecFilter = flag("--video-codec")?.toLowerCase();
 const limit = Number(flag("--limit") ?? Infinity);
@@ -182,7 +184,8 @@ async function loadGroups(): Promise<{ groups: Group[]; skipped: string[] }> {
       return withSize ? (effectiveHeight(withSize.width, withSize.height) ?? -1) : -1;
     };
     const best = [...versions.entries()].sort(([la, a], [lb, b]) => height(b) - height(a) || (la === "" ? -1 : lb === "" ? 1 : la.localeCompare(lb)))[0][1];
-    const parts = [...best].sort((a, b) => a.partIndex - b.partIndex);
+    const parts = [...best].filter((r) => !skipFile || !r.filename.toLowerCase().includes(skipFile)).sort((a, b) => a.partIndex - b.partIndex);
+    if (parts.length === 0) continue;
     if (codecFilter && parts[0].videoCodec?.toLowerCase() !== codecFilter) continue;
     // A piece of a combined multi-episode file that is also split into parts can't be joined into one file for one episode.
     if (parts.some((r) => r.trimDurationSeconds !== null)) {

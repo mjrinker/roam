@@ -13,9 +13,10 @@ vi.mock("@/lib/storage/box", () => ({
 }));
 vi.mock("@/lib/auth/guards", () => ({ getCurrentServerMember: async () => null }));
 
-import { mediaFiles, titleExtras } from "@/lib/db/schema";
+import { libraries, mediaFiles, titleExtras } from "@/lib/db/schema";
 import { resolveOwner } from "@/lib/auth/resolve-server";
-import { loadTitleExtras } from "@/lib/extras/load";
+import { loadExtraForWatch, loadTitleExtras } from "@/lib/extras/load";
+import { joinServer } from "@/lib/playlists/test-db";
 import { buildPlayManifest } from "@/lib/player/manifest";
 import { makeAccount, makeLibrary, makeServer, makeTitle, type TestDb } from "@/lib/playlists/test-db";
 import type { StorageEntry } from "@/lib/storage/provider";
@@ -134,6 +135,21 @@ describe("showing and playing extras", () => {
     for (const [id, [v, a]] of Object.entries(codecs)) await db.update(mediaFiles).set({ durationSeconds: 60, probeStatus: "ok", videoCodec: v, audioCodec: a }).where(and(eq(mediaFiles.ownerKind, "extra"), eq(mediaFiles.boxFileId, id)));
     expect((await loadTitleExtras(db, film.id)).flatMap((g) => g.items.map((i) => i.name))).toEqual(["Good"]);
     expect(await extrasOf(film.id)).toHaveLength(3);
+  });
+  it("loads an extra for the watch page for someone who can see its library, and not for anyone else", async () => {
+    const { film, server, lib } = await movie();
+    await syncTitleExtras(film.id, (await findExtras(provider({}), [file("w", "Teaser-trailer.mp4")])).found);
+    const [extra] = await extrasOf(film.id);
+    const member = await makeAccount(db, "viewer");
+    await joinServer(db, server.id, member.accountId);
+    const actor = { serverId: server.id, accountId: member.accountId, isAdmin: false };
+    expect(await loadExtraForWatch(db, actor, extra.id)).toMatchObject({ extra: { id: extra.id, name: "Teaser" }, movie: { id: film.id } });
+    const other = await movie();
+    expect(await loadExtraForWatch(db, { ...actor, serverId: other.server.id }, extra.id)).toBeNull(); // another server's actor
+    await db.update(libraries).set({ access: "restricted" }).where(eq(libraries.id, lib.id));
+    expect(await loadExtraForWatch(db, actor, extra.id)).toBeNull();
+    expect(await loadExtraForWatch(db, { ...actor, isAdmin: true }, extra.id)).not.toBeNull();
+    expect(await loadExtraForWatch(db, actor, film.id)).toBeNull(); // a movie id isn't an extra id
   });
   it("is owned by its movie for access, and plays through the play manifest without ever resuming", async () => {
     const { film, server, owner } = await movie();
