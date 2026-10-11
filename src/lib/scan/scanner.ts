@@ -18,7 +18,7 @@ import {
   type TitleKind,
 } from "@/lib/db/schema";
 import { findExtras, syncTitleExtras } from "@/lib/scan/title-extras";
-import { createBoxProviderForServer } from "@/lib/storage/box";
+import { createStorageForServer } from "@/lib/storage/server-storage";
 import { BoxReauthRequiredError } from "@/lib/storage/box-token-storage";
 import type { StorageEntry, StorageProvider } from "@/lib/storage/provider";
 import {
@@ -68,6 +68,7 @@ import { ratingsFromMovieDetails, ratingsFromTvDetails } from "@/lib/content/rat
 import { backfillRatings } from "@/lib/content/ratings-backfill";
 import { backfillExternalRatings } from "@/lib/content/external-ratings-backfill";
 import { backfillCast } from "@/lib/content/cast-backfill";
+import { libraryRootIds, rootLabel } from "@/lib/libraries/sources";
 
 function assertNever(value: never): never {
   throw new Error(`Unhandled kind: ${String(value)}`);
@@ -137,7 +138,7 @@ export async function scanLibrary(
   // stops without touching the library's scan state.
   let superseded = false;
   const errors: string[] = [];
-  const provider = createBoxProviderForServer(library.serverId);
+  const provider = createStorageForServer(library.serverId);
 
   // File-tree libraries (video, audio, photos) share one scanning engine; this says how the kind differs.
   const treeProfile = isFileTreeLibraryKind(library.kind) ? treeProfileFor(library.kind) : null;
@@ -167,7 +168,20 @@ export async function scanLibrary(
 
     if (plan.mode !== "probe-only") {
       // A video library acts on what the root listing LACKS (it links remuxed copies and counts files), so a silently shortened list must fail the scan, not pass for a smaller library.
-      const topLevel = await provider.listFolder(library.boxFolderId, treeProfile ? { strict: true } : undefined);
+      // A library can be made of several folders, on any of the server's storage connections: they are scanned as one. One that can't be
+      // read this time (its connection signed out, the folder gone) is reported and skipped, and keeps this cycle from removing anything.
+      const roots = await libraryRootIds(library);
+      const listings: { root: string; entries: StorageEntry[] }[] = [];
+      for (const root of roots) {
+        try {
+          listings.push({ root, entries: await provider.listFolder(root, treeProfile ? { strict: true } : undefined) });
+        } catch (err) {
+          if (roots.length === 1) throw err;
+          errors.push(`${await rootLabel(root)}: ${(err as Error).message}`);
+          if (treeProfile) await markCycleUnclean(library.id, cycleId);
+        }
+      }
+      const topLevel = listings.flatMap((l) => l.entries);
       const sortedFolders = sortForScan(topLevel.filter((e) => e.kind === "folder"));
       const titleFolders = entriesAfterCursor(sortedFolders, cursor);
       if (plan.mode === "full") {
@@ -180,17 +194,19 @@ export async function scanLibrary(
       // A video library's loose files at the top level aren't in any folder, so they're synced once
       // per cycle, up front (idempotent, batched), outside the folder cursor.
       if (treeProfile && plan.mode === "full") {
-        try {
-          const r = await syncVideoDirectory(library.id, library.boxFolderId, "", topLevel, cycleId, treeProfile);
-          if (r.stale) superseded = true;
-          titlesAdded += r.added;
-          filesSeen += r.seen;
-          unsupportedSkipped += r.unsupported;
-          if (r.conflicts > 0) errors.push(`(library root): ${conflictNote(r.conflicts)}`);
-        } catch (err) {
-          if (err instanceof BoxReauthRequiredError) throw err;
-          errors.push(`(library root): ${(err as Error).message}`);
-          await markCycleUnclean(library.id, cycleId);
+        for (const listing of listings) {
+          try {
+            const r = await syncVideoDirectory(library.id, listing.root, "", listing.entries, cycleId, treeProfile);
+            if (r.stale) superseded = true;
+            titlesAdded += r.added;
+            filesSeen += r.seen;
+            unsupportedSkipped += r.unsupported;
+            if (r.conflicts > 0) errors.push(`(library root): ${conflictNote(r.conflicts)}`);
+          } catch (err) {
+            if (err instanceof BoxReauthRequiredError) throw err;
+            errors.push(`(library root): ${(err as Error).message}`);
+            await markCycleUnclean(library.id, cycleId);
+          }
         }
       }
 
@@ -1060,7 +1076,7 @@ export async function syncSingleTitle(titleId: string): Promise<{ errors: string
     return { errors: ["Resync isn't available for items in this kind of library."] };
   }
 
-  const provider = createBoxProviderForServer(library.serverId);
+  const provider = createStorageForServer(library.serverId);
   const errors: string[] = [];
 
   try {

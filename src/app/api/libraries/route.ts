@@ -5,6 +5,7 @@ import { db } from "@/lib/db/client";
 import { libraries } from "@/lib/db/schema";
 import { isFileTreeLibraryKind } from "@/lib/libraries/profile";
 import { isVideoRating, ratingToAges } from "@/lib/libraries/video-rating";
+import { whyFolderUnusable } from "@/lib/storage/folder-check";
 
 const bodySchema = z.object({
   serverId: z.string().uuid(),
@@ -35,6 +36,9 @@ export async function POST(request: Request) {
   if (!admin) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
+
+  const problem = await whyFolderUnusable(parsed.data.serverId, parsed.data.boxFolderId);
+  if (problem) return NextResponse.json({ error: problem }, { status: 409 });
 
   const [library] = await db.insert(libraries).values({ ...fields, access: "restricted", ratingAges: isTree ? ratingToAges(rating ?? null) : null }).returning();
   return NextResponse.json({ library });

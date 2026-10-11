@@ -1,6 +1,7 @@
 import { eq } from "drizzle-orm";
 import { db } from "@/lib/db/client";
 import { mediaFiles } from "@/lib/db/schema";
+import { isOriginalBoxId } from "@/lib/storage/ids";
 import { createBoxProviderForServer, renameBoxEntry } from "@/lib/storage/box";
 import { fileNameWithTmdbId, folderNameWithTmdbId, isExtraFile, isVideoFile } from "@/lib/scan/conventions";
 
@@ -18,6 +19,8 @@ export async function stampTmdbIdOnBox(
   year: number | null
 ): Promise<{ errors: string[] }> {
   const errors: string[] = [];
+  // Putting a tag in a folder's name is done through Box only.
+  if (!isOriginalBoxId(title.boxFolderId)) return { errors };
   const provider = createBoxProviderForServer(serverId);
 
   try {

@@ -39,6 +39,9 @@ export class ListingTruncatedError extends Error {
 }
 
 export interface StorageProvider {
+  /** The id of the top folder of this storage (what a folder picker starts from). Absent: "0", Box's. */
+  rootFolderId?(): string;
+
   /**
    * Lists the direct children of a folder (files and subfolders), fully paginated. By default a
    * runaway folder is cut off silently; with `strict` it throws ListingTruncatedError instead, for

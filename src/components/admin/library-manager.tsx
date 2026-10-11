@@ -17,6 +17,8 @@ import {
 } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { FolderBrowser } from "@/components/admin/folder-browser";
+import type { ConnectionSummary } from "@/lib/storage/connections";
+import { providerName } from "@/lib/storage/provider-info";
 import type { LibraryAccess, LibraryKind } from "@/lib/db/schema";
 import { LibraryAccessDialog } from "@/components/admin/library-access-dialog";
 import { AUDIBLE_REGIONS } from "@/lib/audible/client";
@@ -42,6 +44,9 @@ export interface LibraryRow {
   pruneMissing: boolean;
   musicLookup: boolean;
   boxFolderId: string;
+  /** Which connection the library's first folder is on, and the folders added to it since. */
+  firstFolderConnection: string;
+  sources: { id: string; label: string; connection: string }[];
   audibleRegion: string;
   lastScannedAt: string | null;
   lastScan: LastScanInfo | null;
@@ -272,15 +277,91 @@ function ScanErrors({ errors }: { errors: string[] }) {
   );
 }
 
+/** The connections a folder can be picked from: the ones that are signed in. */
+function ConnectionSelect({ connections, value, onChange, id }: { connections: ConnectionSummary[]; value: string; onChange: (id: string) => void; id?: string }) {
+  if (connections.length < 2) return null;
+  return (
+    <select id={id} value={value} onChange={(e) => onChange(e.target.value)} className="h-9 rounded-md border border-input bg-transparent px-3 text-sm" aria-label="Storage">
+      {connections.map((c) => (
+        <option key={c.id} value={c.id} className="bg-popover">
+          {c.label} ({providerName(c.provider)})
+        </option>
+      ))}
+    </select>
+  );
+}
+
+/** A library's folders: the first one, any added, and a way to add more from any connection. */
+function LibraryFolders({ serverId, lib, connections }: { serverId: string; lib: LibraryRow; connections: ConnectionSummary[] }) {
+  const router = useRouter();
+  const [adding, setAdding] = useState(false);
+  const [connectionId, setConnectionId] = useState(connections[0]?.id ?? "");
+  const connection = connections.find((c) => c.id === connectionId);
+
+  async function add(folder: { id: string; name: string }) {
+    const res = await fetch(`/api/libraries/${lib.id}/sources`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ folderId: folder.id, label: folder.name }) });
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      return toast.error(typeof body.error === "string" ? body.error : "Couldn't add that folder.");
+    }
+    toast.success(`Added "${folder.name}". Rescan to bring in what's in it.`);
+    setAdding(false);
+    router.refresh();
+  }
+  async function remove(sourceId: string, label: string) {
+    if (!window.confirm(`Take "${label}" out of ${lib.name}? What was found in it is removed from the library the next time it is scanned; the files themselves are not touched.`)) return;
+    const res = await fetch(`/api/libraries/${lib.id}/sources/${sourceId}`, { method: "DELETE" });
+    if (!res.ok) return toast.error("Couldn't remove that folder.");
+    router.refresh();
+  }
+
+  return (
+    <div className="mt-3 flex flex-col gap-1.5 text-xs text-muted-foreground">
+      <p className="font-medium text-foreground/80">Folders</p>
+      <ul className="flex flex-col gap-1">
+        <li className="flex items-center gap-2">
+          <span>Original folder</span>
+          <span>· {lib.firstFolderConnection}</span>
+        </li>
+        {lib.sources.map((s) => (
+          <li key={s.id} className="flex items-center gap-2">
+            <span className="text-foreground/90">{s.label}</span>
+            <span>· {s.connection}</span>
+            <button type="button" className="underline hover:text-foreground" onClick={() => void remove(s.id, s.label)}>
+              Remove
+            </button>
+          </li>
+        ))}
+      </ul>
+      {connections.length > 0 &&
+        (adding ? (
+          <div className="mt-1 flex max-w-xl flex-col gap-2">
+            <ConnectionSelect connections={connections} value={connectionId} onChange={setConnectionId} />
+            <FolderBrowser key={connectionId} serverId={serverId} connectionId={connectionId} rootName={connection?.label} confirmLabel={`Add "{name}" to ${lib.name}`} onSelect={(f) => void add(f)} />
+            <button type="button" className="w-fit underline" onClick={() => setAdding(false)}>
+              Cancel
+            </button>
+          </div>
+        ) : (
+          <button type="button" className="w-fit underline hover:text-foreground" onClick={() => setAdding(true)}>
+            Add a folder
+          </button>
+        ))}
+    </div>
+  );
+}
+
 export function LibraryManager({
   serverId,
   libraries,
-  boxConnected,
+  connections,
 }: {
   serverId: string;
   libraries: LibraryRow[];
-  boxConnected: boolean;
+  /** The server's storage connections that are signed in. */
+  connections: ConnectionSummary[];
 }) {
+  const boxConnected = connections.length > 0; // (the name is from when Box was the only storage)
   const router = useRouter();
   const [scanningId, setScanningId] = useState<string | null>(null);
   const [showForm, setShowForm] = useState(libraries.length === 0);
@@ -294,6 +375,8 @@ export function LibraryManager({
   const [selectedFolder, setSelectedFolder] = useState<{ id: string; name: string } | null>(
     null
   );
+  const [newConnectionId, setNewConnectionId] = useState(connections[0]?.id ?? "");
+  const newConnection = connections.find((c) => c.id === newConnectionId);
   const [isPending, startTransition] = useTransition();
   const [creating, setCreating] = useState(false);
   const [statusById, setStatusById] = useState<Record<string, LibraryStatusDto>>({});
@@ -396,7 +479,7 @@ export function LibraryManager({
 
       {!boxConnected && (
         <p className="text-sm text-muted-foreground">
-          Connect Box above before adding a library.
+          Connect some storage above before adding a library.
         </p>
       )}
 
@@ -406,7 +489,7 @@ export function LibraryManager({
             <CardHeader>
               <CardTitle className="text-base">New library</CardTitle>
               <CardDescription>
-                Browse your connected Box account and pick the folder to share.
+                Browse your connected storage and pick the folder to share. You can add more folders, from any storage, once it exists.
               </CardDescription>
             </CardHeader>
             <CardContent className="flex flex-col gap-3">
@@ -468,7 +551,8 @@ export function LibraryManager({
                 </div>
               )}
               <div className="grid gap-1.5">
-                <Label>Box folder</Label>
+                <Label>Folder</Label>
+                <ConnectionSelect connections={connections} value={newConnectionId} onChange={(id) => (setNewConnectionId(id), setSelectedFolder(null))} />
                 {selectedFolder ? (
                   <div className="flex items-center gap-2 text-sm">
                     <Badge variant="secondary">{selectedFolder.name}</Badge>
@@ -481,7 +565,7 @@ export function LibraryManager({
                     </button>
                   </div>
                 ) : (
-                  <FolderBrowser serverId={serverId} onSelect={setSelectedFolder} />
+                  <FolderBrowser key={newConnectionId} serverId={serverId} connectionId={newConnectionId} rootName={newConnection?.label} onSelect={setSelectedFolder} />
                 )}
               </div>
             </CardContent>
@@ -544,6 +628,7 @@ export function LibraryManager({
                   onSaved={(next) => setAccess((cur) => ({ ...cur, [lib.id]: next }))}
                 />
               )}
+              <LibraryFolders serverId={serverId} lib={lib} connections={connections} />
               {lib.kind === "audiobooks" && <AudibleRegionSelect libraryId={lib.id} initial={lib.audibleRegion} />}
               {isFileTreeLibraryKind(lib.kind) && <VideoRatingSelect libraryId={lib.id} initial={agesToRating(lib.ratingAges)} />}
               {isFileTreeLibraryKind(lib.kind) && <PruneToggle libraryId={lib.id} initial={lib.pruneMissing} />}

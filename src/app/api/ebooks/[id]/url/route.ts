@@ -4,7 +4,7 @@ import { and, eq } from "drizzle-orm";
 import { authorizeOwner } from "@/lib/auth/resolve-server";
 import { db } from "@/lib/db/client";
 import { mediaFiles } from "@/lib/db/schema";
-import { createBoxProviderForServer } from "@/lib/storage/box";
+import { createStorageForServer } from "@/lib/storage/server-storage";
 import { BoxReauthRequiredError } from "@/lib/storage/box-token-storage";
 import { checkRateLimit } from "@/lib/rate-limit";
 
@@ -30,7 +30,7 @@ export async function GET(_request: Request, ctx: RouteContext<"/api/ebooks/[id]
   if (!file) return notFound();
 
   try {
-    const { url, expiresAt } = await createBoxProviderForServer(auth.serverId).getStreamingUrl(file.boxFileId);
+    const { url, expiresAt } = await createStorageForServer(auth.serverId).getStreamingUrl(file.boxFileId);
     return NextResponse.json({ url, expiresAt: expiresAt.toISOString() }, { headers: { "Cache-Control": "no-store" } });
   } catch (err) {
     if (err instanceof BoxReauthRequiredError) return NextResponse.json({ error: "This server's Box connection needs to be reconnected by an admin." }, { status: 424 });

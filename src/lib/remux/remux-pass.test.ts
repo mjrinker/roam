@@ -85,6 +85,8 @@ describe("queueRemux", () => {
     expect(text).toContain('"codec_probed"');
     expect(text).toContain('"audio_codec" in');
     expect(text).toContain('"box_file_id" =');
+    // Only files on the original Box connection: another connection's ids start with cn_.
+    expect(text).toContain("NOT LIKE 'cn\\_%'");
   });
 
   it("doesn't count a row a concurrent claim already took", async () => {

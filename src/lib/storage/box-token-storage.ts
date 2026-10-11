@@ -3,7 +3,7 @@ import type { TokenStorage } from "box-node-sdk/box";
 import type { AccessToken } from "box-node-sdk/schemas";
 import { and, eq } from "drizzle-orm";
 import { db } from "@/lib/db/client";
-import { servers } from "@/lib/db/schema";
+import { storageConnections } from "@/lib/db/schema";
 import { decrypt, encrypt } from "@/lib/crypto";
 
 /** A server's Box connection is dead (revoked or expired) and needs an admin to reconnect it. */
@@ -29,7 +29,8 @@ function getEnv(name: string): string {
 }
 
 /**
- * Postgres-backed TokenStorage, one instance per server. Box rotates the
+ * Postgres-backed TokenStorage, one instance per Box connection (the "serverId" these functions take is the connection's id; a server's
+ * first Box connection has the server's own id, which is what every caller passes today). Box rotates the
  * refresh token on every use and invalidates the old one immediately, so
  * store() always preserves the previous refresh token when a call doesn't
  * carry a new one (rather than nulling it out).
@@ -38,17 +39,17 @@ export class DbTokenStorage implements TokenStorage {
   constructor(private readonly serverId: string) {}
 
   async get(): Promise<AccessToken | undefined> {
-    const [server] = await db
+    const [conn] = await db
       .select({
-        boxAccessTokenEncrypted: servers.boxAccessTokenEncrypted,
-        boxRefreshTokenEncrypted: servers.boxRefreshTokenEncrypted,
-        boxTokenExpiresAt: servers.boxTokenExpiresAt,
+        accessTokenEncrypted: storageConnections.accessTokenEncrypted,
+        refreshTokenEncrypted: storageConnections.refreshTokenEncrypted,
+        tokenExpiresAt: storageConnections.tokenExpiresAt,
       })
-      .from(servers)
-      .where(eq(servers.id, this.serverId))
+      .from(storageConnections)
+      .where(eq(storageConnections.id, this.serverId))
       .limit(1);
 
-    if (!server?.boxAccessTokenEncrypted || !server.boxRefreshTokenEncrypted) {
+    if (!conn?.accessTokenEncrypted || !conn.refreshTokenEncrypted) {
       return undefined;
     }
 
@@ -58,14 +59,14 @@ export class DbTokenStorage implements TokenStorage {
     let accessToken: string;
     let refreshToken: string;
     try {
-      accessToken = decrypt(server.boxAccessTokenEncrypted);
-      refreshToken = decrypt(server.boxRefreshTokenEncrypted);
+      accessToken = decrypt(conn.accessTokenEncrypted);
+      refreshToken = decrypt(conn.refreshTokenEncrypted);
     } catch {
       throw new BoxReauthRequiredError(this.serverId);
     }
 
-    const expiresIn = server.boxTokenExpiresAt
-      ? Math.max(0, Math.floor((server.boxTokenExpiresAt.getTime() - Date.now()) / 1000))
+    const expiresIn = conn.tokenExpiresAt
+      ? Math.max(0, Math.floor((conn.tokenExpiresAt.getTime() - Date.now()) / 1000))
       : 0;
 
     return { accessToken, refreshToken, expiresIn, tokenType: "bearer" };
@@ -77,13 +78,13 @@ export class DbTokenStorage implements TokenStorage {
     let refreshTokenToStore = token.refreshToken;
     if (!refreshTokenToStore) {
       const [current] = await db
-        .select({ boxRefreshTokenEncrypted: servers.boxRefreshTokenEncrypted })
-        .from(servers)
-        .where(eq(servers.id, this.serverId))
+        .select({ refreshTokenEncrypted: storageConnections.refreshTokenEncrypted })
+        .from(storageConnections)
+        .where(eq(storageConnections.id, this.serverId))
         .limit(1);
-      if (current?.boxRefreshTokenEncrypted) {
+      if (current?.refreshTokenEncrypted) {
         try {
-          refreshTokenToStore = decrypt(current.boxRefreshTokenEncrypted);
+          refreshTokenToStore = decrypt(current.refreshTokenEncrypted);
         } catch {
           // Leave undefined — nothing usable to preserve.
         }
@@ -95,28 +96,28 @@ export class DbTokenStorage implements TokenStorage {
       : null;
 
     await db
-      .update(servers)
+      .update(storageConnections)
       .set({
-        boxAccessTokenEncrypted: encrypt(token.accessToken),
-        boxRefreshTokenEncrypted: refreshTokenToStore ? encrypt(refreshTokenToStore) : null,
-        boxTokenExpiresAt: expiresAt,
-        boxAuthStatus: "connected",
+        accessTokenEncrypted: encrypt(token.accessToken),
+        refreshTokenEncrypted: refreshTokenToStore ? encrypt(refreshTokenToStore) : null,
+        tokenExpiresAt: expiresAt,
+        authStatus: "connected",
       })
-      .where(eq(servers.id, this.serverId));
+      .where(eq(storageConnections.id, this.serverId));
 
     return undefined;
   }
 
   async clear(): Promise<undefined> {
     await db
-      .update(servers)
+      .update(storageConnections)
       .set({
-        boxAccessTokenEncrypted: null,
-        boxRefreshTokenEncrypted: null,
-        boxTokenExpiresAt: null,
-        boxAuthStatus: "disconnected",
+        accessTokenEncrypted: null,
+        refreshTokenEncrypted: null,
+        tokenExpiresAt: null,
+        authStatus: "disconnected",
       })
-      .where(eq(servers.id, this.serverId));
+      .where(eq(storageConnections.id, this.serverId));
     return undefined;
   }
 }
@@ -198,9 +199,9 @@ export async function withBoxClient<T>(
 
   for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
     const [before] = await db
-      .select({ boxRefreshTokenEncrypted: servers.boxRefreshTokenEncrypted })
-      .from(servers)
-      .where(eq(servers.id, serverId))
+      .select({ refreshTokenEncrypted: storageConnections.refreshTokenEncrypted })
+      .from(storageConnections)
+      .where(eq(storageConnections.id, serverId))
       .limit(1);
 
     const tokenStorage = new DbTokenStorage(serverId);
@@ -219,21 +220,21 @@ export async function withBoxClient<T>(
       lastError = err;
       if (!isBoxAuthError(err)) throw err;
 
-      if (!before?.boxRefreshTokenEncrypted) {
+      if (!before?.refreshTokenEncrypted) {
         // Nothing was stored to begin with — genuinely not connected.
         throw new BoxReauthRequiredError(serverId);
       }
 
       const casResult = await db
-        .update(servers)
-        .set({ boxAuthStatus: "needs_reauth" })
+        .update(storageConnections)
+        .set({ authStatus: "needs_reauth" })
         .where(
           and(
-            eq(servers.id, serverId),
-            eq(servers.boxRefreshTokenEncrypted, before.boxRefreshTokenEncrypted)
+            eq(storageConnections.id, serverId),
+            eq(storageConnections.refreshTokenEncrypted, before.refreshTokenEncrypted)
           )
         )
-        .returning({ id: servers.id });
+        .returning({ id: storageConnections.id });
 
       if (casResult.length > 0) {
         throw new BoxReauthRequiredError(serverId);

@@ -1,7 +1,7 @@
 import { planPreview } from "@/lib/photos/preview-plan";
 import { authorizePhotoFile, imageResponse, notFound, redirectToOriginal, storageFailure } from "@/lib/photos/serve";
 import { BoxReauthRequiredError } from "@/lib/storage/box-token-storage";
-import { createBoxProviderForServer } from "@/lib/storage/box";
+import { createStorageForServer } from "@/lib/storage/server-storage";
 
 export const maxDuration = 30;
 
@@ -22,7 +22,7 @@ export async function GET(_request: Request, ctx: RouteContext<"/api/photos/[id]
   try {
     if (plan.direct) return await redirectToOriginal(file);
 
-    const provider = createBoxProviderForServer(file.serverId);
+    const provider = createStorageForServer(file.serverId);
     let preview = null;
     try {
       preview = (await provider.fetchPreview?.(file.fileId, { budgetMs: PREVIEW_BUDGET_MS })) ?? null;

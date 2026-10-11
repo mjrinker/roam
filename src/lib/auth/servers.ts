@@ -1,4 +1,4 @@
-import { count, eq } from "drizzle-orm";
+import { count, eq, sql } from "drizzle-orm";
 import { db } from "@/lib/db/client";
 import { profiles, servers, serverMembers } from "@/lib/db/schema";
 import type { ServerRole } from "@/lib/auth/guards";
@@ -62,7 +62,8 @@ export async function listServerMemberships(
       serverId: servers.id,
       serverName: servers.name,
       role: serverMembers.role,
-      boxAuthStatus: servers.boxAuthStatus,
+      // The worst state among the server's storage connections: one that needs signing in again outranks the others.
+      boxAuthStatus: sql<"disconnected" | "connected" | "needs_reauth">`coalesce((select case when bool_or(c.auth_status = 'needs_reauth') then 'needs_reauth' when bool_or(c.auth_status = 'connected') then 'connected' else 'disconnected' end from storage_connections c where c.server_id = ${servers.id}), 'disconnected')`,
     })
     .from(serverMembers)
     .innerJoin(servers, eq(serverMembers.serverId, servers.id))

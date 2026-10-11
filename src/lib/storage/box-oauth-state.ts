@@ -15,16 +15,21 @@ import { hmacState, verifyHmacState } from "@/lib/crypto";
 interface StatePayload {
   serverId: string;
   profileId: string;
+  /** The connection being made or reconnected; absent means the server's original one (its id is the server's id). */
+  connectionId?: string;
+  /** What a new connection is called. */
+  label?: string;
   nonce: string;
   iat: number;
 }
 
 const MAX_AGE_MS = 10 * 60 * 1000; // 10 minutes
 
-export function signBoxOAuthState(serverId: string, profileId: string): string {
+export function signBoxOAuthState(serverId: string, profileId: string, connection?: { connectionId: string; label?: string }): string {
   const payload: StatePayload = {
     serverId,
     profileId,
+    ...(connection ? { connectionId: connection.connectionId, label: connection.label } : {}),
     nonce: randomBytes(16).toString("hex"),
     iat: Date.now(),
   };

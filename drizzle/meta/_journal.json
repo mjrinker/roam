@@ -309,6 +309,20 @@
       "when": 1791729735338,
       "tag": "0043_title_crew",
       "breakpoints": true
+    },
+    {
+      "idx": 44,
+      "version": "7",
+      "when": 1791738875027,
+      "tag": "0044_storage_connections",
+      "breakpoints": true
+    },
+    {
+      "idx": 45,
+      "version": "7",
+      "when": 1791739471054,
+      "tag": "0045_library_sources",
+      "breakpoints": true
     }
   ]
 }

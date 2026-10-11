@@ -163,6 +163,41 @@ export const servers = pgTable("servers", {
     .defaultNow(),
 });
 
+// ── storage_connections ──────────────────────────────────────────────────
+// A login to a place files are kept (Box, Dropbox, OneDrive, Google Drive, an S3 bucket ...). A server can have any number, of any
+// mix of providers, including several for the same one. The Box connection a server had before there could be more has this
+// table's id = the server's id, so everything written before that (every stored Box id) keeps meaning that connection.
+// servers.box_* are the old home of that connection and are no longer read.
+
+export const STORAGE_PROVIDERS = ["box", "dropbox", "onedrive", "gdrive", "s3"] as const;
+export type StorageProviderKind = (typeof STORAGE_PROVIDERS)[number];
+
+export const storageConnections = pgTable(
+  "storage_connections",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    serverId: uuid("server_id")
+      .notNull()
+      .references(() => servers.id, { onDelete: "cascade" }),
+    provider: text("provider").$type<StorageProviderKind>().notNull(),
+    // What an admin calls it ("Family Dropbox").
+    label: text("label").notNull(),
+    // Who it is signed in as, as the provider says (an email address, a username); shown beside the label.
+    accountName: text("account_name"),
+    // OAuth providers: the tokens, encrypted (lib/crypto).
+    accessTokenEncrypted: text("access_token_encrypted"),
+    refreshTokenEncrypted: text("refresh_token_encrypted"),
+    tokenExpiresAt: timestamp("token_expires_at", { withTimezone: true }),
+    // Providers that sign in with keys instead (S3): the secret part, encrypted JSON.
+    secretsEncrypted: text("secrets_encrypted"),
+    // The not-secret settings (an S3 endpoint, region and bucket).
+    config: jsonb("config").$type<Record<string, unknown>>(),
+    authStatus: boxAuthStatusEnum("auth_status").notNull().default("disconnected"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("storage_connections_server_idx").on(t.serverId)]
+);
+
 // ── server_members ───────────────────────────────────────────────────────
 // Per-server role. A profile can belong to multiple servers.
 
@@ -283,6 +318,27 @@ export const libraries = pgTable(
     // Lets library_members reference (library, server) together, so a grant can't cross servers.
     uniqueIndex("libraries_id_server_idx").on(t.id, t.serverId),
   ]
+);
+
+// ── library_sources ──────────────────────────────────────────────────────
+// The folders a library is made of. A library's first folder is libraries.box_folder_id (the name is from when Box was the only
+// storage); any more, on any connection, are rows here, and a scan treats the folders as one: what is found in each is merged into
+// the same library. root_id is a stored storage id (lib/storage/ids), so it says which connection it is on.
+
+export const librarySources = pgTable(
+  "library_sources",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    libraryId: uuid("library_id")
+      .notNull()
+      .references(() => libraries.id, { onDelete: "cascade" }),
+    rootId: text("root_id").notNull().unique(),
+    // The folder's name when it was added, for showing; the scan doesn't use it.
+    label: text("label").notNull(),
+    position: integer("position").notNull().default(0),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("library_sources_library_idx").on(t.libraryId)]
 );
 
 // ── library_members ──────────────────────────────────────────────────────

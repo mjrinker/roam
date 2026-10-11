@@ -1,5 +1,5 @@
 import { authorizePhotoFile, imageResponse, notFound, PRIVATE_HEADERS, storageFailure } from "@/lib/photos/serve";
-import { createBoxProviderForServer } from "@/lib/storage/box";
+import { createStorageForServer } from "@/lib/storage/server-storage";
 
 export const maxDuration = 30;
 
@@ -26,7 +26,7 @@ export async function GET(request: Request, ctx: RouteContext<"/api/photos/[id]/
   }
 
   try {
-    const thumb = await createBoxProviderForServer(auth.file.serverId).fetchThumbnail!(auth.file.fileId);
+    const thumb = await createStorageForServer(auth.file.serverId).fetchThumbnail!(auth.file.fileId);
     // Box hasn't made one yet (or can't): not an error to remember, so it is never cached.
     if (!thumb) return notFound();
     return imageResponse(thumb.bytes, cache, etag ? { ETag: etag } : {});

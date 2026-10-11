@@ -1,7 +1,7 @@
 import { and, asc, eq } from "drizzle-orm";
 import { db } from "@/lib/db/client";
 import { mediaFiles, titles, watchState } from "@/lib/db/schema";
-import { createBoxProviderForServer } from "@/lib/storage/box";
+import { createStorageForServer } from "@/lib/storage/server-storage";
 import { BoxReauthRequiredError } from "@/lib/storage/box-token-storage";
 import { findSegmentAt } from "@/lib/player/timeline";
 import type { AudiobookManifest, AudiobookSegment, AudiobookSegmentUrl } from "@/lib/player/types";
@@ -60,7 +60,7 @@ export async function buildAudiobookManifest(
   const resumeSeconds = state && !state.finished ? Math.min(state.positionSeconds, durationSeconds) : 0;
 
   const { index: resumeIndex } = findSegmentAt(segments, durationSeconds, resumeSeconds);
-  const provider = createBoxProviderForServer(serverId);
+  const provider = createStorageForServer(serverId);
   const urls: AudiobookSegmentUrl[] = [];
   try {
     for (const index of [resumeIndex, resumeIndex + 1]) {
@@ -113,7 +113,7 @@ export async function mintAudiobookSegmentUrl(
   if (!row) return { ok: false, status: 404, error: "Not found" };
 
   try {
-    const { url, expiresAt } = await createBoxProviderForServer(serverId).getStreamingUrl(row.boxFileId);
+    const { url, expiresAt } = await createStorageForServer(serverId).getStreamingUrl(row.boxFileId);
     return { ok: true, value: { index, url, expiresAt: expiresAt.toISOString() } };
   } catch (err) {
     if (err instanceof BoxReauthRequiredError) return { ok: false, status: 424, error: REAUTH_ERROR };

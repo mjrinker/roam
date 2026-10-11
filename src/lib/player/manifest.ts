@@ -1,7 +1,7 @@
 import { and, asc, eq, inArray } from "drizzle-orm";
 import { db } from "@/lib/db/client";
 import { mediaFiles, watchState } from "@/lib/db/schema";
-import { createBoxProviderForServer } from "@/lib/storage/box";
+import { createStorageForServer } from "@/lib/storage/server-storage";
 import { BoxReauthRequiredError } from "@/lib/storage/box-token-storage";
 import type { PlayManifest, PlayOwnerKind, PlaySegment } from "@/lib/player/types";
 import { buildPlaySegment } from "@/lib/player/timeline";
@@ -85,7 +85,7 @@ export async function buildPlayManifest(
     };
   }
 
-  const provider = createBoxProviderForServer(serverId);
+  const provider = createStorageForServer(serverId);
 
   const variantByPrimaryId = new Map<string, typeof allRows[number]>();
   if (unsupportedCodecs.length > 0 && segmentRows.some((r) => r.audioCodec && unsupportedCodecs.includes(r.audioCodec.toLowerCase()))) {

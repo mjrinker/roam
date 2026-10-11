@@ -85,8 +85,9 @@ export async function resolveOwnerContext(
 
 // ── Eligibility (SQL, shared by queueRemux's read and its compare-and-set write) ──
 
+// Remuxing reads and writes Box, so it only ever applies to files on a server's original Box connection (their ids carry no "cn_" prefix).
 const flagged = () =>
-  and(eq(mediaFiles.codecProbed, true), inArray(mediaFiles.audioCodec, [...UNSUPPORTED_AUDIO_CODECS]))!;
+  and(eq(mediaFiles.codecProbed, true), inArray(mediaFiles.audioCodec, [...UNSUPPORTED_AUDIO_CODECS]), sql`${mediaFiles.boxFileId} NOT LIKE 'cn\\_%'`)!;
 
 /** in_progress/uploaded rows that have outlived their budget — the job is presumed dead. */
 function stalled(now: Date) {

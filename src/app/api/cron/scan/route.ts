@@ -43,7 +43,8 @@ export async function GET(request: Request) {
     .select({ id: libraries.id })
     .from(libraries)
     .innerJoin(servers, eq(libraries.serverId, servers.id))
-    .where(eq(servers.boxAuthStatus, "connected"))
+    // Only servers with at least one storage connection that is signed in.
+    .where(sql`exists (select 1 from storage_connections c where c.server_id = ${servers.id} and c.auth_status = 'connected')`)
     .orderBy(sql`${libraries.lastScanAttemptAt} ASC NULLS FIRST`)
     .limit(BATCH_SIZE);
 

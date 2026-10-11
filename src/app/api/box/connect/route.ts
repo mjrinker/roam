@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { BoxOAuth, OAuthConfig } from "box-node-sdk";
+import { randomUUID } from "node:crypto";
 import { getCurrentServerAdmin } from "@/lib/auth/guards";
 import { signBoxOAuthState } from "@/lib/storage/box-oauth-state";
 
@@ -23,7 +24,11 @@ export async function GET(request: Request) {
     }),
   });
 
-  const state = signBoxOAuthState(serverId, member.profile.id);
+  // Without a connection named, this is the server's original Box connection; "new" makes another (a second Box account); an id signs that one in again.
+  const requested = searchParams.get("connectionId");
+  const label = searchParams.get("label")?.trim().slice(0, 60) || undefined;
+  const connection = requested === "new" ? { connectionId: randomUUID(), label } : requested ? { connectionId: requested, label } : undefined;
+  const state = signBoxOAuthState(serverId, member.profile.id, connection);
   const authorizeUrl = auth.getAuthorizeUrl({
     redirectUri: `${origin}/api/box/callback`,
     state,

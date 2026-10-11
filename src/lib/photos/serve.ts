@@ -16,7 +16,7 @@ import { isPhotoLibraryKind } from "@/lib/libraries/profile";
 import { checkRateLimit } from "@/lib/rate-limit";
 import { isBoxHost } from "@/lib/storage/box-representations";
 import { BoxReauthRequiredError } from "@/lib/storage/box-token-storage";
-import { createBoxProviderForServer } from "@/lib/storage/box";
+import { createStorageForServer } from "@/lib/storage/server-storage";
 
 // No `Vary: Cookie`: the auth cookie is rewritten about hourly, which would make a browser throw away
 // every cached thumbnail and refetch it through a Box-proxying function. `private` keeps shared caches
@@ -92,7 +92,7 @@ export function storageFailure(err: unknown): Response {
 /** A redirect to a short-lived download URL for the original file, never stored by a cache. */
 export async function redirectToOriginal(file: PhotoFile): Promise<Response> {
   // A freshly minted URL, never one from the playback cache whose lifetime is the token's, not the URL's.
-  const provider = createBoxProviderForServer(file.serverId);
+  const provider = createStorageForServer(file.serverId);
   const { url } = await (provider.getFreshDownloadUrl ?? provider.getStreamingUrl)(file.fileId);
   // The URL came from Box's own API; still, a redirect is only ever made to a Box host over https.
   if (!isBoxHost(url)) return storageFailure(new Error("unexpected download host"));
