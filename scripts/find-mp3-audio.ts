@@ -4,7 +4,7 @@
  *
  *   npx tsx --env-file=.env.local scripts/find-mp3-audio.ts
  */
-import { and, eq, isNull, sql } from "drizzle-orm";
+import { and, eq, isNull, or, sql } from "drizzle-orm";
 import { db } from "@/lib/db/client";
 import { episodes, libraries, mediaFiles, seasons, titles } from "@/lib/db/schema";
 import { probeMp4Codecs } from "@/lib/scan/mp4-duration";
@@ -13,7 +13,7 @@ import { createBoxProviderForServer } from "@/lib/storage/box";
 type Row = { name: string; filename: string; boxFileId: string; sizeBytes: number | null; serverId: string; kind: string };
 
 async function main() {
-  const base = and(isNull(mediaFiles.variantOfMediaFileId), eq(mediaFiles.audioCodec, "mp4a"), eq(mediaFiles.probeStatus, "ok"), sql`${mediaFiles.sizeBytes} is not null`);
+  const base = and(isNull(mediaFiles.variantOfMediaFileId), or(eq(mediaFiles.audioCodec, "mp4a"), eq(mediaFiles.codecProbed, false)), sql`${mediaFiles.container} in ('mp4','m4v','mov')`, eq(mediaFiles.probeStatus, "ok"), sql`${mediaFiles.sizeBytes} is not null`);
   const movies: Row[] = await db
     .select({ name: titles.name, filename: mediaFiles.filename, boxFileId: mediaFiles.boxFileId, sizeBytes: mediaFiles.sizeBytes, serverId: libraries.serverId, kind: sql<string>`'movie'` })
     .from(mediaFiles).innerJoin(titles, and(eq(mediaFiles.ownerKind, "title"), eq(mediaFiles.ownerId, titles.id))).innerJoin(libraries, eq(titles.libraryId, libraries.id))
@@ -25,7 +25,7 @@ async function main() {
   // One file per Box id (a combined multi-episode file has several rows).
   const seen = new Set<string>();
   const rows = [...movies, ...eps].filter((r) => (seen.has(r.boxFileId) ? false : (seen.add(r.boxFileId), true)));
-  console.log(`${rows.length} files with mp4a audio to look at`);
+  console.log(`${rows.length} files (mp4a audio, or audio not yet read) to look at`);
   const found: Row[] = [];
   let checked = 0;
   let failed = 0;
