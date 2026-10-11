@@ -20,6 +20,7 @@ import { BookChapters, BookPlayButton, BookQueueAutoStart } from "@/components/a
 import { isUuid } from "@/lib/playlists/http";
 import { queueNext } from "@/lib/playlists/next";
 import { Breadcrumbs } from "@/components/shell/breadcrumbs";
+import { BookCredits } from "@/components/library/audiobook-views";
 import { libraryKindUsesExternalMetadata } from "@/lib/libraries/profile";
 
 export default async function BookDetailPage({ params, searchParams }: PageProps<"/s/[serverId]/book/[id]">) {
@@ -207,6 +208,8 @@ export default async function BookDetailPage({ params, searchParams }: PageProps
             <p className="text-sm leading-relaxed whitespace-pre-line text-foreground/80">{book.overview}</p>
           </section>
         )}
+
+        <BookCredits serverId={serverId} authors={authors} narrators={narrators} />
 
         {ready && chapters.length > 0 && (
           <section>

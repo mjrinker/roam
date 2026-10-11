@@ -19,6 +19,8 @@ import { folderSortQuery, listFolder as listVideoFolder, normalizeFolderPath, pa
 import { isFileTreeLibraryKind, isPhotoLibraryKind } from "@/lib/libraries/profile";
 import { MusicLibraryView } from "@/components/music/music-library-view";
 import { ChooseButton } from "@/components/choose/choose-entry";
+import { AudiobookViewTabs, AuthorGrid, parseAudiobookView } from "@/components/library/audiobook-views";
+import { groupAuthors } from "@/lib/audiobooks/credits";
 import { AudioGroupGrid, parseSongView, SongsView, SongViewTabs } from "@/components/library/audio-views";
 import { listAudioGroups, UNKNOWN_GROUP, type GroupKind } from "@/lib/libraries/audio-groups";
 import { parseSearch } from "@/lib/photos/search";
@@ -363,6 +365,7 @@ export default async function LibraryDetailPage({
   });
 
   const Icon = KIND_ICON[library.kind];
+  const bookView = library.kind === "audiobooks" ? parseAudiobookView(typeof query.view === "string" ? query.view : null) : null;
 
   return (
     <div className="flex flex-col gap-6 px-4 py-8 sm:px-8">
@@ -379,6 +382,7 @@ export default async function LibraryDetailPage({
         </div>
         {items.length > 0 && <ChooseButton serverId={serverId} libraryId={libraryId} className="ml-auto" />}
       </div>
+      {bookView && items.length > 0 && <AudiobookViewTabs serverId={serverId} libraryId={libraryId} active={bookView} />}
 
       {items.length === 0 ? (
         <div className="mx-auto flex max-w-sm flex-col items-center gap-3 py-24 text-center">
@@ -394,6 +398,8 @@ export default async function LibraryDetailPage({
             </Button>
           )}
         </div>
+      ) : bookView === "authors" ? (
+        <AuthorGrid serverId={serverId} authors={groupAuthors(libraryTitles.filter((t) => t.kind === "audiobook"))} />
       ) : (
         <LibraryBrowser items={items} serverId={serverId} isAdmin={role === "admin"} />
       )}
