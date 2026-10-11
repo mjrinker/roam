@@ -172,6 +172,35 @@ export async function getCredits(kind: "movie" | "show", tmdbId: number): Promis
   return { cast: [...(data.cast ?? [])].sort((a, b) => (a.order ?? 9999) - (b.order ?? 9999)), crew: data.crew ?? [] };
 }
 
+export interface TmdbCombinedCredit {
+  id: number;
+  media_type: string;
+  title?: string;
+  name?: string;
+  release_date?: string;
+  first_air_date?: string;
+  poster_path?: string | null;
+  character?: string | null;
+  job?: string | null;
+  popularity?: number;
+  genre_ids?: number[];
+}
+
+export interface TmdbPerson {
+  id: number;
+  name: string;
+  biography?: string | null;
+  birthday?: string | null;
+  deathday?: string | null;
+  place_of_birth?: string | null;
+  combined_credits?: { cast?: TmdbCombinedCredit[]; crew?: TmdbCombinedCredit[] };
+}
+
+/** A person's bio and everything they are credited on (movies and shows), in one call. */
+export async function getPerson(personId: number): Promise<TmdbPerson> {
+  return tmdbFetch<TmdbPerson>(`/person/${personId}`, { append_to_response: ["combined_credits"] });
+}
+
 export async function getSeasonEpisodes(tmdbId: number, seasonNumber: number): Promise<TmdbEpisode[]> {
   const data = await tmdbFetch<{ episodes: TmdbEpisode[] }>(`/tv/${tmdbId}/season/${seasonNumber}`);
   return data.episodes ?? [];

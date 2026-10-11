@@ -108,7 +108,7 @@ How it's built (the interesting part, for reviewers): a server's admin can switc
 
 ### Cast and crew
 
-A movie's or show's page shows its billed cast and its key crew (directors, writers, producers, composer, cinematographer, editor) from TMDB, as rows of photos. Click a person to see their movies and shows on this server, with what they did on each (their role, or "Director"). Only what the viewer is allowed to see is listed. Cast and crew are fetched during library scans for every title with a TMDB match; Resync on a title fetches them again.
+A movie's or show's page shows its billed cast and its key crew (directors, writers, producers, composer, cinematographer, editor) from TMDB, as rows of photos. Click a person to see their movies and shows on this server, with what they did on each (their role, or "Director"). Only what the viewer is allowed to see is listed. A person's page also shows their biography (from TMDB) above their titles, and a "Not on this server" section with their other well-known work, which opens on The Movie Database; a profile with an age limit doesn't get that section, since TMDB's credits carry no ratings to check against. Cast and crew are fetched during library scans for every title with a TMDB match; Resync on a title fetches them again.
 
 ### Trailers and extras
 

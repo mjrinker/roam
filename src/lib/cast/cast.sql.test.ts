@@ -26,6 +26,7 @@ import { libraries, titleCast, titleCrew, titles } from "@/lib/db/schema";
 import { keyCrew } from "@/lib/content/cast-backfill";
 import { backfillCast, CAST_KEPT } from "@/lib/content/cast-backfill";
 import { loadPersonPage, loadTitleCast, loadTitleCrew } from "./queries";
+import { loadPersonInfo, serverHasKeys } from "./person-info";
 import { joinServer, makeAccount, makeLibrary, makeServer, makeTitle, type TestDb } from "@/lib/playlists/test-db";
 
 let db: TestDb;
@@ -179,5 +180,35 @@ describe("the key crew", () => {
     const onlyCrew = await w.movie("Crew Only");
     await db.insert(titleCrew).values({ titleId: onlyCrew.id, personId: 56, name: "Behind Camera", job: "Editor", photoUrl: null, position: 0 });
     expect((await loadPersonPage(db, w.actor, adult, 56))!.items.map((i) => i.roles)).toEqual([["Editor"]]);
+  });
+});
+
+describe("what is on the server, for 'not on this server'", () => {
+  it("counts a movie or show anywhere on the server, even in a library the viewer can't see, and nothing from another server", async () => {
+    const w = await world();
+    const restricted = await makeLibrary(db, w.server.id, "movies", "restricted");
+    const open = await w.movie("Open", { tmdbId: 7001 });
+    const hidden = await w.movie("Hidden", { tmdbId: 7002 }, restricted.id);
+    const show = await makeTitle(db, w.lib.id, { kind: "show", name: "Show", tmdbId: 7003, ratingAges: { ANY: 0 } });
+    const w2 = await world();
+    await w2.movie("Elsewhere", { tmdbId: 7004 });
+    void open; void hidden; void show;
+    const keys = ["movie:7001", "movie:7002", "tv:7003", "movie:7003", "movie:7004", "tv:7001"];
+    expect([...(await serverHasKeys(db, w.server.id, keys))].sort()).toEqual(["movie:7001", "movie:7002", "tv:7003"]);
+  });
+  it("gives bio and off-server work, none of the latter for an age-limited profile, and null when TMDB is down", async () => {
+    const w = await world();
+    await w.movie("On Server", { tmdbId: 8001 });
+    const tmdb = await import("@/lib/tmdb/client");
+    const spy = vi.spyOn(tmdb, "getPerson");
+    spy.mockResolvedValue({ id: 1, name: "Pat", biography: "A bio.", combined_credits: { cast: [{ id: 8001, media_type: "movie", title: "On Server", poster_path: "/a.jpg", release_date: "2000-01-01" }, { id: 8002, media_type: "movie", title: "Not Here", poster_path: "/b.jpg", release_date: "2001-01-01" }], crew: [] } });
+    const adultInfo = await loadPersonInfo(db, w.server.id, 1, { includeOffServer: true });
+    expect(adultInfo).toMatchObject({ bio: "A bio." });
+    expect(adultInfo!.offServer.map((o) => o.title)).toEqual(["Not Here"]);
+    const kidInfo = await loadPersonInfo(db, w.server.id, 1, { includeOffServer: false });
+    expect(kidInfo).toMatchObject({ bio: "A bio.", offServer: [] });
+    spy.mockRejectedValue(new Error("TMDB down"));
+    expect(await loadPersonInfo(db, w.server.id, 1, { includeOffServer: true })).toBeNull();
+    spy.mockRestore();
   });
 });
