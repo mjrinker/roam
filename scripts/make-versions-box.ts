@@ -407,7 +407,8 @@ async function makeRungs(ffmpeg: string, p: Plan) {
 
       let mainRows: string[] = [];
       // The rung with the original's audio kept as it is; if the container won't take that audio, it gets AAC and needs no copy.
-      let audioMode: "copy" | "aac" = "copy";
+      // MP3 inside an MP4 plays in some browsers and is silent in others (iOS), so it is always re-encoded to AAC.
+      let audioMode: "copy" | "aac" = audio?.codec?.toLowerCase() === "mp3" ? "aac" : "copy";
       let kbps = videoKbps(rung, duration, MAX_OUTPUT_BYTES, audioMode === "copy" ? (sourceAudioKbps ?? GUESS_AUDIO_KBPS) : undefined);
       console.log(`   [${label}] encoding (${kbps} kbit/s ceiling${g.parts.length > 1 ? `, ${g.parts.length} parts joined` : ""}) ...`);
       const started = Date.now();
