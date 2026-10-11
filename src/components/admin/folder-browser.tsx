@@ -51,7 +51,6 @@ export function FolderBrowser({
     // Resetting loading/error at the start of each fetch (including on
     // re-runs when `current.id` changes, i.e. navigating folders) is the
     // intended behavior here, not incidental render-triggered state.
-    // eslint-disable-next-line react-hooks/set-state-in-effect
     setLoading(true);
     setError(null);
     const params = new URLSearchParams({ serverId });

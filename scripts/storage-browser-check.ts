@@ -25,7 +25,6 @@ let connections = [
   { id: SERVER, provider: "box", label: "Box", accountName: "me@example.com", authStatus: "connected", libraries: 1 },
   { id: CONN2, provider: "box", label: "Dad's Box", accountName: null, authStatus: "needs_reauth", libraries: 0 },
 ];
-let sources: { id: string; label: string; connection: string }[] = [];
 const tree: Record<string, { id: string; name: string }[]> = {
   "": [{ id: `cn_${CONN2}:f1`, name: "Home Movies" }, { id: `cn_${CONN2}:f2`, name: "Old Shows" }],
   [`cn_${CONN2}:f1`]: [{ id: `cn_${CONN2}:f11`, name: "1990s" }],
@@ -55,8 +54,6 @@ const server = http.createServer((req, res) => {
     req.on("data", (c) => (raw += c));
     return void req.on("end", () => {
       calls.push(`${req.method} ${url.pathname.split("/").slice(3).join("/")} ${raw}`);
-      if (req.method === "POST") sources = [{ id: "s1", label: JSON.parse(raw).label, connection: "Dad's Box" }];
-      if (req.method === "DELETE") sources = [];
       json({ ok: true });
     });
   }
