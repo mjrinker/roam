@@ -2,7 +2,7 @@ import { and, asc, eq } from "drizzle-orm";
 import { db } from "@/lib/db/client";
 import { mediaFiles, titles, watchState } from "@/lib/db/schema";
 import { createStorageForServer } from "@/lib/storage/server-storage";
-import { BoxReauthRequiredError } from "@/lib/storage/box-token-storage";
+import { StorageReauthRequiredError } from "@/lib/storage/reauth";
 import { findSegmentAt } from "@/lib/player/timeline";
 import type { AudiobookManifest, AudiobookSegment, AudiobookSegmentUrl } from "@/lib/player/types";
 
@@ -69,7 +69,7 @@ export async function buildAudiobookManifest(
       urls.push({ index, url, expiresAt: expiresAt.toISOString() });
     }
   } catch (err) {
-    if (err instanceof BoxReauthRequiredError) return { ok: false, status: 424, error: REAUTH_ERROR };
+    if (err instanceof StorageReauthRequiredError) return { ok: false, status: 424, error: REAUTH_ERROR };
     throw err;
   }
 
@@ -116,7 +116,7 @@ export async function mintAudiobookSegmentUrl(
     const { url, expiresAt } = await createStorageForServer(serverId).getStreamingUrl(row.boxFileId);
     return { ok: true, value: { index, url, expiresAt: expiresAt.toISOString() } };
   } catch (err) {
-    if (err instanceof BoxReauthRequiredError) return { ok: false, status: 424, error: REAUTH_ERROR };
+    if (err instanceof StorageReauthRequiredError) return { ok: false, status: 424, error: REAUTH_ERROR };
     throw err;
   }
 }

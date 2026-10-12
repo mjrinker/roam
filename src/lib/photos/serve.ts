@@ -15,7 +15,7 @@ import type { TitleKind } from "@/lib/db/schema";
 import { isPhotoLibraryKind } from "@/lib/libraries/profile";
 import { checkRateLimit } from "@/lib/rate-limit";
 import { isBoxHost } from "@/lib/storage/box-representations";
-import { BoxReauthRequiredError } from "@/lib/storage/box-token-storage";
+import { StorageReauthRequiredError } from "@/lib/storage/reauth";
 import { createStorageForServer } from "@/lib/storage/server-storage";
 
 // No `Vary: Cookie`: the auth cookie is rewritten about hourly, which would make a browser throw away
@@ -80,7 +80,7 @@ export async function authorizePhotoFile(
 
 /** Box being unreachable or the connection needing re-authorisation is not "no such photo": say so, uncached. */
 export function storageFailure(err: unknown): Response {
-  const reauth = err instanceof BoxReauthRequiredError;
+  const reauth = err instanceof StorageReauthRequiredError;
   // Box asking us to slow down is passed on as such, so the browser backs off instead of treating it as broken.
   const limited = err instanceof BoxApiError && err.responseInfo?.statusCode === 429;
   return NextResponse.json(

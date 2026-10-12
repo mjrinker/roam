@@ -4,7 +4,7 @@ vi.mock("@/lib/storage/box-token-storage", () => ({
   BoxReauthRequiredError: class BoxReauthRequiredError extends Error {},
 }));
 
-import { BoxReauthRequiredError } from "@/lib/storage/box-token-storage";
+import { StorageReauthRequiredError } from "@/lib/storage/reauth";
 import type { StorageEntry } from "@/lib/storage/provider";
 import { collectBookFiles, discoverAuthorUnits, type DiscoveredUnit } from "./audiobook-tree";
 
@@ -131,10 +131,10 @@ describe("discoverAuthorUnits", () => {
     expect(units[1].books[0].folder.name).toBe("Good");
   });
 
-  it("aborts the whole walk when the Box connection needs reauth", async () => {
+  it("aborts the whole walk when a storage connection needs signing in again", async () => {
     const { provider, root } = fakeBox([{ Author: [{ Bad: ["b.mp3"] }, { Good: ["g.mp3"] }] }], {
       failOn: "/Bad",
-      failWith: new BoxReauthRequiredError("reauth"),
+      failWith: new StorageReauthRequiredError("conn", "reauth"),
     });
     await expect(collect(discoverAuthorUnits(provider, root[0], null))).rejects.toThrow("reauth");
   });

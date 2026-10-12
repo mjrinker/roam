@@ -1,6 +1,6 @@
 import { planPreview } from "@/lib/photos/preview-plan";
 import { authorizePhotoFile, imageResponse, notFound, redirectToOriginal, storageFailure } from "@/lib/photos/serve";
-import { BoxReauthRequiredError } from "@/lib/storage/box-token-storage";
+import { StorageReauthRequiredError } from "@/lib/storage/reauth";
 import { createStorageForServer } from "@/lib/storage/server-storage";
 
 export const maxDuration = 30;
@@ -28,7 +28,7 @@ export async function GET(_request: Request, ctx: RouteContext<"/api/photos/[id]
       preview = (await provider.fetchPreview?.(file.fileId, { budgetMs: PREVIEW_BUDGET_MS })) ?? null;
     } catch (err) {
       // A connection that needs re-authorising is reported; anything else just means "no rendering", and we fall back.
-      if (err instanceof BoxReauthRequiredError) throw err;
+      if (err instanceof StorageReauthRequiredError) throw err;
     }
     if (preview) return imageResponse(preview.bytes, "private, max-age=300", { "X-Preview-Size": String(preview.size) });
 

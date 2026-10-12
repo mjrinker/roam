@@ -277,7 +277,7 @@ export async function probeMp3Tags(fetchRange: ByteRangeFetcher, fileSizeBytes: 
     } catch (err) {
       // The v1 tag is only a fallback: failing to read it must not throw away what the v2 tag gave (a lost
       // Box connection still stops the scan, recognized by name so this module stays free of the database).
-      if ((err as { name?: string } | null)?.name === "BoxReauthRequiredError") throw err;
+      if (/ReauthRequiredError$/.test((err as { name?: string } | null)?.name ?? "")) throw err;
     }
   }
   return out;

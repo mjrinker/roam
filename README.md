@@ -106,6 +106,17 @@ How it's built (the interesting part, for reviewers): a server's admin can switc
 - Source-level enforcement tests fail the build if a new reader skips the access helper or a new code path special-cases a library kind with a string literal.
 - Every feature went through plan → independent review → small commits → independent review again; the commit history reflects that.
 
+### Storage, connections and library folders
+
+A server can have any number of **storage connections** (Server settings > Storage): Box and Dropbox so far, several accounts of the same kind if you like. A library is made of one or more **folders**, each on any connection; a scan treats them as one library (folders of the same name merge, and if one connection is signed out the others still scan, with the problem reported). Add or remove a library's folders under it in Server settings.
+
+Each kind of storage needs the deployment to hold its sign-in keys, or it isn't offered:
+
+- **Box:** `BOX_CLIENT_ID`, `BOX_CLIENT_SECRET`.
+- **Dropbox:** `DROPBOX_APP_KEY`, `DROPBOX_APP_SECRET`. Create an app at dropbox.com/developers/apps with *Scoped access* and *Full Dropbox*, tick `files.metadata.read` and `files.content.read` on its Permissions tab, and add `https://<your site>/api/dropbox/callback` as a redirect URI. Dropbox streams through temporary direct links (good for four hours), so nothing passes through Roam.
+
+Things only Box does: making browser-friendly copies of unsupported audio (remuxing), Box's own previews of phone videos, and putting a TMDB tag in a folder's name.
+
 ### Cast and crew
 
 A movie's or show's page shows its billed cast and its key crew (directors, writers, producers, composer, cinematographer, editor) from TMDB, as rows of photos. Click a person to see their movies and shows on this server, with what they did on each (their role, or "Director"). Only what the viewer is allowed to see is listed. A person's page also shows their biography (from TMDB) above their titles, and a "Not on this server" section with their other well-known work, which opens on The Movie Database; a profile with an age limit doesn't get that section, since TMDB's credits carry no ratings to check against. Cast and crew are fetched during library scans for every title with a TMDB match; Resync on a title fetches them again.

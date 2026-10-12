@@ -69,7 +69,7 @@ async function main() {
         import { LibraryManager } from "@/components/admin/library-manager";
         const conns = ${JSON.stringify(connections)};
         const lib = { id: "L1", name: "Movies", kind: "movies", access: "everyone", ratingAges: null, pruneMissing: false, musicLookup: false, boxFolderId: "0", firstFolderConnection: "Box", sources: [], audibleRegion: "us", lastScannedAt: null, lastScan: null };
-        window.__render = (sources) => createRoot(document.getElementById("root")).render(<><StorageConnections serverId="${SERVER}" connections={conns} /><LibraryManager serverId="${SERVER}" libraries={[{ ...lib, sources }]} connections={conns.map((c) => ({ ...c, authStatus: "connected" }))} /></>);
+        window.__render = (sources) => createRoot(document.getElementById("root")).render(<><StorageConnections serverId="${SERVER}" connections={conns} available={["box","dropbox"]} /><LibraryManager serverId="${SERVER}" libraries={[{ ...lib, sources }]} connections={conns.map((c) => ({ ...c, authStatus: "connected" }))} /></>);
         window.__render([]);`,
       resolveDir: process.cwd(),
       loader: "tsx",

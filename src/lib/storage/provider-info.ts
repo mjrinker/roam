@@ -16,6 +16,11 @@ export const PROVIDERS: ProviderInfo[] = [
     name: "Box",
     connectHref: (serverId, connectionId, label) => `/api/box/connect?${q({ serverId, connectionId, label })}`,
   },
+  {
+    kind: "dropbox",
+    name: "Dropbox",
+    connectHref: (serverId, connectionId, label) => `/api/dropbox/connect?${q({ serverId, connectionId, label })}`,
+  },
 ];
 
 export const providerInfo = (kind: StorageProviderKind): ProviderInfo | undefined => PROVIDERS.find((p) => p.kind === kind);

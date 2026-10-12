@@ -4,6 +4,7 @@ import { invites, libraries, librarySources, scanRuns, servers, titles, viewers 
 import { requireServerAdmin } from "@/lib/auth/guards";
 import { LibraryManager } from "@/components/admin/library-manager";
 import { StorageConnections } from "@/components/admin/storage-connections";
+import { availableProviders } from "@/lib/storage/available";
 import { listConnectionSummaries } from "@/lib/storage/connections";
 import { parseStorageId } from "@/lib/storage/ids";
 import { InviteManager } from "@/components/admin/invite-manager";
@@ -15,6 +16,8 @@ import { libraryKindUsesExternalMetadata } from "@/lib/libraries/profile";
 const BOX_ERROR_MESSAGES: Record<string, string> = {
   "box-connect-cancelled": "Box connection was cancelled.",
   "box-connect-failed": "Couldn't connect to Box. Try again.",
+  "storage-connect-cancelled": "The connection was cancelled.",
+  "storage-connect-failed": "Couldn't connect that storage. Try again.",
 };
 
 export default async function AdminPage({
@@ -94,7 +97,7 @@ export default async function AdminPage({
         </p>
       )}
 
-      <StorageConnections serverId={serverId} connections={connections} />
+      <StorageConnections serverId={serverId} connections={connections} available={availableProviders()} />
 
       <LibraryManager
         serverId={serverId}

@@ -1,4 +1,4 @@
-import { BoxReauthRequiredError } from "@/lib/storage/box-token-storage";
+import { StorageReauthRequiredError } from "@/lib/storage/reauth";
 import type { StorageEntry, StorageProvider } from "@/lib/storage/provider";
 import { isAudioFile, isDiscFolderName, isExtraFile, orderBookParts } from "@/lib/scan/conventions";
 import { compareNames, sortForScan } from "@/lib/scan/cursor";
@@ -93,7 +93,7 @@ export async function* discoverAuthorUnits(
       yield { childName: child.name, books };
     } catch (err) {
       // A dead Box connection would fail every book the same way; abort.
-      if (err instanceof BoxReauthRequiredError) throw err;
+      if (err instanceof StorageReauthRequiredError) throw err;
       yield { childName: child.name, books: [], error: (err as Error).message };
     }
   }

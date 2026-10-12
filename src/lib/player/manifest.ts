@@ -2,7 +2,7 @@ import { and, asc, eq, inArray } from "drizzle-orm";
 import { db } from "@/lib/db/client";
 import { mediaFiles, watchState } from "@/lib/db/schema";
 import { createStorageForServer } from "@/lib/storage/server-storage";
-import { BoxReauthRequiredError } from "@/lib/storage/box-token-storage";
+import { StorageReauthRequiredError } from "@/lib/storage/reauth";
 import type { PlayManifest, PlayOwnerKind, PlaySegment } from "@/lib/player/types";
 import { buildPlaySegment } from "@/lib/player/timeline";
 import { shouldUseVariant } from "@/lib/player/variant-selection";
@@ -114,7 +114,7 @@ export async function buildPlayManifest(
       if (!streaming && preferBrowserVersion && provider.getBrowserVideoUrl) {
         // Any trouble just means playing the original.
         streaming = await provider.getBrowserVideoUrl(row.boxFileId, { budgetMs: BROWSER_VERSION_WAIT_MS }).catch((err) => {
-          if (err instanceof BoxReauthRequiredError) throw err;
+          if (err instanceof StorageReauthRequiredError) throw err;
           return null;
         });
       }
@@ -128,7 +128,7 @@ export async function buildPlayManifest(
       cursor += segment.durationSeconds;
     }
   } catch (err) {
-    if (err instanceof BoxReauthRequiredError) {
+    if (err instanceof StorageReauthRequiredError) {
       return {
         ok: false,
         status: 424,

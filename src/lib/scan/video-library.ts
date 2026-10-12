@@ -16,7 +16,7 @@ import { and, asc, eq, inArray, isNotNull, ne, sql } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import { db } from "@/lib/db/client";
 import { libraries, mediaFiles, titles, watchState, type TitleKind } from "@/lib/db/schema";
-import { BoxReauthRequiredError } from "@/lib/storage/box-token-storage";
+import { StorageReauthRequiredError } from "@/lib/storage/reauth";
 import type { StorageEntry, StorageProvider } from "@/lib/storage/provider";
 import { PLAYABLE_TITLE_KINDS } from "@/lib/libraries/profile";
 import { boxTakenAt, photoThumbUrl, thumbVersion } from "@/lib/photos/urls";
@@ -398,7 +398,7 @@ export async function syncVideoTopFolder(
         result.unsupported += r.unsupported;
         if (r.conflicts > 0) opts.errors.push(`${where}: ${conflictNote(r.conflicts)}`);
       } catch (err) {
-        if (err instanceof BoxReauthRequiredError) throw err;
+        if (err instanceof StorageReauthRequiredError) throw err;
         result.hadErrors = true;
         await opts.onError?.();
         opts.errors.push(`${where}: ${(err as Error).message}`);

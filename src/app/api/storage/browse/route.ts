@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { getCurrentServerAdmin } from "@/lib/auth/guards";
-import { BoxReauthRequiredError } from "@/lib/storage/box-token-storage";
+import { StorageReauthRequiredError } from "@/lib/storage/reauth";
 import { formatStorageId } from "@/lib/storage/ids";
 import { loadConnection, providerForConnection } from "@/lib/storage/registry";
 import { createStorageForServer } from "@/lib/storage/server-storage";
@@ -28,7 +28,7 @@ export async function GET(request: Request) {
     const folders = entries.filter((e) => e.kind === "folder").sort((a, b) => a.name.localeCompare(b.name));
     return NextResponse.json({ folders, rootId: formatStorageId(serverId, connectionId, rootNative) });
   } catch (err) {
-    if (err instanceof BoxReauthRequiredError) {
+    if (err instanceof StorageReauthRequiredError) {
       return NextResponse.json({ error: "This connection needs to be reconnected." }, { status: 424 });
     }
     return NextResponse.json({ error: "Failed to browse that folder." }, { status: 500 });

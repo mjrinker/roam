@@ -9,7 +9,7 @@
 import { and, asc, eq, isNotNull, isNull, lt, ne, or, sql } from "drizzle-orm";
 import { db } from "@/lib/db/client";
 import { mediaFiles, titles } from "@/lib/db/schema";
-import { BoxReauthRequiredError } from "@/lib/storage/box-token-storage";
+import { StorageReauthRequiredError } from "@/lib/storage/reauth";
 import type { StorageProvider } from "@/lib/storage/provider";
 import { probeEpubTags } from "@/lib/ebooks/epub";
 import { probeMp3Tags } from "@/lib/scan/id3-tags";
@@ -38,7 +38,7 @@ async function inBatches<T>(items: T[], deadline: number, fn: (item: T) => Promi
     if (Date.now() > deadline) return true;
     const results = await Promise.allSettled(items.slice(i, i + CONCURRENCY).map(fn));
     for (const r of results) {
-      if (r.status === "rejected" && r.reason instanceof BoxReauthRequiredError) throw r.reason;
+      if (r.status === "rejected" && r.reason instanceof StorageReauthRequiredError) throw r.reason;
     }
   }
   return false;
@@ -156,7 +156,7 @@ export async function readTagsAndArtwork(
           if (tags.cover) await storeArtwork(tx, t.titleId, tags.cover, "embedded");
         });
       } catch (err) {
-        if (err instanceof BoxReauthRequiredError) throw err;
+        if (err instanceof StorageReauthRequiredError) throw err;
         errors.push(`tags ${t.filename}: ${(err as Error).message}`);
       }
     })) || incomplete;
@@ -197,7 +197,7 @@ export async function readTagsAndArtwork(
         const thumb = await fetchThumbnail(t.fileId);
         if (thumb) await storeArtwork(db, t.titleId, thumb, "box");
       } catch (err) {
-        if (err instanceof BoxReauthRequiredError) throw err;
+        if (err instanceof StorageReauthRequiredError) throw err;
         errors.push(`thumbnail ${t.filename}: ${(err as Error).message}`);
       }
     })) || incomplete

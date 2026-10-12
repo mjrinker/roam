@@ -18,7 +18,7 @@ import { db } from "@/lib/db/client";
 import { libraries, mediaFiles, titles, watchState } from "@/lib/db/schema";
 import { sweepEmptyMusicGroups } from "@/lib/music/organize";
 import { releaseArtwork } from "@/lib/scan/artwork-store";
-import { BoxReauthRequiredError } from "@/lib/storage/box-token-storage";
+import { StorageReauthRequiredError } from "@/lib/storage/reauth";
 import type { StorageProvider } from "@/lib/storage/provider";
 import { VIDEO_PROFILE, type TreeProfile } from "@/lib/scan/tree-profile";
 
@@ -154,7 +154,7 @@ export async function pruneMissingVideos(
       if (outcome.status === "fulfilled") {
         if (outcome.value) present.push(candidates[i + j].id);
         else gone.push(candidates[i + j]);
-      } else if (outcome.reason instanceof BoxReauthRequiredError) {
+      } else if (outcome.reason instanceof StorageReauthRequiredError) {
         throw outcome.reason;
       } else {
         result.unverified++;

@@ -2,7 +2,7 @@ import { and, eq, inArray, lt, notInArray, or, sql } from "drizzle-orm";
 import { alias, type PgDatabase, type PgQueryResultHKT } from "drizzle-orm/pg-core";
 import { db } from "@/lib/db/client";
 import { mediaFiles, titles } from "@/lib/db/schema";
-import { BoxReauthRequiredError } from "@/lib/storage/box-token-storage";
+import { StorageReauthRequiredError } from "@/lib/storage/reauth";
 import type { StorageEntry, StorageProvider } from "@/lib/storage/provider";
 import {
   AUDIO_MP4_CONTAINERS,
@@ -280,7 +280,7 @@ export async function probeFiles(
     const results = await Promise.allSettled(batch.map((file) => probeAndRecord(provider, file, errors)));
     for (const r of results) {
       // A dead Box connection fails every file the same way; surface it once.
-      if (r.status === "rejected" && r.reason instanceof BoxReauthRequiredError) throw r.reason;
+      if (r.status === "rejected" && r.reason instanceof StorageReauthRequiredError) throw r.reason;
     }
   }
   return false;
@@ -311,7 +311,7 @@ async function probeAndRecord(provider: StorageProvider, file: MediaFileRow, err
       })
       .where(eq(mediaFiles.id, file.id));
   } catch (err) {
-    if (err instanceof BoxReauthRequiredError) throw err;
+    if (err instanceof StorageReauthRequiredError) throw err;
     errors.push(`probe ${file.filename}: ${(err as Error).message}`);
 
     const estimateMs =
@@ -366,7 +366,7 @@ async function probeCodecsOnly(provider: StorageProvider, file: MediaFileRow) {
       return;
     }
   } catch (err) {
-    if (err instanceof BoxReauthRequiredError) throw err;
+    if (err instanceof StorageReauthRequiredError) throw err;
   }
   // Either the read failed outright, or came back but codecsProbed was
   // false (a malformed track) — give it up to MAX_CODEC_PROBE_ATTEMPTS real

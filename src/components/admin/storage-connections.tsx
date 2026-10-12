@@ -17,11 +17,12 @@ const STATUS = {
 } as const;
 
 /** The places this server's files are kept: any number of connections, of any mix of providers. */
-export function StorageConnections({ serverId, connections }: { serverId: string; connections: ConnectionSummary[] }) {
+export function StorageConnections({ serverId, connections, available }: { serverId: string; connections: ConnectionSummary[]; /** The kinds this deployment is set up to connect. */ available: StorageProviderKind[] }) {
+  const offered = PROVIDERS.filter((p) => available.includes(p.kind));
   const router = useRouter();
   const [, startTransition] = useTransition();
   const [adding, setAdding] = useState(connections.length === 0);
-  const [provider, setProvider] = useState<StorageProviderKind>(PROVIDERS[0].kind);
+  const [provider, setProvider] = useState<StorageProviderKind>(offered[0]?.kind ?? "box");
   const [label, setLabel] = useState("");
   const [renaming, setRenaming] = useState<{ id: string; label: string } | null>(null);
 
@@ -59,13 +60,14 @@ export function StorageConnections({ serverId, connections }: { serverId: string
       </div>
       <p className="text-sm text-muted-foreground">Where your media is kept. A library can use folders from any of these, and you can connect as many as you like, even several accounts of the same kind.</p>
 
-      {adding && (
+      {adding && offered.length === 0 && <p className="text-sm text-muted-foreground">No storage is set up on this deployment yet: its sign-in keys are missing.</p>}
+      {adding && offered.length > 0 && (
         <Card>
           <CardContent className="flex flex-wrap items-end gap-3 py-4">
             <label className="grid gap-1.5 text-sm">
               Kind
               <select value={provider} onChange={(e) => setProvider(e.target.value as StorageProviderKind)} className="h-9 rounded-md border border-input bg-transparent px-3 text-sm">
-                {PROVIDERS.map((p) => (
+                {offered.map((p) => (
                   <option key={p.kind} value={p.kind} className="bg-popover">
                     {p.name}
                   </option>
@@ -76,7 +78,7 @@ export function StorageConnections({ serverId, connections }: { serverId: string
               Name
               <Input value={label} onChange={(e) => setLabel(e.target.value)} placeholder={`${providerName(provider)} (family)`} maxLength={60} />
             </label>
-            <Button onClick={connect}>Connect {providerName(provider)}</Button>
+            <Button onClick={connect} disabled={offered.length === 0}>Connect {providerName(provider)}</Button>
           </CardContent>
         </Card>
       )}

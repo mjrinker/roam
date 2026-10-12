@@ -1,7 +1,7 @@
 import { and, asc, eq, isNull, sql } from "drizzle-orm";
 import { db } from "@/lib/db/client";
 import { mediaFiles, titles } from "@/lib/db/schema";
-import { BoxReauthRequiredError } from "@/lib/storage/box-token-storage";
+import { StorageReauthRequiredError } from "@/lib/storage/reauth";
 import type { StorageEntry, StorageProvider } from "@/lib/storage/provider";
 import {
   AudibleError,
@@ -153,7 +153,7 @@ export async function syncAudiobookTopFolder(
         if (await syncBook(libraryId, book.folder, book.files, ctx)) result.titlesAdded++;
         result.booksSeen++;
       } catch (err) {
-        if (err instanceof BoxReauthRequiredError) throw err;
+        if (err instanceof StorageReauthRequiredError) throw err;
         opts.errors.push(`${top.name}/${book.folder.name}: ${(err as Error).message}`);
       }
     }

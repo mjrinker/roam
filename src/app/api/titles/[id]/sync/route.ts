@@ -4,7 +4,7 @@ import { resolveServerIdForTitle } from "@/lib/auth/resolve-server";
 import { db } from "@/lib/db/client";
 import { refuseUnlessExternalMetadata } from "@/lib/libraries/kind";
 import { syncSingleTitle } from "@/lib/scan/scanner";
-import { BoxReauthRequiredError } from "@/lib/storage/box-token-storage";
+import { StorageReauthRequiredError } from "@/lib/storage/reauth";
 
 // Matches the per-library scan budget — a single title is normally much
 // faster, but a show with many seasons/episodes can still take a while.
@@ -32,7 +32,7 @@ export async function POST(
     const result = await syncSingleTitle(id);
     return NextResponse.json(result);
   } catch (err) {
-    if (err instanceof BoxReauthRequiredError) {
+    if (err instanceof StorageReauthRequiredError) {
       return NextResponse.json(
         { error: "This server's Box connection needs to be reconnected." },
         { status: 424 }

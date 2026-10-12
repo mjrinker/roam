@@ -47,7 +47,7 @@ type Provider = Pick<StorageProvider, "listFolder">;
  * A lost Box connection affects every listing, so it stops the walk. Recognized by name, not class:
  * importing the class would pull the database client into this otherwise pure module.
  */
-const isReauth = (err: unknown) => (err as { name?: string } | null)?.name === "BoxReauthRequiredError";
+const isReauth = (err: unknown) => /ReauthRequiredError$/.test((err as { name?: string } | null)?.name ?? "");
 
 const LIST_ATTEMPTS = 3;
 interface WalkOptions {

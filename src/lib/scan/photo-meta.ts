@@ -8,7 +8,7 @@
 import { and, asc, eq, isNotNull, isNull, lt, sql } from "drizzle-orm";
 import { db } from "@/lib/db/client";
 import { mediaFiles, titles } from "@/lib/db/schema";
-import { BoxReauthRequiredError } from "@/lib/storage/box-token-storage";
+import { StorageReauthRequiredError } from "@/lib/storage/reauth";
 import type { StorageProvider } from "@/lib/storage/provider";
 import { readImageMeta } from "@/lib/scan/image-meta";
 
@@ -63,12 +63,12 @@ export async function readPhotoMetadata(provider: StorageProvider, libraryId: st
               )
             );
         } catch (err) {
-          if (err instanceof BoxReauthRequiredError) throw err;
+          if (err instanceof StorageReauthRequiredError) throw err;
           errors.push(`photo ${t.filename}: ${(err as Error).message}`);
         }
       })
     );
-    for (const r of settled) if (r.status === "rejected" && r.reason instanceof BoxReauthRequiredError) throw r.reason;
+    for (const r of settled) if (r.status === "rejected" && r.reason instanceof StorageReauthRequiredError) throw r.reason;
   }
   return incomplete;
 }

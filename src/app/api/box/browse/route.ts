@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { getCurrentServerAdmin } from "@/lib/auth/guards";
 import { createBoxProviderForServer } from "@/lib/storage/box";
-import { BoxReauthRequiredError } from "@/lib/storage/box-token-storage";
+import { StorageReauthRequiredError } from "@/lib/storage/reauth";
 
 /** Folder-picker data source — lists a server's own Box folder's children. */
 export async function GET(request: Request) {
@@ -26,7 +26,7 @@ export async function GET(request: Request) {
       .sort((a, b) => a.name.localeCompare(b.name));
     return NextResponse.json({ folders });
   } catch (err) {
-    if (err instanceof BoxReauthRequiredError) {
+    if (err instanceof StorageReauthRequiredError) {
       return NextResponse.json(
         { error: "This server's Box connection needs to be reconnected." },
         { status: 424 }

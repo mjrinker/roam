@@ -19,7 +19,7 @@ import {
 } from "@/lib/db/schema";
 import { findExtras, syncTitleExtras } from "@/lib/scan/title-extras";
 import { createStorageForServer } from "@/lib/storage/server-storage";
-import { BoxReauthRequiredError } from "@/lib/storage/box-token-storage";
+import { StorageReauthRequiredError } from "@/lib/storage/reauth";
 import type { StorageEntry, StorageProvider } from "@/lib/storage/provider";
 import {
   groupByVersion,
@@ -203,7 +203,7 @@ export async function scanLibrary(
             unsupportedSkipped += r.unsupported;
             if (r.conflicts > 0) errors.push(`(library root): ${conflictNote(r.conflicts)}`);
           } catch (err) {
-            if (err instanceof BoxReauthRequiredError) throw err;
+            if (err instanceof StorageReauthRequiredError) throw err;
             errors.push(`(library root): ${(err as Error).message}`);
             await markCycleUnclean(library.id, cycleId);
           }
@@ -301,7 +301,7 @@ export async function scanLibrary(
           // A single title's own Box connection dying mid-scan means every
           // OTHER title will fail the same way — short-circuit with one
           // clear error instead of one near-identical message per folder.
-          if (err instanceof BoxReauthRequiredError) throw err;
+          if (err instanceof StorageReauthRequiredError) throw err;
           errors.push(`${folder.name}: ${(err as Error).message}`);
           // This folder was stepped past without being fully seen, so the cycle can't vouch for what's missing.
           if (treeProfile) await markCycleUnclean(library.id, cycleId);
@@ -355,7 +355,7 @@ export async function scanLibrary(
       incomplete = incomplete || probeIncomplete;
     }
   } catch (err) {
-    if (err instanceof BoxReauthRequiredError) {
+    if (err instanceof StorageReauthRequiredError) {
       errors.push("This server's Box connection needs to be reconnected by an admin.");
     } else {
       errors.push((err as Error).message);
@@ -1116,7 +1116,7 @@ export async function syncSingleTitle(titleId: string): Promise<{ errors: string
       await backfillCast(library.id, deadline, titleId);
     }
   } catch (err) {
-    if (err instanceof BoxReauthRequiredError) {
+    if (err instanceof StorageReauthRequiredError) {
       errors.push("This server's Box connection needs to be reconnected by an admin.");
     } else {
       errors.push((err as Error).message);

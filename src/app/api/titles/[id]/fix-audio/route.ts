@@ -4,7 +4,7 @@ import { resolveServerIdForTitle } from "@/lib/auth/resolve-server";
 import { db } from "@/lib/db/client";
 import { refuseUnlessExternalMetadata } from "@/lib/libraries/kind";
 import { MAX_REMUX_ATTEMPTS, probeCodecsForTitle, queueRemux } from "@/lib/remux/remux-pass";
-import { BoxReauthRequiredError } from "@/lib/storage/box-token-storage";
+import { StorageReauthRequiredError } from "@/lib/storage/reauth";
 
 // Only reads a handful of codec headers before queueing; the remux itself
 // runs in its own invocation (see /api/remux/run).
@@ -49,7 +49,7 @@ export async function POST(_request: Request, ctx: RouteContext<"/api/titles/[id
     // Jobs already in flight (the trigger was re-fired anyway).
     return NextResponse.json({ status: "in-progress", ...result });
   } catch (err) {
-    if (err instanceof BoxReauthRequiredError) {
+    if (err instanceof StorageReauthRequiredError) {
       return NextResponse.json(
         { error: "This server's Box connection needs to be reconnected." },
         { status: 424 }

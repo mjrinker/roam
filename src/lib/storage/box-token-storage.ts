@@ -5,11 +5,12 @@ import { and, eq } from "drizzle-orm";
 import { db } from "@/lib/db/client";
 import { storageConnections } from "@/lib/db/schema";
 import { decrypt, encrypt } from "@/lib/crypto";
+import { StorageReauthRequiredError } from "@/lib/storage/reauth";
 
-/** A server's Box connection is dead (revoked or expired) and needs an admin to reconnect it. */
-export class BoxReauthRequiredError extends Error {
+/** A Box connection is dead (revoked or expired) and needs an admin to reconnect it. (`serverId` is the connection's id; see storage_connections.) */
+export class BoxReauthRequiredError extends StorageReauthRequiredError {
   constructor(public readonly serverId: string) {
-    super(`Server ${serverId}'s Box connection needs to be reconnected`);
+    super(serverId, `Server ${serverId}'s Box connection needs to be reconnected`);
     this.name = "BoxReauthRequiredError";
   }
 }
