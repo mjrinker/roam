@@ -3,6 +3,7 @@ import { db } from "@/lib/db/client";
 import { storageConnections, type StorageProviderKind } from "@/lib/db/schema";
 import { createBoxProviderForServer } from "@/lib/storage/box";
 import { createDropboxProvider } from "@/lib/storage/dropbox";
+import { createOneDriveProvider } from "@/lib/storage/onedrive";
 import type { StorageProvider } from "@/lib/storage/provider";
 
 export type StorageConnection = typeof storageConnections.$inferSelect;
@@ -24,6 +25,8 @@ export function providerForConnection(conn: Pick<StorageConnection, "id" | "prov
       return createBoxProviderForServer(conn.id);
     case "dropbox":
       return createDropboxProvider(conn.id);
+    case "onedrive":
+      return createOneDriveProvider(conn.id);
     default:
       throw new UnsupportedProviderError(kind);
   }

@@ -4,8 +4,8 @@
  * ("id:..."), which survives renames and moves; the top of the account is the empty path.
  */
 import { ListingTruncatedError, type PreviewImage, type StorageEntry, type StorageProvider, type StreamingUrl } from "@/lib/storage/provider";
-import { accessTokenFor, OAuthInvalidGrantError, type OAuthTokens, type Refresher } from "@/lib/storage/oauth-tokens";
-import { StorageReauthRequiredError } from "@/lib/storage/reauth";
+import { OAuthInvalidGrantError, type OAuthTokens, type Refresher } from "@/lib/storage/oauth-tokens";
+import { authorizedCall, StorageHttpError } from "@/lib/storage/http";
 
 const API = "https://api.dropboxapi.com/2";
 const CONTENT = "https://content.dropboxapi.com/2";
@@ -14,7 +14,6 @@ const TOKEN_URL = "https://api.dropboxapi.com/oauth2/token";
 const LIST_LIMIT = 50_000;
 /** A temporary link lasts four hours; this much is taken off so one is never handed out just as it dies. */
 const LINK_TTL_MS = (4 * 60 - 20) * 60_000;
-const MAX_ATTEMPTS = 4;
 
 export const dropboxAppKey = (): string => {
   const v = process.env.DROPBOX_APP_KEY;
@@ -68,40 +67,7 @@ export async function dropboxAccountName(accessToken: string): Promise<string | 
   return a.email ?? a.name?.display_name ?? null;
 }
 
-const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
-
-class DropboxError extends Error {
-  constructor(
-    message: string,
-    public readonly status: number,
-    public readonly summary: string
-  ) {
-    super(message);
-    this.name = "DropboxError";
-  }
-}
-
-/** Calls Dropbox with the connection's token: signs in again once on a 401, waits out rate limits, and turns failures into DropboxError. */
-async function call(connectionId: string, build: (token: string) => Promise<Response>): Promise<Response> {
-  let forced = false;
-  for (let attempt = 1; ; attempt++) {
-    const token = await accessTokenFor(connectionId, dropboxRefresher, forced);
-    const res = await build(token);
-    if (res.ok) return res;
-    const text = await res.text().catch(() => "");
-    if (res.status === 401 && !forced) {
-      forced = true;
-      continue;
-    }
-    if (res.status === 401) throw new StorageReauthRequiredError(connectionId);
-    if ((res.status === 429 || res.status >= 500) && attempt < MAX_ATTEMPTS) {
-      const wait = Number(res.headers.get("retry-after")) || 2 ** attempt;
-      await sleep(Math.min(wait, 20) * 1000);
-      continue;
-    }
-    throw new DropboxError(`Dropbox ${res.status}: ${text.slice(0, 200)}`, res.status, text);
-  }
-}
+const call = (connectionId: string, build: (token: string) => Promise<Response>): Promise<Response> => authorizedCall(connectionId, dropboxRefresher, "Dropbox", build);
 
 const rpc = async <T>(connectionId: string, route: string, body: unknown): Promise<T> =>
   (await call(connectionId, (token) => fetch(`${API}${route}`, { method: "POST", headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" }, body: JSON.stringify(body) }))).json() as Promise<T>;
@@ -119,7 +85,7 @@ function entryOf(m: Meta): StorageEntry | null {
     : { id: m.id, name: m.name, kind: "file", sizeBytes: m.size, createdAt: date(m.client_modified), modifiedAt: date(m.server_modified) };
 }
 
-const isNotFound = (err: unknown) => err instanceof DropboxError && err.status === 409 && /not_found/.test(err.summary);
+const isNotFound = (err: unknown) => err instanceof StorageHttpError && err.status === 409 && /not_found/.test(err.body);
 
 export function createDropboxProvider(connectionId: string): StorageProvider {
   const links = new Map<string, { url: string; expiresAt: Date }>();
@@ -144,7 +110,7 @@ export function createDropboxProvider(connectionId: string): StorageProvider {
       return new Uint8Array(await res.arrayBuffer());
     } catch (err) {
       // Not a kind of file Dropbox makes pictures of, or not ready: no picture, not an error.
-      if (err instanceof DropboxError && err.status === 409) return null;
+      if (err instanceof StorageHttpError && err.status === 409) return null;
       throw err;
     }
   }

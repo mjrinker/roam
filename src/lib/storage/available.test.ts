@@ -7,5 +7,6 @@ describe("which storage can be connected", () => {
     expect(availableProviders({ BOX_CLIENT_ID: "a", BOX_CLIENT_SECRET: "b" })).toEqual(["box"]);
     expect(availableProviders({ BOX_CLIENT_ID: "a", BOX_CLIENT_SECRET: "b", DROPBOX_APP_KEY: "k" })).toEqual(["box"]);
     expect(availableProviders({ BOX_CLIENT_ID: "a", BOX_CLIENT_SECRET: "b", DROPBOX_APP_KEY: "k", DROPBOX_APP_SECRET: "s" })).toEqual(["box", "dropbox"]);
+    expect(availableProviders({ MICROSOFT_CLIENT_ID: "i", MICROSOFT_CLIENT_SECRET: "s" })).toEqual(["onedrive"]);
   });
 });

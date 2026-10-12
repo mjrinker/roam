@@ -5,5 +5,6 @@ export function availableProviders(env: Record<string, string | undefined> = pro
   const out: StorageProviderKind[] = [];
   if (env.BOX_CLIENT_ID && env.BOX_CLIENT_SECRET) out.push("box");
   if (env.DROPBOX_APP_KEY && env.DROPBOX_APP_SECRET) out.push("dropbox");
+  if (env.MICROSOFT_CLIENT_ID && env.MICROSOFT_CLIENT_SECRET) out.push("onedrive");
   return out;
 }
