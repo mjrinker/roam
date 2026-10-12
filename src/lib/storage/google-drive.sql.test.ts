@@ -56,7 +56,7 @@ describe("signing in to Google", () => {
   it("asks for read-only Drive access, offline, with a fresh consent so a refresh token is always issued", () => {
     const u = new URL(googleAuthorizeUrl("https://roam.example.com/api/google/callback", "STATE"));
     expect(u.origin + u.pathname).toBe("https://accounts.google.com/o/oauth2/v2/auth");
-    expect(Object.fromEntries(u.searchParams)).toMatchObject({ client_id: "g-id", response_type: "code", scope: "https://www.googleapis.com/auth/drive.readonly", access_type: "offline", prompt: "consent", state: "STATE" });
+    expect(Object.fromEntries(u.searchParams)).toMatchObject({ client_id: "g-id", response_type: "code", scope: "https://www.googleapis.com/auth/drive.readonly", access_type: "offline", prompt: "select_account consent", state: "STATE" });
   });
   it("trades the code for tokens, and names the account by email", async () => {
     const calls = stub({

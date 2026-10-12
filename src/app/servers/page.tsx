@@ -81,10 +81,10 @@ export default async function ServersPage({
                     <span className="capitalize">{m.role}</span>
                     {m.boxAuthStatus === "needs_reauth" && (
                       <span className="flex items-center gap-1 text-destructive">
-                        <TriangleAlert className="size-3" /> Box needs reconnecting
+                        <TriangleAlert className="size-3" /> Storage needs signing in again
                       </span>
                     )}
-                    {m.boxAuthStatus === "disconnected" && <span>Box not connected</span>}
+                    {m.boxAuthStatus === "disconnected" && <span>No storage connected</span>}
                   </p>
                 </div>
                 <ArrowRight className="size-5 text-muted-foreground transition-transform group-hover:translate-x-1 group-hover:text-primary" />

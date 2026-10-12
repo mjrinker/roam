@@ -26,10 +26,10 @@ const appSecret = (): string => {
   return v;
 };
 
-/** Where to send an admin to approve access. `redirectUri` must be one registered on the Dropbox app. */
+/** Where to send an admin to approve access. Dropbox is told to ask who is signing in every time, so a second account can be connected from a browser that is already signed in to the first. `redirectUri` must be one registered on the Dropbox app. */
 export function dropboxAuthorizeUrl(redirectUri: string, state: string): string {
   const u = new URL("https://www.dropbox.com/oauth2/authorize");
-  u.search = new URLSearchParams({ client_id: dropboxAppKey(), response_type: "code", token_access_type: "offline", redirect_uri: redirectUri, state }).toString();
+  u.search = new URLSearchParams({ client_id: dropboxAppKey(), response_type: "code", token_access_type: "offline", redirect_uri: redirectUri, state, force_reauthentication: "true", force_reapprove: "true" }).toString();
   return u.toString();
 }
 

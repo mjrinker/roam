@@ -27,9 +27,10 @@ const clientSecret = (): string => {
   return v;
 };
 
+/** `prompt=select_account` shows the account picker every time, instead of silently signing in as whoever the browser already is. */
 export function onedriveAuthorizeUrl(redirectUri: string, state: string): string {
   const u = new URL(`${AUTHORITY}/authorize`);
-  u.search = new URLSearchParams({ client_id: clientId(), response_type: "code", redirect_uri: redirectUri, response_mode: "query", scope: SCOPES, state }).toString();
+  u.search = new URLSearchParams({ client_id: clientId(), response_type: "code", redirect_uri: redirectUri, response_mode: "query", scope: SCOPES, state, prompt: "select_account" }).toString();
   return u.toString();
 }
 

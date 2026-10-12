@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import { Plus } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -8,6 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 
 export function CreateServerForm() {
+  const router = useRouter();
   const [name, setName] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
@@ -26,11 +28,8 @@ export function CreateServerForm() {
       return;
     }
     const { server } = await res.json();
-    // A real full-page navigation, not router.push() — this hits a Route
-    // Handler that 302s onward to Box's own OAuth consent screen (an
-    // external origin), not an internal Next.js page.
-    // eslint-disable-next-line @next/next/no-location-assign-relative-destination
-    window.location.href = `/api/box/connect?serverId=${server.id}`;
+    // Server settings opens with "Add storage" showing, since there is none yet: the admin picks Box, Dropbox, OneDrive ... there.
+    router.push(`/s/${server.id}/admin`);
   }
 
   return (
@@ -42,7 +41,7 @@ export function CreateServerForm() {
         <div>
           <h2 className="text-base font-semibold">Start a new server</h2>
           <p className="text-sm text-muted-foreground">
-            You&apos;ll connect your own Box account next, then choose which folders to share.
+            You&apos;ll choose where your media is kept next (Box, Dropbox, OneDrive and more), then which folders to share.
           </p>
         </div>
       </div>
@@ -63,7 +62,7 @@ export function CreateServerForm() {
           disabled={submitting}
           className="h-11 rounded-xl px-5 text-[15px] font-semibold"
         >
-          {submitting ? "Creating…" : "Create & connect Box"}
+          {submitting ? "Creating…" : "Create server"}
         </Button>
       </form>
     </div>

@@ -300,7 +300,7 @@ export default async function LibraryHomePage({
             <p className="text-sm leading-relaxed text-muted-foreground">
               {serverLibraries.length === 0
                 ? role === "admin"
-                  ? "Connect Box, pick a folder of movies or shows, and Roam will scan it and pull in posters and details."
+                  ? "Connect some storage (Box, Dropbox, OneDrive...), pick a folder of movies or shows, and Roam will scan it and pull in posters and details."
                   : "This server doesn't have any libraries yet. Ask an admin to add one."
                 : role === "admin"
                   ? "Your libraries haven't been scanned yet. Run a scan from server settings."

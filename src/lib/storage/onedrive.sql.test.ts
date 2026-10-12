@@ -55,6 +55,7 @@ describe("signing in to Microsoft", () => {
     expect(u.origin + u.pathname).toBe("https://login.microsoftonline.com/common/oauth2/v2.0/authorize");
     expect(Object.fromEntries(u.searchParams)).toMatchObject({ client_id: "ms-id", response_type: "code", redirect_uri: "https://roam.example/api/onedrive/callback", state: "STATE" });
     expect(u.searchParams.get("scope")).toBe("offline_access Files.Read.All User.Read");
+    expect(u.searchParams.get("prompt")).toBe("select_account"); // the account picker, every time
   });
   it("trades the code for tokens, sending the app's id and secret", async () => {
     const calls = stub({ "login.microsoftonline.com/common/oauth2/v2.0/token": () => json({ access_token: "A", refresh_token: "R", expires_in: 3599 }) });

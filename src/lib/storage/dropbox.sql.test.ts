@@ -52,10 +52,10 @@ async function connection(over: { expiresInSeconds?: number } = {}) {
 }
 
 describe("signing in to Dropbox", () => {
-  it("asks for offline access with the app's key and the redirect it was given", () => {
+  it("asks for offline access with the app's key and the redirect it was given, and to be asked who is signing in", () => {
     const u = new URL(dropboxAuthorizeUrl("https://roam.example/api/dropbox/callback", "STATE"));
     expect(u.origin + u.pathname).toBe("https://www.dropbox.com/oauth2/authorize");
-    expect(Object.fromEntries(u.searchParams)).toEqual({ client_id: "test-key", response_type: "code", token_access_type: "offline", redirect_uri: "https://roam.example/api/dropbox/callback", state: "STATE" });
+    expect(Object.fromEntries(u.searchParams)).toEqual({ client_id: "test-key", response_type: "code", token_access_type: "offline", redirect_uri: "https://roam.example/api/dropbox/callback", state: "STATE", force_reauthentication: "true", force_reapprove: "true" });
   });
   it("trades the code for tokens using the app's key and secret", async () => {
     const calls = stub({ "api.dropboxapi.com/oauth2/token": () => json({ access_token: "A", refresh_token: "R", expires_in: 14400, account_id: "dbid:1" }) });

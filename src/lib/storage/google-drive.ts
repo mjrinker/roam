@@ -31,7 +31,8 @@ const clientSecret = (): string => {
 export function googleAuthorizeUrl(redirectUri: string, state: string): string {
   const u = new URL(AUTH_URL);
   // offline + consent: Google only hands out a refresh token when asked for one, and not again to an app that was approved before.
-  u.search = new URLSearchParams({ client_id: clientId(), redirect_uri: redirectUri, response_type: "code", scope: SCOPE, access_type: "offline", prompt: "consent", include_granted_scopes: "true", state }).toString();
+  // select_account: always show the account picker, so any of a person's accounts can be connected.
+  u.search = new URLSearchParams({ client_id: clientId(), redirect_uri: redirectUri, response_type: "code", scope: SCOPE, access_type: "offline", prompt: "select_account consent", include_granted_scopes: "true", state }).toString();
   return u.toString();
 }
 
