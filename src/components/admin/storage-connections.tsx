@@ -91,8 +91,8 @@ export function StorageConnections({ serverId, connections, available }: { serve
           return (
             <Card key={c.id}>
               <CardContent className="flex flex-wrap items-center justify-between gap-3 py-3">
-                <div className="flex min-w-0 items-center gap-3">
-                  <span className={`size-2.5 shrink-0 rounded-full ${status.dot}`} />
+                <div className="flex min-w-0 flex-1 items-center gap-3">
+                  <span className={`size-2.5 shrink-0 self-start mt-1.5 rounded-full ${status.dot}`} />
                   <div className="min-w-0">
                     {renaming?.id === c.id ? (
                       <form
@@ -107,11 +107,11 @@ export function StorageConnections({ serverId, connections, available }: { serve
                         <Button type="button" size="sm" variant="ghost" onClick={() => setRenaming(null)}>Cancel</Button>
                       </form>
                     ) : (
-                      <p className="truncate text-sm font-medium">
+                      <p className="text-sm font-medium break-words">
                         {c.label} <span className="font-normal text-muted-foreground">· {providerName(c.provider)}</span>
                       </p>
                     )}
-                    <p className="truncate text-xs text-muted-foreground">
+                    <p className="text-xs break-words text-muted-foreground">
                       {[status.text, c.accountName, c.libraries > 0 ? `${c.libraries} ${c.libraries === 1 ? "library" : "libraries"}` : null].filter(Boolean).join(" · ")}
                     </p>
                   </div>

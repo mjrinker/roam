@@ -16,6 +16,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { FolderBrowser } from "@/components/admin/folder-browser";
 import type { ConnectionSummary } from "@/lib/storage/connections";
 import { providerName } from "@/lib/storage/provider-info";
@@ -86,7 +87,7 @@ function AudibleRegionSelect({ libraryId, initial }: { libraryId: string; initia
   }
 
   return (
-    <label className="mt-3 flex items-center gap-2 text-xs text-muted-foreground">
+    <label className="mt-3 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
       Audible region
       <select
         value={region}
@@ -139,7 +140,7 @@ function VideoRatingSelect({ libraryId, initial }: { libraryId: string; initial:
   }
 
   return (
-    <label className="mt-3 flex items-center gap-2 text-xs text-muted-foreground">
+    <label className="mt-3 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
       Rating
       <select
         value={ratingToValue(rating)}
@@ -173,8 +174,8 @@ function PruneToggle({ libraryId, initial }: { libraryId: string; initial: boole
   }
 
   return (
-    <label className="mt-2 flex items-center gap-2 text-xs text-muted-foreground">
-      <input type="checkbox" className="size-3.5 accent-[var(--primary)]" checked={enabled} onChange={(e) => change(e.target.checked)} />
+    <label className="mt-2 flex items-start gap-2 text-xs text-muted-foreground">
+      <input type="checkbox" className="mt-0.5 size-3.5 shrink-0 accent-[var(--primary)]" checked={enabled} onChange={(e) => change(e.target.checked)} />
       Remove items that were deleted from Box (and their watch history and playlist spots)
     </label>
   );
@@ -201,8 +202,8 @@ function MusicLookupToggle({ libraryId, initial }: { libraryId: string; initial:
   }
 
   return (
-    <label className="mt-2 flex items-center gap-2 text-xs text-muted-foreground">
-      <input type="checkbox" className="size-3.5 accent-[var(--primary)]" checked={enabled} onChange={(e) => change(e.target.checked)} />
+    <label className="mt-2 flex items-start gap-2 text-xs text-muted-foreground">
+      <input type="checkbox" className="mt-0.5 size-3.5 shrink-0 accent-[var(--primary)]" checked={enabled} onChange={(e) => change(e.target.checked)} />
       Look up albums on MusicBrainz for titles, years and cover art (sends artist and album folder names)
     </label>
   );
@@ -224,8 +225,8 @@ function ScanProgress({ status }: { status: LibraryStatusDto }) {
 
   return (
     <div className="mt-3 flex flex-col gap-1.5">
-      <div className="flex items-center justify-between text-xs text-muted-foreground">
-        <span>
+      <div className="flex items-start justify-between gap-3 text-xs text-muted-foreground">
+        <span className="min-w-0">
           {status.scanning ? "Scanning… " : ""}
           {status.titleCount.toLocaleString()} title{status.titleCount === 1 ? "" : "s"}
           {" · "}
@@ -233,7 +234,7 @@ function ScanProgress({ status }: { status: LibraryStatusDto }) {
           {folders ? "folders scanned" : "files processed"}
           {!folders && failed > 0 ? ` (${failed} failed)` : ""}
         </span>
-        <span>{pct}%</span>
+        <span className="shrink-0">{pct}%</span>
       </div>
       <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted">
         <div
@@ -259,7 +260,7 @@ function ScanErrors({ errors }: { errors: string[] }) {
       </p>
       <ul className="mt-1 flex flex-col gap-0.5">
         {shown.map((err, i) => (
-          <li key={i} className="text-xs text-destructive/90">
+          <li key={i} className="text-xs break-words text-destructive/90">
             {err}
           </li>
         ))}
@@ -319,13 +320,13 @@ function LibraryFolders({ serverId, lib, connections }: { serverId: string; lib:
     <div className="mt-3 flex flex-col gap-1.5 text-xs text-muted-foreground">
       <p className="font-medium text-foreground/80">Folders</p>
       <ul className="flex flex-col gap-1">
-        <li className="flex items-center gap-2">
+        <li className="flex flex-wrap items-center gap-x-2">
           <span>Original folder</span>
           <span>· {lib.firstFolderConnection}</span>
         </li>
         {lib.sources.map((s) => (
-          <li key={s.id} className="flex items-center gap-2">
-            <span className="text-foreground/90">{s.label}</span>
+          <li key={s.id} className="flex flex-wrap items-center gap-x-2">
+            <span className="min-w-0 break-words text-foreground/90">{s.label}</span>
             <span>· {s.connection}</span>
             <button type="button" className="underline hover:text-foreground" onClick={() => void remove(s.id, s.label)}>
               Remove
@@ -351,6 +352,52 @@ function LibraryFolders({ serverId, lib, connections }: { serverId: string; lib:
   );
 }
 
+/** Asks for the library's name before removing it from Roam (the files in storage are never touched). */
+function DeleteLibraryDialog({ lib, onClose, onDeleted }: { lib: LibraryRow; onClose: () => void; onDeleted: () => void }) {
+  const [typed, setTyped] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  async function remove(e: React.FormEvent) {
+    e.preventDefault();
+    setBusy(true);
+    const res = await fetch(`/api/libraries/${lib.id}`, { method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: typed }) });
+    setBusy(false);
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      return toast.error(typeof body.error === "string" ? body.error : "Couldn't delete the library.");
+    }
+    toast.success(`"${lib.name}" was removed from Roam.`);
+    onDeleted();
+  }
+
+  return (
+    <Dialog open onOpenChange={(open) => !open && !busy && onClose()}>
+      <DialogContent className="sm:max-w-md">
+        <form onSubmit={remove} className="flex flex-col gap-4">
+          <DialogHeader>
+            <DialogTitle>Delete &quot;{lib.name}&quot;?</DialogTitle>
+            <DialogDescription>
+              This removes the library from Roam: everything listed in it, and for that, everyone&apos;s watch history and playlist spots. Your files in storage are not touched, and you can add the folder as a new library again later.
+            </DialogDescription>
+          </DialogHeader>
+          <label className="grid gap-1.5 text-sm">
+            Type the library&apos;s name to confirm
+            <Input autoFocus value={typed} onChange={(e) => setTyped(e.target.value)} placeholder={lib.name} autoComplete="off" />
+          </label>
+          <DialogFooter>
+            <Button type="button" variant="ghost" onClick={onClose} disabled={busy}>
+              Cancel
+            </Button>
+            <Button type="submit" variant="destructive" disabled={busy || typed !== lib.name}>
+              {busy ? "Deleting…" : "Delete library"}
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 export function LibraryManager({
   serverId,
   libraries,
@@ -366,6 +413,7 @@ export function LibraryManager({
   const [scanningId, setScanningId] = useState<string | null>(null);
   const [showForm, setShowForm] = useState(libraries.length === 0);
   const [accessFor, setAccessFor] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState<LibraryRow | null>(null);
   // Access changes made in this session, so the badge updates without a refresh.
   const [access, setAccess] = useState<Record<string, LibraryAccess>>({});
   const [name, setName] = useState("");
@@ -582,10 +630,10 @@ export function LibraryManager({
         {libraries.map((lib) => (
           <Card key={lib.id}>
             <CardContent className="py-4">
-              <div className="flex items-center justify-between">
-                <div>
-                  <div className="flex items-center gap-2">
-                    <p className="font-medium">{lib.name}</p>
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div className="min-w-0 flex-1">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <p className="min-w-0 font-medium break-words">{lib.name}</p>
                     <Badge variant="secondary">{lib.kind}</Badge>
                     <Badge variant={(access[lib.id] ?? lib.access) === "restricted" ? "outline" : "secondary"}>
                       {(access[lib.id] ?? lib.access) === "restricted" ? "Restricted" : "Everyone"}
@@ -605,18 +653,21 @@ export function LibraryManager({
                     )}
                   </p>
                 </div>
-                <div className="flex items-center gap-2">
-                <Button variant="secondary" size="sm" onClick={() => setAccessFor(lib.id)}>
-                  Access
-                </Button>
-                <Button
-                  variant="secondary"
-                  size="sm"
-                  disabled={scanningId === lib.id || statusById[lib.id]?.scanning || !boxConnected}
-                  onClick={() => rescan(lib.id)}
-                >
-                  {scanningId === lib.id || statusById[lib.id]?.scanning ? "Scanning…" : "Rescan"}
-                </Button>
+                <div className="flex flex-wrap items-center gap-2">
+                  <Button variant="secondary" size="sm" onClick={() => setAccessFor(lib.id)}>
+                    Access
+                  </Button>
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    disabled={scanningId === lib.id || statusById[lib.id]?.scanning || !boxConnected}
+                    onClick={() => rescan(lib.id)}
+                  >
+                    {scanningId === lib.id || statusById[lib.id]?.scanning ? "Scanning…" : "Rescan"}
+                  </Button>
+                  <Button variant="ghost" size="sm" className="text-destructive hover:text-destructive" onClick={() => setDeleting(lib)}>
+                    Delete
+                  </Button>
                 </div>
               </div>
               {accessFor === lib.id && (
@@ -639,6 +690,7 @@ export function LibraryManager({
           </Card>
         ))}
       </div>
+      {deleting && <DeleteLibraryDialog lib={deleting} onClose={() => setDeleting(null)} onDeleted={() => (setDeleting(null), startTransition(() => router.refresh()))} />}
     </section>
   );
 }
