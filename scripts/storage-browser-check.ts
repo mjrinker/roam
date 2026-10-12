@@ -67,6 +67,14 @@ const server = http.createServer((req, res) => {
       json({ ok: true });
     });
   }
+  if (url.pathname === `/api/servers/${SERVER}` && req.method === "DELETE") {
+    let raw = "";
+    req.on("data", (c) => (raw += c));
+    return void req.on("end", () => {
+      calls.push(`DELETE server ${raw}`);
+      json({ ok: true });
+    });
+  }
   if (url.pathname === "/api/libraries/L1" && req.method === "DELETE") {
     let raw = "";
     req.on("data", (c) => (raw += c));
@@ -93,9 +101,10 @@ async function main() {
         import { createRoot } from "react-dom/client";
         import { StorageConnections } from "@/components/admin/storage-connections";
         import { LibraryManager } from "@/components/admin/library-manager";
+        import { DeleteServerButton } from "@/components/admin/delete-server-button";
         const conns = ${JSON.stringify(connections)};
         const lib = { id: "L1", name: "Movies and a very long library name that just keeps on going and going", kind: "video", access: "everyone", ratingAges: null, pruneMissing: true, musicLookup: false, boxFolderId: "0", firstFolderConnection: "Box", sources: [], audibleRegion: "us", lastScannedAt: "2026-10-01T00:00:00Z", lastScan: { trigger: "manual", finishedAt: null, filesSeen: 12, titlesAdded: 3, errors: ["probe Some-Extremely-Long-File-Name-With-No-Spaces-At-All-That-Goes-On-And-On-Forever-And-Ever-(1983).mp4: OneDrive gave no download link for that item"] } };
-        window.__render = (sources) => createRoot(document.getElementById("root")).render(<><StorageConnections serverId="${SERVER}" connections={conns} available={["box","dropbox"]} /><LibraryManager serverId="${SERVER}" libraries={[{ ...lib, sources }]} connections={conns.map((c) => ({ ...c, authStatus: "connected" }))} /></>);
+        window.__render = (sources) => createRoot(document.getElementById("root")).render(<><StorageConnections serverId="${SERVER}" connections={conns} available={["box","dropbox"]} /><DeleteServerButton serverId="${SERVER}" serverName="Roam Dev server with a rather long name" /><LibraryManager serverId="${SERVER}" libraries={[{ ...lib, sources }]} connections={conns.map((c) => ({ ...c, authStatus: "connected" }))} /></>);
         window.__render([]);`,
       resolveDir: process.cwd(),
       loader: "tsx",
@@ -189,6 +198,16 @@ async function main() {
     await click("Delete library");
     await new Promise((r) => setTimeout(r, 500));
     check("deleting sends the library's name to the API", calls.some((c) => c.startsWith("DELETE L1 ") && c.includes("Movies and a very long library name")), calls);
+    // The server's own Danger zone: the same type-the-name guard.
+    await page.evaluate(`[...document.querySelectorAll("button")].find(b => b.textContent.trim() === "Delete server" && !b.closest('[role="dialog"]')).click()`);
+    await page.waitFor(`document.body.innerText.includes("Type the server")`, 3000);
+    const serverSubmit = () => page.evaluate<boolean>(`[...document.querySelectorAll('[role="dialog"] button')].find(b => b.textContent.trim() === "Delete server").disabled`);
+    check("deleting the server waits for its name", await serverSubmit());
+    await page.evaluate(`(() => { const i = document.querySelector('[role="dialog"] input'); const set = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set; set.call(i, "Roam Dev server with a rather long name"); i.dispatchEvent(new Event("input", { bubbles: true })); })()`);
+    check("the right name enables it", !(await serverSubmit()));
+    await page.evaluate(`[...document.querySelectorAll('[role="dialog"] button')].find(b => b.textContent.trim() === "Delete server").click()`);
+    await new Promise((r) => setTimeout(r, 500));
+    check("it sends the server's name and goes to the servers list", calls.some((c) => c.startsWith("DELETE server") && c.includes("Roam Dev server")) && (await page.evaluate<string[]>("window.__nav || []")).includes("/servers"), calls);
     check("without any page error", page.errors.length === 0, page.errors.slice(0, 2));
   } finally {
     browser.close();

@@ -3,6 +3,7 @@ import { db } from "@/lib/db/client";
 import { invites, libraries, librarySources, scanRuns, servers, titles, viewers } from "@/lib/db/schema";
 import { requireServerAdmin } from "@/lib/auth/guards";
 import { LibraryManager } from "@/components/admin/library-manager";
+import { DeleteServerButton } from "@/components/admin/delete-server-button";
 import { StorageConnections } from "@/components/admin/storage-connections";
 import { availableProviders } from "@/lib/storage/available";
 import { listConnectionSummaries } from "@/lib/storage/connections";
@@ -141,6 +142,8 @@ export default async function AdminPage({
           expiresAt: i.expiresAt.toISOString(),
         }))}
       />
+
+      {server && <DeleteServerButton serverId={serverId} serverName={server.name} />}
     </div>
   );
 }
