@@ -124,7 +124,8 @@ describe("the OneDrive provider", () => {
     const conn = await connection();
     let n = 0;
     stub({
-      "graph.microsoft.com/v1.0/me/drive/items/A": () => json({ id: "A", "@microsoft.graph.downloadUrl": `https://dl.example/${++n}` }),
+      // As the real service does for a personal account: the link comes only when no fields are selected.
+      "graph.microsoft.com/v1.0/me/drive/items/A": (u) => json(u.searchParams.has("$select") ? { id: "A" } : { id: "A", "@microsoft.graph.downloadUrl": `https://dl.example/${++n}` }),
       "dl.example/1": (_u, init) => {
         expect((init.headers as Record<string, string>).Range).toBe("bytes=2-5");
         return new Response(new Uint8Array([2, 3, 4, 5]), { status: 206 });

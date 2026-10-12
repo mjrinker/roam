@@ -101,7 +101,8 @@ export function createOneDriveProvider(connectionId: string): StorageProvider {
   async function link(fileId: string, fresh = false): Promise<StreamingUrl> {
     const cached = links.get(fileId);
     if (!fresh && cached && cached.expiresAt.getTime() - Date.now() > 5 * 60_000) return cached;
-    const item = await graph<Item>(`${itemPath(fileId)}?$select=id,@microsoft.graph.downloadUrl`);
+    // No $select: on personal accounts the link is left out of a response that selects fields, even when it is named.
+    const item = await graph<Item>(itemPath(fileId));
     const url = item["@microsoft.graph.downloadUrl"];
     if (!url) throw new Error("OneDrive gave no download link for that item");
     const made = { url, expiresAt: new Date(Date.now() + LINK_TTL_MS) };
