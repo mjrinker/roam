@@ -26,6 +26,11 @@ export const PROVIDERS: ProviderInfo[] = [
     name: "OneDrive",
     connectHref: (serverId, connectionId, label) => `/api/onedrive/connect?${q({ serverId, connectionId, label })}`,
   },
+  {
+    kind: "gdrive",
+    name: "Google Drive",
+    connectHref: (serverId, connectionId, label) => `/api/google/connect?${q({ serverId, connectionId, label })}`,
+  },
 ];
 
 export const providerInfo = (kind: StorageProviderKind): ProviderInfo | undefined => PROVIDERS.find((p) => p.kind === kind);

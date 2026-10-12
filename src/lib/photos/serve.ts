@@ -14,7 +14,7 @@ import { mediaFiles, servers } from "@/lib/db/schema";
 import type { TitleKind } from "@/lib/db/schema";
 import { isPhotoLibraryKind } from "@/lib/libraries/profile";
 import { checkRateLimit } from "@/lib/rate-limit";
-import { isBoxHost } from "@/lib/storage/box-representations";
+import { isStorageDownloadHost } from "@/lib/storage/hosts";
 import { StorageReauthRequiredError } from "@/lib/storage/reauth";
 import { createStorageForServer } from "@/lib/storage/server-storage";
 
@@ -94,8 +94,8 @@ export async function redirectToOriginal(file: PhotoFile): Promise<Response> {
   // A freshly minted URL, never one from the playback cache whose lifetime is the token's, not the URL's.
   const provider = createStorageForServer(file.serverId);
   const { url } = await (provider.getFreshDownloadUrl ?? provider.getStreamingUrl)(file.fileId);
-  // The URL came from Box's own API; still, a redirect is only ever made to a Box host over https.
-  if (!isBoxHost(url)) return storageFailure(new Error("unexpected download host"));
+  // The URL came from the provider's own API; still, a redirect is only ever made to a known storage host over https.
+  if (!isStorageDownloadHost(url)) return storageFailure(new Error("unexpected download host"));
   return new Response(null, { status: 302, headers: { Location: url, "Cache-Control": "no-store", "Referrer-Policy": "no-referrer" } });
 }
 

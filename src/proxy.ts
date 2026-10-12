@@ -41,6 +41,6 @@ export const config = {
      * Run on everything except static assets and Next.js internals, so the
      * session cookie is kept fresh across page loads and API calls.
      */
-    "/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)",
+    "/((?!_next/static|_next/image|favicon.ico|api/storage/stream|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)",
   ],
 };

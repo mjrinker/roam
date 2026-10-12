@@ -3,6 +3,7 @@ import { db } from "@/lib/db/client";
 import { storageConnections, type StorageProviderKind } from "@/lib/db/schema";
 import { createBoxProviderForServer } from "@/lib/storage/box";
 import { createDropboxProvider } from "@/lib/storage/dropbox";
+import { createGoogleDriveProvider } from "@/lib/storage/google-drive";
 import { createOneDriveProvider } from "@/lib/storage/onedrive";
 import type { StorageProvider } from "@/lib/storage/provider";
 
@@ -27,6 +28,8 @@ export function providerForConnection(conn: Pick<StorageConnection, "id" | "prov
       return createDropboxProvider(conn.id);
     case "onedrive":
       return createOneDriveProvider(conn.id);
+    case "gdrive":
+      return createGoogleDriveProvider(conn.id);
     default:
       throw new UnsupportedProviderError(kind);
   }

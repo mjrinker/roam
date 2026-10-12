@@ -108,7 +108,7 @@ How it's built (the interesting part, for reviewers): a server's admin can switc
 
 ### Storage, connections and library folders
 
-A server can have any number of **storage connections** (Server settings > Storage): Box, Dropbox and OneDrive so far, several accounts of the same kind if you like. A library is made of one or more **folders**, each on any connection; a scan treats them as one library (folders of the same name merge, and if one connection is signed out the others still scan, with the problem reported). Add or remove a library's folders under it in Server settings.
+A server can have any number of **storage connections** (Server settings > Storage): Box, Dropbox, OneDrive and Google Drive, several accounts of the same kind if you like. A library is made of one or more **folders**, each on any connection; a scan treats them as one library (folders of the same name merge, and if one connection is signed out the others still scan, with the problem reported). Add or remove a library's folders under it in Server settings.
 
 Each kind of storage needs the deployment to hold its sign-in keys, or it isn't offered:
 
@@ -116,6 +116,8 @@ Each kind of storage needs the deployment to hold its sign-in keys, or it isn't 
 - **Dropbox:** `DROPBOX_APP_KEY`, `DROPBOX_APP_SECRET`. Create an app at dropbox.com/developers/apps with *Scoped access* and *Full Dropbox*, tick `files.metadata.read` and `files.content.read` on its Permissions tab, and add `https://<your site>/api/dropbox/callback` as a redirect URI. Dropbox streams through temporary direct links (good for four hours), so nothing passes through Roam.
 
 - **OneDrive** (personal, work or school): `MICROSOFT_CLIENT_ID`, `MICROSOFT_CLIENT_SECRET`. Register an app at portal.azure.com (App registrations), supporting *any organizational directory and personal Microsoft accounts*, with the Web redirect URI `https://<your site>/api/onedrive/callback`; create a client secret (they expire, at most after 24 months, so note when); give it the Microsoft Graph delegated permissions `Files.Read.All`, `User.Read` and `offline_access`. OneDrive streams through each file's own pre-authenticated link (good for about an hour).
+
+- **Google Drive:** `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`. In Google Cloud Console create a project, enable the *Google Drive API*, configure the OAuth consent screen (External; add the `.../auth/drive.readonly` scope; **publish it to "In production"** so logins don't expire after 7 days; Google shows an "unverified app" warning that you click through, and caps it at 100 users, which is plenty for a private server), then create an *OAuth client ID* of type *Web application* with the redirect URI `https://<your site>/api/google/callback`. Google has no per-file download links, so Drive files stream *through Roam* (`/api/storage/stream/<token>`, a signed link for one file that expires in four hours); the account's own token never reaches a browser. That means Drive playback uses your hosting's bandwidth, unlike Box, Dropbox and OneDrive. Only files in My Drive and shared drives can be browsed (not "Shared with me": add a shortcut-free copy or move them into a folder you own). Needs `NEXT_PUBLIC_APP_URL` set to the site's address.
 
 Things only Box does: making browser-friendly copies of unsupported audio (remuxing), Box's own previews of phone videos, and putting a TMDB tag in a folder's name.
 
