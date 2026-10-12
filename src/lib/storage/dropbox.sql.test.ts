@@ -218,6 +218,11 @@ describe("the Dropbox provider", () => {
     expect((await p.fetchPreview!("id:photo"))).toMatchObject({ contentType: "image/jpeg", size: 2048 });
     expect(await p.fetchPreview!("id:video")).toBeNull();
   });
+  it("says which permission the Dropbox app is missing, and what to do about it", async () => {
+    const conn = await connection();
+    stub({ "api.dropboxapi.com/2/files/list_folder": () => new Response(`Error in call to API function "files/list_folder": Your app (ID: 1) is not permitted to access this endpoint because it does not have the required scope 'files.metadata.read'. The owner of the app can enable the scope`, { status: 400 }) });
+    await expect(createDropboxProvider(conn.id).listFolder("")).rejects.toThrow(/"files.metadata.read" permission[\s\S]*Permissions tab[\s\S]*Reconnect/);
+  });
   it("waits out a rate limit and tries again", async () => {
     const conn = await connection();
     let n = 0;

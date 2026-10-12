@@ -67,7 +67,16 @@ export async function dropboxAccountName(accessToken: string): Promise<string | 
   return a.email ?? a.name?.display_name ?? null;
 }
 
-const call = (connectionId: string, build: (token: string) => Promise<Response>): Promise<Response> => authorizedCall(connectionId, dropboxRefresher, "Dropbox", build);
+async function call(connectionId: string, build: (token: string) => Promise<Response>): Promise<Response> {
+  try {
+    return await authorizedCall(connectionId, dropboxRefresher, "Dropbox", build);
+  } catch (err) {
+    // The app was approved before it was given this permission: signing in again (after turning it on) is the fix.
+    const scope = err instanceof StorageHttpError && err.status === 400 ? /required scope '([\w.]+)'/.exec(err.body)?.[1] : null;
+    if (scope) throw new StorageHttpError(`The Dropbox app doesn't have the "${scope}" permission. Turn it on in the app's Permissions tab on dropbox.com/developers, press Submit, then use Reconnect on this connection.`, 400, err instanceof StorageHttpError ? err.body : "");
+    throw err;
+  }
+}
 
 const rpc = async <T>(connectionId: string, route: string, body: unknown): Promise<T> =>
   (await call(connectionId, (token) => fetch(`${API}${route}`, { method: "POST", headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" }, body: JSON.stringify(body) }))).json() as Promise<T>;

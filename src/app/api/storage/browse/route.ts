@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getCurrentServerAdmin } from "@/lib/auth/guards";
 import { StorageReauthRequiredError } from "@/lib/storage/reauth";
+import { StorageHttpError } from "@/lib/storage/http";
 import { formatStorageId } from "@/lib/storage/ids";
 import { loadConnection, providerForConnection } from "@/lib/storage/registry";
 import { createStorageForServer } from "@/lib/storage/server-storage";
@@ -31,6 +32,8 @@ export async function GET(request: Request) {
     if (err instanceof StorageReauthRequiredError) {
       return NextResponse.json({ error: "This connection needs to be reconnected." }, { status: 424 });
     }
-    return NextResponse.json({ error: "Failed to browse that folder." }, { status: 500 });
+    // Only an admin gets here, so the reason is shown: it is what tells them what to fix.
+    const detail = err instanceof StorageHttpError || err instanceof Error ? err.message.slice(0, 300) : "";
+    return NextResponse.json({ error: detail ? `Failed to browse that folder: ${detail}` : "Failed to browse that folder." }, { status: 500 });
   }
 }
