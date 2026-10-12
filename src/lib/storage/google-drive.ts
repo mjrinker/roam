@@ -5,8 +5,9 @@
  * uses the account token directly on the server and never exposes it.
  */
 import { ListingTruncatedError, type PreviewImage, type StorageEntry, type StorageProvider } from "@/lib/storage/provider";
-import { OAuthInvalidGrantError, accessTokenFor, type OAuthTokens, type Refresher } from "@/lib/storage/oauth-tokens";
+import { OAuthInvalidGrantError, accessTokenFor, accessTokenValidFor, type OAuthTokens, type Refresher } from "@/lib/storage/oauth-tokens";
 import { authorizedCall, StorageHttpError } from "@/lib/storage/http";
+import { sealedStreamUrl, streamWorkerConfig } from "@/lib/storage/stream-seal";
 import { signStreamToken, streamUrl } from "@/lib/storage/stream-token";
 
 const API = "https://www.googleapis.com/drive/v3";
@@ -92,7 +93,18 @@ export function createGoogleDriveProvider(connectionId: string): StorageProvider
   const get = (url: string, headers: Record<string, string> = {}) => call((token) => fetch(url, { headers: { Authorization: `Bearer ${token}`, ...headers } }));
   const meta = async (id: string, fields: string): Promise<DriveFile> => (await get(`${API}/files/${encodeURIComponent(id)}?fields=${encodeURIComponent(fields)}&${SHARED}`)).json() as Promise<DriveFile>;
 
-  const link = (fileId: string) => {
+  /**
+   * The link a player plays from. With Roam's Cloudflare stream Worker configured, the Worker streams the file (no load on Roam's host)
+   * from a link that seals the file and a short-lived Google token; without it, Roam's own stream route does, from a signed link.
+   */
+  const link = async (fileId: string) => {
+    const worker = streamWorkerConfig();
+    if (worker) {
+      // The sealed token can't outlive itself, so the link ends with it (an hour at most) and a player simply asks again.
+      const { token, expiresAt } = await accessTokenValidFor(connectionId, googleRefresher, 25 * 60_000);
+      const end = new Date(Math.min(expiresAt.getTime() - 60_000, Date.now() + 55 * 60_000));
+      return { url: sealedStreamUrl(worker, fileId, token, end), expiresAt: end };
+    }
     const { token, expiresAt } = signStreamToken(connectionId, fileId);
     return { url: streamUrl(token), expiresAt };
   };

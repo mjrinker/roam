@@ -1,0 +1,6 @@
+name = "roam-stream"
+main = "src/index.ts"
+compatibility_date = "2026-01-01"
+
+# The secret is not kept here. Set it once with:  npx wrangler secret put STREAM_SECRET
+# (the same base64 value as STREAM_SECRET in Roam's environment).

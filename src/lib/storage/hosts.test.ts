@@ -11,7 +11,7 @@ describe("download hosts Roam will redirect to", () => {
       "https://my.microsoftpersonalcontent.com/personal/abc/_layouts/15/download.aspx?UniqueId=1",
       "https://contoso-my.sharepoint.com/personal/x/_layouts/15/download.aspx",
       "https://roam.example.com/api/storage/stream/abc",
-    ]) expect(isStorageDownloadHost(url, app), url).toBe(true);
+    ]) expect(isStorageDownloadHost(url, app, undefined), url).toBe(true);
   });
   it("refuses other hosts, look-alikes, plain http, and embedded logins", () => {
     for (const url of [
@@ -23,7 +23,9 @@ describe("download hosts Roam will redirect to", () => {
       "https://user:pw@dl.dropboxusercontent.com/x",
       "https://roam.example.com.evil.com/x",
       "not a url",
-    ]) expect(isStorageDownloadHost(url, app), url).toBe(false);
-    expect(isStorageDownloadHost("https://roam.example.com/x", undefined)).toBe(false); // no site configured: only the providers
+    ]) expect(isStorageDownloadHost(url, app, undefined), url).toBe(false);
+    expect(isStorageDownloadHost("https://roam.example.com/x", undefined, undefined)).toBe(false); // no site configured: only the providers
+    expect(isStorageDownloadHost("https://roam-stream.me.workers.dev/s/abc", app, "https://roam-stream.me.workers.dev")).toBe(true);
+    expect(isStorageDownloadHost("https://roam-stream.me.workers.dev/s/abc", app, undefined)).toBe(false);
   });
 });

@@ -13,17 +13,17 @@ const SUFFIXES = [
 
 /**
  * True for a download link a storage provider made that Roam may send a person to: over https, no embedded login, on a host of Box,
- * Dropbox, OneDrive, or this site itself (Google Drive streams through it). Anything else is refused rather than redirected to.
+ * Dropbox, OneDrive, this site itself or its stream Worker (Google Drive streams through one of those). Anything else is refused rather than redirected to.
  */
-export function isStorageDownloadHost(url: string, appUrl: string | undefined = process.env.NEXT_PUBLIC_APP_URL): boolean {
+export function isStorageDownloadHost(url: string, appUrl: string | undefined = process.env.NEXT_PUBLIC_APP_URL, workerUrl: string | undefined = process.env.STREAM_WORKER_URL): boolean {
   if (isBoxHost(url)) return true;
   try {
     const u = new URL(url);
     if (u.protocol !== "https:" || u.username || u.password) return false;
     const host = u.hostname.toLowerCase();
     if (SUFFIXES.some((s) => host === s || host.endsWith(`.${s}`))) return true;
-    const own = appUrl ? new URL(appUrl).hostname.toLowerCase() : null;
-    return own !== null && host === own;
+    const ours = [appUrl, workerUrl].filter((v): v is string => !!v).map((v) => new URL(v).hostname.toLowerCase());
+    return ours.includes(host);
   } catch {
     return false;
   }

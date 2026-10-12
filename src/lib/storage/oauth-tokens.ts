@@ -101,3 +101,18 @@ async function obtain(connectionId: string, refresher: Refresher, force: boolean
   }
   throw new StorageReauthRequiredError(connectionId);
 }
+
+/**
+ * An access token with at least `minMs` of life left, and when it ends (a link that carries the token can't outlive it). Refreshes if
+ * the stored one is closer to its end than that.
+ */
+export async function accessTokenValidFor(connectionId: string, refresher: Refresher, minMs: number): Promise<{ token: string; expiresAt: Date }> {
+  const expiry = async () => (await db.select({ at: storageConnections.tokenExpiresAt }).from(storageConnections).where(eq(storageConnections.id, connectionId)).limit(1))[0]?.at ?? null;
+  let token = await accessTokenFor(connectionId, refresher);
+  let at = await expiry();
+  if (!at || at.getTime() - Date.now() < minMs) {
+    token = await accessTokenFor(connectionId, refresher, true);
+    at = await expiry();
+  }
+  return { token, expiresAt: at ?? new Date(Date.now() + 50 * 60_000) };
+}

@@ -23,6 +23,7 @@ import { saveTokens } from "./oauth-tokens";
 import { StorageReauthRequiredError } from "./reauth";
 import { signStreamToken, verifyStreamToken } from "./stream-token";
 import { GET, HEAD } from "@/app/api/storage/stream/[token]/route";
+import { open as openSealed } from "../../../cloudflare/stream-worker/src/index";
 
 let db: TestDb;
 beforeAll(() => {
@@ -115,6 +116,27 @@ describe("the Google Drive provider", () => {
     expect(verifyStreamToken(url.split("/").pop()!)).toEqual({ connectionId: conn.id, fileId: "file-9" });
     expect(expiresAt.getTime() - Date.now()).toBeGreaterThan(3 * 3600_000);
     expect((await p.getFreshDownloadUrl!("file-9")).url).toContain("/api/storage/stream/");
+  });
+  it("streams through the Cloudflare Worker when one is configured, with the file and a short-lived token sealed in the link", async () => {
+    const secret = randomBytes(32).toString("base64");
+    process.env.STREAM_WORKER_URL = "https://roam-stream.me.workers.dev";
+    process.env.STREAM_SECRET = secret;
+    try {
+      const conn = await connection({ expiresInSeconds: 10 * 60 }); // a token with too little life left is replaced first
+      stub({ "oauth2.googleapis.com/token": () => json({ access_token: "access-fresh", expires_in: 3600 }) });
+      const p = createGoogleDriveProvider(conn.id);
+      const { url, expiresAt } = await p.getStreamingUrl("film-7");
+      expect(url.startsWith("https://roam-stream.me.workers.dev/s/")).toBe(true);
+      expect(url).not.toContain("access-");
+      const opened = await openSealed(url.split("/s/")[1], secret);
+      expect(opened).toMatchObject({ f: "film-7", t: "access-fresh" });
+      expect(opened!.e).toBe(expiresAt.getTime());
+      expect(expiresAt.getTime() - Date.now()).toBeGreaterThan(40 * 60_000);
+      expect(expiresAt.getTime() - Date.now()).toBeLessThanOrEqual(55 * 60_000);
+    } finally {
+      delete process.env.STREAM_WORKER_URL;
+      delete process.env.STREAM_SECRET;
+    }
   });
   it("reads a byte range on the server with the account token, trimming a whole-file answer", async () => {
     const conn = await connection();
