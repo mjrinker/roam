@@ -14,6 +14,7 @@ const modules = readdirSync(DIR).filter((f) => f.endsWith(".ts") && !f.endsWith(
 const NOT_VIEWER_READERS: Record<string, string> = {
   "kind.ts": "returns only a title's library kind, for admin-only routes",
   "video-rating.ts": "admin-only: rewrites the rating on every title in a library",
+  "delete.ts": "admin-only: removes a whole library and everything in it (no viewer reads it)",
 };
 
 describe("libraries modules", () => {
