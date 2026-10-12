@@ -1,10 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { desc, eq } from "drizzle-orm";
 import { getCurrentServerAdmin } from "@/lib/auth/guards";
-import { createInvite } from "@/lib/auth/invites";
-import { db } from "@/lib/db/client";
-import { invites } from "@/lib/db/schema";
+import { createInvite, listInvitesForAdmin } from "@/lib/auth/invites";
 
 const bodySchema = z.object({
   serverId: z.string().uuid(),
@@ -47,10 +44,5 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
-  const all = await db
-    .select()
-    .from(invites)
-    .where(eq(invites.serverId, serverId))
-    .orderBy(desc(invites.createdAt));
-  return NextResponse.json({ invites: all });
+  return NextResponse.json({ invites: await listInvitesForAdmin(serverId) });
 }

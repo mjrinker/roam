@@ -1,11 +1,12 @@
 import { and, asc, desc, eq, inArray } from "drizzle-orm";
 import { db } from "@/lib/db/client";
-import { invites, libraries, librarySources, scanRuns, servers, titles, viewers } from "@/lib/db/schema";
+import { libraries, librarySources, scanRuns, servers, titles, viewers } from "@/lib/db/schema";
 import { requireServerAdmin } from "@/lib/auth/guards";
 import { LibraryManager } from "@/components/admin/library-manager";
 import { DeleteServerButton } from "@/components/admin/delete-server-button";
 import { StorageConnections } from "@/components/admin/storage-connections";
 import { availableProviders } from "@/lib/storage/available";
+import { listInvitesForAdmin } from "@/lib/auth/invites";
 import { listConnectionSummaries } from "@/lib/storage/connections";
 import { parseStorageId } from "@/lib/storage/ids";
 import { InviteManager } from "@/components/admin/invite-manager";
@@ -45,11 +46,7 @@ export default async function AdminPage({
   const libraryIds = allLibraries.map((l) => l.id);
   const sourceRows = libraryIds.length ? await db.select().from(librarySources).where(inArray(librarySources.libraryId, libraryIds)).orderBy(asc(librarySources.position), asc(librarySources.createdAt)) : [];
 
-  const allInvites = await db
-    .select()
-    .from(invites)
-    .where(eq(invites.serverId, serverId))
-    .orderBy(desc(invites.createdAt));
+  const allInvites = await listInvitesForAdmin(serverId);
 
   // Video libraries take everything from the files themselves, so nothing there is ever "unmatched".
   const matchableLibraryIds = allLibraries.filter((l) => libraryKindUsesExternalMetadata(l.kind)).map((l) => l.id);

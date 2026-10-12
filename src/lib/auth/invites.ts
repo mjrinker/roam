@@ -1,5 +1,5 @@
 import { randomBytes } from "node:crypto";
-import { and, count, eq, gt, isNull } from "drizzle-orm";
+import { and, count, desc, eq, gt, isNotNull, isNull, or } from "drizzle-orm";
 import { db } from "@/lib/db/client";
 import { invites, profiles, serverMembers } from "@/lib/db/schema";
 import { checkRateLimit } from "@/lib/rate-limit";
@@ -7,6 +7,8 @@ import { ensureDefaultViewer } from "@/lib/auth/viewer";
 import { guestEmail } from "@/lib/auth/guests";
 
 const INVITE_TTL_DAYS = 7;
+/** An invitation that expired this long ago is no longer listed (it stays in the database; nothing sweeps it). */
+export const EXPIRED_INVITE_LISTED_DAYS = 7;
 const MAX_PENDING_INVITES_PER_SERVER = Number(
   process.env.MAX_PENDING_INVITES_PER_SERVER ?? 25
 );
@@ -157,4 +159,17 @@ export async function acceptInvite(
   await db.update(invites).set({ acceptedAt: new Date() }).where(eq(invites.id, invite.id));
 
   return { ok: true, serverId: invite.serverId };
+}
+
+/**
+ * The invitations to show an admin: everything still pending, and any that expired less than a week ago (so they can see it lapsed),
+ * newest first. Accepted ones stay listed as a record until they are deleted.
+ */
+export async function listInvitesForAdmin(serverId: string, now: Date = new Date()) {
+  const cutoff = new Date(now.getTime() - EXPIRED_INVITE_LISTED_DAYS * 24 * 60 * 60 * 1000);
+  return db
+    .select()
+    .from(invites)
+    .where(and(eq(invites.serverId, serverId), or(isNotNull(invites.acceptedAt), gt(invites.expiresAt, cutoff))))
+    .orderBy(desc(invites.createdAt));
 }
