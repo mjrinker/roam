@@ -1,5 +1,5 @@
 /** The numbers and problems on the platform admin page, for every server at once. Read-only. */
-import { and, count, countDistinct, desc, eq, gt, isNotNull, isNull, lt, min, ne, sql } from "drizzle-orm";
+import { and, count, countDistinct, desc, eq, gt, isNotNull, isNull, lt, min, ne, sql, sum } from "drizzle-orm";
 import type { PgDatabase, PgQueryResultHKT } from "drizzle-orm/pg-core";
 import {
   episodes,
@@ -10,6 +10,7 @@ import {
   profiles,
   providerAccounts,
   scanRuns,
+  seasons,
   serverMembers,
   servers,
   storageConnections,
@@ -62,6 +63,8 @@ export interface PlatformStats {
     probes: { pending: number; failed: number };
     tmdb: { entries: number; due: number; oldestDays: number | null; lastRun: { at: Date; summary: Record<string, unknown> | null } | null };
   };
+  /** Per library type: how much is in it. Files are the main files only (not extras or other versions). */
+  itemsByKind: { kind: string; libraries: number; items: number; episodes: number; files: number; bytes: number }[];
   servers: { id: string; name: string; owner: string; members: number; libraries: number; titles: number; connections: number; createdAt: Date }[];
 }
 
@@ -118,6 +121,26 @@ export async function loadPlatformStats(ex: Db, now: Date = new Date()): Promise
     };
   });
 
+  // Box has no account limit and isn't in the ledger (nothing is unlinked there): its accounts are read from the connections as they are now.
+  const boxRows = await ex
+    .select({ label: storageConnections.label, account: storageConnections.accountName, createdAt: storageConnections.createdAt, serverName: servers.name })
+    .from(storageConnections)
+    .innerJoin(servers, eq(storageConnections.serverId, servers.id))
+    .where(eq(storageConnections.provider, "box"))
+    .orderBy(storageConnections.createdAt);
+  if (boxRows.length > 0) {
+    const byAccount = new Map<string, { label: string; firstConnectedAt: Date; servers: Set<string> }>();
+    boxRows.forEach((r, i) => {
+      // A connection that never reported who it is counts as its own account, so the number never understates.
+      const key = r.account ? r.account.trim().toLowerCase() : `unnamed:${i}`;
+      const entry = byAccount.get(key) ?? { label: r.account?.trim() || `${r.label} (account not known)`, firstConnectedAt: r.createdAt, servers: new Set<string>() };
+      entry.servers.add(r.serverName);
+      byAccount.set(key, entry);
+    });
+    const accounts = [...byAccount.values()].map((a) => ({ label: a.label, revoked: false, firstConnectedAt: a.firstConnectedAt, servers: [...a.servers] }));
+    providers.unshift({ provider: "box", cap: null, linked: accounts.length, everLinked: accounts.length, status: "none", accounts });
+  }
+
   const [new7, new30, active7, active30] = await series(
     one(ex.select({ n: count() }).from(profiles).where(and(eq(profiles.isGuest, false), gt(profiles.createdAt, since(7))))),
     one(ex.select({ n: count() }).from(profiles).where(and(eq(profiles.isGuest, false), gt(profiles.createdAt, since(30))))),
@@ -156,6 +179,50 @@ export async function loadPlatformStats(ex: Db, now: Date = new Date()): Promise
     async () => (await ex.select().from(platformJobs).where(eq(platformJobs.name, "tmdb-refresh")).limit(1))[0] ?? null,
   );
 
+  // Per library type. Episodes and files hang off titles, so each is counted on its own (joining them would multiply the rows).
+  const kindTotals = await ex
+    .select({ kind: libraries.kind, libraries: countDistinct(libraries.id), items: count(titles.id) })
+    .from(libraries)
+    .leftJoin(titles, eq(titles.libraryId, libraries.id))
+    .groupBy(libraries.kind);
+  const kindEpisodes = await ex
+    .select({ kind: libraries.kind, n: count(episodes.id) })
+    .from(episodes)
+    .innerJoin(seasons, eq(episodes.seasonId, seasons.id))
+    .innerJoin(titles, eq(seasons.titleId, titles.id))
+    .innerJoin(libraries, eq(titles.libraryId, libraries.id))
+    .groupBy(libraries.kind);
+  const mainFile = and(isNull(mediaFiles.variantOfMediaFileId));
+  const titleFiles = await ex
+    .select({ kind: libraries.kind, n: count(mediaFiles.id), bytes: sum(mediaFiles.sizeBytes) })
+    .from(mediaFiles)
+    .innerJoin(titles, and(eq(mediaFiles.ownerId, titles.id), eq(mediaFiles.ownerKind, "title")))
+    .innerJoin(libraries, eq(titles.libraryId, libraries.id))
+    .where(mainFile)
+    .groupBy(libraries.kind);
+  const episodeFiles = await ex
+    .select({ kind: libraries.kind, n: count(mediaFiles.id), bytes: sum(mediaFiles.sizeBytes) })
+    .from(mediaFiles)
+    .innerJoin(episodes, and(eq(mediaFiles.ownerId, episodes.id), eq(mediaFiles.ownerKind, "episode")))
+    .innerJoin(seasons, eq(episodes.seasonId, seasons.id))
+    .innerJoin(titles, eq(seasons.titleId, titles.id))
+    .innerJoin(libraries, eq(titles.libraryId, libraries.id))
+    .where(mainFile)
+    .groupBy(libraries.kind);
+  const itemsByKind = kindTotals
+    .map((k) => {
+      const files = [...titleFiles, ...episodeFiles].filter((f) => f.kind === k.kind);
+      return {
+        kind: k.kind as string,
+        libraries: k.libraries,
+        items: k.items,
+        episodes: kindEpisodes.find((e) => e.kind === k.kind)?.n ?? 0,
+        files: files.reduce((a, f) => a + f.n, 0),
+        bytes: files.reduce((a, f) => a + Number(f.bytes ?? 0), 0),
+      };
+    })
+    .sort((a, b) => b.items - a.items);
+
   const serverRows = await ex
     .select({
       id: servers.id,
@@ -184,6 +251,7 @@ export async function loadPlatformStats(ex: Db, now: Date = new Date()): Promise
       probes: { pending: probe("pending"), failed: probe("failed") },
       tmdb: { entries: tmdbTotals.n, due: due.n, oldestDays: oldest.at ? Math.floor((now.getTime() - oldest.at.getTime()) / DAY) : null, lastRun: lastRun ? { at: lastRun.lastRunAt, summary: lastRun.summary } : null },
     },
+    itemsByKind,
     servers: serverRows,
   };
 }

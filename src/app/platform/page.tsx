@@ -5,7 +5,7 @@ import { db } from "@/lib/db/client";
 import { requireViewer } from "@/lib/auth/guards";
 import { requirePlatformAdmin } from "@/lib/platform/guard";
 import { loadPlatformStats } from "@/lib/platform/stats";
-import { Panel, Problems, ProviderLimits, Tile, fmt, when } from "@/components/platform/platform-panels";
+import { ItemsByKind, Panel, Problems, ProviderLimits, Tile, fmt, when } from "@/components/platform/platform-panels";
 import { RefreshNowButton } from "@/components/platform/refresh-now-button";
 import { Card, CardContent } from "@/components/ui/card";
 import { providerName } from "@/lib/storage/provider-info";
@@ -33,7 +33,7 @@ export default async function PlatformPage() {
         <p className="text-sm text-muted-foreground">Every server at a glance, the limits outside services put on Roam, and what needs attention.</p>
       </header>
 
-      <Panel title="Outside accounts and their limits" note="Accounts linked to Roam's apps, counted once however many servers use them. Dropbox's app console is the final word on its count.">
+      <Panel title="Outside accounts and their limits" note="Accounts linked to Roam, counted once however many servers use them. Only Dropbox and Google have limits; Box and OneDrive are just counted. Dropbox's app console is the final word on its count.">
         <ProviderLimits providers={stats.providers} />
       </Panel>
 
@@ -48,6 +48,10 @@ export default async function PlatformPage() {
           <Tile label="Pending invites" value={fmt(totals.pendingInvites)} />
           <Tile label="Storage connections" value={fmt(stats.connections.reduce((a, c) => a + c.total, 0))} hint={stats.connections.map((c) => `${c.total} ${providerName(c.provider)}`).join(" · ") || undefined} />
         </div>
+      </Panel>
+
+      <Panel title="Items by library type" note="How much is in each kind of library, across every server.">
+        <ItemsByKind rows={stats.itemsByKind} />
       </Panel>
 
       <Panel title="Needs attention">

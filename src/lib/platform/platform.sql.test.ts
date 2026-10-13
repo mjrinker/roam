@@ -29,7 +29,7 @@ vi.mock("@/lib/storage/google-drive", () => ({
 }));
 
 import { providerAccounts, storageConnections } from "@/lib/db/schema";
-import { makeAccount, makeLibrary, makeServer } from "@/lib/playlists/test-db";
+import { makeAccount, makeLibrary, makeServer, makeTitle } from "@/lib/playlists/test-db";
 import { recordProviderAccount, releaseConnections } from "./accounts";
 import { loadPlatformStats, usageStatus } from "./stats";
 
@@ -65,7 +65,7 @@ describe("usageStatus", () => {
 });
 
 describe("the linked-accounts ledger", () => {
-  it("counts one account once however many servers use it, ignoring case, and never counts Box", async () => {
+  it("counts one account once however many servers use it, ignoring case", async () => {
     const a = await makeServer(db, (await makeAccount(db, "a")).accountId);
     const b = await makeServer(db, (await makeAccount(db, "b")).accountId);
     await connect(a.id, "dropbox", "Dana@Example.com");
@@ -76,7 +76,8 @@ describe("the linked-accounts ledger", () => {
     expect(dropbox.linked).toBe(1);
     expect(dropbox.cap).toBe(50);
     expect(dropbox.accounts[0].servers.sort()).toEqual([a.name, b.name].sort());
-    expect(stats.providers.find((p) => p.provider === ("box" as never))).toBeUndefined();
+    // Box is listed too (see below), but only the Dropbox account counts toward Dropbox.
+    expect(dropbox.accounts.filter((x) => x.label.toLowerCase() === "dana@example.com")).toHaveLength(1);
   });
 
   it("unlinks an account at Dropbox only when its last connection goes, and stops counting it", async () => {
@@ -138,5 +139,35 @@ describe("the platform numbers", () => {
     const row = stats.servers.find((x) => x.id === s.id)!;
     expect(row).toMatchObject({ members: 1, libraries: 1, connections: 1 });
     expect(stats.totals.accounts).toBeGreaterThan(0);
+  });
+
+  it("counts Box accounts too (once each, however many servers), with no limit", async () => {
+    const a = await makeServer(db, (await makeAccount(db, "bx1")).accountId);
+    const b = await makeServer(db, (await makeAccount(db, "bx2")).accountId);
+    await connect(a.id, "box", "Box.Person@Example.com");
+    await connect(b.id, "box", "box.person@example.com");
+    await connect(b.id, "box", null);
+    const box = (await loadPlatformStats(db)).providers.find((p) => p.provider === ("box" as never))!;
+    expect(box.cap).toBeNull();
+    expect(box.status).toBe("none");
+    const mine = box.accounts.filter((x) => x.label.toLowerCase().includes("box.person@example.com"));
+    expect(mine).toHaveLength(1);
+    expect(mine[0].servers.sort()).toEqual([a.name, b.name].sort());
+    expect(box.accounts.some((x) => x.label.includes("account not known"))).toBe(true);
+  });
+
+  it("breaks items down per library type", async () => {
+    const s = await makeServer(db, (await makeAccount(db, "kinds")).accountId);
+    const photos = await makeLibrary(db, s.id, "photos");
+    const books = await makeLibrary(db, s.id, "audiobooks");
+    await makeTitle(db, photos.id);
+    await makeTitle(db, photos.id);
+    await makeTitle(db, books.id);
+    const rows = (await loadPlatformStats(db)).itemsByKind;
+    const of = (k: string) => rows.find((r) => r.kind === k)!;
+    expect(of("photos").items).toBeGreaterThanOrEqual(2);
+    expect(of("audiobooks").items).toBeGreaterThanOrEqual(1);
+    expect(of("photos").libraries).toBeGreaterThanOrEqual(1);
+    expect(rows.every((r, i) => i === 0 || rows[i - 1].items >= r.items)).toBe(true);
   });
 });

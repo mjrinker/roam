@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import type { PlatformStats, ProviderUsage } from "@/lib/platform/stats";
+import { formatFileSize } from "@/lib/format";
 import { providerName } from "@/lib/storage/provider-info";
 import { cn } from "@/lib/utils";
 
@@ -91,6 +92,46 @@ export function ProviderLimits({ providers }: { providers: ProviderUsage[] }) {
         );
       })}
     </div>
+  );
+}
+
+const KIND_ORDER_NOTE = "Items are what a library lists (a movie, a show, an album, a book, a photo); files are the main files behind them.";
+
+/** How much is in each kind of library. */
+export function ItemsByKind({ rows }: { rows: PlatformStats["itemsByKind"] }) {
+  if (rows.length === 0) return <p className="text-sm text-muted-foreground">No libraries yet.</p>;
+  return (
+    <Card>
+      <CardContent className="py-3">
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[26rem] text-sm">
+            <thead>
+              <tr className="text-left text-xs text-muted-foreground">
+                <th className="py-1.5 pr-3 font-normal">Library type</th>
+                <th className="px-3 py-1.5 text-right font-normal">Libraries</th>
+                <th className="px-3 py-1.5 text-right font-normal">Items</th>
+                <th className="px-3 py-1.5 text-right font-normal">Episodes</th>
+                <th className="px-3 py-1.5 text-right font-normal">Files</th>
+                <th className="py-1.5 pl-3 text-right font-normal">Size</th>
+              </tr>
+            </thead>
+            <tbody className="tabular-nums">
+              {rows.map((r) => (
+                <tr key={r.kind} className="border-t border-white/[0.06]">
+                  <td className="py-2 pr-3 font-medium capitalize">{r.kind}</td>
+                  <td className="px-3 py-2 text-right">{fmt(r.libraries)}</td>
+                  <td className="px-3 py-2 text-right">{fmt(r.items)}</td>
+                  <td className="px-3 py-2 text-right text-muted-foreground">{r.episodes > 0 ? fmt(r.episodes) : "–"}</td>
+                  <td className="px-3 py-2 text-right">{fmt(r.files)}</td>
+                  <td className="py-2 pl-3 text-right">{r.bytes > 0 ? (formatFileSize(r.bytes) ?? "–") : "–"}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        <p className="mt-2 text-xs text-muted-foreground">{KIND_ORDER_NOTE}</p>
+      </CardContent>
+    </Card>
   );
 }
 
