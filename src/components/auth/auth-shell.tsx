@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { BrandLogo } from "@/components/shell/brand";
 import { TmdbAttribution } from "@/components/shell/tmdb-attribution";
 import { CaptchaProvider } from "@/components/auth/captcha";
@@ -47,6 +48,14 @@ export function AuthShell({
           A private media server for your people.
         </p>
         <TmdbAttribution />
+        <p className="flex gap-4 text-xs text-muted-foreground/70">
+          <Link href="/privacy" className="hover:text-foreground hover:underline">
+            Privacy
+          </Link>
+          <Link href="/terms" className="hover:text-foreground hover:underline">
+            Terms
+          </Link>
+        </p>
       </div>
     </main>
   );

@@ -19,7 +19,9 @@ const geistMono = Geist_Mono({
 
 export const metadata: Metadata = {
   title: "Roam",
-  description: "A private, cloud-based media server for the family.",
+  description: "Roam turns the movies, shows, music, audiobooks, books and photos in your own cloud storage into a private library you can share with family and friends.",
+  // Proves to Google Search Console that this site is the owner's (the "HTML tag" method): set the content it gives.
+  verification: process.env.NEXT_PUBLIC_GOOGLE_SITE_VERIFICATION ? { google: process.env.NEXT_PUBLIC_GOOGLE_SITE_VERIFICATION } : undefined,
   appleWebApp: {
     capable: true,
     title: "Roam",
