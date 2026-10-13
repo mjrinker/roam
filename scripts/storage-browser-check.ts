@@ -75,6 +75,7 @@ const server = http.createServer((req, res) => {
       json({ ok: true });
     });
   }
+  if (url.pathname === "/api/libraries/L1/status") return json({ scanning: true, titleCount: 1234, probeCounts: { pending: 40, ok: 1190, failed: 4 }, lastScannedAt: null, folderProgress: { done: 300, total: 900 }, lastScan: null });
   if (url.pathname === "/api/libraries/L1" && req.method === "DELETE") {
     let raw = "";
     req.on("data", (c) => (raw += c));
@@ -185,6 +186,31 @@ async function main() {
       const o = await page.evaluate<{ page: number; bad: string[] }>(overflow);
       check(`the library card fits at ${label} width`, o.bad.length === 0 && o.page <= 0, o);
     }
+
+    if (process.env.STORAGE_SHOT) {
+      for (const [label, width, mobile] of [["phone", 375, true], ["desktop", 1100, false]] as const) {
+        await page.send("Emulation.setDeviceMetricsOverride", { width, height: label === "phone" ? 2300 : 1300, deviceScaleFactor: 1, mobile });
+        await new Promise((r) => setTimeout(r, 400));
+        const shot = await page.send("Page.captureScreenshot", { format: "png" });
+        fs.writeFileSync(`${process.env.STORAGE_SHOT}-${label}.png`, Buffer.from(shot.data as string, "base64"));
+      }
+    }
+
+    // At a phone's width the words get the card's width: the buttons wrap below them instead of squeezing them into a thin column.
+    await page.send("Emulation.setDeviceMetricsOverride", { width: 375, height: 800, deviceScaleFactor: 1, mobile: true });
+    await new Promise((r) => setTimeout(r, 300));
+    const widths = await page.evaluate<{ storage: number; library: number; status: number }>(`(() => {
+      const w = (el) => el.getBoundingClientRect().width;
+      const cardOf = (text) => [...document.querySelectorAll('[data-slot="card"]')].find((c) => c.textContent.includes(text));
+      const storageCard = cardOf("A-very-long-connection-name");
+      const libCard = cardOf("Original folder");
+      const status = [...libCard.querySelectorAll("p")].find((p) => p.textContent.startsWith("last scanned"));
+      const name = libCard.querySelector("p.font-medium");
+      return { storage: Math.round(w(storageCard.querySelector("p.font-medium")) / w(storageCard) * 100), library: Math.round(w(name) / w(libCard) * 100), status: Math.round(w(status) / w(libCard) * 100) };
+    })()`);
+    check("on a phone, a storage name gets most of its card's width", widths.storage >= 50, widths);
+    check("on a phone, a library name gets most of its card's width", widths.library >= 50, widths);
+    check("a library's scan status spans the card", widths.status >= 85, widths);
 
     // Deleting asks for the name first.
     await click("Delete");

@@ -91,7 +91,7 @@ export function StorageConnections({ serverId, connections, available }: { serve
           return (
             <Card key={c.id}>
               <CardContent className="flex flex-wrap items-center justify-between gap-3 py-3">
-                <div className="flex min-w-0 flex-1 items-center gap-3">
+                <div className="flex min-w-[min(100%,15rem)] flex-1 items-center gap-3">
                   <span className={`size-2.5 shrink-0 self-start mt-1.5 rounded-full ${status.dot}`} />
                   <div className="min-w-0">
                     {renaming?.id === c.id ? (

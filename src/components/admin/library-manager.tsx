@@ -631,27 +631,13 @@ export function LibraryManager({
           <Card key={lib.id}>
             <CardContent className="py-4">
               <div className="flex flex-wrap items-start justify-between gap-3">
-                <div className="min-w-0 flex-1">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <p className="min-w-0 font-medium break-words">{lib.name}</p>
-                    <Badge variant="secondary">{lib.kind}</Badge>
-                    <Badge variant={(access[lib.id] ?? lib.access) === "restricted" ? "outline" : "secondary"}>
-                      {(access[lib.id] ?? lib.access) === "restricted" ? "Restricted" : "Everyone"}
-                    </Badge>
-                  </div>
-                  <p className="text-xs text-muted-foreground">
-                    last scanned{" "}
-                    {lib.lastScannedAt
-                      ? new Date(lib.lastScannedAt).toLocaleString()
-                      : "never"}
-                    {lib.lastScan && (
-                      <>
-                        {" "}
-                        ({lib.lastScan.trigger}) &middot; {lib.lastScan.filesSeen} folder(s)
-                        seen, {lib.lastScan.titlesAdded} new
-                      </>
-                    )}
-                  </p>
+                {/* The name takes at least this much room: when the buttons would squeeze it, they wrap onto their own line instead. */}
+                <div className="flex min-w-[min(100%,15rem)] flex-1 flex-wrap items-center gap-2">
+                  <p className="min-w-0 font-medium break-words">{lib.name}</p>
+                  <Badge variant="secondary">{lib.kind}</Badge>
+                  <Badge variant={(access[lib.id] ?? lib.access) === "restricted" ? "outline" : "secondary"}>
+                    {(access[lib.id] ?? lib.access) === "restricted" ? "Restricted" : "Everyone"}
+                  </Badge>
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
                   <Button variant="secondary" size="sm" onClick={() => setAccessFor(lib.id)}>
@@ -670,6 +656,15 @@ export function LibraryManager({
                   </Button>
                 </div>
               </div>
+              <p className="mt-1.5 w-full text-xs text-muted-foreground">
+                last scanned {lib.lastScannedAt ? new Date(lib.lastScannedAt).toLocaleString() : "never"}
+                {lib.lastScan && (
+                  <>
+                    {" "}
+                    ({lib.lastScan.trigger}) &middot; {lib.lastScan.filesSeen} folder(s) seen, {lib.lastScan.titlesAdded} new
+                  </>
+                )}
+              </p>
               {accessFor === lib.id && (
                 <LibraryAccessDialog
                   libraryId={lib.id}
