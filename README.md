@@ -225,10 +225,7 @@ drizzle/          SQL migrations         supabase/rls.sql   deny-all RLS
 
 ## Known limitations
 
-- Box is the only storage provider (the code sits behind a `StorageProvider` interface, so another is possible).
 - No general transcoding, by design: unsupported audio is remuxed on request, and everything else must already be browser-friendly.
-- Touch gestures in the photo viewer are covered by unit tests of their logic, but have been hand-tested on a small number of devices.
-- Music (artist/album) and eBook (EPUB/PDF/Markdown) libraries are planned, not built.
 
 ## Credits and attribution
 
