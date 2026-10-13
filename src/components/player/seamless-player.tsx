@@ -35,6 +35,7 @@ import {
   toLocalTime,
   windowClampTarget,
 } from "@/lib/player/timeline";
+import { snapToChapter } from "@/lib/chapters/chapters";
 
 /** What a floating bar needs to know about the player, reported as it changes. */
 export interface PlayerStatus {
@@ -76,6 +77,9 @@ interface SeamlessPlayerProps {
   /** Shown as a button on the finished screen, e.g. linking to the next episode. */
   nextHref?: string;
   nextLabel?: string;
+  /** Start here (seconds) instead of where the viewer left off, e.g. a chapter picked on the details page; `startToken` is new for each request. */
+  startAt?: number;
+  startToken?: number;
 }
 
 const PRELOAD_THRESHOLD_SECONDS = 15;
@@ -151,6 +155,8 @@ export function SeamlessPlayer({
   onBack,
   nextHref,
   nextLabel,
+  startAt,
+  startToken,
 }: SeamlessPlayerProps) {
   // A movie takes over: pause any audiobook that's playing in the background.
   const audioActions = useAudioActions();
@@ -216,6 +222,7 @@ export function SeamlessPlayer({
   const [leaving, setLeaving] = useState(false);
   const [controlsVisible, setControlsVisible] = useState(true);
   const [hoverRatio, setHoverRatio] = useState<number | null>(null);
+  const [hoverChapter, setHoverChapter] = useState<string | null>(null);
 
   const lastSavedAtRef = useRef(0);
   const scrubBarRef = useRef<HTMLDivElement>(null);
@@ -233,6 +240,15 @@ export function SeamlessPlayer({
   }, []);
 
   useEffect(() => () => clearTimeout(hideTimerRef.current), []);
+
+  // A chapter asked for while this video is already open (from its details page, with the bar showing) is a seek, not a reload.
+  const startAtRef = useRef(startAt);
+  const startTokenRef = useRef(startToken);
+  const handledStartRef = useRef<number | undefined>(undefined);
+  useEffect(() => {
+    startAtRef.current = startAt;
+    startTokenRef.current = startToken;
+  }, [startAt, startToken]);
 
   // ── Load the manifest ─────────────────────────────────────────────────
   useEffect(() => {
@@ -266,6 +282,11 @@ export function SeamlessPlayer({
         const body = res ? await res.json().catch(() => ({})) : {};
         setError(body.error ?? (res ? "This can't be played right now." : "You're offline, and this isn't downloaded."));
         return;
+      }
+      // Opened at a chosen chapter: that, not where the viewer left off.
+      if (startAtRef.current != null) {
+        data.resumeSeconds = Math.max(0, Math.min(startAtRef.current, Math.max(0, data.durationSeconds - 1)));
+        handledStartRef.current = startTokenRef.current;
       }
       manifestRef.current = data;
       setManifest(data);
@@ -640,6 +661,14 @@ export function SeamlessPlayer({
     setGlobalTime(targetGlobal);
   }, [playing]);
 
+  // A chapter chosen while this video is already open: go there and play. (A video opened at a chapter starts there from the manifest.)
+  useEffect(() => {
+    if (!manifest || startAt == null || startToken === handledStartRef.current) return;
+    handledStartRef.current = startToken;
+    seekTo(Math.max(0, Math.min(startAt, Math.max(0, manifest.durationSeconds - 1))));
+    void videoRefs.current[frontSlotRef.current]?.play().catch(() => {});
+  }, [manifest, startAt, startToken, seekTo]);
+
   /** Seconds into the whole title right now, read from the element itself. */
   const currentGlobalTime = useCallback(() => {
     const m = manifestRef.current;
@@ -812,6 +841,7 @@ export function SeamlessPlayer({
   }
 
   const duration = manifest?.durationSeconds ?? 0;
+  const chapters = manifest?.chapters ?? [];
   const displayTime = scrubTime ?? globalTime;
   const progressPct = duration > 0 ? Math.min(100, (displayTime / duration) * 100) : 0;
   const controlsShown = controlsVisible || !playing || finished;
@@ -821,6 +851,12 @@ export function SeamlessPlayer({
     const rect = scrubBarRef.current?.getBoundingClientRect();
     if (!rect || rect.width === 0) return 0;
     return Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+  }
+
+  /** Where the pointer is on the bar in seconds: pulled onto a chapter mark when it is close to one. */
+  function pointerTarget(e: React.PointerEvent) {
+    const width = scrubBarRef.current?.getBoundingClientRect().width ?? 0;
+    return snapToChapter(ratioFromPointer(e) * duration, chapters, duration, width);
   }
 
   return (
@@ -988,20 +1024,24 @@ export function SeamlessPlayer({
           onPointerDown={(e) => {
             if (!manifest) return;
             e.currentTarget.setPointerCapture(e.pointerId);
-            setScrubTime(ratioFromPointer(e) * duration);
+            setScrubTime(pointerTarget(e).time);
           }}
           onPointerMove={(e) => {
-            const ratio = ratioFromPointer(e);
-            setHoverRatio(ratio);
-            if (scrubTime !== null) setScrubTime(ratio * duration);
+            const target = pointerTarget(e);
+            setHoverRatio(duration > 0 ? target.time / duration : 0);
+            setHoverChapter(target.chapter?.title ?? null);
+            if (scrubTime !== null) setScrubTime(target.time);
           }}
           onPointerUp={(e) => {
             if (scrubTime === null) return;
             e.currentTarget.releasePointerCapture(e.pointerId);
-            seekTo(ratioFromPointer(e) * duration);
+            seekTo(pointerTarget(e).time);
             setScrubTime(null);
           }}
-          onPointerLeave={() => setHoverRatio(null)}
+          onPointerLeave={() => {
+            setHoverRatio(null);
+            setHoverChapter(null);
+          }}
         >
           <div
             className={cn(
@@ -1013,14 +1053,16 @@ export function SeamlessPlayer({
               className="absolute inset-y-0 left-0 rounded-full bg-primary"
               style={{ width: `${progressPct}%` }}
             />
-            {/* Where a multi-part title's files join — they play as one, but it's a nice landmark. */}
-            {manifest?.segments.slice(1).map((seg) => (
-              <span
-                key={seg.index}
-                className="absolute inset-y-0 w-0.5 bg-black/60"
-                style={{ left: `${(seg.startSeconds / duration) * 100}%` }}
-              />
-            ))}
+            {/* Chapter marks. (Where a multi-part title's files join is not marked: that is not a chapter.) */}
+            {duration > 0 &&
+              chapters.filter((c) => c.startSeconds > 0.5).map((c) => (
+                <span
+                  key={c.startSeconds}
+                  aria-hidden="true"
+                  className="absolute inset-y-0 w-[3px] -translate-x-1/2 bg-black/70"
+                  style={{ left: `${(c.startSeconds / duration) * 100}%` }}
+                />
+              ))}
             <span
               className={cn(
                 "absolute top-1/2 size-4 -translate-x-1/2 -translate-y-1/2 rounded-full bg-primary shadow-lg ring-4 ring-primary/30 transition-transform",
@@ -1034,6 +1076,7 @@ export function SeamlessPlayer({
               className="pointer-events-none absolute -top-7 -translate-x-1/2 rounded-md bg-black/85 px-2 py-0.5 text-xs font-medium tabular-nums text-white ring-1 ring-white/15"
               style={{ left: `${hoverRatio * 100}%` }}
             >
+              {hoverChapter ? `${hoverChapter} · ` : ""}
               {formatTime(hoverRatio * duration)}
             </span>
           )}

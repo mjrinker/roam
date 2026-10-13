@@ -27,6 +27,8 @@ import { CastRow } from "@/components/library/cast-row";
 import { CrewRow } from "@/components/library/crew-row";
 import { loadTitleExtras } from "@/lib/extras/load";
 import { ExtrasSection } from "@/components/library/extras-section";
+import { ChaptersList } from "@/components/library/chapters-list";
+import { chaptersFromRows } from "@/lib/chapters/rows";
 import { Breadcrumbs } from "@/components/shell/breadcrumbs";
 import { isFileTreeLibraryKind } from "@/lib/libraries/profile";
 
@@ -115,6 +117,7 @@ export default async function TitleDetailPage({
       }
       below={
         <>
+          <ChaptersList serverId={serverId} ownerKind="title" ownerId={title.id} chapters={chaptersFromRows(segments)} />
           <CastRow serverId={serverId} cast={cast} />
           <CrewRow serverId={serverId} crew={crew} />
           <ExtrasSection serverId={serverId} groups={extras} />

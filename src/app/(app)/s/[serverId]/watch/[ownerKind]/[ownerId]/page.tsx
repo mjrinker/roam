@@ -153,6 +153,10 @@ export default async function WatchPage({
     }
   }
 
+  // A chapter picked on the details page: start there. Anything that isn't a sensible number of seconds is ignored.
+  const t = typeof query.t === "string" ? Number(query.t) : NaN;
+  const startAt = Number.isFinite(t) && t >= 0 && t < 7 * 86_400 ? Math.floor(t) : undefined;
+
   // Coming back to the full player from the bar must keep the playlist it was opened from (else "next" would change).
   const queueQuery = playlistId && itemId && isUuid(playlistId) && isUuid(itemId) ? `?playlist=${playlistId}&item=${itemId}${query.replay === "1" ? "&replay=1" : ""}` : "";
   // The player itself lives in the server layout (see VideoSessionProvider), so a video can carry on in a floating bar when the viewer
@@ -167,6 +171,7 @@ export default async function WatchPage({
       nextHref={nextHref}
       nextLabel={nextLabel}
       watchHref={`/s/${serverId}/watch/${ownerKind}/${ownerId}${queueQuery}`}
+      startAt={startAt}
     />
   );
 }

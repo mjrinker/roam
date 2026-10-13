@@ -18,6 +18,7 @@ import {
   type TitleKind,
 } from "@/lib/db/schema";
 import { findExtras, syncTitleExtras } from "@/lib/scan/title-extras";
+import { syncChapterFiles } from "@/lib/scan/chapter-files";
 import { createStorageForServer } from "@/lib/storage/server-storage";
 import { StorageReauthRequiredError } from "@/lib/storage/reauth";
 import type { StorageEntry, StorageProvider } from "@/lib/storage/provider";
@@ -48,6 +49,8 @@ import { resolveEpisodeSplits } from "@/lib/scan/episode-split-pass";
 import {
   linkVariantFiles,
   pendingCodecProbeCondition,
+  pendingChapterReadCondition,
+  readChaptersForPending,
   pendingProbeCondition,
   probeCodecsForPending,
   probeFiles,
@@ -543,6 +546,11 @@ async function syncMovieFolder(
 
   await upsertMediaSegments("title", title.id, videoFiles);
   await linkVariantFiles("title", [title.id], videoFiles, variantFiles);
+  // Chapter files beside the film ("Film (2020).chapters.xml"); a failure here never fails the film's own scan.
+  await syncChapterFiles(provider, children).catch((err) => {
+    if (err instanceof StorageReauthRequiredError) throw err;
+    console.error(`chapter files for ${title.id}:`, err);
+  });
   await enrichMovieMetadataIfNeeded(title.id, name, year, { tmdbId, imdbId });
   // Trailers, featurettes and the like (Plex's naming) sit beside the film; a failure here never fails the film's own scan.
   try {
@@ -728,7 +736,8 @@ async function syncShowFolder(
       ? await getSeasonEpisodes(tmdbShowId, seasonNumber).catch(() => [])
       : [];
 
-    const seasonVideo = (await provider.listFolder(seasonFolder.id)).filter(
+    const seasonChildren = await provider.listFolder(seasonFolder.id);
+    const seasonVideo = seasonChildren.filter(
       (e) => e.kind === "file" && isVideoFile(e.name) && !isExtraFile(e.name)
     );
     // Remuxed audio variants are split out before any episode grouping.
@@ -824,6 +833,11 @@ async function syncShowFolder(
     // After stale-episode deletion (which cascades away a deleted episode's
     // variant links), so linking sees the season's final primary rows.
     await linkVariantFiles("episode", currentEpisodeIds, episodeFiles, variantFiles);
+    // Chapter files beside the episodes ("Show - S01E01.chapters.txt").
+    await syncChapterFiles(provider, seasonChildren).catch((err) => {
+      if (err instanceof StorageReauthRequiredError) throw err;
+      console.error(`chapter files for season ${season.id}:`, err);
+    });
   }
 
   return !existing;
@@ -968,6 +982,7 @@ async function probePendingDurations(
   const incomplete = await probeFiles(provider, pending, deadline, errors);
 
   await backfillCodecs(provider, titleIds, episodeIds, deadline);
+  await backfillChapters(provider, titleIds, episodeIds, deadline);
 
   // A newly-probed duration (or a runtime that just arrived via TMDB) is
   // exactly what a combined episode file's split needs to go from "whole"
@@ -1043,6 +1058,24 @@ async function backfillCodecs(
       : Promise.resolve([]),
   ]);
   await probeCodecsForPending(provider, [...movieFiles, ...episodeFiles], codecDeadline);
+}
+
+/**
+ * One-time chapter read for movies and episodes probed before chapters were read for them. A slice of the time left, like the codec
+ * backfill, so it never crowds out core probing; leftovers continue on the next pass.
+ */
+async function backfillChapters(provider: StorageProvider, titleIds: string[], episodeIds: string[], deadline: number) {
+  const now = Date.now();
+  if (deadline <= now) return;
+  const chapterDeadline = now + (deadline - now) / 3;
+  const movieIds = titleIds.length
+    ? (await db.select({ id: titles.id }).from(titles).where(and(inArray(titles.id, titleIds), eq(titles.kind, "movie")))).map((t) => t.id)
+    : [];
+  const [movieFiles, episodeFiles] = await Promise.all([
+    movieIds.length ? db.select().from(mediaFiles).where(and(pendingChapterReadCondition, eq(mediaFiles.ownerKind, "title"), inArray(mediaFiles.ownerId, movieIds))) : Promise.resolve([]),
+    episodeIds.length ? db.select().from(mediaFiles).where(and(pendingChapterReadCondition, eq(mediaFiles.ownerKind, "episode"), inArray(mediaFiles.ownerId, episodeIds))) : Promise.resolve([]),
+  ]);
+  await readChaptersForPending(provider, [...movieFiles, ...episodeFiles], chapterDeadline);
 }
 
 /**
@@ -1194,6 +1227,7 @@ async function probeTitlePendingDurations(
 
   await probeFiles(provider, pending, deadline, errors);
   if (kind !== "audiobook") await backfillCodecs(provider, titleOwned ? [titleId] : [], episodeIds, deadline);
+  if (kind === "movie" || episodeIds.length > 0) await backfillChapters(provider, titleOwned ? [titleId] : [], episodeIds, deadline);
   if (titleOwned) await rollupTitleRuntime(titleId);
   else if (episodeIds.length > 0) await resolveEpisodeSplits(episodeIds);
 }

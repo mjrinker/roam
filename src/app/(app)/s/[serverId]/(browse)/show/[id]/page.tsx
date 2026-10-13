@@ -25,6 +25,7 @@ import { loadTitleCast, loadTitleCrew } from "@/lib/cast/queries";
 import { CastRow } from "@/components/library/cast-row";
 import { CrewRow } from "@/components/library/crew-row";
 import { SeasonEpisodes, type EpisodeRowData } from "@/components/library/season-episodes";
+import { chaptersFromRows } from "@/lib/chapters/rows";
 
 export default async function ShowDetailPage({
   params,
@@ -124,6 +125,7 @@ export default async function ShowDetailPage({
       progressFraction:
         inProgress && state.durationSeconds ? state.positionSeconds / state.durationSeconds : 0,
       watched: state?.finished ?? false,
+      chapters: chaptersFromRows(files),
     };
   });
 

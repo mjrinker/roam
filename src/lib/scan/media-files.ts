@@ -1,4 +1,4 @@
-import { and, eq, inArray, lt, notInArray, or, sql } from "drizzle-orm";
+import { and, eq, inArray, isNull, lt, ne, notInArray, or, sql } from "drizzle-orm";
 import { alias, type PgDatabase, type PgQueryResultHKT } from "drizzle-orm/pg-core";
 import { db } from "@/lib/db/client";
 import { mediaFiles, titles } from "@/lib/db/schema";
@@ -9,7 +9,7 @@ import {
   containerOf,
   estimateAudioDurationMs,
 } from "@/lib/scan/containers";
-import { parseEpisodeFileName, stripVariantSuffix, versionLabelOf } from "@/lib/scan/conventions";
+import { stripVariantSuffix, versionLabelOf } from "@/lib/scan/conventions";
 import { defaultVersionRows } from "@/lib/player/versions";
 import { probeMp3 } from "@/lib/scan/mp3-duration";
 import { probeMp4, probeMp4Codecs, type Mp4Chapter } from "@/lib/scan/mp4-duration";
@@ -245,17 +245,13 @@ async function probeOne(provider: StorageProvider, file: MediaFileRow): Promise<
     // browser-universal, so it's never a candidate for the audio-fix remux.
     return { durationSeconds, chapters, audioCodec: "mp3", videoCodec: null, codecsProbed: true };
   }
-  // Chapters are also worth extracting for a multi-episode video file (e.g.
-  // "S01E05-E06.mp4") — the episode-split pass uses them to snap its
-  // estimated cut point to a real scene boundary. Narrowed to just those
-  // files (rather than every video) so this doesn't add extra Box range
-  // requests, or a new chance to throw on a malformed moov, to every
-  // ordinary movie/episode probe. Codec detection itself is unconditional
-  // (see mp4-duration.ts's module doc comment) — it runs regardless.
-  const isMultiEpisode =
-    file.ownerKind === "episode" && (parseEpisodeFileName(file.filename)?.episodes.length ?? 0) > 1;
+  // Chapters are read for audio books, and for every movie and episode (the player marks them on its progress bar and the details page
+  // lists them; a multi-episode file's also snap the episode-split pass's cut point to a real scene boundary). Trailers and other
+  // extras don't get them. Chapter parsing is best-effort (see mp4-duration.ts): a malformed chapter structure yields none, never a
+  // failed probe. Codec detection itself is unconditional (see mp4-duration.ts's module doc comment).
+  const wantsChapters = AUDIO_MP4_CONTAINERS.has(container) || file.ownerKind === "title" || file.ownerKind === "episode";
   const { durationSeconds, chapters, audioCodec, videoCodec, width, height, codecsProbed } = await probeMp4(fetchRange, size, {
-    chapters: AUDIO_MP4_CONTAINERS.has(container) || isMultiEpisode,
+    chapters: wantsChapters,
   });
   return { durationSeconds, chapters, audioCodec, videoCodec, width, height, codecsProbed };
 }
@@ -298,7 +294,8 @@ async function probeAndRecord(provider: StorageProvider, file: MediaFileRow, err
         durationSeconds: Math.round(durationMs / 1000),
         probeStatus: "ok",
         probeAttempts: attempts,
-        chapters,
+        // A chapter file beside the video (see chapter-files.ts) outranks what the video itself says, and stays.
+        ...(file.chaptersSource === "file" ? {} : { chapters, chaptersSource: chapters && chapters.length > 0 ? ("embedded" as const) : null, chaptersReadAt: new Date() }),
         // codecsProbed is its own success signal, independent of the
         // surrounding duration probe having succeeded — a failed codec read
         // (a malformed track) must NOT be recorded as "probed, found
@@ -398,6 +395,44 @@ export async function probeCodecsForPending(
     if (Date.now() > deadline) return;
     if (!file.sizeBytes) continue;
     await probeCodecsOnly(provider, file);
+  }
+}
+
+// ── Chapter backfill ─────────────────────────────────────────────────────
+// Videos probed before chapters were read for every movie and episode have their duration but never had their chapters looked for.
+// Like the codec backfill above, it reads each such file once (a few range requests), under its own deadline, and a failure just
+// leaves the file for the next pass; the attempt is recorded either way so a file that can't be read isn't retried forever.
+
+const VIDEO_CONTAINERS_WITH_CHAPTERS = ["mp4", "m4v", "mov"];
+
+/** SQL condition for videos whose own chapters haven't been looked for yet (a chapter file's chapters are left as they are). */
+export const pendingChapterReadCondition = and(
+  eq(mediaFiles.probeStatus, "ok"),
+  isNull(mediaFiles.chaptersReadAt),
+  isNull(mediaFiles.variantOfMediaFileId),
+  or(isNull(mediaFiles.chaptersSource), ne(mediaFiles.chaptersSource, "file")),
+  inArray(mediaFiles.container, VIDEO_CONTAINERS_WITH_CHAPTERS)
+)!;
+
+export async function readChaptersForPending(provider: StorageProvider, files: MediaFileRow[], deadline: number): Promise<void> {
+  for (const file of files) {
+    if (Date.now() > deadline) return;
+    if (!file.sizeBytes) continue;
+    try {
+      const { chapters } = await probeMp4(
+        (start, end) => provider.fetchByteRange(file.boxFileId, start, end),
+        file.sizeBytes,
+        { chapters: true }
+      );
+      await db
+        .update(mediaFiles)
+        .set({ chapters, chaptersSource: chapters && chapters.length > 0 ? "embedded" : null, chaptersReadAt: new Date() })
+        // One physical file can back several rows (a combined multi-episode file): they share what it says.
+        .where(and(eq(mediaFiles.boxFileId, file.boxFileId), isNull(mediaFiles.variantOfMediaFileId), or(isNull(mediaFiles.chaptersSource), ne(mediaFiles.chaptersSource, "file"))));
+    } catch (err) {
+      if (err instanceof StorageReauthRequiredError) throw err;
+      // Not readable right now: it stays pending and is tried again on a later pass.
+    }
   }
 }
 

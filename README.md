@@ -135,6 +135,20 @@ An audiobook library has a **Books | Authors** switch. Authors shows each author
 
 TMDB's terms ask that what Roam keeps from it be refreshed at least every six months. Everything from TMDB (details, ratings, cast, crew, episodes) is kept once in a shared cache (`tmdb_entries`, `tmdb_cast`, `tmdb_crew`) that every server reads, so a movie two servers have is fetched once. Titles and episodes still carry copies of what lists and filters need (poster, description, age rating), pushed from the cache whenever it refreshes. Entries are refreshed when they are about five months old: when someone opens that movie or show (the page waits a moment for it, at most four seconds), and by a daily job (`/api/cron/refresh`, scheduled in `vercel.json`, needs `CRON_SECRET` set in the project's environment) that works through the oldest first and forgets entries no title uses. An entry that couldn't be refreshed within six months (TMDB unreachable, or the item removed) is cleared: its description, pictures, genres, cast and crew disappear from the titles that used it, while the age rating stays so a restricted title is never opened up. Titles with no match, and admin-chosen matches, are refreshed the same way by their TMDB id.
 
+### Chapters
+
+Movies and episodes with chapters show them in three places: as marks on the player's progress bar (a drag or click near a mark snaps to it, and the hover label names the chapter), in a **Chapters** list on a movie's page and under each episode (click one to start playing there), and nowhere else. Where a multi-part movie's files join is not marked, unless a part has a chapter right there, which then shows as the chapter. Fewer than two chapters isn't shown.
+
+Chapters come from two places:
+
+- **Inside the file.** MP4, M4V and MOV files made by HandBrake, MakeMKV-then-remux, ffmpeg and similar carry chapters; Roam reads them during the scan (and reads the library you already have a little at a time on each scan, or all at once with `npx tsx --env-file=.env.local scripts/backfill-chapters.ts`). Chapters named only "Chapter 1", "Chapter 2" are shown as such.
+- **A chapter file beside the video**, named like it with `.chapters` and an extension: `The Matrix (1999).chapters.xml`. It is used instead of what is in the video, and removing it goes back to the video's own. Three formats, all plain text:
+  - `.chapters.xml`: Matroska chapter XML (what MKVToolNix exports and `mkvextract chapters` writes).
+  - `.chapters.txt`: either the OGM simple format (`CHAPTER01=00:00:00.000` and `CHAPTER01NAME=Opening`, as `mkvmerge` reads) or one chapter per line, a time then a title (`0:00 Opening`, `1:02:30 The chase`).
+  - `.chapters.vtt`: WebVTT, each cue's start the chapter's time and its text the title.
+
+  A chapter file belongs to the one video file it is named after, with times from that file's start: a movie in parts gets one per part (`Movie - pt1.chapters.txt`), and each resolution version its own. It is found on the next scan of the library, or Resync on the movie. There is no online source of chapter times that Roam can use (TMDB has none).
+
 ### Trailers and extras
 
 A movie's page lists its trailers and other extras when its folder has them, named the way Plex names them. Either put the type at the end of the file name, right after a hyphen (`Teaser-trailer.mp4`, `Making Of-behindthescenes.mp4`, `Cut Scene-deleted.mp4`, `The Look-featurette.mp4`, `Talk-interview.mp4`, `Opening-scene.mp4`, `Little Film-short.mp4`, `Misc-other.mp4`), or put the videos in a subfolder of the movie's folder named for the type (`Trailers`, `Behind The Scenes`, `Deleted Scenes`, `Featurettes`, `Interviews`, `Scenes`, `Shorts`, `Other`). They are found on the next scan of the library (or Resync on the movie), appear once Roam has read their length, and play in the normal player. They never record progress and aren't offered for download. Only MP4, M4V and MOV files are used, as for movies.

@@ -9,6 +9,8 @@ import { AddToPlaylistMenu } from "@/components/playlists/add-to-playlist-menu";
 import { MarkDoneButton } from "@/components/library/mark-done-button";
 import { MoreMenu } from "@/components/shell/more-menu";
 import { DownloadButton } from "@/components/offline/download-button";
+import { ChaptersList } from "@/components/library/chapters-list";
+import type { Chapter } from "@/lib/chapters/chapters";
 
 export interface EpisodeRowData {
   id: string;
@@ -22,6 +24,8 @@ export interface EpisodeRowData {
   /** 0..1 */
   progressFraction: number;
   watched: boolean;
+  /** Where the episode's chapters are, for jumping in; empty when it has fewer than two. */
+  chapters: Chapter[];
 }
 
 export interface SeasonTab {
@@ -106,6 +110,7 @@ function EpisodeRow({ ep, serverId }: { ep: EpisodeRowData; serverId: string }) 
       ) : (
         <div className={cn(classes, "pr-32 opacity-70")}>{body}</div>
       )}
+      {ep.ready && ep.chapters.length > 0 && <ChaptersList serverId={serverId} ownerKind="episode" ownerId={ep.id} chapters={ep.chapters} compact />}
       <div className="absolute top-2 right-2 flex items-center gap-1.5">
         <MarkDoneButton kind="episode" id={ep.id} done={ep.watched} media="watch" variant="icon" />
         <AddToPlaylistMenu serverId={serverId} target={{ episodeId: ep.id }} variant="icon" />

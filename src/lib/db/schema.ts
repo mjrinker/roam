@@ -655,6 +655,11 @@ export const mediaFiles = pgTable(
     // Chapters embedded in this file (audiobooks), start times relative to
     // the file. The book's chapter list is assembled from these at scan time.
     chapters: jsonb("chapters").$type<{ title: string; startSeconds: number }[]>(),
+    // Where `chapters` came from: read from the video itself, or from a chapter file beside it ("Movie.chapters.xml"; this wins, and
+    // a re-probe leaves it alone). chapters_read_at is set once a video's own chapters have been looked for (found or not), so the
+    // backfill reads each already-probed video once.
+    chaptersSource: text("chapters_source").$type<"embedded" | "file">(),
+    chaptersReadAt: timestamp("chapters_read_at", { withTimezone: true }),
 
     container: text("container"),
     videoCodec: text("video_codec"),

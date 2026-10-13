@@ -150,6 +150,8 @@ export function VideoSessionProvider({ children, initial = NO_SESSION }: { child
               backHref={session.backHref}
               nextHref={session.nextHref}
               nextLabel={session.nextLabel}
+              startAt={session.startAt}
+              startToken={session.startToken}
             />
           </div>
         )}

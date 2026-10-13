@@ -13,6 +13,9 @@ export interface VideoSessionInfo {
   nextLabel?: string;
   /** The address of the full player, for the bar's expand button. */
   watchHref: string;
+  /** Start here (seconds) instead of where the viewer left off: a chapter picked on the details page. `startToken` is new each time one is asked for, so the same chapter picked again is a new request. */
+  startAt?: number;
+  startToken?: number;
 }
 
 export interface VideoSessionState {

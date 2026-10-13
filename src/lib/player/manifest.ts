@@ -5,6 +5,7 @@ import { createStorageForServer } from "@/lib/storage/server-storage";
 import { StorageReauthRequiredError } from "@/lib/storage/reauth";
 import type { PlayManifest, PlayOwnerKind, PlaySegment } from "@/lib/player/types";
 import { buildPlaySegment } from "@/lib/player/timeline";
+import { playbackChapters } from "@/lib/chapters/chapters";
 import { shouldUseVariant } from "@/lib/player/variant-selection";
 import { describeVersions, offeredRows, pickVersion, withoutUndecodableVideo } from "@/lib/player/versions";
 import { isVideoCodecToken } from "@/lib/scan/codec-support";
@@ -162,6 +163,17 @@ export async function buildPlayManifest(
       version,
       versions,
       expiresAt: (earliestExpiry ?? new Date(Date.now() + 60_000)).toISOString(),
+      // Part boundaries are not chapters: only what the files' own chapters say, moved onto this clock.
+      chapters: playbackChapters(
+        segments.map((seg, i) => ({
+          startSeconds: seg.startSeconds,
+          durationSeconds: seg.durationSeconds,
+          inFileOffsetSeconds: seg.inFileOffsetSeconds,
+          inFileEndSeconds: seg.inFileEndSeconds,
+          chapters: segmentRows[i].chapters,
+        })),
+        cursor
+      ),
     },
   };
 }

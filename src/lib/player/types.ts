@@ -27,6 +27,8 @@ export interface PlayManifest {
   segments: PlaySegment[];
   resumeSeconds: number;
   expiresAt: string;
+  /** Chapters (movies and episodes), timed on the playback clock; missing or empty when there are fewer than two. */
+  chapters?: { title: string; startSeconds: number }[];
   /** The resolution version this plays (its label; "" for a file with none) and every version on offer, best first. */
   version?: string;
   versions?: { label: string; name: string; height: number | null }[];
