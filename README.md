@@ -4,7 +4,7 @@
 
 <p align="center">
   <strong>A private, multi-tenant media server in the cloud.</strong><br>
-  Movies, TV, audiobooks, music-style audio, and a Google&nbsp;Photos-style library, streamed straight from your own Box storage.
+  Movies, TV, audiobooks, music, eBooks, and a Google&nbsp;Photos-style library, streamed straight from your own Box, Dropbox, OneDrive or Google&nbsp;Drive.
 </p>
 
 <p align="center">
@@ -12,7 +12,7 @@
   <img alt="React 19" src="https://img.shields.io/badge/React-19-149eca?logo=react&logoColor=white">
   <img alt="TypeScript" src="https://img.shields.io/badge/TypeScript-strict-3178c6?logo=typescript&logoColor=white">
   <img alt="Postgres + Drizzle" src="https://img.shields.io/badge/Postgres-Drizzle%20ORM-336791?logo=postgresql&logoColor=white">
-  <img alt="Vitest" src="https://img.shields.io/badge/tests-1%2C100%2B%20passing-6e9f18?logo=vitest&logoColor=white">
+  <img alt="Vitest" src="https://img.shields.io/badge/tests-2%2C000%2B%20passing-6e9f18?logo=vitest&logoColor=white">
   <img alt="Deployed on Vercel" src="https://img.shields.io/badge/deployed%20on-Vercel-black?logo=vercel">
 </p>
 
@@ -22,17 +22,17 @@
 
 Roam is a Plex-style media server with two deliberate departures:
 
-1. **The storage is Box, not a NAS.** Each server connects its *own* Box account over OAuth, and the browser streams video **directly from Box** using short-lived, single-file download URLs. There are no media servers to run.
-2. **The app is a stateless control plane on Vercel's free tier.** It handles auth, metadata, access control, and URL minting, and it is built so that it never has to move video bytes or transcode.
+1. **The storage is your own cloud drive, not a NAS.** Each server connects its *own* Box, Dropbox, OneDrive or Google Drive account (as many as it likes) over OAuth, and the browser streams video **directly from the provider** using short-lived, single-file download URLs. There are no media servers to run.
+2. **The app is a stateless control plane on Vercel's free tier.** It handles auth, metadata, access control, and URL minting, and it is built so that it never has to move video bytes (Google Drive can stream through a free Cloudflare Worker, so even that stays off Vercel) or transcode.
 
-It is a real, working product, not a tutorial project: it has accounts, per-person profiles with age limits, shareable libraries, resumable playback, playlists, and photo browsing with a few-thousand-photo timeline. This README is written for people evaluating the engineering, so it leads with the interesting problems.
+It is a real, working product, not a tutorial project: it has accounts, per-person profiles with age limits, shareable libraries, resumable playback, offline downloads, playlists, a TV app, and photo browsing with a few-thousand-photo timeline. This README is written for people evaluating the engineering, so it leads with the interesting problems.
 
 > **Status:** in daily use by a small group of people. The code is open for review, and a [public demo server](#public-demo) lets you try it without an account or any setup.
 
 ## Engineering highlights
 
 ### Seamless multi-file playback
-Movies ripped as `Part 1` / `Part 2` (and combined multi-episode files) play as **one continuous video**. A custom dual-`<video>` player preloads the next segment on a second element and swaps at the boundary, tracks a single virtual timeline across files, handles trims for combined episodes, and refreshes expiring Box URLs mid-playback. Position is saved per profile.
+Movies ripped as `Part 1` / `Part 2` (and combined multi-episode files) play as **one continuous video**. A custom dual-`<video>` player preloads the next segment on a second element and swaps at the boundary, tracks a single virtual timeline across files, handles trims for combined episodes, and refreshes expiring storage URLs mid-playback. Position is saved per profile.
 
 ### Metadata and codecs without ffmpeg on the hot path
 Duration, codecs, chapters, and cover art are read with **hand-written, bounded parsers** that fetch only a few KB with HTTP range requests (MP4/MOV atoms, MP3 ID3v2.2–2.4 + ID3v1, EXIF/TIFF, HEIC/HEIF boxes, JPEG/PNG/GIF/WebP headers). A scan never downloads a whole file.
@@ -40,15 +40,15 @@ Because these parse **untrusted files**, every read is range-checked, loops and 
 
 ### Scanning that is safe to run against someone's library
 - **Time-budgeted and resumable.** Vercel Hobby caps functions at 60 s, so scans work in single-transaction slices with a resumable depth-first cursor, and pick up automatically on the next page load.
-- **Cleanup that can't wipe a library.** Files removed from Box are pruned only after a *clean* scan cycle, each candidate is verified against Box by id, a grace period applies, and a hard cap refuses to delete when the number looks like an outage or a wrong folder.
-- One scan engine drives video, audio, and photo libraries through a small "profile" object (what a file becomes, what is probed, what is read).
+- **Cleanup that can't wipe a library.** Files removed from storage are pruned only after a *clean* scan cycle, each candidate is verified against the provider by id, a grace period applies, and a hard cap refuses to delete when the number looks like an outage or a wrong folder.
+- One scan engine drives every library kind through a small "profile" object (what a file becomes, what is probed, what is read). A library can span folders on several connections and providers; if one is signed out the others still scan.
 
 ### Multi-tenancy and access control
-- Anyone can sign up; they then create or join a **server**. One admin per server; invites are viewer-only.
+- Anyone can sign up; they then create or join a **server**. One admin per server; invites are viewer-only (an admin can delete a server, a library or an invitation; expired invitations drop out of the list after a week).
 - **Per-library sharing**: a library is visible to everyone on the server or to chosen accounts only. A single choke point (`libraryVisible`) is used by every reader, and a test walks the source tree to enforce it.
 - **Profiles with age limits** (Netflix-style): content is filtered in SQL, before ordering and paging, so a hidden item can't leak through a count, a cursor, or a "next" button.
 - Every refusal (missing, hidden, age-blocked, wrong kind) is the **same 404**, so nothing confirms an item exists.
-- Box tokens are **AES-256-GCM encrypted at rest**; Postgres row-level security is deny-all (the app is the only client); sign-up and heavy routes are rate-limited in Postgres.
+- Storage tokens are **AES-256-GCM encrypted at rest**; Postgres row-level security is deny-all (the app is the only client); sign-up and heavy routes are rate-limited in Postgres.
 
 ### A photo library that scrolls like Google Photos
 - **The whole timeline is laid out up front.** Month counts give every block its exact pixel height, and blocks fill as they near the screen. Scrubbing to any month is just a scroll: nothing is inserted above you, no scroll-correction hacks.
@@ -57,7 +57,7 @@ Because these parse **untrusted files**, every read is range-checked, loops and 
 - Thumbnails and previews are proxied through one access-checked gate with private caching; no image is stored in the database.
 
 ### Honest handling of what browsers can't play
-Roam deliberately does no server-side transcoding. For files whose audio browsers can't decode (AC-3, E-AC-3, DTS) it detects the codec during the scan and offers a **remux** (video copied, audio to AAC) as a separate "browser-friendly" file linked to the original. For phone videos (HEVC) in photo libraries it uses **Box's own H.264 rendition**, handed to the browser behind a token scoped to a single file.
+Roam deliberately does no server-side transcoding. For files whose audio browsers can't decode (AC-3, E-AC-3, DTS) it detects the codec during the scan and offers a **remux** (video copied, audio to AAC; Box storage) as a separate "browser-friendly" file linked to the original. A video the device can't decode (HEVC on a browser without it) is refused up front instead of spinning, and the player picks a version the device can play. For phone videos (HEVC) in photo libraries it uses **Box's own H.264 rendition**, handed to the browser behind a token scoped to a single file.
 
 ## Architecture
 
@@ -65,12 +65,12 @@ Roam deliberately does no server-side transcoding. For files whose audio browser
 flowchart LR
   B[Browser / installed PWA] -- "pages, API (cookie session)" --> V[Next.js 16 on Vercel<br/>control plane]
   V -- "Drizzle, parameterised SQL" --> P[(Supabase Postgres<br/>RLS deny-all)]
-  V -- "OAuth per server; downscoped,<br/>single-file tokens" --> X[Box]
+  V -- "OAuth per connection; downscoped,<br/>single-file tokens" --> X[Box · Dropbox · OneDrive · Google Drive]
   V -- "metadata" --> T[TMDB · OMDb · Audible]
   B == "video bytes: short-lived URL" ==> X
 ```
 
-Video bytes never pass through Vercel. Photo thumbnails and previews do (small, cached, and gated by the same access check as everything else).
+Video bytes never pass through Vercel, except Google Drive's when no Cloudflare Worker is set up (Drive has no per-file download links). Photo thumbnails and previews do (small, cached, and gated by the same access check as everything else).
 
 ## Public demo
 
@@ -91,12 +91,12 @@ How it's built (the interesting part, for reviewers): a server's admin can switc
 | Area | Choice |
 |---|---|
 | Framework | Next.js 16 (App Router, Server Components, route handlers, `proxy.ts`), React 19, TypeScript |
-| Data | PostgreSQL on Supabase, **Drizzle ORM**, 30 migrations (enum changes split from their first use, additive-first) |
+| Data | PostgreSQL on Supabase, **Drizzle ORM**, 48 migrations (enum changes split from their first use, additive-first) |
 | Auth | Supabase Auth (magic link, Google, email + password), custom roles, profiles |
-| Storage | Box (OAuth 2, downscoped tokens, byte-range reads, representations API) |
+| Storage | Box, Dropbox, OneDrive, Google Drive behind one `StorageProvider` interface (OAuth 2 with rotating refresh tokens, byte-range reads, signed single-file stream links; optional Cloudflare Worker for Drive) |
 | UI | Tailwind CSS 4, shadcn/Base UI, Lucide, installable PWA |
-| Metadata | TMDB, OMDb, Audible (all optional or fully offline for "generic" libraries) |
-| Tests | **Vitest** with in-memory Postgres (**PGlite**) replaying the real migrations; ~1,100 tests |
+| Metadata | TMDB (kept once in a shared cache, refreshed within six months), OMDb, Audible, MusicBrainz, OpenSubtitles (all optional or fully offline for "generic" libraries) |
+| Tests | **Vitest** with in-memory Postgres (**PGlite**) replaying the real migrations; ~2,000 tests |
 | Hosting | Vercel (Fluid compute) with a Postgres-backed rate limiter and no extra services |
 
 ## Quality and testing
@@ -105,6 +105,8 @@ How it's built (the interesting part, for reviewers): a server's admin can switc
 - Security-relevant guards (library access, age filtering, uniform 404s, kind allow-lists, rate limits) each have a test that was checked to **fail when the guard is removed** (manual mutation testing).
 - Source-level enforcement tests fail the build if a new reader skips the access helper or a new code path special-cases a library kind with a string literal.
 - Every feature went through plan → independent review → small commits → independent review again; the commit history reflects that.
+
+## Feature guides
 
 ### Storage, connections and library folders
 
@@ -151,7 +153,7 @@ A **Music** library is browsed as **Artists | Albums | Songs | Genres**; a gener
 
 ### Downloads (offline)
 
-Any movie, episode, song, album or audiobook can be saved on the device you are using: **Download** is in the More menu on a movie or audiobook page and on episode rows, a button on song rows, and **Download album** in an album's More menu. For a movie or episode the dialog lists each resolution version with its size; you pick one. The file goes into the browser's private storage (it streams straight from Box to disk, so a multi-gigabyte film never sits in memory; an interrupted download carries on from the byte it reached, and a connection that goes silent is dropped and resumed). Downloaded items are played from the device in the usual players, with or without a connection, and show up under **Downloads** in the sidebar. Where you were is remembered on the device and sent to the server once there is a connection again.
+Any movie, episode, song, album or audiobook can be saved on the device you are using: **Download** is in the More menu on a movie or audiobook page and on episode rows, a button on song rows, and **Download album** in an album's More menu. For a movie or episode the dialog lists each resolution version with its size; you pick one. The file goes into the browser's private storage (it streams straight from storage to disk, so a multi-gigabyte film never sits in memory; an interrupted download carries on from the byte it reached, and a connection that goes silent is dropped and resumed). Downloaded items are played from the device in the usual players, with or without a connection, and show up under **Downloads** in the sidebar. Where you were is remembered on the device and sent to the server once there is a connection again.
 
 With no connection the installed app opens a page of your downloads (`/offline`, kept by a service worker that is refreshed with each deployment) and plays them from there. Downloads belong to that browser on that device: clearing the site's data removes them, and the browser may clear them when it is short of space (the app asks it not to). It needs a browser with private file storage: current Chrome, Edge, Firefox and Safari (on an iPhone, installed to the Home Screen). The player's other settings, such as subtitles you load from a file, work offline too; searching OpenSubtitles does not.
 
@@ -176,13 +178,14 @@ Sign-in has Cloudflare Turnstile support that stays off until you configure it, 
 | **Audiobooks** | Audible matching, chapters, resume, a persistent mini-player |
 | **Music** | Artist > Album > Song from the folder layout; albums matched on MusicBrainz for names, years, track titles and cover art (clear matches only, switchable per library); album pages with play, shuffle and a queue |
 | **Generic video / audio** | Folder-mirrored browsing; names, artist, and cover read from the files' own tags; one library-wide age rating |
+| **eBooks** | EPUB and PDF books; EPUBs open in an in-app reader that remembers your place |
 | **Photos & videos** | Timeline + albums, favorites, search, scrubber, zoom levels, viewer |
 
-Also: a **TV interface** (`/tv`: server-rendered pages plus one script built for Chromium 56, so it runs on a 2018 Samsung, with extras on newer TVs; movies, shows, videos, music, audio, photos, audiobooks, search, playlists; sign-in by a five-character code approved from a phone; guide for relatives at `/help/tv`; Samsung/LG packages in [`tv/`](tv/README.md)), playlists with sharing roles, per-profile watch history, global search, per-library sharing and age ratings, a resumable admin scan with live progress.
+Also: a **TV interface** (`/tv`: server-rendered pages plus one script built for Chromium 56, so it runs on a 2018 Samsung, with extras on newer TVs; movies, shows, videos, music, audio, photos, audiobooks, search, playlists; sign-in by a five-character code approved from a phone; guide for relatives at `/help/tv`; Samsung/LG packages in [`tv/`](tv/README.md)), cast, crew and person pages, trailers and extras, offline downloads, Help me choose, playlists with sharing roles, per-profile watch history, global search, per-library sharing and age ratings, a resumable admin scan with live progress, a public front page with privacy and terms pages, and a [platform admin](#platform-admin) page for whoever runs the site.
 
 ## Getting started
 
-Prerequisites: Node.js 20.9+, a [Supabase](https://supabase.com) project, a [Box](https://developer.box.com) custom app (OAuth 2.0), and optionally a [TMDB](https://www.themoviedb.org/settings/api) token and an [OMDb](https://www.omdbapi.com/apikey.aspx) key.
+Prerequisites: Node.js 20.9+, a [Supabase](https://supabase.com) project, at least one storage provider's OAuth app (a [Box](https://developer.box.com) custom app, or Dropbox, Microsoft or Google; see [Storage](#storage-connections-and-library-folders)), and optionally a [TMDB](https://www.themoviedb.org/settings/api) token and an [OMDb](https://www.omdbapi.com/apikey.aspx) key.
 
 ```bash
 npm install
@@ -190,16 +193,17 @@ cp .env.example .env.local     # fill in the values; each one is commented
 npm run db:migrate             # apply the Drizzle migrations
 psql "$POSTGRES_URL" -f supabase/rls.sql   # deny-all row-level security (read its header first)
 npm run dev                    # http://localhost:3000
-npm test                       # ~1,100 tests, no external services needed
+npm test                       # ~2,000 tests, no external services needed
 ```
 
-1. In the Box developer console, create an **OAuth 2.0** custom app and register `/api/box/callback` (local and production) as a redirect URI.
-2. Generate `TOKEN_ENCRYPTION_KEY` with `openssl rand -base64 32` (it encrypts each server's Box tokens; rotating it requires reconnecting every server).
-3. Sign up, **create a server**, connect Box, then add a library by choosing a Box folder and a type. Scans can be started from the admin page.
+1. Create an OAuth app with the storage provider you want to start with. For Box: in the developer console, create an **OAuth 2.0** custom app and register `/api/box/callback` (local and production) as a redirect URI. The others are described under [Storage](#storage-connections-and-library-folders).
+2. Generate `TOKEN_ENCRYPTION_KEY` with `openssl rand -base64 32` (it encrypts every connection's tokens; rotating it requires reconnecting every connection).
+3. Sign up, **create a server**, connect storage, then add a library by choosing a folder and a type. Scans can be started from the admin page.
+4. Optional: set `CRON_SECRET` so the daily TMDB refresh runs (see [TMDB data](#tmdb-data-and-its-six-month-rule)), and run `scripts/grant-platform-admin.ts` for your account to open [`/platform`](#platform-admin).
 
 Deploying: import the repo into Vercel with the same environment variables (use the pooled `POSTGRES_URL`, port 6543). Note `vercel.json` must enable deployments for your production branch.
 
-Folder naming for Movies/TV follows Plex conventions, e.g. `Movies/The Matrix (1999)/The Matrix (1999).mp4`, `Movie (2001)/part1.mp4`, `Show (2015)/Season 01/S01E01 - Pilot.mp4`. Pre-convert to H.264/AAC `.mp4`, `.m4v`, or `.mov`.
+Folder naming for Movies/TV follows Plex conventions, e.g. `Movies/The Matrix (1999)/The Matrix (1999).mp4`, `Movie (2001)/part1.mp4`, `Show (2015)/Season 01/S01E01 - Pilot.mp4`. Pre-convert to H.264/AAC `.mp4`, `.m4v`, or `.mov` (HEVC plays only on devices that can decode it).
 
 **Resolution versions.** Save the same movie or episode in more than one resolution with Plex's version naming, a ` - <resolution>` segment in the file name: `The Matrix (1999) - 1080p.mp4` and `The Matrix (1999) - 4K.mp4`, or `Show - S01E01 - 720p.mp4` and `Show - S01E01 - 1080p.mp4` (a split version keeps its parts: `Movie (2020) - 4K - pt1.mp4`). The label must start with a resolution word (`480p`, `720p`, `1080p`, `2160p`, `4K`, `UHD`, `HD`, `SD`, optionally followed by more words such as `1080p BluRay`), so an episode's title is never mistaken for one. By default the highest resolution plays; the player's settings menu (the gear on the web, Up on the TV) has a Quality choice, and the pick is remembered per device (the closest available resolution is used for other titles). A file with no label is just another version, shown by its real resolution.
 
@@ -211,16 +215,23 @@ To make the lower resolutions from files you already have, run `scripts/make-ver
 src/
   app/            routes: (app)/s/[serverId]/…  library, title, show, book, photo, watch, admin
                   api/                           control-plane routes (play, scan, photos, playlists, …)
-  components/     player/ (dual-video player), photos/ (timeline, viewer, scrubber), admin/, library/, ui/
+  components/     player/ (dual-video player), photos/ (timeline, viewer, scrubber), admin/, library/, platform/, ui/
   lib/
     scan/         scanner, file-tree engine, tag/EXIF/HEIF/MP4/ID3 parsers, prune
-    storage/      StorageProvider interface + Box implementation
+    storage/      StorageProvider interface; Box, Dropbox, OneDrive, Google Drive; connections, OAuth tokens, signed stream links
+    tmdb/         shared TMDB cache, projections onto titles, the daily refresh
+    cast/ extras/ cast, crew and person pages; trailers and extras
+    music/ ebooks/ audiobooks/  MusicBrainz matching; EPUB reader; authors and credits
+    platform/     the platform admin page's numbers, and the linked-accounts ledger
+    tv/ offline/ choose/ demo/  the TV app; offline downloads; Help me choose; the public demo
     content/      access rules: library visibility, age filtering
     photos/       timeline queries, search, layout maths, favorites, gestures
     player/       play manifest + timeline maths
     remux/        audio remux pipeline (local runner, sandbox tier)
     db/           Drizzle schema + client
 drizzle/          SQL migrations         supabase/rls.sql   deny-all RLS
+cloudflare/       the optional Google Drive stream Worker     tv/   Samsung / LG packages
+scripts/          remux, make-versions, seeding, grants, browser checks
 ```
 
 ## Platform admin
@@ -246,6 +257,7 @@ npx tsx --env-file=.env.local scripts/grant-platform-admin.ts you@example.com
 ## Credits and attribution
 
 - Movie and TV metadata and images: [TMDB](https://www.themoviedb.org). *This product uses the TMDB API but is not endorsed or certified by TMDB.*
+- Album data and covers: [MusicBrainz](https://musicbrainz.org) and the Cover Art Archive. Ratings: OMDb. Subtitle search: OpenSubtitles.
 - Demo footage: clips cut and re-encoded from Big Buck Bunny (© copyright 2008, Blender Foundation / www.bigbuckbunny.org) and Sintel (© copyright Blender Foundation | durian.blender.org), both CC BY 3.0. See `src/lib/demo/catalog.ts` and the demo's credits page.
 
 ## About
