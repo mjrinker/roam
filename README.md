@@ -27,7 +27,7 @@ Roam is a Plex-style media server with two deliberate departures:
 
 It is a real, working product, not a tutorial project: it has accounts, per-person profiles with age limits, shareable libraries, resumable playback, offline downloads, playlists, a TV app, and photo browsing with a few-thousand-photo timeline. This README is written for people evaluating the engineering, so it leads with the interesting problems.
 
-> **Status:** in daily use by a small group of people. The code is open for review, and a [public demo server](#public-demo) lets you try it without an account or any setup.
+> **Status:** in daily use by a small group of people. The code is public to read ([see the license](#license)), and a [public demo server](#public-demo) lets you try it without an account or any setup.
 
 ## Engineering highlights
 
@@ -254,6 +254,16 @@ npx tsx --env-file=.env.local scripts/grant-platform-admin.ts you@example.com
 ## Known limitations
 
 - No general transcoding, by design: unsupported audio is remuxed on request, and everything else must already be browser-friendly.
+
+## License
+
+Roam is **source-available**, under the [PolyForm Strict License 1.0.0](LICENSE). In plain words:
+
+- **You may** read the code, and run it yourself for personal, noncommercial use (study, a hobby project, trying it out). Charities, schools and public bodies may use it for their work too.
+- **You may not** change it, copy it to somewhere else, fork it and share or host it as your own, or use it to make money. To use Roam as a service, use [the deployment](https://roam-three-gray.vercel.app) (or the public demo).
+- **Found a bug, or want something changed?** Please [open a GitHub issue](https://github.com/mjrinker/roam/issues). Pull requests aren't accepted.
+
+The demo's sample media and the data from outside services keep their own licenses (see below).
 
 ## Credits and attribution
 
