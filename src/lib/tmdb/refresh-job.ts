@@ -1,3 +1,5 @@
+import { db } from "@/lib/db/client";
+import { platformJobs } from "@/lib/db/schema";
 import { clearExpired, deleteUnreferencedEntries, refreshEntry, staleEntries } from "@/lib/tmdb/cache";
 
 export interface RefreshSummary {
@@ -21,5 +23,15 @@ export async function runTmdbRefresh(opts: { limit?: number; deadline?: number; 
     for (const r of results) summary[r]++;
   }
   summary.cleared = await clearExpired();
+  return summary;
+}
+
+/** Runs the refresh and notes when it ran and what it did (shown on the platform admin page). */
+export async function runAndRecordTmdbRefresh(opts: Parameters<typeof runTmdbRefresh>[0] = {}): Promise<RefreshSummary> {
+  const summary = await runTmdbRefresh(opts);
+  await db
+    .insert(platformJobs)
+    .values({ name: "tmdb-refresh", lastRunAt: new Date(), summary: { ...summary } })
+    .onConflictDoUpdate({ target: platformJobs.name, set: { lastRunAt: new Date(), summary: { ...summary } } });
   return summary;
 }

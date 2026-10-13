@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { runTmdbRefresh } from "@/lib/tmdb/refresh-job";
+import { runAndRecordTmdbRefresh } from "@/lib/tmdb/refresh-job";
 
 export const maxDuration = 60;
 
@@ -12,5 +12,5 @@ export async function GET(request: Request) {
   if (!secret || request.headers.get("authorization") !== `Bearer ${secret}`) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
-  return NextResponse.json(await runTmdbRefresh(), { headers: { "Cache-Control": "no-store" } });
+  return NextResponse.json(await runAndRecordTmdbRefresh(), { headers: { "Cache-Control": "no-store" } });
 }

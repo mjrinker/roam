@@ -53,6 +53,13 @@ export async function dropboxExchangeCode(code: string, redirectUri: string): Pr
   return { accessToken: t.access_token, refreshToken: t.refresh_token ?? null, expiresInSeconds: t.expires_in ?? null };
 }
 
+/** Unlinks the account from Roam's Dropbox app (the access token stops working, and the account stops counting against the app's user limit). */
+export async function dropboxRevoke(accessToken: string): Promise<void> {
+  const res = await fetch(`${API}/auth/token/revoke`, { method: "POST", headers: { Authorization: `Bearer ${accessToken}` } });
+  // An already-dead token answers 401: nothing left to unlink.
+  if (!res.ok && res.status !== 401) throw new Error(`Dropbox revoke failed (${res.status})`);
+}
+
 export const dropboxRefresher: Refresher = async (refreshToken) => {
   const t = await tokenRequest({ grant_type: "refresh_token", refresh_token: refreshToken });
   // Dropbox keeps the same refresh token, so none comes back.

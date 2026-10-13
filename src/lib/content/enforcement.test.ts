@@ -23,6 +23,7 @@ const ENFORCEMENT_IMPORTS = ["@/lib/content/library-access", "@/lib/auth/resolve
 // path (relative to src/app) -> why it doesn't need to import the above.
 const ALLOWLIST: Record<string, string> = {
   "(app)/s/[serverId]/(browse)/admin/page.tsx": "admin-only (requireServerAdmin requires an unrestricted profile)",
+  "platform/page.tsx": "platform-admin only (requirePlatformAdmin); shows aggregate counts, never an item",
   "api/audiobooks/search/route.ts": "admin-only (getCurrentServerAdmin)",
   "api/titles/[id]/match/route.ts": "admin-only (getCurrentServerAdmin)",
   "api/titles/[id]/match-audible/route.ts": "admin-only (getCurrentServerAdmin)",

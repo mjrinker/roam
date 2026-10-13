@@ -5,6 +5,7 @@ import { db } from "@/lib/db/client";
 import { storageConnections } from "@/lib/db/schema";
 import { verifyBoxOAuthState } from "@/lib/storage/box-oauth-state";
 import { googleAccountName, googleExchangeCode } from "@/lib/storage/google-drive";
+import { recordProviderAccount } from "@/lib/platform/accounts";
 import { saveTokens } from "@/lib/storage/oauth-tokens";
 
 /**
@@ -32,7 +33,9 @@ export async function GET(request: Request) {
     const tokens = await googleExchangeCode(code, `${origin}/api/google/callback`);
     if (!tokens.refreshToken) throw new Error("Google Drive gave no refresh token");
     if (!existing) await db.insert(storageConnections).values({ id: payload.connectionId, serverId: payload.serverId, provider: "gdrive", label: payload.label || "Google Drive" });
-    await saveTokens(payload.connectionId, tokens, await googleAccountName(tokens.accessToken));
+    const account = await googleAccountName(tokens.accessToken);
+    await saveTokens(payload.connectionId, tokens, account);
+    await recordProviderAccount("gdrive", account);
   } catch {
     return fail(payload.serverId, "storage-connect-failed");
   }

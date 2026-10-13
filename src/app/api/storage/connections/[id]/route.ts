@@ -4,6 +4,7 @@ import { and, eq } from "drizzle-orm";
 import { getCurrentServerAdmin } from "@/lib/auth/guards";
 import { db } from "@/lib/db/client";
 import { storageConnections } from "@/lib/db/schema";
+import { releaseConnections } from "@/lib/platform/accounts";
 import { connectionUse } from "@/lib/storage/connections";
 
 async function adminOf(id: string) {
@@ -35,6 +36,8 @@ export async function DELETE(_request: Request, ctx: RouteContext<"/api/storage/
   if (using > 0) {
     return NextResponse.json({ error: `${using === 1 ? "A library has" : `${using} libraries have`} a folder on this connection. Remove ${using === 1 ? "it" : "them"} from the library first.` }, { status: 409 });
   }
+  // Unlink the outside account first (when this was its last connection), so it stops counting against the provider's app limits.
+  await releaseConnections([id]);
   await db.delete(storageConnections).where(and(eq(storageConnections.id, id), eq(storageConnections.serverId, conn.serverId)));
   return NextResponse.json({ ok: true });
 }

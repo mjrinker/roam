@@ -81,6 +81,8 @@ export const profiles = pgTable("profiles", {
   // Who may switch on a server's open join link and mark it a public demo. Off for everyone; granted by hand
   // (scripts/grant-open-links.ts), because an open link lets strangers (and anonymous guests) into a server.
   canManageOpenLinks: boolean("can_manage_open_links").notNull().default(false),
+  // May open the platform admin page (/platform): numbers and health for every server. Granted by hand (scripts/grant-platform-admin.ts).
+  isPlatformAdmin: boolean("is_platform_admin").notNull().default(false),
   // When a guest last loaded a page (touched at most hourly); what "inactive" is measured against.
   lastSeenAt: timestamp("last_seen_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true })
@@ -832,6 +834,36 @@ export const tmdbCrew = pgTable(
   },
   (t) => [primaryKey({ columns: [t.kind, t.tmdbId, t.personId, t.job] }), index("tmdb_crew_person_idx").on(t.personId)]
 );
+
+// ── provider_accounts ────────────────────────────────────────────────────
+// A ledger of every outside account (a Dropbox, Google or Microsoft account) ever linked to Roam, kept even after the connection is
+// removed. Some services cap how many accounts an unapproved app may link (Dropbox 50, Google 100 for an unverified app), and the
+// count that matters is accounts linked, not connections: the same account on two servers is one. `revoked_at` is set when Roam
+// unlinked the account at the provider (so it no longer counts there).
+
+export const providerAccounts = pgTable(
+  "provider_accounts",
+  {
+    provider: text("provider").$type<StorageProviderKind>().notNull(),
+    // The provider's own id for the account when it gives one, else the email, lower case.
+    accountKey: text("account_key").notNull(),
+    // What to show (an email address).
+    label: text("label").notNull(),
+    firstConnectedAt: timestamp("first_connected_at", { withTimezone: true }).notNull().defaultNow(),
+    lastConnectedAt: timestamp("last_connected_at", { withTimezone: true }).notNull().defaultNow(),
+    revokedAt: timestamp("revoked_at", { withTimezone: true }),
+  },
+  (t) => [primaryKey({ columns: [t.provider, t.accountKey] })]
+);
+
+// ── platform_jobs ────────────────────────────────────────────────────────
+// When each scheduled job last ran and what it did, for the platform admin page.
+
+export const platformJobs = pgTable("platform_jobs", {
+  name: text("name").primaryKey(),
+  lastRunAt: timestamp("last_run_at", { withTimezone: true }).notNull().defaultNow(),
+  summary: jsonb("summary").$type<Record<string, unknown>>(),
+});
 
 // ── title_extras ─────────────────────────────────────────────────────────
 // A movie's trailers, behind-the-scenes videos and other extras, found in its folder by Plex's naming (a "-trailer" style suffix on a

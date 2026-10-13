@@ -58,6 +58,13 @@ export const googleRefresher: Refresher = async (refreshToken) => {
   return { accessToken: t.access_token, refreshToken: null, expiresInSeconds: t.expires_in ?? null };
 };
 
+/** Removes Roam's access to the Google account (the refresh token and everything made from it). */
+export async function googleRevoke(refreshToken: string): Promise<void> {
+  const res = await fetch("https://oauth2.googleapis.com/revoke", { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" }, body: new URLSearchParams({ token: refreshToken }) });
+  // 400 means the token was already revoked or expired.
+  if (!res.ok && res.status !== 400) throw new Error(`Google revoke failed (${res.status})`);
+}
+
 /** Who the access token belongs to (their email address), for showing beside the connection. */
 export async function googleAccountName(accessToken: string): Promise<string | null> {
   const res = await fetch(`${API}/about?fields=user(emailAddress,displayName)`, { headers: { Authorization: `Bearer ${accessToken}` } });

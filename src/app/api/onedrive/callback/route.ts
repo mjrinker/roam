@@ -5,6 +5,7 @@ import { db } from "@/lib/db/client";
 import { storageConnections } from "@/lib/db/schema";
 import { verifyBoxOAuthState } from "@/lib/storage/box-oauth-state";
 import { onedriveAccountName, onedriveExchangeCode } from "@/lib/storage/onedrive";
+import { recordProviderAccount } from "@/lib/platform/accounts";
 import { saveTokens } from "@/lib/storage/oauth-tokens";
 
 /**
@@ -32,7 +33,9 @@ export async function GET(request: Request) {
     const tokens = await onedriveExchangeCode(code, `${origin}/api/onedrive/callback`);
     if (!tokens.refreshToken) throw new Error("OneDrive gave no refresh token");
     if (!existing) await db.insert(storageConnections).values({ id: payload.connectionId, serverId: payload.serverId, provider: "onedrive", label: payload.label || "OneDrive" });
-    await saveTokens(payload.connectionId, tokens, await onedriveAccountName(tokens.accessToken));
+    const account = await onedriveAccountName(tokens.accessToken);
+    await saveTokens(payload.connectionId, tokens, account);
+    await recordProviderAccount("onedrive", account);
   } catch {
     return fail(payload.serverId, "storage-connect-failed");
   }

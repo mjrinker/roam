@@ -5,6 +5,7 @@ import { db } from "@/lib/db/client";
 import { storageConnections } from "@/lib/db/schema";
 import { verifyBoxOAuthState } from "@/lib/storage/box-oauth-state";
 import { dropboxAccountName, dropboxExchangeCode } from "@/lib/storage/dropbox";
+import { recordProviderAccount } from "@/lib/platform/accounts";
 import { saveTokens } from "@/lib/storage/oauth-tokens";
 
 /**
@@ -32,7 +33,9 @@ export async function GET(request: Request) {
     const tokens = await dropboxExchangeCode(code, `${origin}/api/dropbox/callback`);
     if (!tokens.refreshToken) throw new Error("Dropbox gave no refresh token");
     if (!existing) await db.insert(storageConnections).values({ id: payload.connectionId, serverId: payload.serverId, provider: "dropbox", label: payload.label || "Dropbox" });
-    await saveTokens(payload.connectionId, tokens, await dropboxAccountName(tokens.accessToken));
+    const account = await dropboxAccountName(tokens.accessToken);
+    await saveTokens(payload.connectionId, tokens, account);
+    await recordProviderAccount("dropbox", account);
   } catch {
     return fail(payload.serverId, "storage-connect-failed");
   }

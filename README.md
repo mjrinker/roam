@@ -223,6 +223,22 @@ src/
 drizzle/          SQL migrations         supabase/rls.sql   deny-all RLS
 ```
 
+## Platform admin
+
+`/platform` is one page for whoever runs Roam (not for server admins): every server at a glance, and what needs attention.
+
+- **Outside accounts and their limits.** How many Dropbox (limit 50 while the app is in development) and Google (100 while unverified) accounts are linked, counted once however many servers use them, with a bar that turns amber at 80% and red at the limit, and the steps to apply for production access. Accounts are kept in a ledger (`provider_accounts`) so the count is right even after a connection is removed; when the last connection using an account is removed (or its server is deleted), Roam unlinks the account at Dropbox or Google, so it stops counting there too. Microsoft has no way for an app to do this, so a OneDrive account is only counted.
+- **At a glance.** Accounts, demo guests, servers, libraries by kind, items, new accounts and active people this week and month, pending invites, storage connections.
+- **Needs attention.** Storage that needs signing in again, libraries whose last scan had errors, libraries never scanned.
+- **Scanning and TMDB.** Files waiting to be read or that failed, the shared TMDB cache's size and age, when the daily refresh last ran and what it did, and a button to run it now.
+- **Servers.** Each server's owner, members, libraries, items and connections.
+
+The page answers "not found" to everyone else. Grant access once, to your own account (it must have signed in):
+
+```
+npx tsx --env-file=.env.local scripts/grant-platform-admin.ts you@example.com
+```
+
 ## Known limitations
 
 - No general transcoding, by design: unsupported audio is remuxed on request, and everything else must already be browser-friendly.
