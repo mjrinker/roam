@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
 import { db } from "@/lib/db/client";
+import { requireViewer } from "@/lib/auth/guards";
 import { requirePlatformAdmin } from "@/lib/platform/guard";
 import { loadPlatformStats } from "@/lib/platform/stats";
 import { Panel, Problems, ProviderLimits, Tile, fmt, when } from "@/components/platform/platform-panels";
@@ -9,7 +10,11 @@ import { RefreshNowButton } from "@/components/platform/refresh-now-button";
 import { Card, CardContent } from "@/components/ui/card";
 import { providerName } from "@/lib/storage/provider-info";
 
-export const metadata: Metadata = { title: "Platform admin", robots: { index: false, follow: false } };
+/** The title is only set for a platform admin: anyone else gets the "not found" page, and a tab saying "Platform admin" would tell them the page is real. */
+export async function generateMetadata(): Promise<Metadata> {
+  const { account } = await requireViewer();
+  return { robots: { index: false, follow: false }, ...(account.isPlatformAdmin ? { title: "Platform admin" } : {}) };
+}
 export const dynamic = "force-dynamic";
 
 /** Everything about the whole platform in one place: for the account that runs it (see scripts/grant-platform-admin.ts), not for server admins. */

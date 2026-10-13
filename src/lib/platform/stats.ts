@@ -25,6 +25,13 @@ type Db = PgDatabase<PgQueryResultHKT, Record<string, unknown>>;
 
 const DAY = 86_400_000;
 
+/** Runs the queries one after another (each is a function that starts it), keeping their order and types. */
+async function series<T extends (() => Promise<unknown>)[]>(...fns: T): Promise<{ [K in keyof T]: Awaited<ReturnType<T[K]>> }> {
+  const out: unknown[] = [];
+  for (const fn of fns) out.push(await fn());
+  return out as { [K in keyof T]: Awaited<ReturnType<T[K]>> };
+}
+
 /** How many accounts an unapproved app may link, where a provider says (Dropbox: 50 for a development app; Google: 100 while unverified). */
 export const PROVIDER_ACCOUNT_CAPS: Partial<Record<StorageProviderKind, number>> = { dropbox: 50, gdrive: 100 };
 /** The point at which the page starts warning. */
@@ -66,9 +73,10 @@ export function usageStatus(linked: number, cap: number | null): ProviderUsage["
 
 export async function loadPlatformStats(ex: Db, now: Date = new Date()): Promise<PlatformStats> {
   const since = (days: number) => new Date(now.getTime() - days * DAY);
-  const one = async <T>(q: Promise<T[]>): Promise<T> => (await q)[0];
+  // The app has ONE database connection, and several queries in flight at once on it never finish: ask in turn (series), never together.
+  const one = <T>(q: PromiseLike<T[]>) => async (): Promise<T> => (await q)[0];
 
-  const [accounts, guests, serverCount, libCount, titleCount, episodeCount, fileCount, inviteCount] = await Promise.all([
+  const [accounts, guests, serverCount, libCount, titleCount, episodeCount, fileCount, inviteCount] = await series(
     one(ex.select({ n: count() }).from(profiles).where(eq(profiles.isGuest, false))),
     one(ex.select({ n: count() }).from(profiles).where(eq(profiles.isGuest, true))),
     one(ex.select({ n: count() }).from(servers)),
@@ -77,7 +85,7 @@ export async function loadPlatformStats(ex: Db, now: Date = new Date()): Promise
     one(ex.select({ n: count() }).from(episodes)),
     one(ex.select({ n: count() }).from(mediaFiles).where(and(isNull(mediaFiles.variantOfMediaFileId), isNotNull(mediaFiles.ownerKind)))),
     one(ex.select({ n: count() }).from(invites).where(and(isNull(invites.acceptedAt), gt(invites.expiresAt, now)))),
-  ]);
+  );
 
   const kinds = await ex.select({ kind: libraries.kind, n: count() }).from(libraries).groupBy(libraries.kind);
   const librariesByKind = Object.fromEntries(kinds.map((k) => [k.kind, k.n]));
@@ -110,12 +118,12 @@ export async function loadPlatformStats(ex: Db, now: Date = new Date()): Promise
     };
   });
 
-  const [new7, new30, active7, active30] = await Promise.all([
+  const [new7, new30, active7, active30] = await series(
     one(ex.select({ n: count() }).from(profiles).where(and(eq(profiles.isGuest, false), gt(profiles.createdAt, since(7))))),
     one(ex.select({ n: count() }).from(profiles).where(and(eq(profiles.isGuest, false), gt(profiles.createdAt, since(30))))),
     one(ex.select({ n: countDistinct(viewers.accountId) }).from(watchState).innerJoin(viewers, eq(watchState.viewerId, viewers.id)).where(gt(watchState.updatedAt, since(7)))),
     one(ex.select({ n: countDistinct(viewers.accountId) }).from(watchState).innerJoin(viewers, eq(watchState.viewerId, viewers.id)).where(gt(watchState.updatedAt, since(30)))),
-  ]);
+  );
 
   const needsReauth = await ex
     .select({ serverName: servers.name, label: storageConnections.label, provider: storageConnections.provider })
@@ -141,12 +149,12 @@ export async function loadPlatformStats(ex: Db, now: Date = new Date()): Promise
   const probeRows = await ex.select({ status: mediaFiles.probeStatus, n: count() }).from(mediaFiles).where(and(isNull(mediaFiles.variantOfMediaFileId), isNotNull(mediaFiles.ownerKind), ne(mediaFiles.probeStatus, "ok"))).groupBy(mediaFiles.probeStatus);
   const probe = (s: string) => probeRows.find((r) => r.status === s)?.n ?? 0;
 
-  const [tmdbTotals, due, oldest, lastRun] = await Promise.all([
+  const [tmdbTotals, due, oldest, lastRun] = await series(
     one(ex.select({ n: count() }).from(tmdbEntries).where(sql`${tmdbEntries.kind} IN ('movie','tv')`)),
     one(ex.select({ n: count() }).from(tmdbEntries).where(and(sql`${tmdbEntries.kind} IN ('movie','tv')`, lt(tmdbEntries.fetchedAt, new Date(now.getTime() - FRESH_MS)), isNull(tmdbEntries.missingAt)))),
     one(ex.select({ at: min(tmdbEntries.fetchedAt) }).from(tmdbEntries).where(sql`${tmdbEntries.kind} IN ('movie','tv')`)),
-    ex.select().from(platformJobs).where(eq(platformJobs.name, "tmdb-refresh")).limit(1).then((r) => r[0] ?? null),
-  ]);
+    async () => (await ex.select().from(platformJobs).where(eq(platformJobs.name, "tmdb-refresh")).limit(1))[0] ?? null,
+  );
 
   const serverRows = await ex
     .select({
