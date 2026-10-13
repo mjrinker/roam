@@ -783,6 +783,56 @@ export const titleCrew = pgTable(
   (t) => [primaryKey({ columns: [t.titleId, t.personId, t.job] }), index("title_crew_person_idx").on(t.personId)]
 );
 
+// ── tmdb_entries, tmdb_cast, tmdb_crew ───────────────────────────────────
+// What TMDB said about a movie, show or season, shared by every server (the first to need it fetches it; the rest read it). TMDB's terms
+// ask that what is kept from it is refreshed within six months, so each entry says when it was fetched: a daily job refreshes the oldest,
+// and anything that couldn't be refreshed in time is cleared. `kind` is "movie", "tv" or "tv-season" (season = the season number; 0 for
+// the others). The cast and crew are rows of their own, keyed by the same (kind, tmdb_id), so a person's page can find their work.
+
+export const tmdbEntries = pgTable(
+  "tmdb_entries",
+  {
+    kind: text("kind").$type<"movie" | "tv" | "tv-season">().notNull(),
+    tmdbId: integer("tmdb_id").notNull(),
+    season: integer("season").notNull().default(0),
+    // Only the parts Roam uses, trimmed on the way in; emptied if the entry could not be refreshed in time.
+    payload: jsonb("payload").$type<Record<string, unknown>>().notNull(),
+    fetchedAt: timestamp("fetched_at", { withTimezone: true }).notNull().defaultNow(),
+    // Set when TMDB says it no longer has it (a 404), so a refresh stops asking every day.
+    missingAt: timestamp("missing_at", { withTimezone: true }),
+  },
+  (t) => [primaryKey({ columns: [t.kind, t.tmdbId, t.season] }), index("tmdb_entries_fetched_idx").on(t.fetchedAt)]
+);
+
+export const tmdbCast = pgTable(
+  "tmdb_cast",
+  {
+    kind: text("kind").$type<"movie" | "tv">().notNull(),
+    tmdbId: integer("tmdb_id").notNull(),
+    personId: integer("person_id").notNull(),
+    name: text("name").notNull(),
+    character: text("character"),
+    photoUrl: text("photo_url"),
+    // Billing order: 0 is the top-billed.
+    position: integer("position").notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.kind, t.tmdbId, t.personId] }), index("tmdb_cast_person_idx").on(t.personId)]
+);
+
+export const tmdbCrew = pgTable(
+  "tmdb_crew",
+  {
+    kind: text("kind").$type<"movie" | "tv">().notNull(),
+    tmdbId: integer("tmdb_id").notNull(),
+    personId: integer("person_id").notNull(),
+    name: text("name").notNull(),
+    job: text("job").notNull(),
+    photoUrl: text("photo_url"),
+    position: integer("position").notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.kind, t.tmdbId, t.personId, t.job] }), index("tmdb_crew_person_idx").on(t.personId)]
+);
+
 // ── title_extras ─────────────────────────────────────────────────────────
 // A movie's trailers, behind-the-scenes videos and other extras, found in its folder by Plex's naming (a "-trailer" style suffix on a
 // file, or a "Trailers" style subfolder). Each one's video is a media_files row with owner_kind='extra' and owner_id = this row's id,

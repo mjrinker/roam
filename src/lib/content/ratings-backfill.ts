@@ -1,7 +1,7 @@
 import { and, eq, inArray, isNull, sql } from "drizzle-orm";
 import { db } from "@/lib/db/client";
 import { titles } from "@/lib/db/schema";
-import { getMovieDetails, getTvShowDetails } from "@/lib/tmdb/client";
+import { getMovieDetails, getTvShowDetails } from "@/lib/tmdb/cache";
 import { ratingsFromMovieDetails, ratingsFromTvDetails } from "@/lib/content/ratings";
 
 const BATCH_SIZE = 20;

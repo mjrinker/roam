@@ -55,15 +55,9 @@ import {
   upsertMediaSegments,
   variantScope,
 } from "@/lib/scan/media-files";
-import {
-  getMovieDetails,
-  getSeasonEpisodes,
-  getTvShowDetails,
-  searchMovie,
-  findTmdbIdByImdbId,
-  searchTvShow,
-  tmdbImageUrl,
-} from "@/lib/tmdb/client";
+import { searchMovie, findTmdbIdByImdbId, searchTvShow, tmdbImageUrl } from "@/lib/tmdb/client";
+// Details come through the shared cache: fetched from TMDB once for every server, and refreshed there (see lib/tmdb/cache).
+import { getMovieDetails, getSeasonEpisodes, getTvShowDetails, refreshEntry } from "@/lib/tmdb/cache";
 import { ratingsFromMovieDetails, ratingsFromTvDetails } from "@/lib/content/ratings";
 import { backfillRatings } from "@/lib/content/ratings-backfill";
 import { backfillExternalRatings } from "@/lib/content/external-ratings-backfill";
@@ -1111,9 +1105,10 @@ export async function syncSingleTitle(titleId: string): Promise<{ errors: string
       await resolveAudiobookChaptersWhenProbed(titleId, library.audibleRegion);
     } else if (title.tmdbId) {
       // An explicit resync retries even a title OMDb previously had nothing for.
-      await db.update(titles).set({ externalRatingsAttemptedAt: null, castAttemptedAt: null }).where(eq(titles.id, titleId));
+      await db.update(titles).set({ externalRatingsAttemptedAt: null }).where(eq(titles.id, titleId));
+      // An explicit resync also asks TMDB again (the shared entry, so every server's copy of this title gets it).
+      await refreshEntry(title.kind === "show" ? "tv" : "movie", title.tmdbId);
       await backfillExternalRatings(library.id, deadline, titleId);
-      await backfillCast(library.id, deadline, titleId);
     }
   } catch (err) {
     if (err instanceof StorageReauthRequiredError) {

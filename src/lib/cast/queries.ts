@@ -1,11 +1,15 @@
-import { and, asc, eq, inArray, type SQL } from "drizzle-orm";
+import { and, asc, eq, inArray, sql, type SQL } from "drizzle-orm";
 import type { PgDatabase, PgQueryResultHKT } from "drizzle-orm/pg-core";
 import { contentFilter, type AccessProfile } from "@/lib/content/access";
 import { libraryVisible, type LibraryActor } from "@/lib/content/library-access";
-import { libraries, titleCast, titleCrew, titles } from "@/lib/db/schema";
+import { libraries, tmdbCast, tmdbCrew, titles } from "@/lib/db/schema";
 import { crewJobLabel } from "./crew-jobs";
 
 type Db = PgDatabase<PgQueryResultHKT, Record<string, unknown>>;
+
+/** A cast or crew row belongs to a title when it is for the title's TMDB id and kind (a show is "tv" on TMDB's side). */
+const sameWork = (credit: typeof tmdbCast | typeof tmdbCrew) =>
+  and(eq(credit.tmdbId, titles.tmdbId), sql`${credit.kind} = (CASE WHEN ${titles.kind} = 'show' THEN 'tv' ELSE 'movie' END)`);
 
 export interface CastMember {
   personId: number;
@@ -17,10 +21,11 @@ export interface CastMember {
 /** A movie's or show's billed cast, top-billed first. (The caller has already checked the viewer may see the title.) */
 export async function loadTitleCast(ex: Db, titleId: string): Promise<CastMember[]> {
   return ex
-    .select({ personId: titleCast.personId, name: titleCast.name, character: titleCast.character, photoUrl: titleCast.photoUrl })
-    .from(titleCast)
-    .where(eq(titleCast.titleId, titleId))
-    .orderBy(asc(titleCast.position));
+    .select({ personId: tmdbCast.personId, name: tmdbCast.name, character: tmdbCast.character, photoUrl: tmdbCast.photoUrl })
+    .from(tmdbCast)
+    .innerJoin(titles, sameWork(tmdbCast))
+    .where(eq(titles.id, titleId))
+    .orderBy(asc(tmdbCast.position));
 }
 
 export interface CrewMember {
@@ -34,10 +39,11 @@ export interface CrewMember {
 /** The key crew of a movie or show, one card per person with all their jobs, the most important job first. */
 export async function loadTitleCrew(ex: Db, titleId: string): Promise<CrewMember[]> {
   const rows = await ex
-    .select({ personId: titleCrew.personId, name: titleCrew.name, job: titleCrew.job, photoUrl: titleCrew.photoUrl })
-    .from(titleCrew)
-    .where(eq(titleCrew.titleId, titleId))
-    .orderBy(asc(titleCrew.position));
+    .select({ personId: tmdbCrew.personId, name: tmdbCrew.name, job: tmdbCrew.job, photoUrl: tmdbCrew.photoUrl })
+    .from(tmdbCrew)
+    .innerJoin(titles, sameWork(tmdbCrew))
+    .where(eq(titles.id, titleId))
+    .orderBy(asc(tmdbCrew.position));
   const people = new Map<number, CrewMember>();
   for (const r of rows) {
     const label = crewJobLabel(r.job);
@@ -64,18 +70,18 @@ export async function loadPersonPage(ex: Db, actor: LibraryActor, viewer: Access
   const base = (visible: SQL | undefined) => and(inArray(titles.kind, ["movie", "show"]), libraryVisible(ex, actor), contentFilter(viewer, titles.ratingAges), visible);
   const title = { id: titles.id, kind: titles.kind, name: titles.name, year: titles.year, posterUrl: titles.posterUrl };
   const acting = await ex
-    .select({ ...title, personName: titleCast.name, photoUrl: titleCast.photoUrl, character: titleCast.character })
-    .from(titleCast)
-    .innerJoin(titles, eq(titleCast.titleId, titles.id))
+    .select({ ...title, personName: tmdbCast.name, photoUrl: tmdbCast.photoUrl, character: tmdbCast.character })
+    .from(tmdbCast)
+    .innerJoin(titles, sameWork(tmdbCast))
     .innerJoin(libraries, eq(titles.libraryId, libraries.id))
-    .where(base(eq(titleCast.personId, personId)));
+    .where(base(eq(tmdbCast.personId, personId)));
   const crew = await ex
-    .select({ ...title, personName: titleCrew.name, photoUrl: titleCrew.photoUrl, job: titleCrew.job })
-    .from(titleCrew)
-    .innerJoin(titles, eq(titleCrew.titleId, titles.id))
+    .select({ ...title, personName: tmdbCrew.name, photoUrl: tmdbCrew.photoUrl, job: tmdbCrew.job })
+    .from(tmdbCrew)
+    .innerJoin(titles, sameWork(tmdbCrew))
     .innerJoin(libraries, eq(titles.libraryId, libraries.id))
-    .where(base(eq(titleCrew.personId, personId)))
-    .orderBy(asc(titleCrew.position));
+    .where(base(eq(tmdbCrew.personId, personId)))
+    .orderBy(asc(tmdbCrew.position));
   if (acting.length === 0 && crew.length === 0) return null;
 
   const items = new Map<string, PersonPage["items"][number]>();

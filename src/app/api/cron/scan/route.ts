@@ -16,7 +16,8 @@ const BATCH_SIZE = Number(process.env.CRON_SCAN_BATCH_SIZE ?? 20);
 export const maxDuration = 60;
 
 /**
- * Vercel Cron target — see vercel.json for the schedule. Vercel sends
+ * A scan target for a scheduler to call (nothing in vercel.json schedules it today: scans start from the admin page, webhooks and the
+ * auto-resume). The daily job that is scheduled is /api/cron/refresh. Vercel Cron sends
  * `Authorization: Bearer $CRON_SECRET` on its own scheduled invocations;
  * verifying it stops anyone else from triggering a scan by hitting this URL.
  *

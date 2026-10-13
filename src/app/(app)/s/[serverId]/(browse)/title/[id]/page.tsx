@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { refreshIfStale } from "@/lib/tmdb/cache";
 import { notFound, redirect } from "next/navigation";
 import { and, asc, eq } from "drizzle-orm";
 import { Loader2, Play } from "lucide-react";
@@ -35,6 +36,10 @@ export default async function TitleDetailPage({
   const { serverId, id } = await params;
   const { profile, viewer, role } = await requireServerMember(serverId);
   const lib = libraryActor({ profile, role }, serverId);
+
+  // Its TMDB details are about five months old: refresh them before drawing the page, so what is shown is current (a short wait, once).
+  const [known] = await db.select({ tmdbId: titles.tmdbId, kind: titles.kind }).from(titles).where(eq(titles.id, id)).limit(1);
+  if (known?.tmdbId && known.kind === "movie") await refreshIfStale("movie", known.tmdbId);
 
   // Join through libraries so a title id from a DIFFERENT server 404s here,
   // rather than trusting the bare id from the URL.

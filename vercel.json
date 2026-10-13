@@ -4,5 +4,11 @@
     "deploymentEnabled": {
       "master": true
     }
-  }
+  },
+  "crons": [
+    {
+      "path": "/api/cron/refresh",
+      "schedule": "17 6 * * *"
+    }
+  ]
 }

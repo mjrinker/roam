@@ -2,7 +2,7 @@ import { and, eq, inArray, isNull, sql } from "drizzle-orm";
 import { db } from "@/lib/db/client";
 import { titles } from "@/lib/db/schema";
 import { getOmdbRatings, isOmdbConfigured, OmdbRateLimitedError, OmdbUnavailableError } from "@/lib/omdb/client";
-import { getMovieDetails, getTvShowDetails } from "@/lib/tmdb/client";
+import { getMovieDetails, getTvShowDetails } from "@/lib/tmdb/cache";
 
 const BATCH_SIZE = 20;
 

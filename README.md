@@ -129,6 +129,10 @@ A movie's or show's page shows its billed cast and its key crew (directors, writ
 
 An audiobook library has a **Books | Authors** switch. Authors shows each author as a tile (their cover, and how many books); opening one shows everything that person is credited with on the server. A book's page has a **Credits** row with its authors and narrators (a full-cast recording lists them all, labelled Cast when there are more than three), and clicking anyone opens their page: the books they wrote and the books they narrated, in series order. People are matched by name, ignoring case and spacing, across all the audiobook libraries the viewer can see.
 
+### TMDB data and its six-month rule
+
+TMDB's terms ask that what Roam keeps from it be refreshed at least every six months. Everything from TMDB (details, ratings, cast, crew, episodes) is kept once in a shared cache (`tmdb_entries`, `tmdb_cast`, `tmdb_crew`) that every server reads, so a movie two servers have is fetched once. Titles and episodes still carry copies of what lists and filters need (poster, description, age rating), pushed from the cache whenever it refreshes. Entries are refreshed when they are about five months old: when someone opens that movie or show (the page waits a moment for it, at most four seconds), and by a daily job (`/api/cron/refresh`, scheduled in `vercel.json`, needs `CRON_SECRET` set in the project's environment) that works through the oldest first and forgets entries no title uses. An entry that couldn't be refreshed within six months (TMDB unreachable, or the item removed) is cleared: its description, pictures, genres, cast and crew disappear from the titles that used it, while the age rating stays so a restricted title is never opened up. Titles with no match, and admin-chosen matches, are refreshed the same way by their TMDB id.
+
 ### Trailers and extras
 
 A movie's page lists its trailers and other extras when its folder has them, named the way Plex names them. Either put the type at the end of the file name, right after a hyphen (`Teaser-trailer.mp4`, `Making Of-behindthescenes.mp4`, `Cut Scene-deleted.mp4`, `The Look-featurette.mp4`, `Talk-interview.mp4`, `Opening-scene.mp4`, `Little Film-short.mp4`, `Misc-other.mp4`), or put the videos in a subfolder of the movie's folder named for the type (`Trailers`, `Behind The Scenes`, `Deleted Scenes`, `Featurettes`, `Interviews`, `Scenes`, `Shorts`, `Other`). They are found on the next scan of the library (or Resync on the movie), appear once Roam has read their length, and play in the normal player. They never record progress and aren't offered for download. Only MP4, M4V and MOV files are used, as for movies.
@@ -223,7 +227,6 @@ drizzle/          SQL migrations         supabase/rls.sql   deny-all RLS
 
 - Box is the only storage provider (the code sits behind a `StorageProvider` interface, so another is possible).
 - No general transcoding, by design: unsupported audio is remuxed on request, and everything else must already be browser-friendly.
-- TMDB's terms ask that its data be refreshed at least every six months; Roam does not yet refresh stored metadata on a schedule.
 - Touch gestures in the photo viewer are covered by unit tests of their logic, but have been hand-tested on a small number of devices.
 - Music (artist/album) and eBook (EPUB/PDF/Markdown) libraries are planned, not built.
 

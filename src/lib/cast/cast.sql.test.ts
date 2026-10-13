@@ -10,21 +10,24 @@ vi.mock("@/lib/db/client", async () => {
 });
 vi.mock("@/lib/tmdb/client", async (importOriginal) => {
   const original = await importOriginal<typeof import("@/lib/tmdb/client")>();
+  const details = (id: number, extra: object) => {
+    h.asked.push(`${"tv" in extra ? "tv" : "movie"}:${id}`);
+    const c = h.credits.get(id);
+    if (c instanceof Error) throw c;
+    // sorted as the real call does not: the cache sorts by billing order itself
+    return { id, overview: `About ${id}`, poster_path: "/poster.jpg", backdrop_path: "/back.jpg", genres: [{ id: 1, name: "Drama" }], credits: { cast: (c ?? []) as never[], crew: (h.crew.get(id) ?? []) as never[] }, ...extra };
+  };
   return {
     ...original,
-    getCredits: async (kind: string, id: number) => {
-      h.asked.push(`${kind}:${id}`);
-      const c = h.credits.get(id);
-      if (c instanceof Error) throw c;
-      const crew = h.crew.get(id) ?? [];
-      return { cast: [...((c ?? []) as { order: number }[])].sort((a, b) => a.order - b.order), crew } as never; // sorted as the real call does
-    },
+    getMovieDetails: async (id: number) => details(id, { title: `Movie ${id}`, release_dates: { results: [{ iso_3166_1: "US", release_dates: [{ certification: "PG", type: 3 }] }] } }),
+    getTvShowDetails: async (id: number) => details(id, { name: `Show ${id}`, tv: true, content_ratings: { results: [{ iso_3166_1: "US", rating: "TV-14" }] } }),
   };
 });
 
-import { libraries, titleCast, titleCrew, titles } from "@/lib/db/schema";
-import { keyCrew } from "@/lib/content/cast-backfill";
-import { backfillCast, CAST_KEPT } from "@/lib/content/cast-backfill";
+import { libraries, tmdbCast, tmdbCrew, titles } from "@/lib/db/schema";
+import { CAST_KEPT, keyCrew } from "@/lib/tmdb/credits-store";
+import { backfillCast } from "@/lib/content/cast-backfill";
+import { refreshEntry } from "@/lib/tmdb/cache";
 import { loadPersonPage, loadTitleCast, loadTitleCrew } from "./queries";
 import { loadPersonInfo, serverHasKeys } from "./person-info";
 import { joinServer, makeAccount, makeLibrary, makeServer, makeTitle, type TestDb } from "@/lib/playlists/test-db";
@@ -79,7 +82,7 @@ describe("fetching the cast", () => {
     expect(await loadTitleCast(db, big.id)).toHaveLength(CAST_KEPT);
     expect((await loadTitleCast(db, big.id))[0].name).toBe("P0");
     expect((await loadTitleCast(db, show.id)).map((c) => c.name)).toEqual(["Lead"]);
-    expect(h.asked).toContain(`show:${show.tmdbId}`);
+    expect(h.asked).toContain(`tv:${show.tmdbId}`);
     expect(await loadTitleCast(db, broken.id)).toEqual([]);
     expect(h.asked.some((a) => a.endsWith(`:${unmatched.tmdbId}`))).toBe(false); // no TMDB match, nothing to ask
     const [stamped] = await db.select({ at: titles.castAttemptedAt }).from(titles).where(eq(titles.id, broken.id));
@@ -91,26 +94,26 @@ describe("fetching the cast", () => {
     h.credits.set(m.tmdbId!, [person(1, "Old")]);
     await backfillCast(w.lib.id, Date.now() + 60_000);
     h.credits.set(m.tmdbId!, [person(2, "New")]);
-    await db.update(titles).set({ castAttemptedAt: null }).where(eq(titles.id, m.id));
-    await backfillCast(w.lib.id, Date.now() + 60_000, m.id);
+    expect(await refreshEntry("movie", m.tmdbId!)).toBe("refreshed");
     expect((await loadTitleCast(db, m.id)).map((c) => c.name)).toEqual(["New"]);
   });
 });
 
 describe("a person's page", () => {
-  async function cast(titleId: string, ...people: [number, string, string | null][]) {
-    await db.insert(titleCast).values(people.map(([personId, name, character], position) => ({ titleId, personId, name, character, photoUrl: null, position })));
+  async function cast(t: { tmdbId: number | null; kind: string }, ...people: [number, string, string | null][]) {
+    const kind = t.kind === "show" ? ("tv" as const) : ("movie" as const);
+    await db.insert(tmdbCast).values(people.map(([personId, name, character], position) => ({ kind, tmdbId: t.tmdbId!, personId, name, character, photoUrl: null, position }))).onConflictDoNothing();
   }
   it("lists their movies and shows on this server, newest first, with their roles", async () => {
     const w = await world();
     const a = await w.movie("Older", { year: 1999 });
     const b = await w.movie("Newer", { year: 2015 });
-    const s = await makeTitle(db, w.lib.id, { kind: "show", name: "Series", year: 2008, ratingAges: { ANY: 0 } });
+    const s = await makeTitle(db, w.lib.id, { kind: "show", name: "Series", year: 2008, tmdbId: ++tmdb, ratingAges: { ANY: 0 } });
     const other = await w.movie("Without Them");
-    await cast(a.id, [77, "Pat Actor", "Young Pat"]);
-    await cast(b.id, [77, "Pat Actor", "Old Pat"], [78, "Someone Else", null]);
-    await cast(s.id, [77, "Pat Actor", null]);
-    await cast(other.id, [78, "Someone Else", null]);
+    await cast(a, [77, "Pat Actor", "Young Pat"]);
+    await cast(b, [77, "Pat Actor", "Old Pat"], [78, "Someone Else", null]);
+    await cast(s, [77, "Pat Actor", null]);
+    await cast(other, [78, "Someone Else", null]);
     const page = await loadPersonPage(db, w.actor, adult, 77);
     expect(page).toMatchObject({ personId: 77, name: "Pat Actor" });
     expect(page!.items.map((i) => [i.name, i.kind, i.roles])).toEqual([["Newer", "movie", ["as Old Pat"]], ["Series", "show", ["Actor"]], ["Older", "movie", ["as Young Pat"]]]);
@@ -122,10 +125,10 @@ describe("a person's page", () => {
     const adultOnly = await w.movie("Grown Up Film", { ratingAges: { ANY: 17 } });
     const restricted = await makeLibrary(db, w.server.id, "movies", "restricted");
     const hidden = await w.movie("Hidden Film", {}, restricted.id);
-    const book = await makeTitle(db, w.lib.id, { kind: "audiobook", name: "A Reading", ratingAges: { ANY: 0 } });
+    const book = await makeTitle(db, w.lib.id, { kind: "audiobook", name: "A Reading", tmdbId: ++tmdb, ratingAges: { ANY: 0 } });
     const w2 = await world();
     const elsewhere = await w2.movie("Other Server Film");
-    for (const t of [open, adultOnly, hidden, book, elsewhere]) await cast(t.id, [90, "Shared Name", null]);
+    for (const t of [open, adultOnly, hidden, book, elsewhere]) await cast(t, [90, "Shared Name", null]);
     expect((await loadPersonPage(db, w.actor, adult, 90))!.items.map((i) => i.name)).toEqual(["Family Film", "Grown Up Film"]);
     expect((await loadPersonPage(db, w.actor, kid, 90))!.items.map((i) => i.name)).toEqual(["Family Film"]);
     expect((await loadPersonPage(db, { ...w.actor, isAdmin: true }, adult, 90))!.items.map((i) => i.name).sort()).toEqual(["Family Film", "Grown Up Film", "Hidden Film"]);
@@ -158,8 +161,7 @@ describe("the key crew", () => {
       { personId: 8, name: "Cy Composer", photoUrl: expect.stringContaining("/c8.jpg"), jobs: ["Composer"] },
     ]);
     h.crew.set(m.tmdbId!, [c(10, "New Director", "Director")]);
-    await db.update(titles).set({ castAttemptedAt: null }).where(eq(titles.id, m.id));
-    await backfillCast(w.lib.id, Date.now() + 60_000);
+    expect(await refreshEntry("movie", m.tmdbId!)).toBe("refreshed");
     expect((await loadTitleCrew(db, m.id)).map((x) => x.name)).toEqual(["New Director"]);
   });
   it("puts a person's crew work on their page alongside any acting, for what the viewer may see", async () => {
@@ -167,18 +169,18 @@ describe("the key crew", () => {
     const a = await w.movie("Acted and Directed", { year: 2010 });
     const b = await w.movie("Only Directed", { year: 2018 });
     const hidden = await w.movie("Too Old For Kids", { year: 2020, ratingAges: { ANY: 17 } });
-    await db.insert(titleCast).values({ titleId: a.id, personId: 55, name: "Both Hats", character: "The Lead", photoUrl: null, position: 0 });
-    await db.insert(titleCrew).values([
-      { titleId: a.id, personId: 55, name: "Both Hats", job: "Director", photoUrl: "https://img/55.jpg", position: 0 },
-      { titleId: b.id, personId: 55, name: "Both Hats", job: "Original Music Composer", photoUrl: null, position: 0 },
-      { titleId: hidden.id, personId: 55, name: "Both Hats", job: "Director", photoUrl: null, position: 0 },
+    await db.insert(tmdbCast).values({ kind: "movie", tmdbId: a.tmdbId!, personId: 55, name: "Both Hats", character: "The Lead", photoUrl: null, position: 0 });
+    await db.insert(tmdbCrew).values([
+      { kind: "movie", tmdbId: a.tmdbId!, personId: 55, name: "Both Hats", job: "Director", photoUrl: "https://img/55.jpg", position: 0 },
+      { kind: "movie", tmdbId: b.tmdbId!, personId: 55, name: "Both Hats", job: "Original Music Composer", photoUrl: null, position: 0 },
+      { kind: "movie", tmdbId: hidden.tmdbId!, personId: 55, name: "Both Hats", job: "Director", photoUrl: null, position: 0 },
     ]);
     const page = await loadPersonPage(db, w.actor, kid, 55);
     expect(page).toMatchObject({ name: "Both Hats", photoUrl: "https://img/55.jpg" });
     expect(page!.items.map((i) => [i.name, i.roles])).toEqual([["Only Directed", ["Composer"]], ["Acted and Directed", ["as The Lead", "Director"]]]);
     expect((await loadPersonPage(db, w.actor, adult, 55))!.items).toHaveLength(3);
     const onlyCrew = await w.movie("Crew Only");
-    await db.insert(titleCrew).values({ titleId: onlyCrew.id, personId: 56, name: "Behind Camera", job: "Editor", photoUrl: null, position: 0 });
+    await db.insert(tmdbCrew).values({ kind: "movie", tmdbId: onlyCrew.tmdbId!, personId: 56, name: "Behind Camera", job: "Editor", photoUrl: null, position: 0 });
     expect((await loadPersonPage(db, w.actor, adult, 56))!.items.map((i) => i.roles)).toEqual([["Editor"]]);
   });
 });

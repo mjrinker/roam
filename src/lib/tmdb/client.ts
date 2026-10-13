@@ -16,6 +16,17 @@ function getReadAccessToken(): string {
   return token;
 }
 
+/** TMDB answered with an error status. A 404 means it no longer has (or never had) that item. */
+export class TmdbHttpError extends Error {
+  constructor(
+    path: string,
+    public readonly status: number
+  ) {
+    super(`TMDB request failed: ${path} (${status})`);
+    this.name = "TmdbHttpError";
+  }
+}
+
 async function tmdbFetch<T>(
   path: string,
   params: Record<string, string | number | string[] | undefined> = {}
@@ -35,7 +46,7 @@ async function tmdbFetch<T>(
   });
 
   if (!res.ok) {
-    throw new Error(`TMDB request failed: ${path} (${res.status})`);
+    throw new TmdbHttpError(path, res.status);
   }
   return res.json();
 }
@@ -66,6 +77,8 @@ export interface TmdbMovieDetails extends TmdbMovieSearchResult {
   imdb_id?: string | null;
   // Present only when fetched with `append: ["release_dates"]`.
   release_dates?: { results: TmdbReleaseDatesResult[] };
+  // Present only when fetched with `append: ["credits"]`.
+  credits?: { cast?: TmdbCastMember[]; crew?: TmdbCrewMember[] };
 }
 
 export interface TmdbTvDetails extends TmdbTvSearchResult {
@@ -76,6 +89,8 @@ export interface TmdbTvDetails extends TmdbTvSearchResult {
   // Present only when fetched with `append: ["external_ids"]` — unlike
   // movies, a TV show's imdb_id isn't on the base response.
   external_ids?: { imdb_id?: string | null };
+  // Present only when fetched with `append: ["credits"]`.
+  credits?: { cast?: TmdbCastMember[]; crew?: TmdbCrewMember[] };
 }
 
 export interface TmdbEpisode {
@@ -164,12 +179,6 @@ export interface TmdbCrewMember {
   job?: string | null;
   department?: string | null;
   profile_path?: string | null;
-}
-
-/** A movie's or show's billed cast (top-billed first; a show's is its main cast across the run) and its crew in TMDB's order. */
-export async function getCredits(kind: "movie" | "show", tmdbId: number): Promise<{ cast: TmdbCastMember[]; crew: TmdbCrewMember[] }> {
-  const data = await tmdbFetch<{ cast?: TmdbCastMember[]; crew?: TmdbCrewMember[] }>(kind === "movie" ? `/movie/${tmdbId}/credits` : `/tv/${tmdbId}/credits`);
-  return { cast: [...(data.cast ?? [])].sort((a, b) => (a.order ?? 9999) - (b.order ?? 9999)), crew: data.crew ?? [] };
 }
 
 export interface TmdbCombinedCredit {
