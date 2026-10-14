@@ -4,7 +4,8 @@ import type { GuideLine } from "@/lib/content-filter/playback";
 import { dddConfigured } from "@/lib/ddd/client";
 import { serverDddAccess } from "@/lib/ddd/lookup";
 import { dddFor, type DddAccess, type DddResult } from "@/lib/ddd/service";
-import { dddCues, dddGuideLines, dddReports, type DddReport } from "@/lib/ddd/transform";
+import { dddCues, dddGuideLines, dddReports, dddUnskippable, type DddReport, type DddUnskippable } from "@/lib/ddd/transform";
+import type { ContentFilterPrefs } from "@/lib/content-filter/categories";
 
 type Db = PgDatabase<PgQueryResultHKT, Record<string, unknown>>;
 
@@ -12,19 +13,21 @@ export interface DddMovieData {
   access: DddAccess;
   lines: GuideLine[];
   reports: DddReport[];
+  /** Reported in a category the viewer skips, but with no scene time to skip (the dialog warns about these). */
+  unskippable: DddUnskippable[];
   /** Limited access with nothing kept yet: the Play button asks first (a moment later, through /api/ddd) before showing its choices. */
   pending: boolean;
 }
 
-const NONE: DddMovieData = { access: "disabled", lines: [], reports: [], pending: false };
+const NONE: DddMovieData = { access: "disabled", lines: [], reports: [], unskippable: [], pending: false };
 
 /** A movie's community data. Full access asks when the page opens (with the counts for the guide); limited only shows what is already kept. */
-export async function loadDddForMovie(ex: Db, serverId: string, title: { imdbId: string | null; tmdbId: number | null }): Promise<DddMovieData> {
+export async function loadDddForMovie(ex: Db, serverId: string, title: { imdbId: string | null; tmdbId: number | null }, chosen: ContentFilterPrefs = {}): Promise<DddMovieData> {
   if (!dddConfigured()) return NONE;
   const access = await serverDddAccess(ex, serverId);
   if (access === "disabled") return NONE;
   const r = await dddFor({ imdbId: title.imdbId, tmdbId: title.tmdbId, kind: "movie" }, access, "page", { needStats: access === "full", timeoutMs: 2500 });
-  if (r.status === "ok") return { access, lines: dddGuideLines(dddCues(r.data, { kind: "movie" })), reports: dddReports(r.data.stats), pending: false };
+  if (r.status === "ok") return { access, lines: dddGuideLines(dddCues(r.data, { kind: "movie" })), reports: dddReports(r.data.stats), unskippable: dddUnskippable(r.data, chosen), pending: false };
   return { ...NONE, access, pending: access === "limited" && r.status === "later" };
 }
 

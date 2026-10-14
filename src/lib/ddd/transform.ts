@@ -1,5 +1,5 @@
 /** Their reports into what Roam shows and acts on. */
-import { isFilterCategory, type FilterCue } from "@/lib/content-filter/categories";
+import { isFilterCategory, type ContentFilterPrefs, type FilterCategory, type FilterCue } from "@/lib/content-filter/categories";
 import type { GuideLine } from "@/lib/content-filter/playback";
 import { categoryForTopic } from "@/lib/ddd/mapping";
 import type { DddMoment, DddStat, DddTitleData } from "@/lib/ddd/types";
@@ -99,6 +99,28 @@ export interface DddReport {
   topicName: string;
   yes: number;
   no: number;
+}
+
+export interface DddUnskippable {
+  category: FilterCategory;
+  topicName: string;
+  yes: number;
+  no: number;
+}
+
+/**
+ * Topics the community reports (more yes than no) in a category the viewer chose to skip but with no scene time, so nothing can be skipped:
+ * the dialog says so instead of letting the choice look like protection.
+ */
+export function dddUnskippable(data: DddTitleData, chosen: ContentFilterPrefs): DddUnskippable[] {
+  const timed = new Set(data.moments.map((m) => m.topicId));
+  const out: DddUnskippable[] = [];
+  for (const s of data.stats ?? []) {
+    const category = categoryForTopic(s.topicName);
+    if (!category || chosen[category] === undefined || timed.has(s.topicId) || s.yes < MIN_REPORTS || s.yes <= s.no) continue;
+    out.push({ category, topicName: s.topicName, yes: s.yes, no: s.no });
+  }
+  return out.sort((a, b) => b.yes - b.no - (a.yes - a.no) || a.topicName.localeCompare(b.topicName));
 }
 
 /** The topics more people said yes to than no: what the community reports about a title, most agreed first. */

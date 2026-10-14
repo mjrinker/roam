@@ -93,7 +93,7 @@ export default async function TitleDetailPage({
   const crew = await loadTitleCrew(db, title.id);
 
   // The community's scenes and reports, when this server uses Does the Dog Die (asks once per title, then it is kept; see lib/ddd).
-  const ddd = await loadDddForMovie(db, serverId, title);
+  const ddd = await loadDddForMovie(db, serverId, title, normalizePrefs(viewer.contentFilter));
   const guideLines = mergeGuideLines(guideFromCues(cuesFromRows(segments)), ddd.lines);
   const filterPrefs = normalizePrefs(viewer.contentFilter);
   const ready = segments.length > 0 && segments.every((s) => s.durationSeconds != null);
@@ -146,6 +146,7 @@ export default async function TitleDetailPage({
             lines={guideLines}
             prefs={filterPrefs}
             dddUrl={ddd.pending ? `/api/ddd/title/${title.id}` : undefined}
+            unskippable={ddd.unskippable}
             className="h-12 gap-2.5 rounded-xl px-8 text-base font-semibold shadow-[0_10px_34px_-8px_oklch(0.853_0.163_169/0.7)]"
           >
             <Play className="size-5" fill="currentColor" />

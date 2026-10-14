@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { FilterCue } from "@/lib/content-filter/categories";
 import { categoryForTopic } from "./mapping";
-import { PAD_AFTER_SECONDS, PAD_BEFORE_SECONDS, dddCues, dddGuideLines, dddReports, mergeGuideLines, momentsFromRatings } from "./transform";
+import { PAD_AFTER_SECONDS, PAD_BEFORE_SECONDS, dddCues, dddGuideLines, dddReports, dddUnskippable, mergeGuideLines, momentsFromRatings } from "./transform";
 import type { DddTitleData } from "./types";
 
 describe("categoryForTopic", () => {
@@ -122,5 +122,29 @@ describe("dddReports", () => {
     ];
     expect(dddReports(stats).map((r) => r.topicName)).toEqual(["a dog dies", "there are jump scares"]);
     expect(dddReports(null)).toEqual([]);
+  });
+});
+
+describe("dddUnskippable", () => {
+  const data: DddTitleData = {
+    name: "A Film",
+    kind: "movie",
+    stats: [
+      { topicId: 153, topicName: "a dog dies", yes: 57, no: 3, comments: 0 },
+      { topicId: 7, topicName: "there are jump scares", yes: 30, no: 2, comments: 0 },
+      { topicId: 20, topicName: "there are snakes", yes: 12, no: 1, comments: 0 },
+      { topicId: 21, topicName: "there's blood/gore", yes: 4, no: 6, comments: 0 },
+      { topicId: 22, topicName: "religion is discussed", yes: 40, no: 0, comments: 0 },
+    ],
+    moments: [{ topicId: 7, topicName: "there are jump scares", season: -1, episode: -1, startSeconds: 10, safeSeconds: 20 }],
+  };
+  it("lists reported topics in categories the viewer skips that have no scene time, most agreed first", () => {
+    expect(dddUnskippable(data, { animals: "low", fear: "low", violence: "low" }).map((u) => [u.topicName, u.category])).toEqual([
+      ["a dog dies", "animals"],
+      ["there are snakes", "fear"],
+    ]); // jump scares has a time (skippable); gore has more no than yes; religion is no category
+  });
+  it("is empty for a viewer who chose nothing", () => {
+    expect(dddUnskippable(data, {})).toEqual([]);
   });
 });

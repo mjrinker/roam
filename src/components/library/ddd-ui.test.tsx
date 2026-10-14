@@ -39,3 +39,10 @@ describe("the play button's first-time lookup", () => {
     expect(html).toContain('href="/s/1/watch/title/2"');
   });
 });
+
+describe("the play button with reported-but-unskippable topics", () => {
+  it("still links to the player, ready to warn first", () => {
+    const html = renderToStaticMarkup(<PlayChoicesButton href="/s/1/watch/title/2" lines={[]} prefs={{ animals: "low" }} unskippable={[{ category: "animals", topicName: "a dog dies", yes: 57, no: 3 }]}>Play</PlayChoicesButton>);
+    expect(html).toContain('href="/s/1/watch/title/2"');
+  });
+});

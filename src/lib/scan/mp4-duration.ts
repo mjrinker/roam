@@ -234,6 +234,29 @@ export async function probeMp4Codecs(
   return readCodecsFromTracks(r, moov);
 }
 
+/** One track in a file: what kind (the handler: "vide", "soun", "sbtl", "text"...) and its sample format ("avc1", "tx3g"...). */
+export interface Mp4TrackSummary {
+  trackId: number;
+  handler: string;
+  codec: string | null;
+}
+
+/** Every track of an MP4/MOV, from the header only (nothing is downloaded). A compressed header or an unreadable track yields what could be read. */
+export async function probeMp4Tracks(fetchRange: ByteRangeFetcher, fileSizeBytes: number): Promise<Mp4TrackSummary[]> {
+  const { r, moov } = await locateMoov(fetchRange, fileSizeBytes);
+  const out: Mp4TrackSummary[] = [];
+  for await (const child of childBoxes(r, moov, MOOV_PREFETCH)) {
+    if (child.type !== "trak") continue;
+    try {
+      const info = await readTrakInfo(r, child);
+      out.push({ trackId: info.trackId, handler: info.handler, codec: info.codec });
+    } catch {
+      // a track that can't be read is left out
+    }
+  }
+  return out;
+}
+
 /** The first video track's picture size, read from the file's header over range requests (nothing is downloaded). Null when there is no video track. */
 export async function probeMp4VideoSize(fetchRange: ByteRangeFetcher, fileSizeBytes: number): Promise<{ width: number; height: number } | null> {
   const { r, moov } = await locateMoov(fetchRange, fileSizeBytes);

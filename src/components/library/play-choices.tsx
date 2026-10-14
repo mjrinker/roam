@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { CATEGORY_LABELS, SEVERITY_LABELS, type ContentFilterPrefs, type FilterCategory, type FilterSeverity } from "@/lib/content-filter/categories";
 import { DddCredit } from "@/components/library/ddd-credit";
-import { mergeGuideLines } from "@/lib/ddd/transform";
+import { mergeGuideLines, type DddUnskippable } from "@/lib/ddd/transform";
 import type { GuideLine } from "@/lib/content-filter/playback";
 import { choosableLines, extraFromPicks, stricterThan, withSkipParam } from "@/lib/content-filter/preplay";
 import { encodeSkipParam } from "@/lib/content-filter/timeline";
@@ -16,7 +16,7 @@ import { cn } from "@/lib/utils";
 const OPTION_LABEL: Record<FilterSeverity, string> = { high: "Skip strong", medium: "Skip moderate and up", low: "Skip all, even mild" };
 
 /** What the dialog asks, and where playing goes. The choices apply to that play only and are never saved. */
-function ChoicesDialog({ open, onOpenChange, href, lines, prefs }: { open: boolean; onOpenChange: (open: boolean) => void; href: string; lines: GuideLine[]; prefs: ContentFilterPrefs }) {
+function ChoicesDialog({ open, onOpenChange, href, lines, prefs, unskippable }: { open: boolean; onOpenChange: (open: boolean) => void; href: string; lines: GuideLine[]; prefs: ContentFilterPrefs; unskippable: DddUnskippable[] }) {
   const router = useRouter();
   const [picks, setPicks] = useState<Partial<Record<FilterCategory, FilterSeverity>>>({});
   function play() {
@@ -63,7 +63,20 @@ function ChoicesDialog({ open, onOpenChange, href, lines, prefs }: { open: boole
             );
           })}
         </div>
-        {lines.some((l) => l.source === "community") && <DddCredit className="text-xs text-muted-foreground" />}
+        {unskippable.length > 0 && (
+          <div className="grid gap-1.5 rounded-lg bg-amber-400/10 px-3 py-2.5 text-xs ring-1 ring-amber-400/20">
+            <p className="font-medium text-amber-200">Reported, but with no scene times, so it can&apos;t be skipped</p>
+            <ul className="grid gap-0.5 text-foreground/85">
+              {unskippable.slice(0, 8).map((u) => (
+                <li key={u.topicName}>
+                  {u.topicName} <span className="text-muted-foreground">· {CATEGORY_LABELS[u.category]} · {u.yes} yes, {u.no} no</span>
+                </li>
+              ))}
+            </ul>
+            <p className="text-muted-foreground">You can still choose not to watch it.</p>
+          </div>
+        )}
+        {(unskippable.length > 0 || lines.some((l) => l.source === "community")) && <DddCredit className="text-xs text-muted-foreground" />}
         <DialogFooter className="gap-2">
           <Button type="button" variant="ghost" onClick={() => onOpenChange(false)}>
             Cancel
@@ -81,7 +94,7 @@ function ChoicesDialog({ open, onOpenChange, href, lines, prefs }: { open: boole
  * Shared by the two kinds of button: whether to ask first, and the dialog to ask with. With `dddUrl` (limited access, nothing kept yet),
  * the first press asks the server for the community's scenes for this title, then opens the choices if there are any (else just plays).
  */
-function usePlayChoices(href: string, lines: GuideLine[], prefs: ContentFilterPrefs, dddUrl?: string) {
+function usePlayChoices(href: string, lines: GuideLine[], prefs: ContentFilterPrefs, dddUrl?: string, unskippable: DddUnskippable[] = []) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -90,7 +103,7 @@ function usePlayChoices(href: string, lines: GuideLine[], prefs: ContentFilterPr
   const choosable = choosableLines(all, prefs);
   const wantsLookup = !!dddUrl && fetched === null;
   return {
-    asks: choosable.length > 0 || wantsLookup,
+    asks: choosable.length > 0 || wantsLookup || unskippable.length > 0,
     busy,
     activate: async () => {
       if (!wantsLookup) return setOpen(true);
@@ -104,10 +117,10 @@ function usePlayChoices(href: string, lines: GuideLine[], prefs: ContentFilterPr
       }
       setBusy(false);
       setFetched(found);
-      if (choosableLines(mergeGuideLines(lines, found), prefs).length > 0) setOpen(true);
+      if (choosableLines(mergeGuideLines(lines, found), prefs).length > 0 || unskippable.length > 0) setOpen(true);
       else router.push(href);
     },
-    dialog: choosable.length > 0 ? <ChoicesDialog open={open} onOpenChange={setOpen} href={href} lines={choosable} prefs={prefs} /> : null,
+    dialog: choosable.length > 0 || unskippable.length > 0 ? <ChoicesDialog open={open} onOpenChange={setOpen} href={href} lines={choosable} prefs={prefs} unskippable={unskippable} /> : null,
   };
 }
 
@@ -115,8 +128,8 @@ function usePlayChoices(href: string, lines: GuideLine[], prefs: ContentFilterPr
  * A big play button that, when the movie or episode has scenes this profile could still choose to skip, first asks what to skip for this
  * viewing. Without any, it is just a link to the player.
  */
-export function PlayChoicesButton({ href, lines, prefs, dddUrl, className, children }: { href: string; lines: GuideLine[]; prefs: ContentFilterPrefs; dddUrl?: string; className?: string; children: React.ReactNode }) {
-  const choices = usePlayChoices(href, lines, prefs, dddUrl);
+export function PlayChoicesButton({ href, lines, prefs, dddUrl, unskippable, className, children }: { href: string; lines: GuideLine[]; prefs: ContentFilterPrefs; dddUrl?: string; unskippable?: DddUnskippable[]; className?: string; children: React.ReactNode }) {
+  const choices = usePlayChoices(href, lines, prefs, dddUrl, unskippable);
   return (
     <>
       <Button
