@@ -91,7 +91,8 @@ async function fetchTitle(key: string, l: DddLookup, needStats: boolean, known: 
     let stats: DddStat[] | null = known?.data?.stats ?? null;
     if (needStats) {
       const detail = await getItem(id, left());
-      stats = (detail?.topicItemStats ?? []).map((s) => ({ topicId: s.topicId, topicName: s.topicName, yes: s.yesSum, no: s.noSum, comments: s.numComments }));
+      // Only topics someone said yes to are kept: the rest (most of their ~290 topics) say nothing about the title.
+      stats = (detail?.topicItemStats ?? []).filter((s) => s.yesSum > 0).map((s) => ({ topicId: s.topicId, topicName: s.topicName, yes: s.yesSum, no: s.noSum, comments: s.numComments }));
       name = detail?.name ?? name;
     }
     const data: DddTitleData = { name, kind: l.kind, stats, moments };
