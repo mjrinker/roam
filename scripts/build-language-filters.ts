@@ -13,6 +13,7 @@
 import { and, eq, inArray, isNull, lt, or, sql } from "drizzle-orm";
 import { db } from "@/lib/db/client";
 import { episodes, libraries, mediaFiles, seasons, titles } from "@/lib/db/schema";
+import { isExtraFile } from "@/lib/scan/conventions";
 import { buildLanguageCues } from "@/lib/subtitles/language-build";
 import { OpenSubtitles, openSubtitlesConfig } from "@/lib/subtitles/opensubtitles";
 import { searchTarget } from "@/lib/subtitles/service";
@@ -59,7 +60,7 @@ async function main() {
   ).map((r) => ({ name: `${r.name} S${r.season}E${r.ep}`, owner: { kind: "episode" as const, id: r.id }, fileId: r.fileId, filename: r.filename, sizeBytes: r.sizeBytes!, durationSeconds: r.durationSeconds!, serverId: r.serverId }));
   // A combined multi-episode file has several rows: one try for it.
   const seen = new Set<string>();
-  const all = [...movies, ...eps].filter((c) => !seen.has(c.fileId) && seen.add(c.fileId) && (!titleFilter || c.name.toLowerCase().includes(titleFilter)));
+  const all = [...movies, ...eps].filter((c) => !seen.has(c.fileId) && seen.add(c.fileId) && !isExtraFile(c.filename) && (!titleFilter || c.name.toLowerCase().includes(titleFilter)));
   const todo = all.slice(0, limit);
   console.log(`${all.length} files still need mutes built; doing ${todo.length}${dry ? " (dry run)" : ""}.`);
   if (dry) {
