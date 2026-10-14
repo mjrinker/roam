@@ -77,13 +77,13 @@ describe("skip times in the play manifest", () => {
 
 describe("SkipButton", () => {
   it("skips to the end of a segment, with SkipDB's credit", () => {
-    const html = renderToStaticMarkup(<SkipButton state={{ action: "seek", label: "Skip intro", toSeconds: 91, fromSkipdb: true }} onSeek={() => undefined} />);
+    const html = renderToStaticMarkup(<SkipButton state={{ kind: "intro", action: "seek", label: "Skip intro", toSeconds: 91, fromSkipdb: true }} onSeek={() => undefined} />);
     expect(html).toContain("Skip intro");
     expect(html).toContain("Skip times from SkipDB");
     expect(html).toContain('href="https://skipdb.tv"');
   });
   it("goes to the next episode by a link, and credits no one when its own timing is behind it", () => {
-    const html = renderToStaticMarkup(<SkipButton state={{ action: "next", label: "Next episode", fromSkipdb: false }} nextHref="/s/1/watch/episode/9" onSeek={() => undefined} />);
+    const html = renderToStaticMarkup(<SkipButton state={{ kind: "outro", action: "next", label: "Next episode", fromSkipdb: false }} nextHref="/s/1/watch/episode/9" onSeek={() => undefined} />);
     expect(html).toContain('href="/s/1/watch/episode/9"');
     expect(html).not.toContain("SkipDB");
   });

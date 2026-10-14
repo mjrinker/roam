@@ -21,6 +21,7 @@ import { DEFAULT_LOCALE, LOCALES } from "@/lib/viewers/locales";
 import { RATING_LEVELS } from "@/lib/content/access";
 import { canEditExtended } from "@/lib/content/roles";
 import type { ViewerRole } from "@/lib/db/schema";
+import { normalizeAutoSkip, type AutoSkipPrefs } from "@/lib/skipdb/active";
 import { CATEGORY_LABELS, FILTER_CATEGORIES, isFilterSeverity, type ContentFilterPrefs } from "@/lib/content-filter/categories";
 
 export interface EditableProfile {
@@ -33,6 +34,7 @@ export interface EditableProfile {
   allowUnrated: boolean;
   visibleOnServer: boolean;
   contentFilter: ContentFilterPrefs;
+  autoSkip: AutoSkipPrefs;
   hasPin: boolean;
 }
 
@@ -75,6 +77,7 @@ export function ProfileEditorDialog({
   const [allowUnrated, setAllowUnrated] = useState(profile?.allowUnrated ?? false);
   const [visibleOnServer, setVisibleOnServer] = useState(profile?.visibleOnServer ?? true);
   const [contentFilter, setContentFilter] = useState<ContentFilterPrefs>(profile?.contentFilter ?? {});
+  const [autoSkip, setAutoSkip] = useState<AutoSkipPrefs>(profile?.autoSkip ?? {});
   const [newPin, setNewPin] = useState("");
   const [currentPin, setCurrentPin] = useState("");
   const [busy, setBusy] = useState(false);
@@ -117,6 +120,7 @@ export function ProfileEditorDialog({
           allowUnrated,
           visibleOnServer,
           contentFilter,
+          autoSkip: normalizeAutoSkip(autoSkip),
           ...(showRolePicker ? { role } : {}),
           ...(newPin.trim() ? { pin: newPin } : {}),
           ...(actor.hasPin ? { currentPin } : {}),
@@ -259,6 +263,17 @@ export function ProfileEditorDialog({
                   Allow titles with no rating on file
                 </label>
               )}
+
+              <fieldset className="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-1.5">
+                <legend className="text-sm font-medium">Skip automatically</legend>
+                <p className="-mt-1 text-xs text-muted-foreground">Instead of showing a button to press. Where a show has the times, this profile moves on by itself.</p>
+                {([["intro", "Intros"], ["recap", "Recaps"], ["preview", "Next-time previews"], ["outro", "Credits (and go to the next episode)"]] as const).map(([kind, label]) => (
+                  <label key={kind} className="flex items-center gap-2 text-sm">
+                    <input type="checkbox" checked={autoSkip[kind] === true} onChange={(e) => setAutoSkip({ ...autoSkip, [kind]: e.target.checked })} className="size-4 rounded border-input" />
+                    {label}
+                  </label>
+                ))}
+              </fieldset>
 
               <fieldset className="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-2">
                 <legend className="text-sm font-medium">What to skip</legend>

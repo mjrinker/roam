@@ -13,6 +13,8 @@ import { formatClock, isFinished, locate, timelineAt, type Segment } from "./clo
 import { pickNext, type Box } from "./focus";
 import { actionOf, directionOf, TIZEN_MEDIA_KEYS, type Action } from "./keys";
 import { clampSpeed, formatSpeed, SPEED_STEP } from "@/lib/player/speed";
+import { activeSkipButton, autoSkipNow, skipKey, type AutoSkipPrefs, type SkipButtonState } from "@/lib/skipdb/active";
+import type { SkipSegment } from "@/lib/skipdb/client";
 import { activeCues, type Cue } from "@/lib/subtitles/cues";
 import { readPreferredHeight, writePreferredHeight } from "@/lib/player/quality-preference";
 
@@ -676,6 +678,9 @@ interface Manifest {
   defaultRate?: number | null;
   version?: string;
   versions?: { label: string; name: string; height: number | null }[];
+  /** Intro, recap, credits and preview times (SkipDB's, or marked by hand), for the skip button. */
+  skipSegments?: SkipSegment[];
+  autoSkip?: AutoSkipPrefs;
 }
 
 const SAVE_EVERY_MS = 15000;
@@ -732,9 +737,44 @@ function startPlayer(first: PlayConfig) {
       if (!video.paused) hud.className = "hud";
     }, 4000);
   }
+  // The "Skip intro" style button: pressed with OK while it shows (and done by itself for a part this profile skips automatically).
+  const skipEl = doc.getElementById("skipbtn");
+  let skipNow: SkipButtonState | null = null;
+  let autoDone: { [key: string]: boolean } = {};
+  function doSkip(state: SkipButtonState) {
+    if (state.action === "next") {
+      if (!cfg.next) return;
+      save(true, true);
+      window.location.href = cfg.next;
+    } else seekTo(state.toSeconds || 0);
+  }
+  function paintSkip(p: number) {
+    if (!manifest || !skipEl) return;
+    skipNow = activeSkipButton(manifest.skipSegments, p, manifest.durationSeconds, !!cfg.next);
+    if (skipNow) {
+      const auto = autoSkipNow(skipNow, manifest.autoSkip, { has: (k: string) => !!autoDone[k] });
+      if (auto) {
+        autoDone[skipKey(auto)] = true;
+        skipNow = null;
+        skipEl.style.display = "none";
+        doSkip(auto);
+        return;
+      }
+    }
+    if (skipNow) {
+      skipEl.innerHTML = "";
+      skipEl.appendChild(doc.createTextNode(skipNow.label));
+      const hint = doc.createElement("small");
+      hint.textContent = "Press OK";
+      skipEl.appendChild(hint);
+      skipEl.style.display = "block";
+    } else skipEl.style.display = "none";
+  }
+
   function paint() {
     if (!manifest) return;
     const p = position();
+    paintSkip(p);
     fill.style.width = Math.min(100, (p / Math.max(1, manifest.durationSeconds)) * 100) + "%";
     clock.textContent = formatClock(p) + " / " + formatClock(manifest.durationSeconds) + speedSuffix(speed.rate());
   }
@@ -826,6 +866,7 @@ function startPlayer(first: PlayConfig) {
     (ahead || fetchPlay(cfg.ownerKind, cfg.ownerId))
       .then((m: Manifest) => {
         manifest = m;
+        autoDone = {};
         speed.applyDefault(m.defaultRate, m.libraryId);
         subs.setOwner(cfg.ownerKind, cfg.ownerId);
         const start = resumeFrom !== undefined ? resumeFrom : m.resumeSeconds > 0 && m.resumeSeconds < m.durationSeconds - 30 ? m.resumeSeconds : 0;
@@ -987,6 +1028,8 @@ function startPlayer(first: PlayConfig) {
       window.location.href = cfg.back;
       return true;
     }
+    // While a skip button shows, OK presses it; play/pause keys still pause.
+    if (action === "enter" && skipNow) return doSkip(skipNow), true;
     if (action === "playpause" || action === "enter") return toggle(), true;
     if (action === "play") return wantPlaying || video.paused ? (toggle(), true) : true;
     if (action === "pause") return video.paused ? true : (toggle(), true);

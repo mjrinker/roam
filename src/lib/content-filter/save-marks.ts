@@ -39,7 +39,7 @@ export interface MarkSet {
   readOnly: FilterCue[];
 }
 
-async function rowsFor(ex: Db, ownerKind: "title" | "episode", ownerId: string, version: string | null): Promise<Row[]> {
+export async function markRowsFor(ex: Db, ownerKind: "title" | "episode", ownerId: string, version: string | null): Promise<Row[]> {
   const all = await ex
     .select()
     .from(mediaFiles)
@@ -50,7 +50,7 @@ async function rowsFor(ex: Db, ownerKind: "title" | "episode", ownerId: string, 
 
 /** The marks for a film's files (one version), or null when it isn't ready (a file's length is unknown) or has none. */
 export async function loadMarks(ex: Db, ownerKind: "title" | "episode", ownerId: string, version: string | null, writer: MarkWriter): Promise<MarkSet | null> {
-  const rows = await rowsFor(ex, ownerKind, ownerId, version);
+  const rows = await markRowsFor(ex, ownerKind, ownerId, version);
   const windows = rowWindows(rows);
   if (rows.length === 0 || windows.length === 0) return null;
   const writesFiles = rows.every((r) => writer.writable(r));
@@ -67,7 +67,7 @@ export async function saveMarks(
   ex: Db,
   opts: { serverId: string; ownerKind: "title" | "episode"; ownerId: string; version: string | null; cues: unknown; writer: MarkWriter }
 ): Promise<SaveMarksResult> {
-  const rows = await rowsFor(ex, opts.ownerKind, opts.ownerId, opts.version);
+  const rows = await markRowsFor(ex, opts.ownerKind, opts.ownerId, opts.version);
   const windows = rowWindows(rows);
   if (rows.length === 0 || windows.length === 0) return { ok: false, error: "not_ready" };
   const durationSeconds = windows.reduce((s, w) => s + w.length, 0);

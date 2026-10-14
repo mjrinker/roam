@@ -6,6 +6,7 @@ import { BrandLogo } from "@/components/shell/brand";
 import { ProfilePicker } from "@/components/profiles/profile-picker";
 import { MULTIPLE_VIEWERS_ENABLED } from "@/lib/viewers/config";
 import { normalizePrefs } from "@/lib/content-filter/categories";
+import { normalizeAutoSkip } from "@/lib/skipdb/active";
 
 export default async function ProfilesPage({ searchParams }: PageProps<"/profiles">) {
   const resolved = await getCurrentViewer();
@@ -45,6 +46,7 @@ export default async function ProfilesPage({ searchParams }: PageProps<"/profile
             allowUnrated: v.allowUnrated,
             visibleOnServer: v.visibleOnServer,
             contentFilter: normalizePrefs(v.contentFilter),
+            autoSkip: normalizeAutoSkip(v.autoSkip),
             hasPin: v.pinHash !== null,
           }))}
           actor={

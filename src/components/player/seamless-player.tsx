@@ -2,6 +2,7 @@
 
 import { cameFrom } from "@/lib/player/previous-page";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import {
   ArrowLeft,
   Loader2,
@@ -26,7 +27,7 @@ import { SubtitleOverlay, type LoadedTrack } from "@/components/player/subtitles
 import { SettingsMenu } from "@/components/player/settings-menu";
 import { MarkPanel } from "@/components/player/mark-panel";
 import { SkipButton } from "@/components/player/skip-button";
-import { activeSkipButton } from "@/lib/skipdb/active";
+import { activeSkipButton, autoSkipNow, skipKey } from "@/lib/skipdb/active";
 import { readPreferredHeight, writePreferredHeight } from "@/lib/player/quality-preference";
 import { applyLocalFiles, localVideoFor, offlineVideoManifest, openLocalFiles, type LocalFiles } from "@/lib/offline/local-playback";
 import { queueProgress } from "@/lib/offline/sync";
@@ -173,6 +174,7 @@ export function SeamlessPlayer({
     audioActions?.pause();
   }, [audioActions]);
 
+  const router = useRouter();
   const containerRef = useRef<HTMLDivElement>(null);
   const videoRefs = useRef<[HTMLVideoElement | null, HTMLVideoElement | null]>([
     null,
@@ -703,6 +705,20 @@ export function SeamlessPlayer({
     return () => clearTimeout(id);
   }, [manifest]);
 
+  // A profile that skips intros, recaps, credits or previews by itself: each part once per play, as it starts (going back into one is the viewer's choice).
+  const autoSkipped = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    autoSkipped.current = new Set();
+  }, [manifest]);
+  useEffect(() => {
+    if (!manifest?.autoSkip) return;
+    const state = autoSkipNow(activeSkipButton(manifest.skipSegments, globalTime, manifest.durationSeconds, !!nextHref), manifest.autoSkip, autoSkipped.current);
+    if (!state) return;
+    autoSkipped.current.add(skipKey(state));
+    if (state.action === "next") {
+      if (nextHref) router.push(nextHref);
+    } else seekTo(state.toSeconds ?? 0);
+  }, [manifest, globalTime, nextHref, router, seekTo]);
   const mutedRef = useRef(muted);
   useEffect(() => {
     mutedRef.current = muted;

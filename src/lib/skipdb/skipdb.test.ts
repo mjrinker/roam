@@ -71,7 +71,7 @@ describe("skipSegmentsFor", () => {
 describe("activeSkipButton", () => {
   const segs = [{ kind: "recap" as const, startSeconds: 0, endSeconds: 60 }, { kind: "intro" as const, startSeconds: 200, endSeconds: 250 }, { kind: "outro" as const, startSeconds: 2500, endSeconds: 2620 }];
   it("offers to skip an intro or recap while it plays, to its end", () => {
-    expect(activeSkipButton(segs, 10, 2700, false)).toEqual({ action: "seek", label: "Skip recap", toSeconds: 60, fromSkipdb: true });
+    expect(activeSkipButton(segs, 10, 2700, false)).toEqual({ kind: "recap", action: "seek", label: "Skip recap", toSeconds: 60, fromSkipdb: true });
     expect(activeSkipButton(segs, 199.6, 2700, false)).toMatchObject({ label: "Skip intro", toSeconds: 250 });
     expect(activeSkipButton(segs, 100, 2700, false)).toBeNull();
     expect(activeSkipButton(segs, 249, 2700, false)).toBeNull(); // about to end anyway

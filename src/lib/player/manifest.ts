@@ -14,6 +14,8 @@ import { dddTarget, serverDddAccess } from "@/lib/ddd/lookup";
 import { dddFor } from "@/lib/ddd/service";
 import { dddCues } from "@/lib/ddd/transform";
 import { skipSegmentsFor } from "@/lib/skipdb/client";
+import { SKIP_KINDS, preferOwn, skipMarksFromRows } from "@/lib/skipdb/marks";
+import { normalizeAutoSkip } from "@/lib/skipdb/active";
 import { shouldUseVariant } from "@/lib/player/variant-selection";
 import { describeVersions, offeredRows, pickVersion, withoutUndecodableVideo } from "@/lib/player/versions";
 import { isVideoCodecToken } from "@/lib/scan/codec-support";
@@ -148,7 +150,7 @@ export async function buildPlayManifest(
   }
 
   // What this viewer has chosen to skip, applied to the scenes the video's filter file lists.
-  const [viewerRow] = await db.select({ contentFilter: viewers.contentFilter }).from(viewers).where(eq(viewers.id, viewerId)).limit(1);
+  const [viewerRow] = await db.select({ contentFilter: viewers.contentFilter, autoSkip: viewers.autoSkip }).from(viewers).where(eq(viewers.id, viewerId)).limit(1);
   const prefs = mergePrefs(normalizePrefs(viewerRow?.contentFilter), choice.extraSkip ?? {});
   let notice: string | undefined;
   let skips: PlayManifest["skips"] = [];
@@ -180,10 +182,16 @@ export async function buildPlayManifest(
 
   // Intro, recap and credits times from SkipDB, for the skip buttons (see lib/skipdb): asked for live, never waited on for long, and a
   // film without any simply has no buttons. Not for trailers and extras, nor for phone videos in a photo library.
+  // Times marked by hand here win, one kind at a time; SkipDB is not even asked once every kind has one.
   let skipSegments: PlayManifest["skipSegments"] = [];
   if (ownerKind !== "extra" && !preferBrowserVersion) {
-    const target = await dddTarget(db, ownerKind, ownerId);
-    if (target) skipSegments = await skipSegmentsFor({ imdbId: target.lookup.imdbId, ...(target.owner.kind === "episode" ? { season: target.owner.season, episode: target.owner.episode } : {}) }, cursor);
+    const own = skipMarksFromRows(segmentRows).map((m) => ({ ...m, source: "own" as const }));
+    let remote: Awaited<ReturnType<typeof skipSegmentsFor>> = [];
+    if (SKIP_KINDS.some((k) => !own.some((m) => m.kind === k))) {
+      const target = await dddTarget(db, ownerKind, ownerId);
+      if (target) remote = await skipSegmentsFor({ imdbId: target.lookup.imdbId, ...(target.owner.kind === "episode" ? { season: target.owner.season, episode: target.owner.episode } : {}) }, cursor);
+    }
+    skipSegments = preferOwn(own, remote);
   }
 
   const [existingState] = await db
@@ -212,6 +220,7 @@ export async function buildPlayManifest(
       expiresAt: (earliestExpiry ?? new Date(Date.now() + 60_000)).toISOString(),
       skips,
       ...(skipSegments && skipSegments.length > 0 ? { skipSegments } : {}),
+      ...(Object.keys(normalizeAutoSkip(viewerRow?.autoSkip)).length > 0 ? { autoSkip: normalizeAutoSkip(viewerRow?.autoSkip) } : {}),
       ...(notice ? { notice } : {}),
       // Part boundaries are not chapters: only what the files' own chapters say, moved onto this clock.
       chapters: playbackChapters(

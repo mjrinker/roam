@@ -37,6 +37,8 @@ const pages: Record<string, string> = {
   "/tv/s/x/watch/episode/1": watchPage({ title: "The Show", subtitle: "S1 · E1", ownerKind: "episode", ownerId: "1", back: "/tv/s/x/title/1", next: "/tv/s/x/watch/episode/2" }),
   "/tv/s/x/watch/episode/2": watchPage({ title: "The Show", subtitle: "S1 · E2", ownerKind: "episode", ownerId: "2", back: "/tv/s/x/title/1", next: null }),
   "/tv/s/x/title/9": detailPage({ title: "Many actions", meta: "2020", overview: null, posterUrl: null, backHref: "/tv/s/x/library/a", actions: [{ href: "/tv/s/x/watch/title/1", label: "Play", primary: true }, { href: "/tv/s/x/title/1", label: "Add" }, { href: "/tv/s/x/title/2", label: "Third" }], posts: [{ action: "/tv/s/x/mark", label: "Fourth", fields: { kind: "title", id: "1" } }] }),
+  "/tv/s/x/watch/episode/7": watchPage({ title: "Skippy", subtitle: "S1 · E7", ownerKind: "episode", ownerId: "7", back: "/tv/s/x/title/1", next: "/tv/s/x/watch/episode/2" }),
+  "/tv/s/x/watch/episode/8": watchPage({ title: "Autoskippy", subtitle: "S1 · E8", ownerKind: "episode", ownerId: "8", back: "/tv/s/x/title/1", next: null }),
   "/tv/s/x/watch/title/1": watchPage({ title: "Movie 1", subtitle: null, ownerKind: "title", ownerId: "1", back: "/tv/s/x/title/1", next: null }),
 };
 
@@ -89,7 +91,9 @@ const server = http.createServer((req, res) => {
     const wantVersion = url.searchParams.get("version");
     const versions = url.pathname.endsWith("/title/1") ? [{ label: "4k", name: "4K", height: 2160 }, { label: "1080p", name: "1080p", height: 1080 }] : undefined;
     const version = versions ? (wantVersion && versions.some((v) => v.label === wantVersion) ? wantVersion : "4k") : undefined;
-    return void res.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify({ ownerKind: "title", ownerId: "1", durationSeconds: 24, segments, resumeSeconds: 0, expiresAt: "2099-01-01T00:00:00Z", libraryId: "lib1", defaultRate, version, versions }));
+    // Episodes 7 and 8 know where their intro (2 to 8 s) and credits (20 to 24 s) are; 8's profile also skips intros by itself.
+    const skips = /\/episode\/[78]$/.test(url.pathname) ? { skipSegments: [{ kind: "intro", startSeconds: 2, endSeconds: 8 }, { kind: "outro", startSeconds: 20, endSeconds: 24 }], ...(url.pathname.endsWith("/8") ? { autoSkip: { intro: true } } : {}) } : {};
+    return void res.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify({ ownerKind: "title", ownerId: "1", durationSeconds: 24, segments, resumeSeconds: 0, expiresAt: "2099-01-01T00:00:00Z", libraryId: "lib1", defaultRate, version, versions, ...skips }));
   }
   const audioId = /^\/api\/audiobooks\/([^/]+)\/manifest$/.exec(url.pathname);
   if (audioId) {
@@ -517,6 +521,29 @@ async function run(label: string, exe: string, m56: boolean) {
   await new Promise((r) => setTimeout(r, 300));
   check(L("with the overlay closed, Left seeks again"), !(await page.evaluate<boolean>(speedShown)));
 
+  // Skip buttons: "Skip intro" appears while the intro plays and OK presses it; credits become "Next episode"; a profile that skips by itself does.
+  const skipShown = `document.getElementById("skipbtn").style.display === "block"`;
+  const skipText = `document.getElementById("skipbtn").textContent`;
+  await page.goto(base + "/tv/s/x/watch/episode/7");
+  await page.waitFor(`${V} && ${V}.currentTime > 0.2 && !${V}.paused`, 15000);
+  check(L("no skip button before the intro starts"), !(await page.evaluate<boolean>(skipShown)));
+  await page.waitFor(`${V}.currentTime > 2.1`, 15000);
+  await page.waitFor(skipShown, 4000).catch(() => undefined);
+  check(L("a Skip intro button shows while the intro plays"), (await page.evaluate<boolean>(skipShown)) && (await page.evaluate<string>(skipText)).indexOf("Skip intro") >= 0, await page.evaluate<string>(skipText));
+  await key(page, 13);
+  await new Promise((r) => setTimeout(r, 500));
+  check(L("OK on it jumps to the end of the intro and the button goes"), (await page.evaluate<number>(`${V}.currentTime`)) >= 7.9 && !(await page.evaluate<boolean>(skipShown)) && !(await page.evaluate<boolean>(`${V}.paused`)), String(await page.evaluate<number>(`${V}.currentTime`)));
+  await page.evaluate(`${V}.currentTime = 20.5`);
+  await page.waitFor(`document.getElementById("skipbtn").style.display === "block" && document.getElementById("skipbtn").textContent.indexOf("Next episode") >= 0`, 5000).catch(() => undefined);
+  check(L("in the credits it offers the next episode"), (await page.evaluate<string>(skipText)).indexOf("Next episode") >= 0, await page.evaluate<string>(skipText));
+  await key(page, 13);
+  await page.waitFor(`location.pathname === "/tv/s/x/watch/episode/2"`, 8000);
+  check(L("and OK goes there"), true);
+  await page.goto(base + "/tv/s/x/watch/episode/8");
+  await page.waitFor(`${V} && ${V}.currentTime > 0.2 && !${V}.paused`, 15000);
+  await page.waitFor(`${V}.currentTime > 7.5`, 15000);
+  check(L("a profile that skips intros by itself is taken past it, with no button"), !(await page.evaluate<boolean>(skipShown)), String(await page.evaluate<number>(`${V}.currentTime`)));
+
   // Saving a starting speed for this profile: OK asks, OK again saves, Back leaves without saving.
   const speedText = `document.getElementById("speedbox").textContent`;
   savedSpeeds.length = 0;
@@ -593,6 +620,8 @@ async function run(label: string, exe: string, m56: boolean) {
   await key(page, 13);
   check(L("choosing 1080p asks for that version"), await waitUntil(() => playRequests.some((r) => r.includes("version=1080p"))), JSON.stringify(playRequests.slice(-3)));
   check(L("and carries on playing from about the same place"), await page.waitFor(`${V}.currentTime >= ${Math.max(0, beforeAt - 1)} && !${V}.paused`, 15000), String(await page.evaluate<number>(`${V}.currentTime`)));
+  // (The new list arrives a moment after the old picture is still playing, so wait for it.)
+  await page.waitFor(`localStorage.getItem("roam-preferred-height") === "1080"`, 5000).catch(() => undefined);
   check(L("the choice is remembered as a height on this TV"), (await page.evaluate<string>(`localStorage.getItem("roam-preferred-height")`)) === "1080");
   await page.goto(base + "/tv/s/x/watch/title/1");
   await page.waitFor(`${V} && ${V}.currentTime > 0.3`, 15000);

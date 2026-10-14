@@ -22,6 +22,9 @@ export const contentFilterSchema = z
   .object(Object.fromEntries(FILTER_CATEGORIES.map((c) => [c, z.enum(FILTER_SEVERITIES).optional()])) as Record<(typeof FILTER_CATEGORIES)[number], z.ZodOptional<z.ZodEnum<{ low: "low"; medium: "medium"; high: "high" }>>>)
   .strict();
 
+// Which parts (intro, recap, credits, next-time preview) a profile skips without being asked. Absent or false = ask with the button.
+export const autoSkipSchema = z.object({ intro: z.boolean().optional(), recap: z.boolean().optional(), outro: z.boolean().optional(), preview: z.boolean().optional() }).strict();
+
 export const createViewerSchema = z.object({
   name: nameSchema,
   avatarKey: avatarKeySchema,
@@ -31,6 +34,7 @@ export const createViewerSchema = z.object({
   allowUnrated: z.boolean().optional(),
   visibleOnServer: z.boolean().optional(),
   contentFilter: contentFilterSchema.optional(),
+  autoSkip: autoSkipSchema.optional(),
   // A PIN can be set at creation time; there's nothing to clear yet, so null is just ignored.
   pin: pinSchema.optional(),
 });
@@ -59,6 +63,7 @@ export const extendedEditSchema = z
     allowUnrated: z.boolean().optional(),
     visibleOnServer: z.boolean().optional(),
     contentFilter: contentFilterSchema.optional(),
+    autoSkip: autoSkipSchema.optional(),
     pin: pinSchema.optional(),
     role: assignableRoleSchema.optional(),
     // Required whenever the ACTING profile itself has a PIN — see the PATCH route.

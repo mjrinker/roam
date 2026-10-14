@@ -93,3 +93,14 @@ describe("contentFilterSchema", () => {
     expect(extendedEditSchema.safeParse({ contentFilter: { sex: "medium" } }).success).toBe(true);
   });
 });
+
+describe("autoSkipSchema", () => {
+  it("accepts true or false per kind (intro, recap, outro, preview) and nothing else", async () => {
+    const { autoSkipSchema, extendedEditSchema } = await import("./validation");
+    expect(autoSkipSchema.safeParse({ intro: true, outro: false }).success).toBe(true);
+    expect(autoSkipSchema.safeParse({}).success).toBe(true);
+    expect(autoSkipSchema.safeParse({ intro: "yes" }).success).toBe(false);
+    expect(autoSkipSchema.safeParse({ credits: true }).success).toBe(false);
+    expect(extendedEditSchema.safeParse({ autoSkip: { recap: true } }).success).toBe(true);
+  });
+});

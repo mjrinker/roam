@@ -123,6 +123,8 @@ export const viewers = pgTable(
     playbackRate: real("playback_rate").notNull().default(1),
     // What this profile skips while watching: per category, the weakest strength it skips ("violence": "high"). Empty = nothing.
     contentFilter: jsonb("content_filter").$type<import("@/lib/content-filter/categories").ContentFilterPrefs>().notNull().default({}),
+    // Which parts this profile skips without being asked ("intro": true): the Skip intro button pressed for it. Empty = none.
+    autoSkip: jsonb("auto_skip").$type<Partial<Record<"intro" | "recap" | "outro" | "preview", boolean>>>().notNull().default({}),
     // Whether this profile's name/avatar may be shown to OTHER accounts that
     // are members of the same server (not yet surfaced anywhere in the UI —
     // reserved for a future member list). Owner controls it for any profile
@@ -680,6 +682,8 @@ export const mediaFiles = pgTable(
     // repeated by a loose run.
     languageSource: text("language_source").$type<"srt" | "opensubtitles" | "opensubtitles-guess" | "tried-exact" | "tried-loose">(),
     languageBuiltAt: timestamp("language_built_at", { withTimezone: true }),
+    // Intro, recap, credits and preview times marked by hand in Roam (they win over SkipDB's for the same kind); times from this file's start.
+    skipMarks: jsonb("skip_marks").$type<{ kind: "intro" | "recap" | "outro" | "preview"; startSeconds: number; endSeconds: number }[]>(),
 
     container: text("container"),
     videoCodec: text("video_codec"),

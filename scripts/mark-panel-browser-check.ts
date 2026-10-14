@@ -43,11 +43,26 @@ const initialMarks = {
   readOnly: [{ startSeconds: 10, endSeconds: 12, category: "fear", severity: "medium", channel: "both" }],
 };
 let marks = structuredClone(initialMarks);
+const initialSkips = { durationSeconds: 7200, marks: [{ kind: "intro", startSeconds: 61, endSeconds: 91 }] as { kind: string; startSeconds: number; endSeconds: number }[] };
+let skips = structuredClone(initialSkips);
 const requests: string[] = [];
 const server = http.createServer((req, res) => {
   const url = new URL(req.url!, "http://x");
   if (url.pathname === "/app.css") return void res.writeHead(200, { "content-type": "text/css" }).end(appCss);
   if (url.pathname === "/bundle.js") return void res.writeHead(200, { "content-type": "text/javascript" }).end(fs.readFileSync(`${dir}/bundle.js`));
+  if (url.pathname.startsWith("/api/skip-marks/")) {
+    if (req.method === "PUT") {
+      let body = "";
+      req.on("data", (c) => (body += c));
+      req.on("end", () => {
+        requests.push(`SKIPPUT ${body}`);
+        skips = { ...skips, marks: (JSON.parse(body) as { marks: typeof skips.marks }).marks };
+        res.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify(skips));
+      });
+      return;
+    }
+    return void res.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify(skips));
+  }
   if (url.pathname.startsWith("/api/marks/")) {
     if (req.method === "PUT") {
       let body = "";
@@ -113,16 +128,38 @@ async function main() {
     for (const [label, width, mobile] of [["phone", 375, true], ["small phone", 320, true], ["desktop", 1100, false]] as const) {
       await page.send("Emulation.setDeviceMetricsOverride", { width, height: 700, deviceScaleFactor: 1, mobile });
       marks = structuredClone(initialMarks);
+      skips = structuredClone(initialSkips);
       await page.goto(`${base}/`);
       await page.waitFor(`document.body.innerText.includes("Marked scenes (2)")`, 5000);
       check(`${label}: the panel lists the marked scenes and the read-only ones`, await page.evaluate<boolean>(`["Violence · Strong", "Language · Mild · sound only", "02:00".replace("02:00","2:00"), "From a scene file"].every(t => document.body.innerText.includes(t))`));
       check(`${label}: nothing in the panel or the page sticks out`, (await page.evaluate<string[]>(overflowScript)).length === 0, await page.evaluate(overflowScript));
+      // The Skip buttons tab: its times, the same layout limits, saving a time of a chosen kind, and deleting one.
+      await click("Skip buttons");
+      await page.waitFor(`document.body.innerText.includes("Marked times (1)")`, 4000);
+      check(`${label}: the Skip buttons tab lists the marked times`, await page.evaluate<boolean>(`document.body.innerText.includes("Intro") && document.body.innerText.includes("1:01")`));
+      check(`${label}: nothing on the Skip buttons tab sticks out`, (await page.evaluate<string[]>(overflowScript)).length === 0, await page.evaluate(overflowScript));
+      if (label === "phone") {
+        await page.evaluate(`window.__time = 2500`);
+        await click("Scene starts here");
+        await page.evaluate(`window.__time = 2640`);
+        await click("Scene ends here");
+        await page.evaluate(`(() => { const s = [...document.querySelectorAll("select")][0]; const set = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, "value").set; set.call(s, "outro"); s.dispatchEvent(new Event("change", { bubbles: true })); })()`);
+        await click("Save this credits");
+        await page.waitFor(`document.body.innerText.includes("Marked times (2)")`, 4000);
+        const sentSkip = JSON.parse(requests.filter((r) => r.startsWith("SKIPPUT")).pop()!.slice(8)) as { version: string; marks: { kind: string; startSeconds: number; endSeconds: number }[] };
+        check("saving a time sends the list with it, for this version", sentSkip.version === "1080p" && sentSkip.marks.some((m) => m.kind === "outro" && m.startSeconds === 2500 && m.endSeconds === 2640) && sentSkip.marks.some((m) => m.kind === "intro"), sentSkip);
+        await page.evaluate(`document.querySelector('[aria-label="Delete this time"]').click()`);
+        await page.waitFor(`document.body.innerText.includes("Marked times (1)")`, 4000);
+        await click("Scenes to skip");
+        await page.waitFor(`document.body.innerText.includes("Marked scenes (2)")`, 4000);
+      } else await click("Scenes to skip");
       if (label === "phone") {
         if (process.env.SHOT) {
           const shot = await page.send("Page.captureScreenshot", { format: "png" });
           fs.writeFileSync(`${process.env.SHOT}-mark.png`, Buffer.from(shot.data as string, "base64"));
         }
         // Mark a scene: starts at 100 s, ends at 112 s (paused), sound-only language.
+        await page.evaluate(`window.__time = 100`);
         await click("Scene starts here");
         await page.evaluate(`window.__time = 112`);
         await click("Scene ends here");
