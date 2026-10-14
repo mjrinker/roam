@@ -74,16 +74,16 @@ export function chapterIndexAtTime(chapters: Chapter[], time: number): number {
  * Where a drag or click on the scrubber lands: on a chapter mark when it is within `thresholdPx` of one (measured on screen, so the
  * pull feels the same on a long film and a short one), otherwise where it is. Returns the time and the chapter it snapped to, if any.
  */
-export function snapToChapter(
+export function snapToChapter<T extends Chapter>(
   time: number,
-  chapters: Chapter[],
+  chapters: T[],
   durationSeconds: number,
   barWidthPx: number,
   thresholdPx = 10
-): { time: number; chapter: Chapter | null } {
+): { time: number; chapter: T | null } {
   if (chapters.length === 0 || durationSeconds <= 0 || barWidthPx <= 0) return { time, chapter: null };
   const pxPerSecond = barWidthPx / durationSeconds;
-  let best: Chapter | null = null;
+  let best: T | null = null;
   let bestPx = thresholdPx;
   for (const c of chapters) {
     const px = Math.abs(c.startSeconds - time) * pxPerSecond;

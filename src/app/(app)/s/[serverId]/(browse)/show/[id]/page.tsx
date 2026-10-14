@@ -1,4 +1,3 @@
-import Link from "next/link";
 import { refreshIfStale } from "@/lib/tmdb/cache";
 import { notFound, redirect } from "next/navigation";
 import { and, asc, eq, inArray } from "drizzle-orm";
@@ -11,7 +10,6 @@ import { libraryActor, libraryVisible } from "@/lib/content/library-access";
 import { isAllowed } from "@/lib/content/access";
 import { formatRuntime } from "@/lib/format";
 import { countryFromLocale, displayCertification } from "@/lib/content/ratings";
-import { Button } from "@/components/ui/button";
 import { TitleResyncButton } from "@/components/admin/title-resync-button";
 import { TmdbMatchButton } from "@/components/admin/tmdb-match-button";
 import { FixAudioButton } from "@/components/admin/fix-audio-button";
@@ -26,6 +24,10 @@ import { CastRow } from "@/components/library/cast-row";
 import { CrewRow } from "@/components/library/crew-row";
 import { SeasonEpisodes, type EpisodeRowData } from "@/components/library/season-episodes";
 import { chaptersFromRows } from "@/lib/chapters/rows";
+import { PlayChoicesButton } from "@/components/library/play-choices";
+import { cuesFromRows } from "@/lib/content-filter/rows";
+import { guideFromCues } from "@/lib/content-filter/playback";
+import { normalizePrefs } from "@/lib/content-filter/categories";
 
 export default async function ShowDetailPage({
   params,
@@ -126,6 +128,7 @@ export default async function ShowDetailPage({
         inProgress && state.durationSeconds ? state.positionSeconds / state.durationSeconds : 0,
       watched: state?.finished ?? false,
       chapters: chaptersFromRows(files),
+      guide: guideFromCues(cuesFromRows(files)),
     };
   });
 
@@ -149,6 +152,7 @@ export default async function ShowDetailPage({
     ? `${resuming ? "Resume" : "Play"} S${nextSeasonNumber} · E${nextRow.number}`
     : null;
 
+  const filterPrefs = normalizePrefs(viewer.contentFilter);
   const totalEpisodes = allEpisodes.length;
   const cast = await loadTitleCast(db, show.id);
   const crew = await loadTitleCrew(db, show.id);
@@ -180,13 +184,15 @@ export default async function ShowDetailPage({
         ]}
       >
         {nextRow?.ready && nextLabel && (
-          <Button
-            render={<Link href={`/s/${serverId}/watch/episode/${nextRow.id}`} />}
+          <PlayChoicesButton
+            href={`/s/${serverId}/watch/episode/${nextRow.id}`}
+            lines={nextRow.guide}
+            prefs={filterPrefs}
             className="h-12 gap-2.5 rounded-xl px-8 text-base font-semibold shadow-[0_10px_34px_-8px_oklch(0.853_0.163_169/0.7)]"
           >
             <Play className="size-5" fill="currentColor" />
             {nextLabel}
-          </Button>
+          </PlayChoicesButton>
         )}
         <AddToPlaylistMenu serverId={serverId} target={{ titleId: show.id }} />
         <MoreMenu>
@@ -202,6 +208,7 @@ export default async function ShowDetailPage({
         seasons={allSeasons.map((s) => ({ id: s.id, number: s.number }))}
         episodes={rows}
         initialSeasonId={nextRow?.seasonId ?? allSeasons[0]?.id ?? ""}
+        prefs={filterPrefs}
       />
       <div className="pb-16">
         <CastRow serverId={serverId} cast={cast} />

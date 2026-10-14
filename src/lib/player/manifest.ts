@@ -6,7 +6,8 @@ import { StorageReauthRequiredError } from "@/lib/storage/reauth";
 import type { PlayManifest, PlayOwnerKind, PlaySegment } from "@/lib/player/types";
 import { buildPlaySegment } from "@/lib/player/timeline";
 import { playbackChapters } from "@/lib/chapters/chapters";
-import { normalizePrefs } from "@/lib/content-filter/categories";
+import { normalizePrefs, type ContentFilterPrefs } from "@/lib/content-filter/categories";
+import { mergePrefs } from "@/lib/content-filter/timeline";
 import { playbackCues, skipsFor } from "@/lib/content-filter/playback";
 import { shouldUseVariant } from "@/lib/player/variant-selection";
 import { describeVersions, offeredRows, pickVersion, withoutUndecodableVideo } from "@/lib/player/versions";
@@ -49,7 +50,7 @@ export async function buildPlayManifest(
    * Which resolution version to play when the owner has several ("Movie - 1080p.mp4", "Movie - 4K.mp4"): an exact label, else the one
    * closest in height to `preferredHeight`, else the highest. Only versions that are fully probed are offered.
    */
-  choice: { version?: string | null; preferredHeight?: number | null } = {}
+  choice: { version?: string | null; preferredHeight?: number | null; /** Scenes to skip for this play only, on top of what the profile skips. */ extraSkip?: ContentFilterPrefs } = {}
 ): Promise<BuildManifestResult> {
   const everyRow = await db
     .select()
@@ -143,7 +144,7 @@ export async function buildPlayManifest(
 
   // What this viewer has chosen to skip, applied to the scenes the video's filter file lists.
   const [viewerRow] = await db.select({ contentFilter: viewers.contentFilter }).from(viewers).where(eq(viewers.id, viewerId)).limit(1);
-  const prefs = normalizePrefs(viewerRow?.contentFilter);
+  const prefs = mergePrefs(normalizePrefs(viewerRow?.contentFilter), choice.extraSkip ?? {});
   const skips =
     Object.keys(prefs).length === 0
       ? []

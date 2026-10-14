@@ -36,7 +36,7 @@ import {
   windowClampTarget,
 } from "@/lib/player/timeline";
 import { snapToChapter } from "@/lib/chapters/chapters";
-import { CATEGORY_LABELS, isFilterCategory } from "@/lib/content-filter/categories";
+import { isRemoved, removedRanges, toRealTime, toViewTime, viewDuration } from "@/lib/content-filter/timeline";
 
 /** What a floating bar needs to know about the player, reported as it changes. */
 export interface PlayerStatus {
@@ -81,6 +81,8 @@ interface SeamlessPlayerProps {
   /** Start here (seconds) instead of where the viewer left off, e.g. a chapter picked on the details page; `startToken` is new for each request. */
   startAt?: number;
   startToken?: number;
+  /** Scenes to skip for this play only, on top of the profile's own ("violence:high,language:low"). */
+  extraSkip?: string;
 }
 
 const PRELOAD_THRESHOLD_SECONDS = 15;
@@ -132,8 +134,9 @@ function formatTime(totalSeconds: number) {
 // Which of the known-problem audio codecs THIS browser can't decode. Tested
 // per codec (Safari plays AC-3 but not DTS), and computed once — the server
 // uses it to hand back a remuxed copy of any file whose audio is one of them.
-function playManifestUrl(ownerKind: PlayOwnerKind, ownerId: string, version?: string): string {
+function playManifestUrl(ownerKind: PlayOwnerKind, ownerId: string, version?: string, extraSkip?: string): string {
   const params = new URLSearchParams(unsupportedCodecsParam());
+  if (extraSkip) params.set("skip", extraSkip);
   // Which resolution: the one asked for, else the one closest to what this device last picked, else the best the title has.
   if (version !== undefined) params.set("version", version);
   else {
@@ -158,6 +161,7 @@ export function SeamlessPlayer({
   nextLabel,
   startAt,
   startToken,
+  extraSkip,
 }: SeamlessPlayerProps) {
   // A movie takes over: pause any audiobook that's playing in the background.
   const audioActions = useAudioActions();
@@ -224,9 +228,6 @@ export function SeamlessPlayer({
   const [controlsVisible, setControlsVisible] = useState(true);
   const [hoverRatio, setHoverRatio] = useState<number | null>(null);
   const [hoverChapter, setHoverChapter] = useState<string | null>(null);
-  // The brief note shown when a scene this viewer chose to skip was jumped over ("Skipped: Violence").
-  const [skipNote, setSkipNote] = useState<string | null>(null);
-  const skipNoteTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
   const lastSavedAtRef = useRef(0);
   const scrubBarRef = useRef<HTMLDivElement>(null);
@@ -249,10 +250,12 @@ export function SeamlessPlayer({
   const startAtRef = useRef(startAt);
   const startTokenRef = useRef(startToken);
   const handledStartRef = useRef<number | undefined>(undefined);
+  const extraSkipRef = useRef(extraSkip);
   useEffect(() => {
     startAtRef.current = startAt;
     startTokenRef.current = startToken;
-  }, [startAt, startToken]);
+    extraSkipRef.current = extraSkip;
+  }, [startAt, startToken, extraSkip]);
 
   // ── Load the manifest ─────────────────────────────────────────────────
   useEffect(() => {
@@ -262,7 +265,7 @@ export function SeamlessPlayer({
       // A downloaded copy is played from this device. When there is a connection the server is still asked (for where the viewer left
       // off, the speed and the other versions), for the downloaded version; with none, what was saved is enough.
       const downloaded = await localVideoFor(ownerKind, ownerId).catch(() => null);
-      const res = await fetch(playManifestUrl(ownerKind, ownerId, downloaded?.version)).catch(() => null);
+      const res = await fetch(playManifestUrl(ownerKind, ownerId, downloaded?.version, extraSkipRef.current)).catch(() => null);
       if (cancelled) return;
       let data: PlayManifest;
       if (res && res.ok) {
@@ -558,7 +561,7 @@ export function SeamlessPlayer({
         // Segment URL likely expired mid-playback — re-fetch a fresh
         // manifest and resume from the current global position.
         setError("Reconnecting…");
-        fetch(playManifestUrl(ownerKind, ownerId, manifestRef.current?.version))
+        fetch(playManifestUrl(ownerKind, ownerId, manifestRef.current?.version, extraSkipRef.current))
           .then((r) => r.json())
           .then((data: PlayManifest) => {
             manifestRef.current = data;
@@ -605,7 +608,7 @@ export function SeamlessPlayer({
     const timer = setTimeout(async () => {
       const seg = manifestRef.current!.segments[segIndexRef.current];
       const currentGlobal = seg.startSeconds + toLocalTime(seg, videoRefs.current[frontSlotRef.current]?.currentTime ?? 0);
-      const res = await fetch(playManifestUrl(ownerKind, ownerId, manifestRef.current?.version)).catch(() => null);
+      const res = await fetch(playManifestUrl(ownerKind, ownerId, manifestRef.current?.version, extraSkipRef.current)).catch(() => null);
       if (!res?.ok) return;
       const fresh: PlayManifest = await res.json();
       fresh.resumeSeconds = currentGlobal;
@@ -701,10 +704,6 @@ export function SeamlessPlayer({
       const hit = skips.find((s) => gt >= s.startSeconds - 0.02 && gt < s.endSeconds - 0.02);
       if (hit?.action === "skip" && (!last || last.end !== hit.endSeconds || Date.now() - last.at > 1000)) {
         last = { end: hit.endSeconds, at: Date.now() };
-        const names = hit.categories.map((c) => (isFilterCategory(c) ? CATEGORY_LABELS[c] : c));
-        setSkipNote(`Skipped: ${names.join(", ")}`);
-        clearTimeout(skipNoteTimerRef.current);
-        skipNoteTimerRef.current = setTimeout(() => setSkipNote(null), 2500);
         seekTo(Math.min(hit.endSeconds, Math.max(0, m.durationSeconds - 0.5)));
         return;
       }
@@ -722,7 +721,6 @@ export function SeamlessPlayer({
       if (silenced) videos.forEach((el) => el && (el.muted = mutedRef.current));
     };
   }, [manifest, currentGlobalTime, seekTo]);
-  useEffect(() => () => clearTimeout(skipNoteTimerRef.current), []);
 
   // A floating bar drives the player through these.
   useEffect(() => {
@@ -732,7 +730,10 @@ export function SeamlessPlayer({
       skip(seconds) {
         const m = manifestRef.current;
         if (!m) return;
-        seekTo(Math.max(0, Math.min(m.durationSeconds - 0.5, currentGlobalTime() + seconds)));
+        // Measured on the bar the viewer sees, without the scenes they skip.
+        const removed = removedRanges(m.skips);
+        const viewNow = toViewTime(currentGlobalTime(), removed);
+        seekTo(toRealTime(Math.max(0, Math.min(viewDuration(m.durationSeconds, removed) - 0.5, viewNow + seconds)), removed));
       },
       pause() {
         videoRefs.current[frontSlotRef.current]?.pause();
@@ -745,7 +746,7 @@ export function SeamlessPlayer({
 
   // ...and watches it through this.
   useEffect(() => {
-    onStatus?.({ ready: !!manifest, playing, buffering, finished, error, time: globalTime, duration: manifest?.durationSeconds ?? 0 });
+    onStatus?.({ ready: !!manifest, playing, buffering, finished, error, time: toViewTime(globalTime, removedRanges(manifest?.skips)), duration: viewDuration(manifest?.durationSeconds ?? 0, removedRanges(manifest?.skips)) });
   }, [onStatus, manifest, playing, buffering, finished, error, globalTime]);
 
   // Closing the player, switching video or leaving the page saves where it got to (only if it ever played, and never over a finished title).
@@ -780,8 +781,10 @@ export function SeamlessPlayer({
     if (mode === "mini") return;
     function onKeyDown(e: KeyboardEvent) {
       if (["INPUT", "TEXTAREA"].includes((e.target as HTMLElement)?.tagName)) return;
-      const duration = manifestRef.current?.durationSeconds ?? 0;
-      const clampTime = (t: number) => Math.max(0, Math.min(t, Math.max(duration - 0.5, 0)));
+      // Steps are measured on the bar the viewer sees, without the scenes they skip.
+      const removed = removedRanges(manifestRef.current?.skips);
+      const duration = viewDuration(manifestRef.current?.durationSeconds ?? 0, removed);
+      const stepFrom = (seconds: number) => toRealTime(Math.max(0, Math.min(toViewTime(globalTime, removed) + seconds, Math.max(duration - 0.5, 0))), removed);
       switch (e.code) {
         case "Space":
         case "KeyK":
@@ -790,11 +793,11 @@ export function SeamlessPlayer({
           break;
         case "ArrowRight":
         case "KeyL":
-          seekTo(clampTime(globalTime + SKIP_SECONDS));
+          seekTo(stepFrom(SKIP_SECONDS));
           break;
         case "ArrowLeft":
         case "KeyJ":
-          seekTo(clampTime(globalTime - SKIP_SECONDS));
+          seekTo(stepFrom(-SKIP_SECONDS));
           break;
         case "ArrowUp":
           e.preventDefault();
@@ -852,7 +855,7 @@ export function SeamlessPlayer({
       const wasPlaying = !(videoRefs.current[frontSlotRef.current]?.paused ?? true);
       flushRef.current();
       const token = ++switchTokenRef.current;
-      const res = await fetch(playManifestUrl(ownerKind, ownerId, label)).catch(() => null);
+      const res = await fetch(playManifestUrl(ownerKind, ownerId, label, extraSkipRef.current)).catch(() => null);
       if (!res || !res.ok) return; // staying on the version already playing is better than an error
       const data: PlayManifest = await res.json();
       if (manifestRef.current !== m || token !== switchTokenRef.current) return; // another video opened, or a newer switch was asked for
@@ -887,9 +890,14 @@ export function SeamlessPlayer({
     );
   }
 
-  const duration = manifest?.durationSeconds ?? 0;
-  const chapters = manifest?.chapters ?? [];
-  const displayTime = scrubTime ?? globalTime;
+  // The bar and the times shown are measured without the scenes this viewer skips; seeking and saving still use the video's own clock.
+  const removed = removedRanges(manifest?.skips);
+  const duration = viewDuration(manifest?.durationSeconds ?? 0, removed);
+  const viewChapters = (manifest?.chapters ?? [])
+    .filter((c) => !isRemoved(c.startSeconds, removed))
+    .map((c) => ({ title: c.title, startSeconds: toViewTime(c.startSeconds, removed), real: c.startSeconds }));
+  const viewNow = toViewTime(globalTime, removed);
+  const displayTime = scrubTime ?? viewNow;
   const progressPct = duration > 0 ? Math.min(100, (displayTime / duration) * 100) : 0;
   const controlsShown = controlsVisible || !playing || finished;
   const hideCursor = playing && !controlsShown && !finished;
@@ -900,10 +908,11 @@ export function SeamlessPlayer({
     return Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
   }
 
-  /** Where the pointer is on the bar in seconds: pulled onto a chapter mark when it is close to one. */
+  /** Where the pointer is on the bar: the time on the bar (view) and in the video (real), pulled onto a chapter mark when close to one. */
   function pointerTarget(e: React.PointerEvent) {
     const width = scrubBarRef.current?.getBoundingClientRect().width ?? 0;
-    return snapToChapter(ratioFromPointer(e) * duration, chapters, duration, width);
+    const snap = snapToChapter(ratioFromPointer(e) * duration, viewChapters, duration, width);
+    return { view: snap.time, real: snap.chapter ? snap.chapter.real : toRealTime(snap.time, removed), chapter: snap.chapter };
   }
 
   return (
@@ -994,11 +1003,6 @@ export function SeamlessPlayer({
           <Loader2 className="size-10 animate-spin text-white/70" />
         </div>
       )}
-      {mode === "full" && skipNote && (
-        <div role="status" className="pointer-events-none absolute top-20 left-1/2 z-10 -translate-x-1/2 rounded-full bg-black/80 px-4 py-1.5 text-sm font-medium text-white ring-1 ring-white/15">
-          {skipNote}
-        </div>
-      )}
       {manifest && buffering && playing && !finished && (
         <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
           <Loader2 className="size-12 animate-spin text-white/80 drop-shadow-lg" />
@@ -1076,18 +1080,18 @@ export function SeamlessPlayer({
           onPointerDown={(e) => {
             if (!manifest) return;
             e.currentTarget.setPointerCapture(e.pointerId);
-            setScrubTime(pointerTarget(e).time);
+            setScrubTime(pointerTarget(e).view);
           }}
           onPointerMove={(e) => {
             const target = pointerTarget(e);
-            setHoverRatio(duration > 0 ? target.time / duration : 0);
+            setHoverRatio(duration > 0 ? target.view / duration : 0);
             setHoverChapter(target.chapter?.title ?? null);
-            if (scrubTime !== null) setScrubTime(target.time);
+            if (scrubTime !== null) setScrubTime(target.view);
           }}
           onPointerUp={(e) => {
             if (scrubTime === null) return;
             e.currentTarget.releasePointerCapture(e.pointerId);
-            seekTo(pointerTarget(e).time);
+            seekTo(pointerTarget(e).real);
             setScrubTime(null);
           }}
           onPointerLeave={() => {
@@ -1107,7 +1111,7 @@ export function SeamlessPlayer({
             />
             {/* Chapter marks. (Where a multi-part title's files join is not marked: that is not a chapter.) */}
             {duration > 0 &&
-              chapters.filter((c) => c.startSeconds > 0.5).map((c) => (
+              viewChapters.filter((c) => c.startSeconds > 0.5).map((c) => (
                 <span
                   key={c.startSeconds}
                   aria-hidden="true"
@@ -1153,7 +1157,7 @@ export function SeamlessPlayer({
             variant="ghost"
             size="icon-lg"
             aria-label="Back 10 seconds"
-            onClick={() => seekTo(Math.max(0, globalTime - SKIP_SECONDS))}
+            onClick={() => seekTo(toRealTime(Math.max(0, viewNow - SKIP_SECONDS), removed))}
             className="relative size-10 rounded-full hover:bg-white/15"
           >
             <RotateCcw className="size-[22px]" />
@@ -1163,7 +1167,7 @@ export function SeamlessPlayer({
             variant="ghost"
             size="icon-lg"
             aria-label="Forward 10 seconds"
-            onClick={() => seekTo(Math.min(duration - 0.5, globalTime + SKIP_SECONDS))}
+            onClick={() => seekTo(toRealTime(Math.min(duration - 0.5, viewNow + SKIP_SECONDS), removed))}
             className="relative size-10 rounded-full hover:bg-white/15"
           >
             <RotateCw className="size-[22px]" />

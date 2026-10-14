@@ -152,6 +152,7 @@ export function VideoSessionProvider({ children, initial = NO_SESSION }: { child
               nextLabel={session.nextLabel}
               startAt={session.startAt}
               startToken={session.startToken}
+              extraSkip={session.extraSkip}
             />
           </div>
         )}

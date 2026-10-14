@@ -1,4 +1,3 @@
-import Link from "next/link";
 import { refreshIfStale } from "@/lib/tmdb/cache";
 import { notFound, redirect } from "next/navigation";
 import { and, asc, eq } from "drizzle-orm";
@@ -11,7 +10,6 @@ import { libraryActor, libraryVisible } from "@/lib/content/library-access";
 import { isAllowed } from "@/lib/content/access";
 import { formatRemaining, formatRuntime } from "@/lib/format";
 import { countryFromLocale, displayCertification } from "@/lib/content/ratings";
-import { Button } from "@/components/ui/button";
 import { TitleResyncButton } from "@/components/admin/title-resync-button";
 import { TmdbMatchButton } from "@/components/admin/tmdb-match-button";
 import { FixAudioButton } from "@/components/admin/fix-audio-button";
@@ -30,6 +28,7 @@ import { ExtrasSection } from "@/components/library/extras-section";
 import { ChaptersList } from "@/components/library/chapters-list";
 import { chaptersFromRows } from "@/lib/chapters/rows";
 import { ParentalGuide } from "@/components/library/parental-guide";
+import { PlayChoicesButton } from "@/components/library/play-choices";
 import { cuesFromRows } from "@/lib/content-filter/rows";
 import { guideFromCues } from "@/lib/content-filter/playback";
 import { normalizePrefs } from "@/lib/content-filter/categories";
@@ -91,6 +90,8 @@ export default async function TitleDetailPage({
   const cast = await loadTitleCast(db, title.id);
   const crew = await loadTitleCrew(db, title.id);
 
+  const guideLines = guideFromCues(cuesFromRows(segments));
+  const filterPrefs = normalizePrefs(viewer.contentFilter);
   const ready = segments.length > 0 && segments.every((s) => s.durationSeconds != null);
   const hasProgress = !!state && !state.finished && state.positionSeconds > 0;
   const noFiles = segments.length === 0;
@@ -122,7 +123,7 @@ export default async function TitleDetailPage({
       below={
         <>
           <ChaptersList serverId={serverId} ownerKind="title" ownerId={title.id} chapters={chaptersFromRows(segments)} />
-          <ParentalGuide lines={guideFromCues(cuesFromRows(segments))} prefs={normalizePrefs(viewer.contentFilter)} imdbId={title.imdbId} />
+          <ParentalGuide lines={guideLines} prefs={filterPrefs} imdbId={title.imdbId} />
           <CastRow serverId={serverId} cast={cast} />
           <CrewRow serverId={serverId} crew={crew} />
           <ExtrasSection serverId={serverId} groups={extras} />
@@ -136,13 +137,15 @@ export default async function TitleDetailPage({
     >
       {ready ? (
         <div className="flex flex-col items-center gap-2 md:items-start">
-          <Button
-            render={<Link href={`/s/${serverId}/watch/title/${title.id}`} />}
+          <PlayChoicesButton
+            href={`/s/${serverId}/watch/title/${title.id}`}
+            lines={guideLines}
+            prefs={filterPrefs}
             className="h-12 gap-2.5 rounded-xl px-8 text-base font-semibold shadow-[0_10px_34px_-8px_oklch(0.853_0.163_169/0.7)]"
           >
             <Play className="size-5" fill="currentColor" />
             {hasProgress ? "Resume" : "Play"}
-          </Button>
+          </PlayChoicesButton>
           {hasProgress && (
             <div className="flex w-full items-center gap-2.5 text-xs text-muted-foreground">
               <div className="h-1 flex-1 overflow-hidden rounded-full bg-white/15">

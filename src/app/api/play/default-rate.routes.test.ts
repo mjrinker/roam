@@ -77,12 +77,15 @@ describe("choosing a resolution version", () => {
       await play(new Request(`http://x/api/play/title/${w.film.id}${query}`), playCtx(w.film.id));
       return h.choices[0];
     };
-    expect(await ask("")).toEqual({ version: null, preferredHeight: null });
-    expect(await ask("?version=%201080P%20")).toEqual({ version: "1080p", preferredHeight: null });
-    expect(await ask("?version=")).toEqual({ version: "", preferredHeight: null });
-    expect(await ask("?height=720")).toEqual({ version: null, preferredHeight: 720 });
-    expect(await ask("?unsupportedCodecs=ac-3&height=1080&version=4k")).toEqual({ version: "4k", preferredHeight: 1080 });
-    for (const bad of ["abc", "50", "99999", "7.5", "-1"]) expect(await ask(`?height=${bad}`), bad).toEqual({ version: null, preferredHeight: null });
+    expect(await ask("")).toEqual({ version: null, preferredHeight: null, extraSkip: {} });
+    expect(await ask("?version=%201080P%20")).toEqual({ version: "1080p", preferredHeight: null, extraSkip: {} });
+    expect(await ask("?version=")).toEqual({ version: "", preferredHeight: null, extraSkip: {} });
+    expect(await ask("?height=720")).toEqual({ version: null, preferredHeight: 720, extraSkip: {} });
+    expect(await ask("?unsupportedCodecs=ac-3&height=1080&version=4k")).toEqual({ version: "4k", preferredHeight: 1080, extraSkip: {} });
+    // Scenes chosen just before playing, for this play only: read, cleaned, and unknown ones dropped.
+    expect((await ask("?skip=violence:high,language:low"))).toEqual({ version: null, preferredHeight: null, extraSkip: { violence: "high", language: "low" } });
+    expect((await ask("?skip=violence:huge,sparkles:high,garbage"))).toEqual({ version: null, preferredHeight: null, extraSkip: {} });
+    for (const bad of ["abc", "50", "99999", "7.5", "-1"]) expect(await ask(`?height=${bad}`), bad).toEqual({ version: null, preferredHeight: null, extraSkip: {} });
     expect((await ask(`?version=${"x".repeat(200)}`) as { version: string }).version).toHaveLength(60);
   });
 });

@@ -95,6 +95,20 @@ describe("what the play manifest asks each viewer's player to skip", () => {
     expect(r.ok && r.manifest.skips?.map((s) => [s.startSeconds, s.endSeconds])).toEqual([[10, 20], [105, 115]]);
   });
 
+  it("adds the choices made just before playing to the profile's own, for that play only", async () => {
+    const c = await movie([{ durationSeconds: 100, cues: [cue(10, 20, "violence"), cue(30, 40, "nudity"), cue(50, 60, "language", "low")] }]);
+    await setPrefs(c.owner.viewer.id, { violence: "high" });
+    const base = await buildPlayManifest("title", c.t.id, c.owner.viewer.id, c.server.id);
+    expect(base.ok && base.manifest.skips?.map((s) => s.startSeconds)).toEqual([10]);
+    const extra = await buildPlayManifest("title", c.t.id, c.owner.viewer.id, c.server.id, [], false, { extraSkip: { nudity: "high", language: "low" } });
+    expect(extra.ok && extra.manifest.skips?.map((s) => s.startSeconds)).toEqual([10, 30, 50]);
+    // A weaker pick cannot undo the profile's own choice, and nothing was saved: the next play is back to the profile's.
+    const weaker = await buildPlayManifest("title", c.t.id, c.owner.viewer.id, c.server.id, [], false, { extraSkip: { violence: "high" } });
+    expect(weaker.ok && weaker.manifest.skips?.map((s) => s.startSeconds)).toEqual([10]);
+    const after = await buildPlayManifest("title", c.t.id, c.owner.viewer.id, c.server.id);
+    expect(after.ok && after.manifest.skips?.map((s) => s.startSeconds)).toEqual([10]);
+  });
+
   it("ignores a stored choice that is not a real category or strength", async () => {
     const c = await movie([{ durationSeconds: 100, cues: [cue(10, 20, "violence")] }]);
     await setPrefs(c.owner.viewer.id, { sparkles: "high", violence: "huge" });

@@ -5,6 +5,7 @@ import { buildPlayManifest } from "@/lib/player/manifest";
 import { isPhotoLibraryKind } from "@/lib/libraries/profile";
 import { parseUnsupportedCodecs } from "@/lib/player/variant-selection";
 import { viewerLibrarySpeed } from "@/lib/player/library-speed";
+import { parseSkipParam } from "@/lib/content-filter/timeline";
 
 // authorizeOwner covers server membership AND the profile's rating limit —
 // see lib/content/access. A title blocked by the limit 404s exactly like a
@@ -33,6 +34,8 @@ export async function GET(
   const choice = {
     version: params.get("version") !== null ? params.get("version")!.trim().toLowerCase().slice(0, 60) : null,
     preferredHeight: Number.isInteger(heightParam) && heightParam >= 100 && heightParam <= 5000 ? heightParam : null,
+    // Scenes chosen just before playing, for this play only (on top of the profile's own).
+    extraSkip: parseSkipParam(params.get("skip")),
   };
   const result = await buildPlayManifest(ownerKind, ownerId, auth.member.viewer.id, auth.serverId, unsupportedCodecs, isPhotoLibraryKind(auth.libraryKind), choice);
   if (!result.ok) {

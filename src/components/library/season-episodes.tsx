@@ -2,7 +2,6 @@
 
 import { useState } from "react";
 import Image from "next/image";
-import Link from "next/link";
 import { Check, Loader2, Play, Tv } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { AddToPlaylistMenu } from "@/components/playlists/add-to-playlist-menu";
@@ -10,6 +9,9 @@ import { MarkDoneButton } from "@/components/library/mark-done-button";
 import { MoreMenu } from "@/components/shell/more-menu";
 import { DownloadButton } from "@/components/offline/download-button";
 import { ChaptersList } from "@/components/library/chapters-list";
+import { PlayChoicesLink } from "@/components/library/play-choices";
+import type { ContentFilterPrefs } from "@/lib/content-filter/categories";
+import type { GuideLine } from "@/lib/content-filter/playback";
 import type { Chapter } from "@/lib/chapters/chapters";
 
 export interface EpisodeRowData {
@@ -26,6 +28,8 @@ export interface EpisodeRowData {
   watched: boolean;
   /** Where the episode's chapters are, for jumping in; empty when it has fewer than two. */
   chapters: Chapter[];
+  /** What the episode's content filter file lists, by category; empty when it has none. Playing offers choices for that viewing. */
+  guide: GuideLine[];
 }
 
 export interface SeasonTab {
@@ -33,7 +37,7 @@ export interface SeasonTab {
   number: number;
 }
 
-function EpisodeRow({ ep, serverId }: { ep: EpisodeRowData; serverId: string }) {
+function EpisodeRow({ ep, serverId, prefs }: { ep: EpisodeRowData; serverId: string; prefs: ContentFilterPrefs }) {
   const body = (
     <>
       <div className="relative aspect-video w-36 shrink-0 overflow-hidden rounded-lg bg-muted ring-1 ring-white/[0.08] sm:w-56">
@@ -101,12 +105,14 @@ function EpisodeRow({ ep, serverId }: { ep: EpisodeRowData; serverId: string }) 
   return (
     <div className="relative">
       {ep.ready ? (
-        <Link
+        <PlayChoicesLink
           href={`/s/${serverId}/watch/episode/${ep.id}`}
+          lines={ep.guide}
+          prefs={prefs}
           className={cn(classes, "pr-32 hover:bg-white/[0.05]")}
         >
           {body}
-        </Link>
+        </PlayChoicesLink>
       ) : (
         <div className={cn(classes, "pr-32 opacity-70")}>{body}</div>
       )}
@@ -130,8 +136,11 @@ export function SeasonEpisodes({
   seasons,
   episodes,
   initialSeasonId,
+  prefs,
 }: {
   serverId: string;
+  /** What this profile already skips. */
+  prefs: ContentFilterPrefs;
   seasons: SeasonTab[];
   episodes: EpisodeRowData[];
   initialSeasonId: string;
@@ -183,7 +192,7 @@ export function SeasonEpisodes({
         {visible.length === 0 ? (
           <p className="py-8 text-sm text-muted-foreground">No episodes in this season yet.</p>
         ) : (
-          visible.map((ep) => <EpisodeRow key={ep.id} ep={ep} serverId={serverId} />)
+          visible.map((ep) => <EpisodeRow key={ep.id} ep={ep} serverId={serverId} prefs={prefs} />)
         )}
       </div>
     </section>

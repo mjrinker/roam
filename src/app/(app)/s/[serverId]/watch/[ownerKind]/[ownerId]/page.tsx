@@ -11,6 +11,7 @@ import { isUuid } from "@/lib/playlists/http";
 import { isPhotoLibraryKind } from "@/lib/libraries/profile";
 import { queueNext } from "@/lib/playlists/next";
 import { WatchSession } from "@/components/player/watch-session";
+import { encodeSkipParam, parseSkipParam } from "@/lib/content-filter/timeline";
 
 async function loadMovie(lib: LibraryActor, id: string) {
   const title = await db
@@ -157,8 +158,14 @@ export default async function WatchPage({
   const t = typeof query.t === "string" ? Number(query.t) : NaN;
   const startAt = Number.isFinite(t) && t >= 0 && t < 7 * 86_400 ? Math.floor(t) : undefined;
 
+  // Scenes chosen just before playing (this play only): they carry on to the next episode of the same sitting.
+  const extraSkip = encodeSkipParam(parseSkipParam(typeof query.skip === "string" ? query.skip : null));
+  const withSkip = (href: string | undefined) => (href && extraSkip ? `${href}${href.includes("?") ? "&" : "?"}skip=${extraSkip}` : href);
+  nextHref = withSkip(nextHref);
+
   // Coming back to the full player from the bar must keep the playlist it was opened from (else "next" would change).
-  const queueQuery = playlistId && itemId && isUuid(playlistId) && isUuid(itemId) ? `?playlist=${playlistId}&item=${itemId}${query.replay === "1" ? "&replay=1" : ""}` : "";
+  const queueParts = playlistId && itemId && isUuid(playlistId) && isUuid(itemId) ? [`playlist=${playlistId}`, `item=${itemId}`, ...(query.replay === "1" ? ["replay=1"] : [])] : [];
+  const queueQuery = [...queueParts, ...(extraSkip ? [`skip=${extraSkip}`] : [])].join("&");
   // The player itself lives in the server layout (see VideoSessionProvider), so a video can carry on in a floating bar when the viewer
   // browses away; this page just asks for it to fill the screen.
   return (
@@ -170,8 +177,9 @@ export default async function WatchPage({
       backHref={loaded.backHref}
       nextHref={nextHref}
       nextLabel={nextLabel}
-      watchHref={`/s/${serverId}/watch/${ownerKind}/${ownerId}${queueQuery}`}
+      watchHref={`/s/${serverId}/watch/${ownerKind}/${ownerId}${queueQuery ? `?${queueQuery}` : ""}`}
       startAt={startAt}
+      extraSkip={extraSkip || undefined}
     />
   );
 }
