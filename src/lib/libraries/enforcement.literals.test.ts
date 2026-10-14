@@ -18,6 +18,7 @@ const files = globSync("**/*.{ts,tsx}", { cwd: SRC })
 /** Files that legitimately name the kinds, and why. */
 const ALLOWED: Record<string, string> = {
   "lib/db/schema.ts": "defines the library_kind enum",
+  "lib/content-filter/mcf.ts": "the .mcf file format's own channel words (video, audio), not library kinds",
   "app/api/libraries/route.ts": "the creation request's list of accepted kinds",
   "components/library/audio-views.tsx": "the view tabs of the two song-library kinds (music, audio) - what each offers is the point of the file",
   "lib/choose/kinds.ts": "the list of library kinds a choice can be made from - the point of the file",

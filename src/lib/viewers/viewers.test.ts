@@ -82,3 +82,14 @@ describe("viewer cookie", () => {
     expect(viewerIdFromCookie("nonsense")).toBeNull();
   });
 });
+
+describe("contentFilterSchema", () => {
+  it("accepts a choice per category and nothing else", async () => {
+    const { contentFilterSchema, extendedEditSchema } = await import("./validation");
+    expect(contentFilterSchema.safeParse({ violence: "high", language: "low" }).success).toBe(true);
+    expect(contentFilterSchema.safeParse({}).success).toBe(true);
+    expect(contentFilterSchema.safeParse({ violence: "extreme" }).success).toBe(false);
+    expect(contentFilterSchema.safeParse({ sparkles: "high" }).success).toBe(false);
+    expect(extendedEditSchema.safeParse({ contentFilter: { sex: "medium" } }).success).toBe(true);
+  });
+});

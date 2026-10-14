@@ -36,6 +36,7 @@ import {
   windowClampTarget,
 } from "@/lib/player/timeline";
 import { snapToChapter } from "@/lib/chapters/chapters";
+import { CATEGORY_LABELS, isFilterCategory } from "@/lib/content-filter/categories";
 
 /** What a floating bar needs to know about the player, reported as it changes. */
 export interface PlayerStatus {
@@ -223,6 +224,9 @@ export function SeamlessPlayer({
   const [controlsVisible, setControlsVisible] = useState(true);
   const [hoverRatio, setHoverRatio] = useState<number | null>(null);
   const [hoverChapter, setHoverChapter] = useState<string | null>(null);
+  // The brief note shown when a scene this viewer chose to skip was jumped over ("Skipped: Violence").
+  const [skipNote, setSkipNote] = useState<string | null>(null);
+  const skipNoteTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
   const lastSavedAtRef = useRef(0);
   const scrubBarRef = useRef<HTMLDivElement>(null);
@@ -677,6 +681,49 @@ export function SeamlessPlayer({
     return m && seg && front ? seg.startSeconds + toLocalTime(seg, front.currentTime) : 0;
   }, []);
 
+  // Scenes this viewer chose to skip or silence (see lib/content-filter): checked ten times a second, so a skip lands within a tenth of a
+  // second of the scene's start (the element's own time updates come only about four times a second).
+  const mutedRef = useRef(muted);
+  useEffect(() => {
+    mutedRef.current = muted;
+  }, [muted]);
+  useEffect(() => {
+    const skips = manifest?.skips;
+    if (!skips || skips.length === 0) return;
+    const videos = videoRefs.current;
+    let silenced = false;
+    let last: { end: number; at: number } | null = null;
+    const id = setInterval(() => {
+      const m = manifestRef.current;
+      const front = videoRefs.current[frontSlotRef.current];
+      if (!m || !front) return;
+      const gt = currentGlobalTime();
+      const hit = skips.find((s) => gt >= s.startSeconds - 0.02 && gt < s.endSeconds - 0.02);
+      if (hit?.action === "skip" && (!last || last.end !== hit.endSeconds || Date.now() - last.at > 1000)) {
+        last = { end: hit.endSeconds, at: Date.now() };
+        const names = hit.categories.map((c) => (isFilterCategory(c) ? CATEGORY_LABELS[c] : c));
+        setSkipNote(`Skipped: ${names.join(", ")}`);
+        clearTimeout(skipNoteTimerRef.current);
+        skipNoteTimerRef.current = setTimeout(() => setSkipNote(null), 2500);
+        seekTo(Math.min(hit.endSeconds, Math.max(0, m.durationSeconds - 0.5)));
+        return;
+      }
+      const wantSilence = hit?.action === "mute";
+      if (wantSilence && !silenced) {
+        silenced = true;
+        front.muted = true;
+      } else if (!wantSilence && silenced) {
+        silenced = false;
+        front.muted = mutedRef.current;
+      }
+    }, 100);
+    return () => {
+      clearInterval(id);
+      if (silenced) videos.forEach((el) => el && (el.muted = mutedRef.current));
+    };
+  }, [manifest, currentGlobalTime, seekTo]);
+  useEffect(() => () => clearTimeout(skipNoteTimerRef.current), []);
+
   // A floating bar drives the player through these.
   useEffect(() => {
     if (!controlsRef) return;
@@ -945,6 +992,11 @@ export function SeamlessPlayer({
       {!manifest && !error && (
         <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
           <Loader2 className="size-10 animate-spin text-white/70" />
+        </div>
+      )}
+      {mode === "full" && skipNote && (
+        <div role="status" className="pointer-events-none absolute top-20 left-1/2 z-10 -translate-x-1/2 rounded-full bg-black/80 px-4 py-1.5 text-sm font-medium text-white ring-1 ring-white/15">
+          {skipNote}
         </div>
       )}
       {manifest && buffering && playing && !finished && (

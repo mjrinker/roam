@@ -344,6 +344,13 @@
       "when": 1791930858864,
       "tag": "0048_video_chapters",
       "breakpoints": true
+    },
+    {
+      "idx": 49,
+      "version": "7",
+      "when": 1791977368017,
+      "tag": "0049_content_filter",
+      "breakpoints": true
     }
   ]
 }

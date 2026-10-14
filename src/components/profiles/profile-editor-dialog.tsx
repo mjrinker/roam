@@ -21,6 +21,7 @@ import { DEFAULT_LOCALE, LOCALES } from "@/lib/viewers/locales";
 import { RATING_LEVELS } from "@/lib/content/access";
 import { canEditExtended } from "@/lib/content/roles";
 import type { ViewerRole } from "@/lib/db/schema";
+import { CATEGORY_LABELS, FILTER_CATEGORIES, isFilterSeverity, type ContentFilterPrefs } from "@/lib/content-filter/categories";
 
 export interface EditableProfile {
   id: string;
@@ -31,6 +32,7 @@ export interface EditableProfile {
   maxAge: number | null;
   allowUnrated: boolean;
   visibleOnServer: boolean;
+  contentFilter: ContentFilterPrefs;
   hasPin: boolean;
 }
 
@@ -72,6 +74,7 @@ export function ProfileEditorDialog({
   const [maxAge, setMaxAge] = useState(profile?.maxAge ?? null);
   const [allowUnrated, setAllowUnrated] = useState(profile?.allowUnrated ?? false);
   const [visibleOnServer, setVisibleOnServer] = useState(profile?.visibleOnServer ?? true);
+  const [contentFilter, setContentFilter] = useState<ContentFilterPrefs>(profile?.contentFilter ?? {});
   const [newPin, setNewPin] = useState("");
   const [currentPin, setCurrentPin] = useState("");
   const [busy, setBusy] = useState(false);
@@ -113,6 +116,7 @@ export function ProfileEditorDialog({
           maxAge,
           allowUnrated,
           visibleOnServer,
+          contentFilter,
           ...(showRolePicker ? { role } : {}),
           ...(newPin.trim() ? { pin: newPin } : {}),
           ...(actor.hasPin ? { currentPin } : {}),
@@ -255,6 +259,39 @@ export function ProfileEditorDialog({
                   Allow titles with no rating on file
                 </label>
               )}
+
+              <fieldset className="grid gap-2">
+                <legend className="text-sm font-medium">What to skip</legend>
+                <p className="-mt-1 text-xs text-muted-foreground">
+                  For movies and shows that come with a content filter file, this profile skips the scenes below (or mutes the sound, for words). A
+                  note says what was skipped.
+                </p>
+                <div className="grid gap-1.5">
+                  {FILTER_CATEGORIES.map((category) => (
+                    <div key={category} className="flex items-center justify-between gap-3">
+                      <label htmlFor={`filter-${category}`} className="min-w-0 truncate text-sm">
+                        {CATEGORY_LABELS[category]}
+                      </label>
+                      <select
+                        id={`filter-${category}`}
+                        value={contentFilter[category] ?? "off"}
+                        onChange={(e) => {
+                          const next = { ...contentFilter };
+                          if (isFilterSeverity(e.target.value)) next[category] = e.target.value;
+                          else delete next[category];
+                          setContentFilter(next);
+                        }}
+                        className="h-8 shrink-0 rounded-md border border-input bg-transparent px-2 text-sm"
+                      >
+                        <option value="off" className="bg-popover">Don&apos;t skip</option>
+                        <option value="high" className="bg-popover">Skip strong</option>
+                        <option value="medium" className="bg-popover">Skip moderate and up</option>
+                        <option value="low" className="bg-popover">Skip all, even mild</option>
+                      </select>
+                    </div>
+                  ))}
+                </div>
+              </fieldset>
 
               <label className="flex items-center gap-2 text-sm">
                 <input

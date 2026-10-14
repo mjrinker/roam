@@ -3,6 +3,7 @@ import { isAvatarKey } from "@/lib/viewers/avatars";
 import { VIEWER_NAME_MAX_LENGTH } from "@/lib/viewers/config";
 import { isSupportedLocale } from "@/lib/viewers/locales";
 import { RATING_LEVEL_VALUES } from "@/lib/content/access";
+import { FILTER_CATEGORIES, FILTER_SEVERITIES } from "@/lib/content-filter/categories";
 
 export const nameSchema = z.string().trim().min(1, "Give the profile a name").max(VIEWER_NAME_MAX_LENGTH);
 export const avatarKeySchema = z.string().refine(isAvatarKey, "Unknown avatar");
@@ -16,6 +17,11 @@ export const pinSchema = z.union([z.string().regex(/^\d{4}$/, "PIN must be 4 dig
 // schema — see lib/content/roles.
 export const assignableRoleSchema = z.enum(["admin", "limited"]);
 
+// What a profile skips while watching: per category, the weakest strength it skips. A category left out is left alone.
+export const contentFilterSchema = z
+  .object(Object.fromEntries(FILTER_CATEGORIES.map((c) => [c, z.enum(FILTER_SEVERITIES).optional()])) as Record<(typeof FILTER_CATEGORIES)[number], z.ZodOptional<z.ZodEnum<{ low: "low"; medium: "medium"; high: "high" }>>>)
+  .strict();
+
 export const createViewerSchema = z.object({
   name: nameSchema,
   avatarKey: avatarKeySchema,
@@ -24,6 +30,7 @@ export const createViewerSchema = z.object({
   maxAge: maxAgeSchema.optional(),
   allowUnrated: z.boolean().optional(),
   visibleOnServer: z.boolean().optional(),
+  contentFilter: contentFilterSchema.optional(),
   // A PIN can be set at creation time; there's nothing to clear yet, so null is just ignored.
   pin: pinSchema.optional(),
 });
@@ -51,6 +58,7 @@ export const extendedEditSchema = z
     maxAge: maxAgeSchema.optional(),
     allowUnrated: z.boolean().optional(),
     visibleOnServer: z.boolean().optional(),
+    contentFilter: contentFilterSchema.optional(),
     pin: pinSchema.optional(),
     role: assignableRoleSchema.optional(),
     // Required whenever the ACTING profile itself has a PIN — see the PATCH route.

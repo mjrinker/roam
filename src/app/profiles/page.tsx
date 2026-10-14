@@ -5,6 +5,7 @@ import { SignOutButton } from "@/components/nav/sign-out-button";
 import { BrandLogo } from "@/components/shell/brand";
 import { ProfilePicker } from "@/components/profiles/profile-picker";
 import { MULTIPLE_VIEWERS_ENABLED } from "@/lib/viewers/config";
+import { normalizePrefs } from "@/lib/content-filter/categories";
 
 export default async function ProfilesPage({ searchParams }: PageProps<"/profiles">) {
   const resolved = await getCurrentViewer();
@@ -43,6 +44,7 @@ export default async function ProfilesPage({ searchParams }: PageProps<"/profile
             maxAge: v.maxAge,
             allowUnrated: v.allowUnrated,
             visibleOnServer: v.visibleOnServer,
+            contentFilter: normalizePrefs(v.contentFilter),
             hasPin: v.pinHash !== null,
           }))}
           actor={

@@ -29,6 +29,10 @@ import { loadTitleExtras } from "@/lib/extras/load";
 import { ExtrasSection } from "@/components/library/extras-section";
 import { ChaptersList } from "@/components/library/chapters-list";
 import { chaptersFromRows } from "@/lib/chapters/rows";
+import { ParentalGuide } from "@/components/library/parental-guide";
+import { cuesFromRows } from "@/lib/content-filter/rows";
+import { guideFromCues } from "@/lib/content-filter/playback";
+import { normalizePrefs } from "@/lib/content-filter/categories";
 import { Breadcrumbs } from "@/components/shell/breadcrumbs";
 import { isFileTreeLibraryKind } from "@/lib/libraries/profile";
 
@@ -118,6 +122,7 @@ export default async function TitleDetailPage({
       below={
         <>
           <ChaptersList serverId={serverId} ownerKind="title" ownerId={title.id} chapters={chaptersFromRows(segments)} />
+          <ParentalGuide lines={guideFromCues(cuesFromRows(segments))} prefs={normalizePrefs(viewer.contentFilter)} imdbId={title.imdbId} />
           <CastRow serverId={serverId} cast={cast} />
           <CrewRow serverId={serverId} crew={crew} />
           <ExtrasSection serverId={serverId} groups={extras} />

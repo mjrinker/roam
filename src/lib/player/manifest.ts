@@ -1,11 +1,13 @@
 import { and, asc, eq, inArray } from "drizzle-orm";
 import { db } from "@/lib/db/client";
-import { mediaFiles, watchState } from "@/lib/db/schema";
+import { mediaFiles, viewers, watchState } from "@/lib/db/schema";
 import { createStorageForServer } from "@/lib/storage/server-storage";
 import { StorageReauthRequiredError } from "@/lib/storage/reauth";
 import type { PlayManifest, PlayOwnerKind, PlaySegment } from "@/lib/player/types";
 import { buildPlaySegment } from "@/lib/player/timeline";
 import { playbackChapters } from "@/lib/chapters/chapters";
+import { normalizePrefs } from "@/lib/content-filter/categories";
+import { playbackCues, skipsFor } from "@/lib/content-filter/playback";
 import { shouldUseVariant } from "@/lib/player/variant-selection";
 import { describeVersions, offeredRows, pickVersion, withoutUndecodableVideo } from "@/lib/player/versions";
 import { isVideoCodecToken } from "@/lib/scan/codec-support";
@@ -139,6 +141,26 @@ export async function buildPlayManifest(
     throw err;
   }
 
+  // What this viewer has chosen to skip, applied to the scenes the video's filter file lists.
+  const [viewerRow] = await db.select({ contentFilter: viewers.contentFilter }).from(viewers).where(eq(viewers.id, viewerId)).limit(1);
+  const prefs = normalizePrefs(viewerRow?.contentFilter);
+  const skips =
+    Object.keys(prefs).length === 0
+      ? []
+      : skipsFor(
+          playbackCues(
+            segments.map((seg, i) => ({
+              startSeconds: seg.startSeconds,
+              durationSeconds: seg.durationSeconds,
+              inFileOffsetSeconds: seg.inFileOffsetSeconds,
+              inFileEndSeconds: seg.inFileEndSeconds,
+              cues: segmentRows[i].contentCues,
+            })),
+            cursor
+          ),
+          prefs
+        );
+
   const [existingState] = await db
     .select()
     .from(watchState)
@@ -163,6 +185,7 @@ export async function buildPlayManifest(
       version,
       versions,
       expiresAt: (earliestExpiry ?? new Date(Date.now() + 60_000)).toISOString(),
+      skips,
       // Part boundaries are not chapters: only what the files' own chapters say, moved onto this clock.
       chapters: playbackChapters(
         segments.map((seg, i) => ({

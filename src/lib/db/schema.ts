@@ -121,6 +121,8 @@ export const viewers = pgTable(
     pinHash: text("pin_hash"),
     pinVersion: integer("pin_version").notNull().default(0),
     playbackRate: real("playback_rate").notNull().default(1),
+    // What this profile skips while watching: per category, the weakest strength it skips ("violence": "high"). Empty = nothing.
+    contentFilter: jsonb("content_filter").$type<import("@/lib/content-filter/categories").ContentFilterPrefs>().notNull().default({}),
     // Whether this profile's name/avatar may be shown to OTHER accounts that
     // are members of the same server (not yet surfaced anywhere in the UI —
     // reserved for a future member list). Owner controls it for any profile
@@ -660,6 +662,9 @@ export const mediaFiles = pgTable(
     // backfill reads each already-probed video once.
     chaptersSource: text("chapters_source").$type<"embedded" | "file">(),
     chaptersReadAt: timestamp("chapters_read_at", { withTimezone: true }),
+    // Scenes to skip or silence, from a Movie Content Filter file beside the video ("Movie.mcf", see lib/content-filter), timed from the
+    // start of this file. Null when there is no such file.
+    contentCues: jsonb("content_cues").$type<import("@/lib/content-filter/categories").FilterCue[]>(),
 
     container: text("container"),
     videoCodec: text("video_codec"),
