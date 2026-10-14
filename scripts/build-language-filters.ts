@@ -10,7 +10,7 @@
  * Options: --limit N (default 10)  --only movies|shows  --title "name"  --loose (accept the best subtitle for the film when none was made
  * for this exact file; marked as a guess, and its timing may be off)  --retry (try again the files that found no match more than 30 days ago)
  */
-import { and, eq, inArray, isNull, lt, or, sql } from "drizzle-orm";
+import { and, eq, inArray, isNotNull, isNull, lt, or, sql } from "drizzle-orm";
 import { db } from "@/lib/db/client";
 import { episodes, libraries, mediaFiles, seasons, titles } from "@/lib/db/schema";
 import { isExtraFile } from "@/lib/scan/conventions";
@@ -34,9 +34,12 @@ async function main() {
   const dry = flag("--dry-run");
   const config = openSubtitlesConfig();
   if (!config && !dry) throw new Error("OPENSUBTITLES_API_KEY, OPENSUBTITLES_USERNAME and OPENSUBTITLES_PASSWORD must be set in .env.local.");
-  const notDone = flag("--retry")
-    ? or(isNull(mediaFiles.languageBuiltAt), and(isNull(mediaFiles.languageSource), lt(mediaFiles.languageBuiltAt, new Date(Date.now() - 30 * DAY))))
-    : isNull(mediaFiles.languageBuiltAt);
+  const loose = flag("--loose");
+  // Not looked at yet; or, in a loose run, looked at only strictly (no source, or "tried-exact") so the looser search can still try; or,
+  // with --retry, tried more than 30 days ago.
+  const triedOnlyStrictly = and(isNotNull(mediaFiles.languageBuiltAt), or(isNull(mediaFiles.languageSource), eq(mediaFiles.languageSource, "tried-exact")));
+  const triedLongAgo = and(isNotNull(mediaFiles.languageBuiltAt), or(isNull(mediaFiles.languageSource), inArray(mediaFiles.languageSource, ["tried-exact", "tried-loose"])), lt(mediaFiles.languageBuiltAt, new Date(Date.now() - 30 * DAY)));
+  const notDone = or(isNull(mediaFiles.languageBuiltAt), loose ? triedOnlyStrictly : undefined, flag("--retry") ? triedLongAgo : undefined);
   const base = and(isNull(mediaFiles.variantOfMediaFileId), notDone, sql`${mediaFiles.container} in ('mp4','m4v','mov')`, sql`${mediaFiles.sizeBytes} >= 131072`, sql`${mediaFiles.durationSeconds} is not null`);
 
   type Candidate = { name: string; owner: { kind: "title" | "episode"; id: string }; fileId: string; filename: string; sizeBytes: number; durationSeconds: number; serverId: string };
@@ -75,7 +78,7 @@ async function main() {
     const target = await searchTarget(db, c.owner);
     if (!target) continue;
     const provider = createStorageForServer(c.serverId);
-    const out = await buildLanguageCues({ os, fetchRange: (s, e) => provider.fetchByteRange(c.fileId, s, e) }, { target, sizeBytes: c.sizeBytes, durationSeconds: c.durationSeconds, loose: flag("--loose") });
+    const out = await buildLanguageCues({ os, fetchRange: (s, e) => provider.fetchByteRange(c.fileId, s, e) }, { target, sizeBytes: c.sizeBytes, durationSeconds: c.durationSeconds, loose });
     counts[out.status] = (counts[out.status] ?? 0) + 1;
     if (out.status === "quota") {
       console.log("The daily OpenSubtitles download limit is reached. Run this again after it resets.");
@@ -92,7 +95,7 @@ async function main() {
       console.log(`  ${out.guess ? "~" : "+"} ${c.name}: ${out.cues.length} mutes${out.guess ? " (a guess: timing may be off)" : ""}`);
     } else {
       // Tried and found nothing usable: noted, so it is not tried again every run.
-      await db.update(mediaFiles).set({ languageCues: null, languageSource: null, languageBuiltAt: new Date() }).where(same);
+      await db.update(mediaFiles).set({ languageCues: null, languageSource: loose ? "tried-loose" : "tried-exact", languageBuiltAt: new Date() }).where(same);
       console.log(`  - ${c.name}: ${out.status === "unmatched" ? "no subtitle made for this exact file" : out.status}`);
     }
     await sleep(1200);

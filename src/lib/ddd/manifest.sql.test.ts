@@ -73,10 +73,11 @@ describe("community scenes in the play manifest", () => {
   it("ignores categories the profile didn't choose, and never asks at all when it chose nothing", async () => {
     const other = await play(await film("full", { sex: "low" }));
     expect(other.ok && other.manifest.skips).toEqual([]);
-    const fetchSpy = vi.fn();
+    const fetchSpy = vi.fn<(url: string) => Promise<Response>>(async () => new Response("{}", { status: 200 }));
     vi.stubGlobal("fetch", fetchSpy);
     await play(await film("full", {}));
-    expect(fetchSpy).not.toHaveBeenCalled();
+    // (SkipDB may be asked about skip times; Does the Dog Die must not be.)
+    expect(fetchSpy.mock.calls.filter((c) => String(c[0]).includes("doesthedogdie"))).toEqual([]);
   });
   it("plays without filtering and says so, once, when they can't be reached", async () => {
     ddd = "down";

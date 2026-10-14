@@ -676,7 +676,9 @@ export const mediaFiles = pgTable(
     languageCues: jsonb("language_cues").$type<import("@/lib/content-filter/categories").FilterCue[]>(),
     // "srt": a subtitle file beside the video. "opensubtitles": one made for this exact file. "opensubtitles-guess": the best one found for the
     // film, whose timing may be off (a different cut of it).
-    languageSource: text("language_source").$type<"srt" | "opensubtitles" | "opensubtitles-guess">(),
+    // "tried-exact" / "tried-loose": looked for a subtitle and found none usable (so a run does not keep trying); only the strict try is
+    // repeated by a loose run.
+    languageSource: text("language_source").$type<"srt" | "opensubtitles" | "opensubtitles-guess" | "tried-exact" | "tried-loose">(),
     languageBuiltAt: timestamp("language_built_at", { withTimezone: true }),
 
     container: text("container"),

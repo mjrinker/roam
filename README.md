@@ -149,6 +149,10 @@ Chapters come from two places:
 
   A chapter file belongs to the one video file it is named after, with times from that file's start: a movie in parts gets one per part (`Movie - pt1.chapters.txt`), and each resolution version its own. It is found on the next scan of the library, or Resync on the movie. There is no online source of chapter times that Roam can use (TMDB has none).
 
+### Skip intro, recap and credits
+
+Episodes (and the occasional film) get **Skip intro**, **Skip recap** and **Next episode** buttons over the corner of the picture while those parts play: the button appears as the part starts and jumps to its end; during the credits it becomes **Next episode** (or **Skip credits** when there is no next one). With no credits time known, **Next episode** still appears for the last 25 seconds of an episode that has one after it. The times come from [SkipDB](https://skipdb.tv), an open, crowdsourced database (data under the ODbL; the buttons carry its credit). Roam asks for them live when something is played (by the show's IMDb id, the season and episode, and the video's length, so a copy of a different length is matched), shows them and keeps no database of them (only a short-lived memory), which is all its terms ask of a service that only displays skip times. A title it has nothing on simply has no buttons; if it can't be reached in a moment, playback is not held up. In a sample of a dozen of this library's episodes most had intro and credits times; films rarely do. `SKIPDB_URL=off` turns it off.
+
 ### Content filtering and the parental guide
 
 A profile can choose scenes to skip while watching. Under **Profiles > Edit > What to skip**, each of eleven categories (violence, language, sex, nudity, fear, drugs and alcohol, discrimination, commercial content, dispensable scenes, and, for what Does the Dog Die reports, animal harm and distressing themes) can be left alone, or skipped from a strength up (strong; moderate and up; everything, even mild). Who can change it follows the profile roles: the account owner for any profile, an admin profile for itself, and a limited profile not at all, so a limit set for a child sticks. Nothing is copied or edited, and nothing is announced: the player quietly jumps over the scene as it plays, or, for a cue about the sound only (a swear word), mutes it. The progress bar and the times measure the film without the skipped scenes (so it ends sooner), and chapter marks and seeking follow it.
@@ -314,6 +318,7 @@ The demo's sample media and the data from outside services keep their own licens
 ## Credits and attribution
 
 - Movie and TV metadata and images: [TMDB](https://www.themoviedb.org). *This product uses the TMDB API but is not endorsed or certified by TMDB.*
+- Intro, recap and credits times: [SkipDB](https://skipdb.tv), open data under the [ODbL](https://opendatacommons.org/licenses/odbl/1-0/).
 - Album data and covers: [MusicBrainz](https://musicbrainz.org) and the Cover Art Archive. Ratings: OMDb. Subtitle search: OpenSubtitles.
 - Demo footage: clips cut and re-encoded from Big Buck Bunny (© copyright 2008, Blender Foundation / www.bigbuckbunny.org) and Sintel (© copyright Blender Foundation | durian.blender.org), both CC BY 3.0. See `src/lib/demo/catalog.ts` and the demo's credits page.
 

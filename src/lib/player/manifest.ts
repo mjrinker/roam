@@ -13,6 +13,7 @@ import { dddConfigured } from "@/lib/ddd/client";
 import { dddTarget, serverDddAccess } from "@/lib/ddd/lookup";
 import { dddFor } from "@/lib/ddd/service";
 import { dddCues } from "@/lib/ddd/transform";
+import { skipSegmentsFor } from "@/lib/skipdb/client";
 import { shouldUseVariant } from "@/lib/player/variant-selection";
 import { describeVersions, offeredRows, pickVersion, withoutUndecodableVideo } from "@/lib/player/versions";
 import { isVideoCodecToken } from "@/lib/scan/codec-support";
@@ -177,6 +178,14 @@ export async function buildPlayManifest(
     skips = skipsFor([...fileCues, ...communityCues], prefs);
   }
 
+  // Intro, recap and credits times from SkipDB, for the skip buttons (see lib/skipdb): asked for live, never waited on for long, and a
+  // film without any simply has no buttons. Not for trailers and extras, nor for phone videos in a photo library.
+  let skipSegments: PlayManifest["skipSegments"] = [];
+  if (ownerKind !== "extra" && !preferBrowserVersion) {
+    const target = await dddTarget(db, ownerKind, ownerId);
+    if (target) skipSegments = await skipSegmentsFor({ imdbId: target.lookup.imdbId, ...(target.owner.kind === "episode" ? { season: target.owner.season, episode: target.owner.episode } : {}) }, cursor);
+  }
+
   const [existingState] = await db
     .select()
     .from(watchState)
@@ -202,6 +211,7 @@ export async function buildPlayManifest(
       versions,
       expiresAt: (earliestExpiry ?? new Date(Date.now() + 60_000)).toISOString(),
       skips,
+      ...(skipSegments && skipSegments.length > 0 ? { skipSegments } : {}),
       ...(notice ? { notice } : {}),
       // Part boundaries are not chapters: only what the files' own chapters say, moved onto this clock.
       chapters: playbackChapters(

@@ -25,6 +25,8 @@ import { clampSpeed } from "@/lib/player/speed";
 import { SubtitleOverlay, type LoadedTrack } from "@/components/player/subtitles";
 import { SettingsMenu } from "@/components/player/settings-menu";
 import { MarkPanel } from "@/components/player/mark-panel";
+import { SkipButton } from "@/components/player/skip-button";
+import { activeSkipButton } from "@/lib/skipdb/active";
 import { readPreferredHeight, writePreferredHeight } from "@/lib/player/quality-preference";
 import { applyLocalFiles, localVideoFor, offlineVideoManifest, openLocalFiles, type LocalFiles } from "@/lib/offline/local-playback";
 import { queueProgress } from "@/lib/offline/sync";
@@ -912,6 +914,7 @@ export function SeamlessPlayer({
     .filter((c) => !isRemoved(c.startSeconds, removed))
     .map((c) => ({ title: c.title, startSeconds: toViewTime(c.startSeconds, removed), real: c.startSeconds }));
   const viewNow = toViewTime(globalTime, removed);
+  const skipButton = activeSkipButton(manifest?.skipSegments, globalTime, manifest?.durationSeconds ?? 0, !!nextHref);
   const displayTime = scrubTime ?? viewNow;
   const progressPct = duration > 0 ? Math.min(100, (displayTime / duration) * 100) : 0;
   const controlsShown = controlsVisible || !playing || finished;
@@ -1018,6 +1021,7 @@ export function SeamlessPlayer({
           <Loader2 className="size-10 animate-spin text-white/70" />
         </div>
       )}
+      {mode === "full" && skipButton && !finished && !markOpen && <SkipButton state={skipButton} nextHref={nextHref} onSeek={seekTo} />}
       {mode === "full" && markOpen && manifest?.canMark && ownerKind !== "extra" && (
         <MarkPanel
           ownerKind={ownerKind}
