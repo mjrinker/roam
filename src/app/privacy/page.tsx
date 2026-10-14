@@ -134,7 +134,7 @@ export default function PrivacyPage() {
             </>,
             <>
               <strong>Metadata services</strong>: movie and show names and years go to <A href="https://www.themoviedb.org">TMDB</A>; IMDb ids go to OMDb; audiobook names and authors go to Audible and Audnexus; artist and album folder names go to MusicBrainz when a
-              music library has lookups turned on; and the search text goes to OpenSubtitles only when someone searches for subtitles. This product uses the TMDB API but is not endorsed or certified by TMDB.
+              music library has lookups turned on; the search text goes to OpenSubtitles only when someone searches for subtitles; and, only on servers where it has been switched on, a movie or show&apos;s IMDb or TMDB id goes to Does the Dog Die for its community content reports. This product uses the TMDB API but is not endorsed or certified by TMDB.
             </>,
           ]}
         />

@@ -8,6 +8,8 @@ import { loadPlatformStats } from "@/lib/platform/stats";
 import { ItemsByKind, Panel, Problems, ProviderLimits, Tile, fmt, when } from "@/components/platform/platform-panels";
 import { RefreshNowButton } from "@/components/platform/refresh-now-button";
 import { Card, CardContent } from "@/components/ui/card";
+import { DddAccessSelect } from "@/components/platform/ddd-access-select";
+import { BUDGET_USED_FRACTION, dddConfigured, isBlocked, readUsage } from "@/lib/ddd/client";
 import { providerName } from "@/lib/storage/provider-info";
 
 /** The title is only set for a platform admin: anyone else gets the "not found" page, and a tab saying "Platform admin" would tell them the page is real. */
@@ -21,6 +23,7 @@ export const dynamic = "force-dynamic";
 export default async function PlatformPage() {
   await requirePlatformAdmin();
   const stats = await loadPlatformStats(db);
+  const dddUsage = dddConfigured() ? await readUsage() : null;
   const { totals, activity, health } = stats;
   const lastRun = health.tmdb.lastRun;
   return (
@@ -80,7 +83,32 @@ export default async function PlatformPage() {
         </Card>
       </Panel>
 
-      <Panel title="Servers" note="Newest first.">
+      <Panel
+        title="Does the Dog Die"
+        note="Community content reports and timestamps, asked for with this deployment's own key (DDD_API_KEY) and shared by every server you switch on below. Their free tier is for non-commercial use only; the API Terms apply to you."
+      >
+        <Card>
+          <CardContent className="flex flex-wrap items-center justify-between gap-x-6 gap-y-2 py-3 text-sm">
+            {!dddConfigured() ? (
+              <p className="text-muted-foreground">No key is set, so nothing is asked and the selectors below do nothing. Add DDD_API_KEY to turn it on.</p>
+            ) : dddUsage && dddUsage.limitMonth !== null && dddUsage.remainingMonth !== null ? (
+              <>
+                <p>
+                  <span className="font-medium tabular-nums">{fmt(dddUsage.limitMonth - dddUsage.remainingMonth)}</span> of{" "}
+                  <span className="tabular-nums">{fmt(dddUsage.limitMonth)}</span> requests used this month
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  Roam stops asking at {Math.round(BUDGET_USED_FRACTION * 100)}%{isBlocked(dddUsage) && dddUsage.blockedUntil ? `; blocked until ${new Date(dddUsage.blockedUntil).toLocaleDateString("en-US", { dateStyle: "medium" })}` : ""} · as of {when(new Date(dddUsage.at))}
+                </p>
+              </>
+            ) : (
+              <p className="text-muted-foreground">Key set. Nothing has been asked yet, so there is no usage to show.</p>
+            )}
+          </CardContent>
+        </Card>
+      </Panel>
+
+      <Panel title="Servers" note="Newest first. Choose how much each may use Does the Dog Die.">
         <div className="flex flex-col gap-2">
           {stats.servers.map((s) => (
             <Card key={s.id}>
@@ -89,7 +117,10 @@ export default async function PlatformPage() {
                   <p className="font-medium break-words">{s.name}</p>
                   <p className="text-xs break-all text-muted-foreground">{s.owner} · created {s.createdAt.toLocaleDateString("en-US", { dateStyle: "medium" })}</p>
                 </div>
-                <p className="text-xs text-muted-foreground tabular-nums">
+                <div className="w-full sm:w-auto">
+                  <DddAccessSelect serverId={s.id} initial={s.dddAccess} />
+                </div>
+                <p className="w-full text-xs text-muted-foreground tabular-nums sm:w-auto">
                   {fmt(s.members)} member{s.members === 1 ? "" : "s"} · {fmt(s.libraries)} librar{s.libraries === 1 ? "y" : "ies"} · {fmt(s.titles)} items · {fmt(s.connections)} storage
                 </p>
               </CardContent>

@@ -228,6 +228,8 @@ export function SeamlessPlayer({
   const [controlsVisible, setControlsVisible] = useState(true);
   const [hoverRatio, setHoverRatio] = useState<number | null>(null);
   const [hoverChapter, setHoverChapter] = useState<string | null>(null);
+  // One message when playback starts if filtering this viewer asked for couldn't be applied (never about scenes that were skipped).
+  const [notice, setNotice] = useState<string | null>(null);
 
   const lastSavedAtRef = useRef(0);
   const scrubBarRef = useRef<HTMLDivElement>(null);
@@ -686,6 +688,15 @@ export function SeamlessPlayer({
 
   // Scenes this viewer chose to skip or silence (see lib/content-filter): checked ten times a second, so a skip lands within a tenth of a
   // second of the scene's start (the element's own time updates come only about four times a second).
+  useEffect(() => {
+    const text = manifest?.notice ?? null;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- a message that appears with a newly loaded video and clears itself
+    setNotice(text);
+    if (!text) return;
+    const id = setTimeout(() => setNotice(null), 7000);
+    return () => clearTimeout(id);
+  }, [manifest]);
+
   const mutedRef = useRef(muted);
   useEffect(() => {
     mutedRef.current = muted;
@@ -1001,6 +1012,11 @@ export function SeamlessPlayer({
       {!manifest && !error && (
         <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
           <Loader2 className="size-10 animate-spin text-white/70" />
+        </div>
+      )}
+      {mode === "full" && notice && (
+        <div role="status" className="pointer-events-none absolute top-20 left-1/2 z-10 w-[min(90vw,28rem)] -translate-x-1/2 rounded-xl bg-black/85 px-4 py-2.5 text-center text-sm text-white ring-1 ring-white/15">
+          {notice}
         </div>
       )}
       {manifest && buffering && playing && !finished && (

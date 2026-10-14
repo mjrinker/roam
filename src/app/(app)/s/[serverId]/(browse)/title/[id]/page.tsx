@@ -31,6 +31,8 @@ import { ParentalGuide } from "@/components/library/parental-guide";
 import { PlayChoicesButton } from "@/components/library/play-choices";
 import { cuesFromRows } from "@/lib/content-filter/rows";
 import { guideFromCues } from "@/lib/content-filter/playback";
+import { loadDddForMovie } from "@/lib/ddd/page";
+import { mergeGuideLines } from "@/lib/ddd/transform";
 import { normalizePrefs } from "@/lib/content-filter/categories";
 import { Breadcrumbs } from "@/components/shell/breadcrumbs";
 import { isFileTreeLibraryKind } from "@/lib/libraries/profile";
@@ -90,7 +92,9 @@ export default async function TitleDetailPage({
   const cast = await loadTitleCast(db, title.id);
   const crew = await loadTitleCrew(db, title.id);
 
-  const guideLines = guideFromCues(cuesFromRows(segments));
+  // The community's scenes and reports, when this server uses Does the Dog Die (asks once per title, then it is kept; see lib/ddd).
+  const ddd = await loadDddForMovie(db, serverId, title);
+  const guideLines = mergeGuideLines(guideFromCues(cuesFromRows(segments)), ddd.lines);
   const filterPrefs = normalizePrefs(viewer.contentFilter);
   const ready = segments.length > 0 && segments.every((s) => s.durationSeconds != null);
   const hasProgress = !!state && !state.finished && state.positionSeconds > 0;
@@ -123,7 +127,7 @@ export default async function TitleDetailPage({
       below={
         <>
           <ChaptersList serverId={serverId} ownerKind="title" ownerId={title.id} chapters={chaptersFromRows(segments)} />
-          <ParentalGuide lines={guideLines} prefs={filterPrefs} imdbId={title.imdbId} />
+          <ParentalGuide lines={guideLines} prefs={filterPrefs} imdbId={title.imdbId} reports={ddd.reports} />
           <CastRow serverId={serverId} cast={cast} />
           <CrewRow serverId={serverId} crew={crew} />
           <ExtrasSection serverId={serverId} groups={extras} />
@@ -141,6 +145,7 @@ export default async function TitleDetailPage({
             href={`/s/${serverId}/watch/title/${title.id}`}
             lines={guideLines}
             prefs={filterPrefs}
+            dddUrl={ddd.pending ? `/api/ddd/title/${title.id}` : undefined}
             className="h-12 gap-2.5 rounded-xl px-8 text-base font-semibold shadow-[0_10px_34px_-8px_oklch(0.853_0.163_169/0.7)]"
           >
             <Play className="size-5" fill="currentColor" />

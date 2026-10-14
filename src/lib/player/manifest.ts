@@ -9,6 +9,10 @@ import { playbackChapters } from "@/lib/chapters/chapters";
 import { normalizePrefs, type ContentFilterPrefs } from "@/lib/content-filter/categories";
 import { mergePrefs } from "@/lib/content-filter/timeline";
 import { playbackCues, skipsFor } from "@/lib/content-filter/playback";
+import { dddConfigured } from "@/lib/ddd/client";
+import { dddTarget, serverDddAccess } from "@/lib/ddd/lookup";
+import { dddFor } from "@/lib/ddd/service";
+import { dddCues } from "@/lib/ddd/transform";
 import { shouldUseVariant } from "@/lib/player/variant-selection";
 import { describeVersions, offeredRows, pickVersion, withoutUndecodableVideo } from "@/lib/player/versions";
 import { isVideoCodecToken } from "@/lib/scan/codec-support";
@@ -145,22 +149,33 @@ export async function buildPlayManifest(
   // What this viewer has chosen to skip, applied to the scenes the video's filter file lists.
   const [viewerRow] = await db.select({ contentFilter: viewers.contentFilter }).from(viewers).where(eq(viewers.id, viewerId)).limit(1);
   const prefs = mergePrefs(normalizePrefs(viewerRow?.contentFilter), choice.extraSkip ?? {});
-  const skips =
-    Object.keys(prefs).length === 0
-      ? []
-      : skipsFor(
-          playbackCues(
-            segments.map((seg, i) => ({
-              startSeconds: seg.startSeconds,
-              durationSeconds: seg.durationSeconds,
-              inFileOffsetSeconds: seg.inFileOffsetSeconds,
-              inFileEndSeconds: seg.inFileEndSeconds,
-              cues: segmentRows[i].contentCues,
-            })),
-            cursor
-          ),
-          prefs
-        );
+  let notice: string | undefined;
+  let skips: PlayManifest["skips"] = [];
+  if (Object.keys(prefs).length > 0) {
+    const fileCues = playbackCues(
+      segments.map((seg, i) => ({
+        startSeconds: seg.startSeconds,
+        durationSeconds: seg.durationSeconds,
+        inFileOffsetSeconds: seg.inFileOffsetSeconds,
+        inFileEndSeconds: seg.inFileEndSeconds,
+        cues: segmentRows[i].contentCues,
+      })),
+      cursor
+    );
+    // Scenes the Does the Dog Die community reported, when this server uses it (see lib/ddd): from what is kept, or asked for once now.
+    // Never worth holding playback up for: if it can't be had in a moment, the film plays without it and says so.
+    let communityCues: typeof fileCues = [];
+    const access = ownerKind === "extra" || !dddConfigured() ? "disabled" : await serverDddAccess(db, serverId);
+    if (access !== "disabled") {
+      const target = await dddTarget(db, ownerKind, ownerId);
+      if (target) {
+        const answer = await dddFor(target.lookup, access, "play", { timeoutMs: 2500 });
+        if (answer.status === "ok") communityCues = dddCues(answer.data, target.owner).filter((c) => c.startSeconds < cursor).map((c) => ({ ...c, endSeconds: Math.min(c.endSeconds, cursor) }));
+        else if (answer.status === "unavailable") notice = "Content filtering from the community isn't available for this title right now, so it is playing without it.";
+      }
+    }
+    skips = skipsFor([...fileCues, ...communityCues], prefs);
+  }
 
   const [existingState] = await db
     .select()
@@ -187,6 +202,7 @@ export async function buildPlayManifest(
       versions,
       expiresAt: (earliestExpiry ?? new Date(Date.now() + 60_000)).toISOString(),
       skips,
+      ...(notice ? { notice } : {}),
       // Part boundaries are not chapters: only what the files' own chapters say, moved onto this clock.
       chapters: playbackChapters(
         segments.map((seg, i) => ({

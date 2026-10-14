@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { deleteExpiredDdd } from "@/lib/ddd/service";
 import { runAndRecordTmdbRefresh } from "@/lib/tmdb/refresh-job";
 
 export const maxDuration = 60;
@@ -12,5 +13,8 @@ export async function GET(request: Request) {
   if (!secret || request.headers.get("authorization") !== `Bearer ${secret}`) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
-  return NextResponse.json(await runAndRecordTmdbRefresh(), { headers: { "Cache-Control": "no-store" } });
+  const refreshed = await runAndRecordTmdbRefresh();
+  // What Does the Dog Die said about a title is never kept past 30 days (their API Terms).
+  const dddDeleted = await deleteExpiredDdd().catch(() => 0);
+  return NextResponse.json({ ...refreshed, dddDeleted }, { headers: { "Cache-Control": "no-store" } });
 }

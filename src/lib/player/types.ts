@@ -31,6 +31,8 @@ export interface PlayManifest {
   chapters?: { title: string; startSeconds: number }[];
   /** Scenes this viewer has chosen not to see or hear (see lib/content-filter), on the playback clock: skipped over, or played with the sound off. */
   skips?: { startSeconds: number; endSeconds: number; action: "skip" | "mute"; categories: string[] }[];
+  /** A short message to show once when playback starts: filtering this viewer asked for could not be applied. */
+  notice?: string;
   /** The resolution version this plays (its label; "" for a file with none) and every version on offer, best first. */
   version?: string;
   versions?: { label: string; name: string; height: number | null }[];

@@ -6,6 +6,8 @@ import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { CATEGORY_LABELS, SEVERITY_LABELS, type ContentFilterPrefs, type FilterCategory, type FilterSeverity } from "@/lib/content-filter/categories";
+import { DddCredit } from "@/components/library/ddd-credit";
+import { mergeGuideLines } from "@/lib/ddd/transform";
 import type { GuideLine } from "@/lib/content-filter/playback";
 import { choosableLines, extraFromPicks, stricterThan, withSkipParam } from "@/lib/content-filter/preplay";
 import { encodeSkipParam } from "@/lib/content-filter/timeline";
@@ -39,7 +41,7 @@ function ChoicesDialog({ open, onOpenChange, href, lines, prefs }: { open: boole
                 <label htmlFor={`play-${l.category}`} className="min-w-0 sm:flex-1">
                   <span className="block truncate text-sm font-medium">{CATEGORY_LABELS[l.category]}</span>
                   <span className="block text-xs text-muted-foreground">
-                    {SEVERITY_LABELS[l.severity]} · {l.scenes} scene{l.scenes === 1 ? "" : "s"}
+                    {l.source === "community" ? "Community reports" : SEVERITY_LABELS[l.severity]} · {l.scenes} scene{l.scenes === 1 ? "" : "s"}
                   </span>
                 </label>
                 <select
@@ -61,6 +63,7 @@ function ChoicesDialog({ open, onOpenChange, href, lines, prefs }: { open: boole
             );
           })}
         </div>
+        {lines.some((l) => l.source === "community") && <DddCredit className="text-xs text-muted-foreground" />}
         <DialogFooter className="gap-2">
           <Button type="button" variant="ghost" onClick={() => onOpenChange(false)}>
             Cancel
@@ -74,13 +77,36 @@ function ChoicesDialog({ open, onOpenChange, href, lines, prefs }: { open: boole
   );
 }
 
-/** Shared by the two kinds of button: whether to ask first, and the dialog to ask with. */
-function usePlayChoices(href: string, lines: GuideLine[], prefs: ContentFilterPrefs) {
+/**
+ * Shared by the two kinds of button: whether to ask first, and the dialog to ask with. With `dddUrl` (limited access, nothing kept yet),
+ * the first press asks the server for the community's scenes for this title, then opens the choices if there are any (else just plays).
+ */
+function usePlayChoices(href: string, lines: GuideLine[], prefs: ContentFilterPrefs, dddUrl?: string) {
+  const router = useRouter();
   const [open, setOpen] = useState(false);
-  const choosable = choosableLines(lines, prefs);
+  const [busy, setBusy] = useState(false);
+  const [fetched, setFetched] = useState<GuideLine[] | null>(null);
+  const all = fetched ? mergeGuideLines(lines, fetched) : lines;
+  const choosable = choosableLines(all, prefs);
+  const wantsLookup = !!dddUrl && fetched === null;
   return {
-    asks: choosable.length > 0,
-    open: () => setOpen(true),
+    asks: choosable.length > 0 || wantsLookup,
+    busy,
+    activate: async () => {
+      if (!wantsLookup) return setOpen(true);
+      setBusy(true);
+      let found: GuideLine[] = [];
+      try {
+        const res = await fetch(dddUrl!, { signal: AbortSignal.timeout(5000) });
+        if (res.ok) found = ((await res.json()) as { lines?: GuideLine[] }).lines ?? [];
+      } catch {
+        // No answer in time: carry on without it.
+      }
+      setBusy(false);
+      setFetched(found);
+      if (choosableLines(mergeGuideLines(lines, found), prefs).length > 0) setOpen(true);
+      else router.push(href);
+    },
     dialog: choosable.length > 0 ? <ChoicesDialog open={open} onOpenChange={setOpen} href={href} lines={choosable} prefs={prefs} /> : null,
   };
 }
@@ -89,17 +115,18 @@ function usePlayChoices(href: string, lines: GuideLine[], prefs: ContentFilterPr
  * A big play button that, when the movie or episode has scenes this profile could still choose to skip, first asks what to skip for this
  * viewing. Without any, it is just a link to the player.
  */
-export function PlayChoicesButton({ href, lines, prefs, className, children }: { href: string; lines: GuideLine[]; prefs: ContentFilterPrefs; className?: string; children: React.ReactNode }) {
-  const choices = usePlayChoices(href, lines, prefs);
+export function PlayChoicesButton({ href, lines, prefs, dddUrl, className, children }: { href: string; lines: GuideLine[]; prefs: ContentFilterPrefs; dddUrl?: string; className?: string; children: React.ReactNode }) {
+  const choices = usePlayChoices(href, lines, prefs, dddUrl);
   return (
     <>
       <Button
         render={<Link href={href} />}
         className={className}
+        aria-busy={choices.busy || undefined}
         onClick={(e) => {
           if (!choices.asks) return;
           e.preventDefault();
-          choices.open();
+          if (!choices.busy) void choices.activate();
         }}
       >
         {children}
@@ -110,17 +137,18 @@ export function PlayChoicesButton({ href, lines, prefs, className, children }: {
 }
 
 /** The same for a plain link (an episode's row). */
-export function PlayChoicesLink({ href, lines, prefs, className, children }: { href: string; lines: GuideLine[]; prefs: ContentFilterPrefs; className?: string; children: React.ReactNode }) {
-  const choices = usePlayChoices(href, lines, prefs);
+export function PlayChoicesLink({ href, lines, prefs, dddUrl, className, children }: { href: string; lines: GuideLine[]; prefs: ContentFilterPrefs; dddUrl?: string; className?: string; children: React.ReactNode }) {
+  const choices = usePlayChoices(href, lines, prefs, dddUrl);
   return (
     <>
       <Link
         href={href}
         className={className}
+        aria-busy={choices.busy || undefined}
         onClick={(e) => {
           if (!choices.asks) return;
           e.preventDefault();
-          choices.open();
+          if (!choices.busy) void choices.activate();
         }}
       >
         {children}

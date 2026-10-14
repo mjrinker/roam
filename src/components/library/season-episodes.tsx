@@ -30,6 +30,8 @@ export interface EpisodeRowData {
   chapters: Chapter[];
   /** What the episode's content filter file lists, by category; empty when it has none. Playing offers choices for that viewing. */
   guide: GuideLine[];
+  /** Where to ask (just before playing) for the community's scenes when none are kept yet; absent otherwise. */
+  dddUrl?: string;
 }
 
 export interface SeasonTab {
@@ -109,6 +111,7 @@ function EpisodeRow({ ep, serverId, prefs }: { ep: EpisodeRowData; serverId: str
           href={`/s/${serverId}/watch/episode/${ep.id}`}
           lines={ep.guide}
           prefs={prefs}
+          dddUrl={ep.dddUrl}
           className={cn(classes, "pr-32 hover:bg-white/[0.05]")}
         >
           {body}

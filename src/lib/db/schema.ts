@@ -889,7 +889,7 @@ export const dddItems = pgTable("ddd_items", {
   // Their id for the title; null when they have no such title (missing = true).
   dddItemId: integer("ddd_item_id"),
   missing: boolean("missing").notNull().default(false),
-  data: jsonb("data").$type<import("@/lib/ddd/types").DddTitleData>(),
+  data: jsonb("data").$type<import("@/lib/ddd/types").DddTitleData | import("@/lib/ddd/types").DddReference>(),
   fetchedAt: timestamp("fetched_at", { withTimezone: true }).notNull().defaultNow(),
 });
 

@@ -27,6 +27,8 @@ import { chaptersFromRows } from "@/lib/chapters/rows";
 import { PlayChoicesButton } from "@/components/library/play-choices";
 import { cuesFromRows } from "@/lib/content-filter/rows";
 import { guideFromCues } from "@/lib/content-filter/playback";
+import { episodeLines, loadDddForShow } from "@/lib/ddd/page";
+import { mergeGuideLines } from "@/lib/ddd/transform";
 import { normalizePrefs } from "@/lib/content-filter/categories";
 
 export default async function ShowDetailPage({
@@ -111,6 +113,8 @@ export default async function ShowDetailPage({
       a.number - b.number
   );
 
+  // The community's scenes for the whole show (one set covers every episode; asked once, then kept; see lib/ddd).
+  const ddd = await loadDddForShow(db, serverId, show);
   const rows: EpisodeRowData[] = ordered.map((ep) => {
     const files = filesByEpisode.get(ep.id) ?? [];
     const state = stateByEpisode.get(ep.id);
@@ -128,7 +132,8 @@ export default async function ShowDetailPage({
         inProgress && state.durationSeconds ? state.positionSeconds / state.durationSeconds : 0,
       watched: state?.finished ?? false,
       chapters: chaptersFromRows(files),
-      guide: guideFromCues(cuesFromRows(files)),
+      guide: mergeGuideLines(guideFromCues(cuesFromRows(files)), episodeLines(ddd, seasonNumberById.get(ep.seasonId) ?? -1, ep.number)),
+      dddUrl: ddd.pending ? `/api/ddd/episode/${ep.id}` : undefined,
     };
   });
 
@@ -188,6 +193,7 @@ export default async function ShowDetailPage({
             href={`/s/${serverId}/watch/episode/${nextRow.id}`}
             lines={nextRow.guide}
             prefs={filterPrefs}
+            dddUrl={nextRow.dddUrl}
             className="h-12 gap-2.5 rounded-xl px-8 text-base font-semibold shadow-[0_10px_34px_-8px_oklch(0.853_0.163_169/0.7)]"
           >
             <Play className="size-5" fill="currentColor" />

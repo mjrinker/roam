@@ -65,7 +65,7 @@ export interface PlatformStats {
   };
   /** Per library type: how much is in it. Files are the main files only (not extras or other versions). */
   itemsByKind: { kind: string; libraries: number; items: number; episodes: number; files: number; bytes: number }[];
-  servers: { id: string; name: string; owner: string; members: number; libraries: number; titles: number; connections: number; createdAt: Date }[];
+  servers: { id: string; name: string; owner: string; members: number; libraries: number; titles: number; connections: number; createdAt: Date; dddAccess: "disabled" | "limited" | "full" }[];
 }
 
 export function usageStatus(linked: number, cap: number | null): ProviderUsage["status"] {
@@ -229,6 +229,7 @@ export async function loadPlatformStats(ex: Db, now: Date = new Date()): Promise
       name: servers.name,
       owner: profiles.email,
       createdAt: servers.createdAt,
+      dddAccess: servers.dddAccess,
       members: sql<number>`(select count(*)::int from ${serverMembers} m where m.server_id = ${servers.id})`,
       libraries: sql<number>`(select count(*)::int from ${libraries} l where l.server_id = ${servers.id})`,
       titles: sql<number>`(select count(*)::int from ${titles} t join ${libraries} l on l.id = t.library_id where l.server_id = ${servers.id})`,

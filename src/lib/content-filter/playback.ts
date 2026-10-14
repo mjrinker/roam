@@ -69,6 +69,8 @@ export function skipsFor(cues: readonly FilterCue[], prefs: ContentFilterPrefs):
 }
 
 export interface GuideLine {
+  /** Where the line comes from: a content filter file (default, with a strength) or the Does the Dog Die community (no strength). */
+  source?: "community";
   category: FilterCategory;
   /** The strongest cue in the category. */
   severity: FilterSeverity;

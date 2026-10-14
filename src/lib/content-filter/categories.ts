@@ -1,6 +1,8 @@
 /** The kinds of content a viewer can choose to skip, and how strong it is (the Movie Content Filter format's own words). */
 
-export const FILTER_CATEGORIES = ["violence", "language", "sex", "nudity", "fear", "drugs", "discrimination", "commercial", "dispensable"] as const;
+// The first nine are the Movie Content Filter format's own; "animals" and "distress" exist for what Does the Dog Die reports (a dog dies,
+// self-harm, abuse), which the nine don't hold.
+export const FILTER_CATEGORIES = ["violence", "language", "sex", "nudity", "fear", "drugs", "discrimination", "commercial", "dispensable", "animals", "distress"] as const;
 export type FilterCategory = (typeof FILTER_CATEGORIES)[number];
 
 export const FILTER_SEVERITIES = ["low", "medium", "high"] as const;
@@ -19,6 +21,8 @@ export const CATEGORY_LABELS: Record<FilterCategory, string> = {
   discrimination: "Discrimination",
   commercial: "Commercial content",
   dispensable: "Dispensable scenes",
+  animals: "Animal harm",
+  distress: "Distressing themes",
 };
 
 export const SEVERITY_LABELS: Record<FilterSeverity, string> = { low: "Mild", medium: "Moderate", high: "Strong" };
