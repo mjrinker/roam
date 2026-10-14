@@ -35,8 +35,8 @@ function ChoicesDialog({ open, onOpenChange, href, lines, prefs }: { open: boole
             const profile = prefs[l.category];
             const options = stricterThan(profile);
             return (
-              <div key={l.category} className="flex items-center justify-between gap-3">
-                <label htmlFor={`play-${l.category}`} className="min-w-0 flex-1">
+              <div key={l.category} className="flex flex-col gap-1.5 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
+                <label htmlFor={`play-${l.category}`} className="min-w-0 sm:flex-1">
                   <span className="block truncate text-sm font-medium">{CATEGORY_LABELS[l.category]}</span>
                   <span className="block text-xs text-muted-foreground">
                     {SEVERITY_LABELS[l.severity]} · {l.scenes} scene{l.scenes === 1 ? "" : "s"}
@@ -46,7 +46,7 @@ function ChoicesDialog({ open, onOpenChange, href, lines, prefs }: { open: boole
                   id={`play-${l.category}`}
                   value={picks[l.category] ?? "off"}
                   onChange={(e) => setPicks((p) => ({ ...p, [l.category]: e.target.value === "off" ? undefined : (e.target.value as FilterSeverity) }))}
-                  className={cn("h-8 shrink-0 rounded-md border border-input bg-transparent px-2 text-sm")}
+                  className={cn("h-9 w-full min-w-0 rounded-md border border-input bg-transparent px-2 text-sm sm:h-8 sm:w-56 sm:shrink-0")}
                 >
                   <option value="off" className="bg-popover">
                     {profile ? `Your profile: ${OPTION_LABEL[profile].toLowerCase()}` : "Don't skip"}

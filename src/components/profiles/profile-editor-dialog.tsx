@@ -160,7 +160,7 @@ export function ProfileEditorDialog({
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-h-[92dvh] overflow-y-auto sm:max-w-md">
-        <form onSubmit={save} className="grid gap-5">
+        <form onSubmit={save} className="grid grid-cols-[minmax(0,1fr)] gap-5">
           <DialogHeader>
             <DialogTitle>{profile ? "Edit profile" : "Add profile"}</DialogTitle>
             <DialogDescription>Each profile keeps its own watch history and settings.</DialogDescription>
@@ -260,16 +260,16 @@ export function ProfileEditorDialog({
                 </label>
               )}
 
-              <fieldset className="grid gap-2">
+              <fieldset className="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-2">
                 <legend className="text-sm font-medium">What to skip</legend>
                 <p className="-mt-1 text-xs text-muted-foreground">
-                  For movies and shows that come with a content filter file, this profile skips the scenes below (or mutes the sound, for words). A
-                  note says what was skipped.
+                  For movies and shows that come with a content filter file, this profile skips the scenes below (or mutes the sound, for words).
+                  It is skipped quietly.
                 </p>
-                <div className="grid gap-1.5">
+                <div className="grid grid-cols-[minmax(0,1fr)] gap-1.5">
                   {FILTER_CATEGORIES.map((category) => (
                     <div key={category} className="flex items-center justify-between gap-3">
-                      <label htmlFor={`filter-${category}`} className="min-w-0 truncate text-sm">
+                      <label htmlFor={`filter-${category}`} className="min-w-0 flex-1 text-sm leading-tight">
                         {CATEGORY_LABELS[category]}
                       </label>
                       <select
@@ -281,7 +281,7 @@ export function ProfileEditorDialog({
                           else delete next[category];
                           setContentFilter(next);
                         }}
-                        className="h-8 shrink-0 rounded-md border border-input bg-transparent px-2 text-sm"
+                        className="h-8 w-48 max-w-[62%] shrink-0 rounded-md border border-input bg-transparent px-2 text-sm"
                       >
                         <option value="off" className="bg-popover">Don&apos;t skip</option>
                         <option value="high" className="bg-popover">Skip strong</option>

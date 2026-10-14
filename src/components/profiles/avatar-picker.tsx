@@ -6,7 +6,7 @@ import { ViewerAvatar } from "@/components/profiles/viewer-avatar";
 
 export function AvatarPicker({ value, onChange }: { value: string; onChange: (key: string) => void }) {
   return (
-    <div role="radiogroup" aria-label="Avatar" className="grid grid-cols-6 gap-2">
+    <div role="radiogroup" aria-label="Avatar" className="grid grid-cols-4 gap-2 min-[400px]:grid-cols-6">
       {AVATARS.map((a) => (
         <button
           key={a.key}
