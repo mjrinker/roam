@@ -91,8 +91,8 @@ const server = http.createServer((req, res) => {
     const wantVersion = url.searchParams.get("version");
     const versions = url.pathname.endsWith("/title/1") ? [{ label: "4k", name: "4K", height: 2160 }, { label: "1080p", name: "1080p", height: 1080 }] : undefined;
     const version = versions ? (wantVersion && versions.some((v) => v.label === wantVersion) ? wantVersion : "4k") : undefined;
-    // Episodes 7 and 8 know where their intro (2 to 8 s) and credits (20 to 24 s) are; 8's profile also skips intros by itself.
-    const skips = /\/episode\/[78]$/.test(url.pathname) ? { skipSegments: [{ kind: "intro", startSeconds: 2, endSeconds: 8 }, { kind: "outro", startSeconds: 20, endSeconds: 24 }], ...(url.pathname.endsWith("/8") ? { autoSkip: { intro: true } } : {}) } : {};
+    // Episodes 7 and 8 know where their intro (2 to 8 s) and credits (14 to 24 s) are; 8's profile also skips intros by itself.
+    const skips = /\/episode\/[78]$/.test(url.pathname) ? { skipSegments: [{ kind: "intro", startSeconds: 2, endSeconds: 8 }, { kind: "outro", startSeconds: 14, endSeconds: 24 }], ...(url.pathname.endsWith("/8") ? { autoSkip: { intro: true } } : {}) } : {};
     return void res.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify({ ownerKind: "title", ownerId: "1", durationSeconds: 24, segments, resumeSeconds: 0, expiresAt: "2099-01-01T00:00:00Z", libraryId: "lib1", defaultRate, version, versions, ...skips }));
   }
   const audioId = /^\/api\/audiobooks\/([^/]+)\/manifest$/.exec(url.pathname);
@@ -533,7 +533,7 @@ async function run(label: string, exe: string, m56: boolean) {
   await key(page, 13);
   await new Promise((r) => setTimeout(r, 500));
   check(L("OK on it jumps to the end of the intro and the button goes"), (await page.evaluate<number>(`${V}.currentTime`)) >= 7.9 && !(await page.evaluate<boolean>(skipShown)) && !(await page.evaluate<boolean>(`${V}.paused`)), String(await page.evaluate<number>(`${V}.currentTime`)));
-  await page.evaluate(`${V}.currentTime = 20.5`);
+  await key(page, 39); // Right: ten seconds on, from the end of the intro (8 s) into the credits (14 s on)
   await page.waitFor(`document.getElementById("skipbtn").style.display === "block" && document.getElementById("skipbtn").textContent.indexOf("Next episode") >= 0`, 5000).catch(() => undefined);
   check(L("in the credits it offers the next episode"), (await page.evaluate<string>(skipText)).indexOf("Next episode") >= 0, await page.evaluate<string>(skipText));
   await key(page, 13);
@@ -541,8 +541,10 @@ async function run(label: string, exe: string, m56: boolean) {
   check(L("and OK goes there"), true);
   await page.goto(base + "/tv/s/x/watch/episode/8");
   await page.waitFor(`${V} && ${V}.currentTime > 0.2 && !${V}.paused`, 15000);
-  await page.waitFor(`${V}.currentTime > 7.5`, 15000);
-  check(L("a profile that skips intros by itself is taken past it, with no button"), !(await page.evaluate<boolean>(skipShown)), String(await page.evaluate<number>(`${V}.currentTime`)));
+  // The intro starts at 2 s and ends at 8 s: playing normally it would take six seconds to get past, so being past it within three is the profile's doing.
+  await page.waitFor(`${V}.currentTime > 2`, 15000);
+  const jumped = await page.waitFor(`${V}.currentTime >= 7.9`, 3000).catch(() => false);
+  check(L("a profile that skips intros by itself is taken past it at once, with no button"), !!jumped && !(await page.evaluate<boolean>(skipShown)), String(await page.evaluate<number>(`${V}.currentTime`)));
 
   // Saving a starting speed for this profile: OK asks, OK again saves, Back leaves without saving.
   const speedText = `document.getElementById("speedbox").textContent`;
