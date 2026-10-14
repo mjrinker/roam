@@ -35,6 +35,8 @@ export interface SubtitleSearch {
   episode?: number;
   /** A title to search by when there is no TMDB id. */
   query?: string;
+  /** The file's fingerprint (see moviehash.ts): results then say whether they were made for this exact file. */
+  movieHash?: string;
   /** Two-letter language codes ("en", "es", "pt-BR"). */
   languages: string[];
 }
@@ -49,6 +51,8 @@ export interface SubtitleResult {
   aiTranslated: boolean;
   trusted: boolean;
   fps: number | null;
+  /** Made for the exact file that was searched with (only when the search carried a fingerprint). */
+  hashMatch: boolean;
 }
 
 export interface SubtitleDownload {
@@ -123,6 +127,7 @@ export class OpenSubtitles {
       if (q.season !== undefined) p.set("season_number", String(q.season));
     }
     p.set("languages", languages.join(",").toLowerCase());
+    if (q.movieHash && /^[0-9a-f]{16}$/i.test(q.movieHash)) p.set("moviehash", q.movieHash.toLowerCase());
     if (q.query && q.tmdbId === undefined && q.parentTmdbId === undefined) p.set("query", q.query.slice(0, 200));
     if (q.type === "movie" && q.tmdbId !== undefined) p.set("tmdb_id", String(q.tmdbId));
     p.set("type", q.type);
@@ -148,6 +153,7 @@ export class OpenSubtitles {
         aiTranslated: a.ai_translated === true || a.machine_translated === true,
         trusted: a.from_trusted === true,
         fps,
+        hashMatch: a.moviehash_match === true,
       });
     }
     // Trusted uploaders first, then the most downloaded.

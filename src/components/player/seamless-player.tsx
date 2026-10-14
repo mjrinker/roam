@@ -5,6 +5,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ArrowLeft,
   Loader2,
+  Flag,
   Maximize,
   Minimize,
   Pause,
@@ -23,6 +24,7 @@ import { useAudioActions } from "@/components/audio/audio-player-provider";
 import { clampSpeed } from "@/lib/player/speed";
 import { SubtitleOverlay, type LoadedTrack } from "@/components/player/subtitles";
 import { SettingsMenu } from "@/components/player/settings-menu";
+import { MarkPanel } from "@/components/player/mark-panel";
 import { readPreferredHeight, writePreferredHeight } from "@/lib/player/quality-preference";
 import { applyLocalFiles, localVideoFor, offlineVideoManifest, openLocalFiles, type LocalFiles } from "@/lib/offline/local-playback";
 import { queueProgress } from "@/lib/offline/sync";
@@ -230,6 +232,8 @@ export function SeamlessPlayer({
   const [hoverChapter, setHoverChapter] = useState<string | null>(null);
   // One message when playback starts if filtering this viewer asked for couldn't be applied (never about scenes that were skipped).
   const [notice, setNotice] = useState<string | null>(null);
+  // The panel an admin marks scenes in while watching.
+  const [markOpen, setMarkOpen] = useState(false);
 
   const lastSavedAtRef = useRef(0);
   const scrubBarRef = useRef<HTMLDivElement>(null);
@@ -791,7 +795,7 @@ export function SeamlessPlayer({
     // Out of sight, the player must not take over the keyboard (Space, arrows and letters belong to the page now).
     if (mode === "mini") return;
     function onKeyDown(e: KeyboardEvent) {
-      if (["INPUT", "TEXTAREA"].includes((e.target as HTMLElement)?.tagName)) return;
+      if (["INPUT", "TEXTAREA", "SELECT"].includes((e.target as HTMLElement)?.tagName)) return;
       // Steps are measured on the bar the viewer sees, without the scenes they skip.
       const removed = removedRanges(manifestRef.current?.skips);
       const duration = viewDuration(manifestRef.current?.durationSeconds ?? 0, removed);
@@ -1014,6 +1018,17 @@ export function SeamlessPlayer({
           <Loader2 className="size-10 animate-spin text-white/70" />
         </div>
       )}
+      {mode === "full" && markOpen && manifest?.canMark && ownerKind !== "extra" && (
+        <MarkPanel
+          ownerKind={ownerKind}
+          ownerId={ownerId}
+          version={manifest.version ?? ""}
+          getTime={currentGlobalTime}
+          seekTo={seekTo}
+          pause={() => videoRefs.current[frontSlotRef.current]?.pause()}
+          onClose={() => setMarkOpen(false)}
+        />
+      )}
       {mode === "full" && notice && (
         <div role="status" className="pointer-events-none absolute top-20 left-1/2 z-10 w-[min(90vw,28rem)] -translate-x-1/2 rounded-xl bg-black/85 px-4 py-2.5 text-center text-sm text-white ring-1 ring-white/15">
           {notice}
@@ -1233,6 +1248,18 @@ export function SeamlessPlayer({
             >
               <SkipForward className="size-4" />
               Next
+            </Button>
+          )}
+          {manifest?.canMark && ownerKind !== "extra" && (
+            <Button
+              variant="ghost"
+              size="icon-lg"
+              aria-label="Mark a scene"
+              aria-pressed={markOpen}
+              onClick={() => setMarkOpen((o) => !o)}
+              className="size-10 rounded-full hover:bg-white/15"
+            >
+              <Flag className="size-5" />
             </Button>
           )}
           <SettingsMenu

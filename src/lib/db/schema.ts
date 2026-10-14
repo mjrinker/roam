@@ -668,6 +668,16 @@ export const mediaFiles = pgTable(
     // Scenes to skip or silence, from a Movie Content Filter file beside the video ("Movie.mcf", see lib/content-filter), timed from the
     // start of this file. Null when there is no such file.
     contentCues: jsonb("content_cues").$type<import("@/lib/content-filter/categories").FilterCue[]>(),
+    // Scenes marked by hand in Roam (lib/content-filter/marks), for storage Roam can't write a file to; times from the start of this file.
+    // Where it can (Box), the marks go into the .mcf file instead and come back through content_cues.
+    markedCues: jsonb("marked_cues").$type<import("@/lib/content-filter/categories").FilterCue[]>(),
+    // Words muted because the subtitles say them (lib/content-filter/profanity), built from a subtitle file beside the video or one fetched
+    // from OpenSubtitles for this exact file. Kept apart from content_cues so a rescan of the folder never wipes it. Times from this file's start.
+    languageCues: jsonb("language_cues").$type<import("@/lib/content-filter/categories").FilterCue[]>(),
+    // "srt": a subtitle file beside the video. "opensubtitles": one made for this exact file. "opensubtitles-guess": the best one found for the
+    // film, whose timing may be off (a different cut of it).
+    languageSource: text("language_source").$type<"srt" | "opensubtitles" | "opensubtitles-guess">(),
+    languageBuiltAt: timestamp("language_built_at", { withTimezone: true }),
 
     container: text("container"),
     videoCodec: text("video_codec"),

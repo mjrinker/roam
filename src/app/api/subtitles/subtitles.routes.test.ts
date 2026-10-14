@@ -73,7 +73,7 @@ describe("searching OpenSubtitles", () => {
     const urls = pretendOpenSubtitles();
     const res = await searchFor({ kind: "title", id: w.film.id }, "en,ES");
     expect(res.status).toBe(200);
-    expect((await res.json()).results).toEqual([{ fileId: 111, language: "en", release: "R", fileName: "a.srt", downloads: 9, hearingImpaired: false, aiTranslated: false, trusted: false, fps: null }]);
+    expect((await res.json()).results).toEqual([{ fileId: 111, language: "en", release: "R", fileName: "a.srt", downloads: 9, hearingImpaired: false, aiTranslated: false, trusted: false, fps: null, hashMatch: false }]);
     expect(urls.find((u) => u.includes("/subtitles?"))).toBe("https://api.opensubtitles.com/api/v1/subtitles?languages=en%2Ces&tmdb_id=603&type=movie");
   });
   it("asks for an episode by the show's TMDB id, season and episode", async () => {

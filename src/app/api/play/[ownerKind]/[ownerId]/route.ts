@@ -41,5 +41,7 @@ export async function GET(
   if (!result.ok) {
     return NextResponse.json({ error: result.error }, { status: result.status });
   }
-  return NextResponse.json({ ...result.manifest, libraryId: auth.libraryId, defaultRate: await viewerLibrarySpeed(auth.member.viewer.id, auth.libraryId) });
+  // A server's admin (a profile that may change settings) can mark scenes while watching; the marking route checks again.
+  const canMark = ownerKind !== "extra" && auth.member.role === "admin" && auth.member.viewer.role !== "limited";
+  return NextResponse.json({ ...result.manifest, canMark, libraryId: auth.libraryId, defaultRate: await viewerLibrarySpeed(auth.member.viewer.id, auth.libraryId) });
 }

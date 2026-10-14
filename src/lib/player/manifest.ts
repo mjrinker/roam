@@ -158,7 +158,7 @@ export async function buildPlayManifest(
         durationSeconds: seg.durationSeconds,
         inFileOffsetSeconds: seg.inFileOffsetSeconds,
         inFileEndSeconds: seg.inFileEndSeconds,
-        cues: segmentRows[i].contentCues,
+        cues: [...(segmentRows[i].contentCues ?? []), ...(segmentRows[i].markedCues ?? []), ...(segmentRows[i].languageCues ?? [])],
       })),
       cursor
     );

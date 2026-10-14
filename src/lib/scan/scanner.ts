@@ -20,6 +20,7 @@ import {
 import { findExtras, syncTitleExtras } from "@/lib/scan/title-extras";
 import { syncChapterFiles } from "@/lib/scan/chapter-files";
 import { syncContentFilterFiles } from "@/lib/scan/content-filter-files";
+import { syncSubtitleFiles } from "@/lib/scan/subtitle-files";
 import { createStorageForServer } from "@/lib/storage/server-storage";
 import { StorageReauthRequiredError } from "@/lib/storage/reauth";
 import type { StorageEntry, StorageProvider } from "@/lib/storage/provider";
@@ -556,6 +557,10 @@ async function syncMovieFolder(
     if (err instanceof StorageReauthRequiredError) throw err;
     console.error(`content filter files for ${title.id}:`, err);
   });
+  await syncSubtitleFiles(provider, children).catch((err) => {
+    if (err instanceof StorageReauthRequiredError) throw err;
+    console.error(`subtitle files for ${title.id}:`, err);
+  });
   await enrichMovieMetadataIfNeeded(title.id, name, year, { tmdbId, imdbId });
   // Trailers, featurettes and the like (Plex's naming) sit beside the film; a failure here never fails the film's own scan.
   try {
@@ -846,6 +851,10 @@ async function syncShowFolder(
     await syncContentFilterFiles(provider, seasonChildren).catch((err) => {
       if (err instanceof StorageReauthRequiredError) throw err;
       console.error(`content filter files for season ${season.id}:`, err);
+    });
+    await syncSubtitleFiles(provider, seasonChildren).catch((err) => {
+      if (err instanceof StorageReauthRequiredError) throw err;
+      console.error(`subtitle files for season ${season.id}:`, err);
     });
   }
 

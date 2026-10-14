@@ -7,6 +7,9 @@ export interface CueRow {
   trimStartSeconds: number | null;
   trimDurationSeconds: number | null;
   contentCues: FilterCue[] | null;
+  /** Scenes marked by hand in Roam, and mutes built from the subtitles: both count alongside the file's own. */
+  markedCues?: FilterCue[] | null;
+  languageCues?: FilterCue[] | null;
 }
 
 /** A movie's or episode's cues from its files (one version's rows), on the player's clock: parts follow one another, a combined file's slice keeps its window. */
@@ -22,7 +25,7 @@ export function cuesFromRows(rows: readonly CueRow[]): FilterCue[] {
       startSeconds: cursor,
       durationSeconds: duration,
       ...(trimmed ? { inFileOffsetSeconds: offset, inFileEndSeconds: offset + duration } : {}),
-      cues: r.contentCues,
+      cues: [...(r.contentCues ?? []), ...(r.markedCues ?? []), ...(r.languageCues ?? [])],
     };
     cursor += duration;
     return seg;
