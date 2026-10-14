@@ -162,6 +162,9 @@ export const servers = pgTable("servers", {
   joinToken: text("join_token").unique(),
   // A public demo server: shows a notice, caps plays per day, and hides new joiners from each other.
   isDemo: boolean("is_demo").notNull().default(false),
+  // How much this server may use Does the Dog Die (through the deployment's own API key; see lib/ddd): "disabled" (never asks),
+  // "limited" (asks when someone is about to play a title) or "full" (also asks when a title's page opens).
+  dddAccess: text("ddd_access").$type<"disabled" | "limited" | "full">().notNull().default("disabled"),
   createdAt: timestamp("created_at", { withTimezone: true })
     .notNull()
     .defaultNow(),
@@ -873,6 +876,21 @@ export const platformJobs = pgTable("platform_jobs", {
   name: text("name").primaryKey(),
   lastRunAt: timestamp("last_run_at", { withTimezone: true }).notNull().defaultNow(),
   summary: jsonb("summary").$type<Record<string, unknown>>(),
+});
+
+// ── ddd_items ────────────────────────────────────────────────────────────
+// What Does the Dog Die said about one title, kept only to avoid asking again (their API Terms allow caching for performance and require
+// a refresh at least every 30 days; see lib/ddd). One row per title, shared by every server on the deployment's key. Rows older than
+// 30 days are deleted by the daily job and never used.
+
+export const dddItems = pgTable("ddd_items", {
+  // "imdb:tt0050798" or "tmdb:movie:22660" / "tmdb:tv:1396": how the title was looked up.
+  key: text("key").primaryKey(),
+  // Their id for the title; null when they have no such title (missing = true).
+  dddItemId: integer("ddd_item_id"),
+  missing: boolean("missing").notNull().default(false),
+  data: jsonb("data").$type<import("@/lib/ddd/types").DddTitleData>(),
+  fetchedAt: timestamp("fetched_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
 // ── title_extras ─────────────────────────────────────────────────────────
