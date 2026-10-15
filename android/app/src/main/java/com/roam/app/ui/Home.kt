@@ -53,6 +53,7 @@ fun HomeContent(serverId: String, home: Home, nav: Nav) {
             }
         }
         row("Continue watching", home.continueWatching, serverId, nav)
+        row("Up next", home.upNext, serverId, nav)
         row("Continue listening", home.continueListening, serverId, nav)
         row("Recently added", home.recentlyAdded, serverId, nav)
         item {

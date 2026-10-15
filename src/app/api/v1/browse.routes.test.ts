@@ -143,6 +143,15 @@ describe("listing", () => {
     expect(body.server.id).toBe(w.server.id);
   });
 
+  it("offers the next episode of a show being watched as up next", async () => {
+    const w = await world();
+    for (const e of w.episodes) await db.insert(mediaFiles).values({ ownerKind: "episode", ownerId: e.id, partIndex: 0, boxFileId: `up${++n}`, filename: "e.mp4", sizeBytes: 1, container: "mp4", probeStatus: "ok", durationSeconds: 1000 });
+    await db.insert(watchState).values({ viewerId: w.member.viewer.id, ownerKind: "episode", ownerId: w.episodes[0].id, positionSeconds: 1000, durationSeconds: 1000, finished: true });
+    const body = await json(await home(req(), ctx(w.sid)));
+    expect(body.upNext).toEqual([expect.objectContaining({ type: "episode", id: w.episodes[1].id, name: "The Show", subtitle: expect.stringContaining("E2") })]);
+    expect(body.continueWatching).toEqual([]);
+  });
+
   it("searches, and finds nothing for an empty query", async () => {
     const w = await world();
     const hit = await json(await search(req("/x?q=film"), ctx(w.sid)));

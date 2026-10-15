@@ -16,6 +16,7 @@ import { MediaRow } from "@/components/library/media-row";
 import { PosterCard, type PosterCardData } from "@/components/library/poster-card";
 import { CONTINUE_LISTENING_MIN_SECONDS } from "@/lib/player/timeline";
 import { contentFilter } from "@/lib/content/access";
+import { onDeck } from "@/lib/watch/on-deck";
 
 const CONTINUE_WATCHING_LIMIT = 16;
 const RECENTLY_ADDED_LIMIT = 20;
@@ -171,6 +172,14 @@ export default async function LibraryHomePage({
     });
   }
 
+  // The next episode of each show being watched (a show with one half-watched is in the row above).
+  const upNext: LandscapeCardData[] = (await onDeck(db, { actor: lib, viewer, viewerId: viewer.id })).map((d) => ({
+    href: `/s/${serverId}/watch/episode/${d.episodeId}`,
+    imageUrl: d.stillUrl ?? d.showBackdropUrl ?? d.showPosterUrl,
+    primaryLabel: d.showName,
+    secondaryLabel: `S${d.season} · E${d.number}${d.name ? ` · ${d.name}` : ""}`,
+    progressFraction: 0,
+  }));
   const continueListening: PosterCardData[] = [];
   for (const w of inProgress) {
     if (w.ownerKind !== "title" || !w.durationSeconds || w.positionSeconds < CONTINUE_LISTENING_MIN_SECONDS) continue;
@@ -243,6 +252,14 @@ export default async function LibraryHomePage({
         {continueWatching.length > 0 && (
           <MediaRow title="Continue Watching">
             {continueWatching.map((item) => (
+              <LandscapeCard key={item.href} item={item} className="w-64 sm:w-72" />
+            ))}
+          </MediaRow>
+        )}
+
+        {upNext.length > 0 && (
+          <MediaRow title="Up Next">
+            {upNext.map((item) => (
               <LandscapeCard key={item.href} item={item} className="w-64 sm:w-72" />
             ))}
           </MediaRow>

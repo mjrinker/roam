@@ -80,7 +80,7 @@ class Lists(Base):
         FakeApi.answers["/api/v1/servers/S/libraries"] = {"libraries": [{"id": "L1", "name": "Movies", "kind": "movies", "style": "grid"}, {"id": "L2", "name": "Books", "kind": "ebooks", "style": None}]}
         self.run_action()
         labels = [i["li"].label for i in xbmcplugin.items]
-        self.assertEqual(labels, ["Continue watching", "Recently added", "Movies", "Playlists", "Search", "Switch profile", "Sign out"])
+        self.assertEqual(labels, ["Continue watching", "Up next", "Recently added", "Movies", "Playlists", "Search", "Switch profile", "Sign out"])
         self.assertTrue(all(i["folder"] for i in xbmcplugin.items))
         self.assertEqual(xbmcplugin.ended, [True])
 

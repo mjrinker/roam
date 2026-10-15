@@ -82,4 +82,15 @@ describe("TV pages use it", () => {
     expect(visible(row)).toContain("Switch profile");
     expect(hidden(row)).toContain("Sign out");
   });
+  it("the home screen has an Up next row after Continue watching, and only the first row takes the starting focus", () => {
+    const poster = (name: string) => ({ href: `/tv/s/x/watch/episode/${name}`, name, posterUrl: null });
+    const html = homePage({ serverName: "S", base: "/tv/s/x", profileName: "P", continueWatching: [poster("A")], upNext: [poster("B"), poster("C")], libraries: [], unsupported: 0 });
+    expect(html.indexOf("Continue watching")).toBeLessThan(html.indexOf("Up next"));
+    expect(html).toContain("watch/episode/B");
+    expect((html.match(/data-autofocus/g) ?? []).length).toBe(1);
+    const alone = homePage({ serverName: "S", base: "/tv/s/x", profileName: "P", continueWatching: [], upNext: [poster("B")], libraries: [], unsupported: 0 });
+    expect(alone).toContain("Up next");
+    expect(alone).not.toContain("Continue watching");
+    expect((alone.match(/data-autofocus/g) ?? []).length).toBe(1);
+  });
 });

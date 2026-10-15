@@ -14,6 +14,7 @@ import type { LibraryKind } from "@/lib/db/schema";
 import { GLOBALLY_LISTED_LIBRARY_KINDS, isPhotoLibraryKind, libraryRemembersProgress, tvBrowseStyle, TV_LISTEN_KINDS, TV_WATCH_KINDS, type TvBrowseStyle } from "@/lib/libraries/profile";
 import { getAlbum, getArtist } from "@/lib/music/browse";
 import { shuffled } from "@/lib/tv/shuffle";
+import { onDeck } from "@/lib/watch/on-deck";
 import { DEFAULT_OPTIONS, type LibraryOptions, type LibrarySort } from "@/lib/tv/library-options";
 import { loadSettings } from "@/lib/ownership/owners";
 import { watchedShowIds } from "@/lib/watch/shows";
@@ -117,6 +118,12 @@ export async function continueWatching(ex: Db, scope: TvScope, limit = 12): Prom
     }
   }
   return { watching, listening };
+}
+
+/** "Up next" for the TV and the API: the next episode of each show being watched (see lib/watch/on-deck). */
+export async function upNext(ex: Db, scope: TvScope, limit = 12): Promise<ContinueItem[]> {
+  const items = await onDeck(ex, { actor: scope.actor, viewer: scope.viewer, viewerId: scope.viewerId, limit });
+  return items.map((d) => ({ kind: "episode" as const, id: d.episodeId, name: d.showName, meta: `S${d.season} · E${d.number}${d.name ? ` · ${d.name}` : ""}`, posterUrl: d.showPosterUrl, progress: 0 }));
 }
 
 export interface ListedTitle {

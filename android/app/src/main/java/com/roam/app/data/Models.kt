@@ -65,6 +65,7 @@ data class Home(
     val server: ServerRef,
     val libraries: List<Library> = emptyList(),
     val continueWatching: List<ApiItem> = emptyList(),
+    val upNext: List<ApiItem> = emptyList(),
     val continueListening: List<ApiItem> = emptyList(),
     val recentlyAdded: List<ApiItem> = emptyList(),
     val hasPlaylists: Boolean = false,

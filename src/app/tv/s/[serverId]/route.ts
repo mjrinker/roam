@@ -2,7 +2,7 @@ import { db } from "@/lib/db/client";
 import { servers } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
 import { asUuid, notFoundPage, tvAccess } from "@/lib/tv/context";
-import { continueWatching, recentlyAdded, tvLibraries } from "@/lib/tv/data";
+import { continueWatching, recentlyAdded, tvLibraries, upNext } from "@/lib/tv/data";
 import { html } from "@/lib/tv/http";
 import { tvPlaylists } from "@/lib/tv/playlists";
 import { isPhotoLibraryKind, TV_KIND_LABEL } from "@/lib/libraries/profile";
@@ -18,13 +18,14 @@ export async function GET(request: Request, ctx: RouteContext<"/tv/s/[serverId]"
   if (!access.ok) return access.response;
 
   const [server] = await db.select({ name: servers.name }).from(servers).where(eq(servers.id, serverId)).limit(1);
-  const [libs, cont, recent, lists] = await Promise.all([tvLibraries(db, access.scope), continueWatching(db, access.scope), recentlyAdded(db, access.scope), tvPlaylists(db, access.scope)]);
+  const [libs, cont, next, recent, lists] = await Promise.all([tvLibraries(db, access.scope), continueWatching(db, access.scope), upNext(db, access.scope), recentlyAdded(db, access.scope), tvPlaylists(db, access.scope)]);
   return html(
     homePage({
       serverName: server?.name ?? "Roam",
       base: access.base,
       profileName: access.profileName,
       continueWatching: cont.watching.map((c) => ({ href: `${access.base}/watch/${c.kind}/${c.id}`, name: c.name, meta: c.meta, posterUrl: c.posterUrl, progress: c.progress })),
+      upNext: next.map((c) => ({ href: `${access.base}/watch/episode/${c.id}`, name: c.name, meta: c.meta, posterUrl: c.posterUrl })),
       continueListening: cont.listening.map((c) => ({ href: `${access.base}/listen/${c.id}`, name: c.name, meta: c.meta, posterUrl: c.posterUrl, progress: c.progress, square: true })),
       hasPlaylists: lists.length > 0,
       unread: await unreadCount(db, access.who.accountId),

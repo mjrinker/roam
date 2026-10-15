@@ -39,7 +39,7 @@ All under `/api/v1/servers/{serverId}`. Lists are cut for the profile in use: li
 | Call | Answer |
 |---|---|
 | `GET /api/v1/servers` | `{ servers: [{ id, name, role }] }` (no profile needed). |
-| `…/home` | `server`, `libraries`, `continueWatching`, `continueListening`, `recentlyAdded` (items, below), `hasPlaylists`, `unreadNotifications`. |
+| `…/home` | `server`, `libraries`, `continueWatching`, `upNext` (the next episode of each show being watched), `continueListening`, `recentlyAdded` (items, below), `hasPlaylists`, `unreadNotifications`. |
 | `…/libraries` | `{ libraries: [{ id, name, kind, style }] }`. `style` says how to browse it: `grid`, `folders`, `artists`, `timeline`, or `null` (not listable yet, e.g. eBooks). |
 | `…/libraries/{id}/items` | One page, by style: **grid** `?page=1` (and optionally `sort=title\|year\|added`, `genre=Drama`, `unwatched=1`, `owner=<account id>\|none`) → `{ items, page, hasMore }`; **folders** `?path=A/B&after=CURSOR` → `{ path, folders, items, next }`; **artists** `?after=CURSOR` → `{ items, next }`; **timeline** (photos) `?view=favorites` or `?view=albums&path=…&after=CURSOR` → `{ items, next }`. Pass `next` back as `after`; null means the end. |
 | `…/playlists` | The playlists this profile can see: `{ playlists: [{ id, name, itemCount, ownerName, canAdd }] }`. |

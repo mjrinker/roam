@@ -30,6 +30,7 @@ sub onHome(event as Object)
   m.serverId = m.top.params.serverId
   root = CreateObject("roSGNode", "ContentNode")
   addRow(root, "Continue watching", h.continueWatching)
+  addRow(root, "Up next", h.upNext)
   addRow(root, "Recently added", h.recentlyAdded)
   libs = root.createChild("ContentNode")
   libs.title = "Libraries"

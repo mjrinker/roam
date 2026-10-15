@@ -37,6 +37,7 @@ class BrowseScreensTest {
         ServerRef("S", "Family server"),
         libraries = listOf(Library("L1", "Movies", "movies", "grid"), Library("L2", "Books", "ebooks", null)),
         continueWatching = listOf(movie("m1", "Half-watched", 0.4), ApiItem("episode", "e1", "The Show", "S1 · E2")),
+        upNext = listOf(ApiItem("episode", "e9", "Other Show", "S2 · E1")),
         recentlyAdded = listOf(movie("m2", "Brand new"), ApiItem("show", "s1", "A Show"), ApiItem("album", "al1", "Songs", null, null, true)),
         unreadNotifications = 3,
     )
@@ -49,6 +50,7 @@ class BrowseScreensTest {
         rule.waitForIdle()
         rule.onNodeWithText("Family server").assertIsDisplayed()
         rule.onNodeWithText("Continue watching").assertIsDisplayed()
+        rule.onNodeWithText("Up next").assertIsDisplayed()
         rule.onNodeWithText("Recently added").assertIsDisplayed()
         rule.onNodeWithTag("library-L1").assertIsDisplayed()
         rule.onNodeWithText("Notifications (3)").assertIsDisplayed()
