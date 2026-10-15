@@ -75,6 +75,12 @@ data class Home(
 data class Ok(val ok: Boolean = true)
 
 @Serializable
+data class Genre(val name: String, val count: Int = 0)
+
+@Serializable
+data class GenresResponse(val genres: List<Genre> = emptyList())
+
+@Serializable
 data class PhotoRef(val type: String, val id: String)
 
 @Serializable

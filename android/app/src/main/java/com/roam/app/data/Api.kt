@@ -42,6 +42,9 @@ interface RoamApi {
     suspend fun photo(serverId: String, id: String, from: String): PhotoView
     suspend fun setFavorite(photoId: String, favorite: Boolean)
     suspend fun playlists(serverId: String): List<PlaylistSummary>
+    /** A page of a grid library, sorted ("title", "year" or "added") and narrowed (a genre, only what hasn't been watched). */
+    suspend fun filtered(serverId: String, libraryId: String, page: Int, sort: String, genre: String?, unwatched: Boolean): ItemsPage
+    suspend fun genres(serverId: String, libraryId: String): List<Genre>
     suspend fun registerPush(token: String)
     suspend fun unregisterPush()
     suspend fun playlist(serverId: String, id: String, after: String? = null): PlaylistPage
@@ -129,6 +132,11 @@ class HttpRoamApi(
     override suspend fun setFavorite(photoId: String, favorite: Boolean) {
         call(if (favorite) "PUT" else "DELETE", "/api/photos/$photoId/favorite")
     }
+
+    override suspend fun filtered(serverId: String, libraryId: String, page: Int, sort: String, genre: String?, unwatched: Boolean): ItemsPage =
+        get("/api/v1/servers/$serverId/libraries/$libraryId/items", mapOf("page" to page.toString(), "sort" to sort.takeIf { it != "title" }, "genre" to genre, "unwatched" to if (unwatched) "1" else null))
+
+    override suspend fun genres(serverId: String, libraryId: String): List<Genre> = get<GenresResponse>("/api/v1/servers/$serverId/libraries/$libraryId/genres").genres
 
     override suspend fun registerPush(token: String) {
         call("PUT", "/api/v1/device/push", body = buildJsonObject { put("token", JsonPrimitive(token)) })
@@ -219,6 +227,8 @@ object Unsupported : RoamApi {
     override suspend fun photos(serverId: String, libraryId: String, view: String?, path: String?, after: String?) = nope()
     override suspend fun photo(serverId: String, id: String, from: String) = nope()
     override suspend fun setFavorite(photoId: String, favorite: Boolean) = nope()
+    override suspend fun filtered(serverId: String, libraryId: String, page: Int, sort: String, genre: String?, unwatched: Boolean) = nope()
+    override suspend fun genres(serverId: String, libraryId: String) = nope()
     override suspend fun registerPush(token: String) = nope()
     override suspend fun unregisterPush() = nope()
     override suspend fun playlists(serverId: String) = nope()

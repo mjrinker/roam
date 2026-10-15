@@ -165,6 +165,18 @@ class HttpRoamApiTest {
         assertEquals("DELETE", server.takeRequest().method)
     }
 
+    @Test fun asksForASortedFilteredPageAndTheGenres() = runBlocking {
+        reply("""{"page":2,"hasMore":false,"items":[]}""")
+        api.filtered("S", "L", 2, "year", "Sci-Fi", true)
+        assertEquals("/api/v1/servers/S/libraries/L/items?page=2&sort=year&genre=Sci-Fi&unwatched=1", server.takeRequest().path)
+        reply("""{"page":1,"hasMore":false,"items":[]}""")
+        api.filtered("S", "L", 1, "title", null, false)
+        assertEquals("/api/v1/servers/S/libraries/L/items?page=1", server.takeRequest().path)
+        reply("""{"genres":[{"name":"Drama","count":5}]}""")
+        assertEquals(5, api.genres("S", "L").single().count)
+        assertEquals("/api/v1/servers/S/libraries/L/genres", server.takeRequest().path)
+    }
+
     @Test fun readsAMovieWithItsExtras() = runBlocking {
         reply(
             """{"type":"movie","id":"m","name":"The Film","year":2001,"runtimeSeconds":5400,"genres":["Drama"],"resume":{"positionSeconds":1800,"durationSeconds":5400},

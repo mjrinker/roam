@@ -5,7 +5,10 @@ import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import com.roam.app.data.ApiItem
+import com.roam.app.data.Genre
 import com.roam.app.data.Home
+import com.roam.app.data.ItemsPage
 import com.roam.app.data.PlaylistEntry
 import com.roam.app.data.PlaylistHeader
 import com.roam.app.data.PlaylistPage
@@ -138,5 +141,41 @@ class PlaylistsScreenTest {
         rule.onNodeWithText("Film m2").assertIsDisplayed()
         assertEquals(listOf(null, "1024~x"), seen)
         assertEquals(0, rule.onAllNodesWithTagCount("more"))
+    }
+
+    @Test fun aGridLibraryCanBeSortedAndNarrowedAndTheListStartsOver() {
+        val asked = mutableListOf<String>()
+        val api = object : RoamApi by Unsupported {
+            override suspend fun items(serverId: String, libraryId: String, page: Int?, path: String?, after: String?): ItemsPage {
+                asked += "plain $page"
+                return ItemsPage(page = page, items = listOf(ApiItem("movie", "m1", "Plain", "2001")))
+            }
+            override suspend fun filtered(serverId: String, libraryId: String, page: Int, sort: String, genre: String?, unwatched: Boolean): ItemsPage {
+                asked += "filtered $page $sort $genre $unwatched"
+                return ItemsPage(page = page, items = listOf(ApiItem("movie", "f1", "Filtered", "2002")))
+            }
+            override suspend fun genres(serverId: String, libraryId: String) = listOf(Genre("Comedy", 3), Genre("Drama", 5))
+        }
+        rule.setContent { Shown(testGraph(api)) { LibraryScreen("S", "L", "grid", "Movies", FakeNav()) } }
+        rule.waitForIdle()
+        rule.onNodeWithText("Plain").assertIsDisplayed()
+        assertEquals(0, rule.onAllNodesWithTagCount("clear"))
+        rule.onNodeWithTag("sort").performClick()
+        rule.waitForIdle()
+        rule.onNodeWithText("Filtered").assertIsDisplayed()
+        rule.onNodeWithText("Sort: Newest year").assertIsDisplayed()
+        rule.onNodeWithTag("genre").performClick()
+        rule.waitForIdle()
+        rule.onNodeWithText("Drama (5)").assertIsDisplayed()
+        rule.onNodeWithTag("genre-Drama").performClick()
+        rule.waitForIdle()
+        rule.onNodeWithTag("unwatched").performClick()
+        rule.waitForIdle()
+        assertEquals("filtered 1 year Drama true", asked.last())
+        rule.onNodeWithText("Genre: Drama").assertIsDisplayed()
+        rule.onNodeWithTag("clear").performClick()
+        rule.waitForIdle()
+        rule.onNodeWithText("Plain").assertIsDisplayed()
+        assertEquals("plain 1", asked.last())
     }
 }

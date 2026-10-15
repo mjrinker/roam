@@ -35,6 +35,12 @@ fun LibraryScreen(serverId: String, libraryId: String, style: String, name: Stri
     // A photo library is seen as the timeline, the favourites, or the albums (folders).
     var mode by remember { mutableStateOf("timeline") }
     val photos = style == "timeline"
+    // A grid library can be sorted and narrowed (the same choices the TV interface has).
+    var sort by remember { mutableStateOf("title") }
+    var genre by remember { mutableStateOf<String?>(null) }
+    var unwatched by remember { mutableStateOf(false) }
+    var choosingGenre by remember { mutableStateOf(false) }
+    val narrowed = sort != "title" || genre != null || unwatched
     val folders = remember { mutableStateListOf<String>() }
     val items = remember { mutableStateListOf<ApiItem>() }
     var page by remember { mutableStateOf(0) }
@@ -43,7 +49,7 @@ fun LibraryScreen(serverId: String, libraryId: String, style: String, name: Stri
     var loading by remember { mutableStateOf(false) }
     var problem by remember { mutableStateOf<String?>(null) }
 
-    LaunchedEffect(path, mode) {
+    LaunchedEffect(path, mode, sort, genre, unwatched) {
         // A new folder starts the listing over.
         items.clear(); folders.clear(); page = 0; after = null; more = true; problem = null
     }
@@ -53,6 +59,7 @@ fun LibraryScreen(serverId: String, libraryId: String, style: String, name: Stri
         loading = true
         try {
             val next = if (photos) graph.api.photos(serverId, libraryId, view = if (mode == "timeline") null else mode, path = if (mode == "albums") path else null, after = after)
+            else if (style == "grid" && narrowed) graph.api.filtered(serverId, libraryId, page + 1, sort, genre, unwatched)
             else graph.api.items(serverId, libraryId, page = if (style == "grid") page + 1 else null, path = if (style == "folders") path else null, after = after)
             if (style == "grid") page += 1
             if (next.path != null && folders.isEmpty()) folders.addAll(next.folders)
@@ -66,9 +73,10 @@ fun LibraryScreen(serverId: String, libraryId: String, style: String, name: Stri
             loading = false
         }
     }
-    LaunchedEffect(path, mode, more) { if (items.isEmpty() && more) loadMore() }
+    LaunchedEffect(path, mode, sort, genre, unwatched, more) { if (items.isEmpty() && more) loadMore() }
 
     val pad = if (graph.isTv) 48.dp else 16.dp
+    if (choosingGenre) GenreDialog(serverId, libraryId, genre, onPick = { genre = it; choosingGenre = false }, onClose = { choosingGenre = false })
     Column(Modifier.fillMaxSize().padding(pad).testTag("library")) {
         Text(if (path.isEmpty()) name else path.substringAfterLast('/'), style = MaterialTheme.typography.headlineMedium, color = MaterialTheme.colorScheme.onBackground)
         if (photos) {
@@ -78,6 +86,16 @@ fun LibraryScreen(serverId: String, libraryId: String, style: String, name: Stri
                         Text(label, color = if (mode == key) Accent else MaterialTheme.colorScheme.onSurface)
                     }
                 }
+            }
+        }
+        if (style == "grid") {
+            androidx.compose.foundation.layout.Row {
+                androidx.compose.material3.TextButton(onClick = { sort = when (sort) { "title" -> "year"; "year" -> "added"; else -> "title" } }, modifier = Modifier.testTag("sort")) {
+                    Text("Sort: " + when (sort) { "year" -> "Newest year"; "added" -> "Recently added"; else -> "Title" })
+                }
+                androidx.compose.material3.TextButton(onClick = { choosingGenre = true }, modifier = Modifier.testTag("genre")) { Text("Genre: ${genre ?: "Any"}") }
+                androidx.compose.material3.TextButton(onClick = { unwatched = !unwatched }, modifier = Modifier.testTag("unwatched")) { Text("Unwatched only: ${if (unwatched) "On" else "Off"}") }
+                if (narrowed) androidx.compose.material3.TextButton(onClick = { sort = "title"; genre = null; unwatched = false }, modifier = Modifier.testTag("clear")) { Text("Clear") }
             }
         }
         problem?.let { Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(top = 8.dp).testTag("problem")) }
@@ -102,4 +120,29 @@ fun LibraryScreen(serverId: String, libraryId: String, style: String, name: Stri
             }
         }
     }
+}
+
+/** The library's genres to choose from. */
+@Composable
+private fun GenreDialog(serverId: String, libraryId: String, current: String?, onPick: (String?) -> Unit, onClose: () -> Unit) {
+    val graph = LocalGraph.current
+    val genres = rememberLoader(serverId, libraryId) { graph.api.genres(serverId, libraryId) }
+    androidx.compose.material3.AlertDialog(
+        onDismissRequest = onClose,
+        title = { Text("Genre") },
+        text = {
+            when (val g = genres.state.value) {
+                is Load.Ready -> androidx.compose.foundation.lazy.LazyColumn(Modifier.testTag("genre-list")) {
+                    item { androidx.compose.material3.TextButton(onClick = { onPick(null) }, modifier = Modifier.testTag("genre-any")) { Text(if (current == null) "✓ Any genre" else "Any genre") } }
+                    items(g.value.size) { i ->
+                        val it = g.value[i]
+                        androidx.compose.material3.TextButton(onClick = { onPick(it.name) }, modifier = Modifier.testTag("genre-${it.name}")) { Text("${if (current == it.name) "✓ " else ""}${it.name} (${it.count})") }
+                    }
+                }
+                is Load.Failed -> Text("Couldn't load the genres.")
+                else -> CircularProgressIndicator()
+            }
+        },
+        confirmButton = { androidx.compose.material3.TextButton(onClick = onClose) { Text("Close") } },
+    )
 }
