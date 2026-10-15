@@ -188,6 +188,17 @@ The machine I work on has no hardware virtualization, so I can't start Android e
 4. Check: `ls -l /dev/kvm` should list a file. If it says "No such file", virtualization isn't reaching WSL.
 5. Tell me. I'll install an x86_64 phone and TV image and run the emulator tests (they play a real video through the real player).
 
+### 3.7b Push notifications (optional, free)
+
+By default the app only lists notifications when you open it. To have them arrive on the phone or TV:
+
+1. Go to console.firebase.google.com and create a project (any name; Analytics can be off).
+2. In the project, add an **Android app** with the package name `com.roam.app`. Skip the optional steps; download **`google-services.json`** and put it in `android/app/` (it is git-ignored, so it never goes into the repository). Build the app again; it picks the file up by itself.
+3. In the project's **Settings, Service accounts**, press **Generate new private key**. A JSON file downloads. Open it, copy its entire contents, and in Vercel (project settings, Environment Variables) add **`FCM_SERVICE_ACCOUNT`** for Production with that text as the value. Redeploy.
+4. Open the app once while signed in (on Android 13 or later it asks to allow notifications; say yes). From then on every notification Roam makes also goes to that device. A device that uninstalled the app is forgotten automatically.
+
+Treat the private key like a password: don't paste it anywhere but Vercel. If you skip all of this nothing breaks.
+
 ### 3.8 Publishing (later, costs money)
 
 You need a **signing key**. Make it once and keep it safe; **losing it means you can never update the app**:
