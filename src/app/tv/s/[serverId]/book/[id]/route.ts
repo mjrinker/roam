@@ -4,6 +4,7 @@ import { html } from "@/lib/tv/http";
 import { bookDetail } from "@/lib/tv/data";
 import { formatClock } from "@/tv/client/clock";
 import { doneWords } from "@/lib/watch/words";
+import { ownershipSections } from "@/lib/tv/sections";
 import { detailPage } from "@/tv/render";
 
 export async function GET(request: Request, ctx: RouteContext<"/tv/s/[serverId]/book/[id]">) {
@@ -19,8 +20,10 @@ export async function GET(request: Request, ctx: RouteContext<"/tv/s/[serverId]/
   const by = (t.authors ?? []).join(", ") || t.folderAuthor;
   const narrator = (t.narrators ?? []).join(", ");
   const meta = [by, narrator ? `Read by ${narrator}` : null, t.seriesName ? `${t.seriesName}${t.seriesPosition ? ` #${t.seriesPosition}` : ""}` : null].filter(Boolean).join(" · ");
+  const sections = await ownershipSections(db, { serverId, base: access.base, who: access.who, viewerId: access.scope.viewerId, libraryKind: "audiobooks", titleId: id, back: `${access.base}/book/${id}` });
   return html(
     detailPage({
+      sections,
       title: t.name,
       meta,
       overview: t.overview,

@@ -38,6 +38,7 @@ const pages: Record<string, string> = {
   "/tv/s/x/watch/episode/2": watchPage({ title: "The Show", subtitle: "S1 · E2", ownerKind: "episode", ownerId: "2", back: "/tv/s/x/title/1", next: null }),
   "/tv/s/x/title/9": detailPage({ title: "Many actions", meta: "2020", overview: null, posterUrl: null, backHref: "/tv/s/x/library/a", actions: [{ href: "/tv/s/x/watch/title/1", label: "Play", primary: true }, { href: "/tv/s/x/title/1", label: "Add" }, { href: "/tv/s/x/title/2", label: "Third" }], posts: [{ action: "/tv/s/x/mark", label: "Fourth", fields: { kind: "title", id: "1" } }] }),
   "/tv/s/x/watch/episode/7": watchPage({ title: "Skippy", subtitle: "S1 · E7", ownerKind: "episode", ownerId: "7", back: "/tv/s/x/title/1", next: "/tv/s/x/watch/episode/2" }),
+  "/tv/s/x/watch/episode/9": watchPage({ title: "Filtered", subtitle: "S1 · E9", ownerKind: "episode", ownerId: "9", back: "/tv/s/x/title/1", next: null }),
   "/tv/s/x/watch/episode/8": watchPage({ title: "Autoskippy", subtitle: "S1 · E8", ownerKind: "episode", ownerId: "8", back: "/tv/s/x/title/1", next: null }),
   "/tv/s/x/watch/title/1": watchPage({ title: "Movie 1", subtitle: null, ownerKind: "title", ownerId: "1", back: "/tv/s/x/title/1", next: null }),
 };
@@ -93,7 +94,9 @@ const server = http.createServer((req, res) => {
     const version = versions ? (wantVersion && versions.some((v) => v.label === wantVersion) ? wantVersion : "4k") : undefined;
     // Episodes 7 and 8 know where their intro (2 to 8 s) and credits (14 to 24 s) are; 8's profile also skips intros by itself.
     const skips = /\/episode\/[78]$/.test(url.pathname) ? { skipSegments: [{ kind: "intro", startSeconds: 2, endSeconds: 8 }, { kind: "outro", startSeconds: 14, endSeconds: 24 }], ...(url.pathname.endsWith("/8") ? { autoSkip: { intro: true } } : {}) } : {};
-    return void res.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify({ ownerKind: "title", ownerId: "1", durationSeconds: 24, segments, resumeSeconds: 0, expiresAt: "2099-01-01T00:00:00Z", libraryId: "lib1", defaultRate, version, versions, ...skips }));
+    // Episode 9's profile skips a scene (3 to 6 s) and mutes another (7 to 10 s), and is told once that some filtering couldn't be applied.
+    const filtered = url.pathname.endsWith("/episode/9") ? { skips: [{ startSeconds: 3, endSeconds: 6, action: "skip", categories: ["violence"] }, { startSeconds: 7, endSeconds: 10, action: "mute", categories: ["language"] }], notice: "Some filtering couldn't be applied to this one." } : {};
+    return void res.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify({ ...filtered, ownerKind: "title", ownerId: "1", durationSeconds: 24, segments, resumeSeconds: 0, expiresAt: "2099-01-01T00:00:00Z", libraryId: "lib1", defaultRate, version, versions, ...skips }));
   }
   const audioId = /^\/api\/audiobooks\/([^/]+)\/manifest$/.exec(url.pathname);
   if (audioId) {
@@ -545,6 +548,19 @@ async function run(label: string, exe: string, m56: boolean) {
   await page.waitFor(`${V}.currentTime > 2`, 15000);
   const jumped = await page.waitFor(`${V}.currentTime >= 7.9`, 3000).catch(() => false);
   check(L("a profile that skips intros by itself is taken past it at once, with no button"), !!jumped && !(await page.evaluate<boolean>(skipShown)), String(await page.evaluate<number>(`${V}.currentTime`)));
+
+  // Content filtering: a scene the profile skips is jumped over, another is played with the sound off, the clock leaves out the skipped time, and a notice is said once.
+  await page.goto(base + "/tv/s/x/watch/episode/9");
+  await page.waitFor(`${V} && ${V}.currentTime > 0.1 && !${V}.paused`, 15000);
+  check(L("a notice about filtering is said as playing starts"), (await page.evaluate<string>(`document.getElementById("status").textContent`)).indexOf("Some filtering couldn't be applied") >= 0, await page.evaluate<string>(`document.getElementById("status").textContent`));
+  check(L("the clock leaves out the skipped scene"), await page.waitFor(`document.getElementById("clock").textContent.indexOf("/ 0:21") >= 0`, 3000), await page.evaluate<string>(`document.getElementById("clock").textContent`));
+  await page.waitFor(`${V}.currentTime > 2.5`, 15000);
+  // Playing straight through, 3 s to 6 s would take three seconds: being past it well before that is the skip.
+  check(L("a scene this profile skips is jumped over"), await page.waitFor(`${V}.currentTime >= 5.9`, 1500), String(await page.evaluate<number>(`${V}.currentTime`)));
+  await page.waitFor(`${V}.currentTime > 7.3`, 15000);
+  check(L("a scene this profile mutes is played with the sound off"), await page.evaluate<boolean>(`!!${V} && ${V}.muted`), await page.evaluate<string>(`location.pathname + " " + (${V} ? ${V}.currentTime : "no video")`));
+  await page.waitFor(`!${V} || ${V}.currentTime > 10.3`, 15000);
+  check(L("and the sound is back after it"), await page.evaluate<boolean>(`!!${V} && !${V}.muted`), await page.evaluate<string>(`location.pathname + " " + (${V} ? ${V}.currentTime : "no video")`));
 
   // Saving a starting speed for this profile: OK asks, OK again saves, Back leaves without saving.
   const speedText = `document.getElementById("speedbox").textContent`;

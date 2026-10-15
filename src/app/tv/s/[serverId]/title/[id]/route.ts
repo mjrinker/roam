@@ -5,6 +5,7 @@ import { formatRemaining, formatRuntime } from "@/lib/format";
 import { asUuid, notFoundPage, tvAccess } from "@/lib/tv/context";
 import { movieDetail } from "@/lib/tv/data";
 import { html } from "@/lib/tv/http";
+import { movieSections, ownershipSections } from "@/lib/tv/sections";
 import { detailPage } from "@/tv/render";
 
 export async function GET(request: Request, ctx: RouteContext<"/tv/s/[serverId]/title/[id]">) {
@@ -22,8 +23,14 @@ export async function GET(request: Request, ctx: RouteContext<"/tv/s/[serverId]/
   // From a video library's folder, Back returns to that folder, not the top of the library.
   const library = `${access.base}/library/${movie.libraryId}${tvBrowseStyle(movie.libraryKind) === "folders" && t.folderPath ? `?path=${encodeURIComponent(t.folderPath)}` : ""}`;
   const remaining = movie.resume?.durationSeconds ? formatRemaining(movie.resume.durationSeconds, movie.resume.positionSeconds) : null;
+  const here = `${access.base}/title/${id}`;
+  const sections = [
+    ...(await movieSections(db, { serverId, base: access.base, who: access.who, titleId: id, title: { imdbId: t.imdbId, tmdbId: t.tmdbId } })),
+    ...(await ownershipSections(db, { serverId, base: access.base, who: access.who, viewerId: access.scope.viewerId, libraryKind: movie.libraryKind, titleId: id, back: here })),
+  ];
   return html(
     detailPage({
+      sections,
       title: t.name,
       meta: [t.year, formatRuntime(t.runtimeSeconds)].filter(Boolean).join(" · "),
       overview: t.overview,

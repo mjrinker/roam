@@ -1,6 +1,8 @@
 import { db } from "@/lib/db/client";
 import { asUuid, notFoundPage, tvAccess } from "@/lib/tv/context";
 import { watchInfo } from "@/lib/tv/data";
+import { loadExtraForWatch } from "@/lib/extras/load";
+import { isAllowed } from "@/lib/content/access";
 import { html, json } from "@/lib/tv/http";
 import { parseQueueContext, targetHref, tvQueueNext } from "@/lib/tv/queue";
 import { watchConfig, watchPage } from "@/tv/render";
@@ -12,9 +14,18 @@ export async function GET(request: Request, ctx: RouteContext<"/tv/s/[serverId]/
   const params = await ctx.params;
   const serverId = asUuid(params.serverId);
   const id = asUuid(params.id);
-  if (!serverId || !id || (params.kind !== "title" && params.kind !== "episode")) return notFoundPage();
+  if (!serverId || !id || (params.kind !== "title" && params.kind !== "episode" && params.kind !== "extra")) return notFoundPage();
   const access = await tvAccess(request, serverId);
   if (!access.ok) return access.response;
+
+  // A trailer or other extra of a movie: plays like the movie does, with no progress kept and nothing after it.
+  if (params.kind === "extra") {
+    const found = await loadExtraForWatch(db, access.scope.actor, id);
+    if (!found || !isAllowed(access.scope.viewer, found.movie.ratingAges)) return notFoundPage();
+    const data = { title: found.extra.name, subtitle: found.movie.name, ownerKind: "extra" as const, ownerId: id, back: `${access.base}/title/${found.movie.id}`, next: null };
+    if (new URL(request.url).searchParams.get("json") === "1") return json({ ...watchConfig(data), title: data.title, subtitle: data.subtitle, upNextSeconds: UP_NEXT_SECONDS });
+    return html(watchPage(data));
+  }
 
   const info = await watchInfo(db, access.scope, params.kind, id);
   if (!info) return notFoundPage();
@@ -24,7 +35,9 @@ export async function GET(request: Request, ctx: RouteContext<"/tv/s/[serverId]/
     : b.kind === "show" ? `${access.base}/show/${b.id}?season=${b.season}`
     : b.kind === "photoGrid" ? photoGridBack(access.base, b, new URL(request.url).searchParams.get("from"))
     : `${access.base}/library/${b.libraryId}${b.path ? `?path=${encodeURIComponent(b.path)}` : ""}`;
-  let data = { title: info.title, subtitle: info.subtitle, ownerKind: info.ownerKind, ownerId: info.ownerId, back, next: info.next ? `${access.base}/watch/episode/${info.next.id}` : null };
+  const tParam = Number(new URL(request.url).searchParams.get("t"));
+  const start = Number.isFinite(tParam) && tParam > 0 && tParam < 86_400 ? Math.floor(tParam) : undefined;
+  let data = { ...(start !== undefined ? { start } : {}), title: info.title, subtitle: info.subtitle, ownerKind: info.ownerKind, ownerId: info.ownerId, back, next: info.next ? `${access.base}/watch/episode/${info.next.id}` : null };
   // Playing through a playlist: what follows is the next thing in it (not the next episode of a season), and Back returns to the playlist.
   const queue = parseQueueContext(new URL(request.url).searchParams);
   if (queue) {

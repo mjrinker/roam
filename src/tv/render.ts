@@ -108,6 +108,8 @@ export interface HomeData {
   recentlyAdded?: Poster[];
   /** Whether this profile has any playlists to show. */
   hasPlaylists?: boolean;
+  /** Unread notifications; the button shows when there are any. */
+  unread?: number;
   /** A screensaver of the profile's pictures, started by a newer browser after a quiet spell on this page. */
   screensaver?: { href: string; afterSeconds: number } | null;
   libraries: { id: string; name: string; kind: string; count?: number | null }[];
@@ -132,7 +134,7 @@ export function homePage(d: HomeData): string {
   const more = d.unsupported > 0 ? `<p class="note">${d.unsupported} more ${d.unsupported === 1 ? "library isn't" : "libraries aren't"} available on TV yet.</p>` : "";
   return tvDocument({
     title: d.serverName,
-    body: `<div class="page"${d.screensaver ? ` data-saver="${esc(safeUrl(d.screensaver.href) ?? "")}" data-saver-after="${Math.max(1, Math.floor(d.screensaver.afterSeconds))}"` : ""}>${top(esc(d.profileName))}<h1>${esc(d.serverName)}</h1>${cont}${listening}${recent}${libs}${more}<div class="row" style="margin-top:2rem">${actionRow([`<a class="btn" data-f href="${esc(d.base)}/search">Search</a>`, ...(d.hasPlaylists ? [`<a class="btn" data-f href="${esc(d.base)}/playlists">Playlists</a>`] : []), `<a class="btn" data-f href="/tv/profiles">Switch profile</a>`, postButton("/tv/signout", "Sign out")])}</div></div>`,
+    body: `<div class="page"${d.screensaver ? ` data-saver="${esc(safeUrl(d.screensaver.href) ?? "")}" data-saver-after="${Math.max(1, Math.floor(d.screensaver.afterSeconds))}"` : ""}>${top(esc(d.profileName))}<h1>${esc(d.serverName)}</h1>${cont}${listening}${recent}${libs}${more}<div class="row" style="margin-top:2rem">${actionRow([`<a class="btn" data-f href="${esc(d.base)}/search">Search</a>`, ...(d.hasPlaylists ? [`<a class="btn" data-f href="${esc(d.base)}/playlists">Playlists</a>`] : []), ...(d.unread ? [`<a class="btn" data-f href="${esc(d.base)}/notifications">Notifications (${d.unread})</a>`] : []), `<a class="btn" data-f href="/tv/profiles">Switch profile</a>`, postButton("/tv/signout", "Sign out")])}</div></div>`,
   });
 }
 
@@ -179,6 +181,23 @@ export interface DetailData {
   /** A wide picture behind the page, shown only on browsers new enough to do it well (the basic page never downloads it). */
   backdropUrl?: string | null;
   seasons?: { href: string; label: string; current: boolean }[];
+  /** More under the episodes or the actions: the parental guide, chapters, extras, who owns it. */
+  sections?: TvSection[];
+}
+
+/** A titled block on a detail page: lines (a link when it has an address, so the remote can reach it) and buttons that change something. */
+export interface TvSection {
+  heading: string;
+  lines: { text: string; sub?: string | null; href?: string | null }[];
+  posts?: { action: string; label: string; fields: Record<string, string> }[];
+  /** Small print under the lines (a credit, a reminder). */
+  note?: string | null;
+}
+
+function sectionHtml(s: TvSection): string {
+  const lines = s.lines.map((l) => (l.href ? `<a class="ep" data-f href="${esc(safeUrl(l.href) ?? "/tv")}">${esc(l.text)}${l.sub ? `<small>${esc(l.sub)}</small>` : ""}</a>` : `<p class="line">${esc(l.text)}${l.sub ? `<small>${esc(l.sub)}</small>` : ""}</p>`)).join("");
+  const posts = s.posts?.length ? `<div class="row">${s.posts.map((p) => postButton(p.action, p.label, { fields: p.fields })).join("")}</div>` : "";
+  return `<h2>${esc(s.heading)}</h2>${lines}${s.note ? `<p class="line small">${esc(s.note)}</p>` : ""}${posts}`;
 }
 
 export function detailPage(d: DetailData): string {
@@ -191,28 +210,31 @@ export function detailPage(d: DetailData): string {
   ]);
   const seasons = d.seasons?.length ? `<div class="row">${d.seasons.map((s) => `<a class="btn${s.current ? " primary" : ""}" data-f href="${esc(safeUrl(s.href) ?? "/tv")}">${esc(s.label)}</a>`).join("")}</div>` : "";
   const eps = d.episodes?.length ? `<h2>${esc(d.listHeading ?? "Episodes")}</h2>${d.episodes.map((e) => `<a class="ep" data-f href="${esc(safeUrl(e.href) ?? "/tv")}">${esc(e.label)}${e.sub ? `<small>${esc(e.sub)}</small>` : ""}</a>`).join("")}` : "";
+  const more = (d.sections ?? []).map(sectionHtml).join("");
   return tvDocument({
     title: d.title,
     body:
       `${backdrop}<div class="page">${top(`<a data-f data-back href="${esc(d.backHref)}" class="btn" style="margin:0">Back</a>`)}` +
       `<div class="detail"><span class="poster${d.square ? " sq" : ""}">${img ? `<img src="${esc(img)}" alt="">` : ""}</span><div class="text"><h1>${esc(d.title)}</h1><p class="sub">${esc(d.meta)}</p>` +
       (d.overview ? `<p class="overview">${esc(d.overview)}</p>` : "") +
-      `<div>${actions}</div>${seasons}</div></div>${eps}</div>`,
+      `<div>${actions}</div>${seasons}</div></div>${eps}${more}</div>`,
   });
 }
 
 export interface WatchData {
   title: string;
   subtitle: string | null;
-  ownerKind: "title" | "episode";
+  ownerKind: "title" | "episode" | "extra";
   ownerId: string;
   back: string;
   next: string | null;
+  /** Where to start, in seconds (opened at a chapter); otherwise where the viewer left off. */
+  start?: number;
 }
 
 /** What the player needs to know about one watch page (nothing from the library: names are drawn by the page itself). */
 export function watchConfig(d: WatchData) {
-  return { ownerKind: d.ownerKind, ownerId: d.ownerId, back: safeUrl(d.back) ?? "/tv", next: d.next ? safeUrl(d.next) : null };
+  return { ownerKind: d.ownerKind, ownerId: d.ownerId, back: safeUrl(d.back) ?? "/tv", next: d.next ? safeUrl(d.next) : null, ...(d.start !== undefined ? { start: d.start } : {}) };
 }
 
 export function watchPage(d: WatchData): string {
@@ -227,12 +249,27 @@ export function watchPage(d: WatchData): string {
   });
 }
 
-export function profilesPage(args: { profiles: { id: string; name: string }[]; selectUrl: string }): string {
+/** The PIN pad for a profile protected by a PIN: digits are buttons the remote can reach; four digits send the PIN (the page's script does that, without putting it in the address). */
+export function pinPage(args: { profileName: string; viewerId: string; selectUrl: string; error?: string | null }): string {
+  const digit = (d: string, i: number) => `<button type="button" class="btn key" data-f data-pin-digit="${d}"${i === 0 ? " data-autofocus" : ""}>${d}</button>`;
+  return tvDocument({
+    title: "Enter your PIN",
+    body:
+      `<div class="page">${top(`<a data-f data-back href="/tv/profiles" class="btn" style="margin:0">Back</a>`)}<h1>${esc(args.profileName)}</h1><p class="msg">Enter your PIN</p>` +
+      (args.error ? `<p class="msg" role="alert">${esc(args.error)}</p>` : "") +
+      `<form method="post" action="${esc(args.selectUrl)}" id="pinform"><input type="hidden" name="viewer" value="${esc(args.viewerId)}"><input type="hidden" name="pin" id="pinvalue" value="">` +
+      `<p class="pindots" id="pindots" aria-live="polite">○ ○ ○ ○</p></form>` +
+      `<div class="row">${["1", "2", "3", "4", "5"].map(digit).join("")}</div><div class="row">${["6", "7", "8", "9", "0"].map(digit).join("")}</div>` +
+      `<div class="row"><button type="button" class="btn" data-f data-pin-delete>Delete</button></div></div>`,
+  });
+}
+
+export function profilesPage(args: { profiles: { id: string; name: string; locked?: boolean }[]; selectUrl: string }): string {
   return tvDocument({
     title: "Who's watching?",
     body:
       `<div class="page">${top()}<h1>Who's watching?</h1><div class="row">` +
-      args.profiles.map((p, i) => postButton(args.selectUrl, p.name, { autofocus: i === 0, fields: { viewer: p.id }, className: "tile" })).join("") +
+      args.profiles.map((p, i) => postButton(args.selectUrl, p.locked ? `${p.name} (PIN)` : p.name, { autofocus: i === 0, fields: { viewer: p.id }, className: "tile" })).join("") +
       `</div></div>`,
   });
 }
@@ -372,4 +409,12 @@ export function addToPlaylistPage(d: AddToPlaylistData): string {
     title: "Add to a playlist",
     body: `<div class="page">${top(`<a data-f data-back href="${esc(safeUrl(d.back) ?? d.base)}" class="btn" style="margin:0">Back</a>`)}<h1>Add to a playlist</h1><p class="sub">${esc(d.what)}</p>${list}</div>`,
   });
+}
+
+/** A page of lines (links where they lead somewhere): the notifications. */
+export function linesPage(d: { title: string; backHref: string; lines: { text: string; sub?: string | null; href?: string | null }[]; empty: string }): string {
+  const body = d.lines.length
+    ? d.lines.map((l) => (l.href ? `<a class="ep" data-f href="${esc(safeUrl(l.href) ?? "/tv")}">${esc(l.text)}${l.sub ? `<small>${esc(l.sub)}</small>` : ""}</a>` : `<p class="line">${esc(l.text)}${l.sub ? `<small>${esc(l.sub)}</small>` : ""}</p>`)).join("")
+    : `<p class="msg">${esc(d.empty)}</p>`;
+  return tvDocument({ title: d.title, body: `<div class="page">${top(`<a data-f data-back data-autofocus href="${esc(d.backHref)}" class="btn" style="margin:0">Back</a>`)}<h1>${esc(d.title)}</h1>${body}</div>` });
 }

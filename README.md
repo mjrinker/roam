@@ -198,6 +198,7 @@ For a server whose library is several households' discs pooled together. **Serve
 - **Playing at once** (optional, in the same settings, per kind of library). No more people can play a title at once than there are shared copies of it (a show counts per season; a profile counts once however many devices). Players send a heartbeat every 30 seconds; one that goes quiet for a minute and a half, or has been paused for ten minutes, lets go of its place. Someone turned away sees a waiting screen that retries every 20 seconds and starts the moment a copy is free, and can ask to be **told when it's free**.
 - **Notifications.** A bell in the top bar (shown once there is something in it) lists claims to review, answers to your claims, and "free now" alerts. Phone and desktop push notifications are optional per device (on an iPhone or iPad, Roam must be added to the Home Screen first). Push needs three environment variables: generate the keys with `npx web-push generate-vapid-keys`, then set `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY` and `VAPID_SUBJECT` (a `mailto:` address). Without them the bell works and push is simply unavailable.
 - Music and photos aren't covered: a song or a photo isn't a copy of a title anyone claims.
+- **On a TV** the title pages show who owns it with the claim, withdraw and share buttons, a blocked play says why (and OK asks to be told), notifications are a button on the home screen, and TVs hold their place for the limit. Assigning owners and settling claims stay on the web.
 
 ### Trailers and extras
 

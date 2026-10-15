@@ -448,3 +448,14 @@ export async function finishedTitleIds(ex: Db, viewerId: string, ids: string[]):
   const rows = await stateFor(ex, viewerId, "title", ids);
   return new Set(rows.filter((r) => r.finished).map((r) => r.ownerId));
 }
+
+/** The title's kind if this profile may see it (library visible, within its age limit), else null: the check before changing anything about it. */
+export async function visibleTitleKind(ex: Db, scope: TvScope, id: string): Promise<{ kind: string; libraryKind: LibraryKind } | null> {
+  const [row] = await ex
+    .select({ kind: titles.kind, libraryKind: libraries.kind })
+    .from(titles)
+    .innerJoin(libraries, eq(titles.libraryId, libraries.id))
+    .where(and(eq(titles.id, id), libraryVisible(ex, scope.actor), contentFilter(scope.viewer, titles.ratingAges)))
+    .limit(1);
+  return row ?? null;
+}

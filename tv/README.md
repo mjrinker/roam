@@ -7,7 +7,7 @@ Roam has a light interface for TV browsers at `/tv` (a server-rendered page plus
 3. **Vizio, and any TV with Chromecast or AirPlay:** cast from a phone or computer (see the Vizio notes at the end).
 
 ## What the TV shows
-Movies, TV shows, videos, audiobooks, audio, music and photos (eBooks are deliberately not on TVs). On top of browsing:
+Movies, TV shows, videos, audiobooks, audio, music and photos (eBooks are deliberately not on TVs, and neither are the marking tools for scenes and skip times, which are web-only). On top of browsing:
 - **Search** with an on-screen keyboard (titles, books, audio files, albums and artists).
 - **Recently added** and **Continue watching / listening** rows on the home screen.
 - **Playlists:** list, open, **Play all** (the next item plays after each; show entries step through their episodes), and **Add to playlist** from movie, show and book pages. Playlists are created and shared on the web.
@@ -16,12 +16,16 @@ Movies, TV shows, videos, audiobooks, audio, music and photos (eBooks are delibe
 - **Back remembers your place** in a list.
 - **Playback speed** for video, audiobooks and audio files: Up opens a speed overlay (0.25 steps with Up and Down, 0.05 fine-tuning with Left and Right, from 0.25x to 3x). It starts at the library's default speed (an admin setting), lasts until the player is left and is never saved. Songs in a queue keep Up and Down for changing songs.
 
+**Content filtering:** a profile's "What to skip" settings apply on a TV just as on the web: scenes it skips are jumped over, scenes it mutes play with the sound off, and the bar and clock leave out the skipped time. When filtering was asked for but the title has no usable scene data, a note is said once as playing starts. The parental guide is on a movie's page (with the community reports and their credit, where a server uses them), and **chapters** are listed there too: pressing one opens the movie at that moment. **Trailers and other extras** and the top of the **cast** are listed on the movie page as well.
+
+**Who owns what** (on servers that track it): a movie, show (per season) or audiobook page shows who owns it, with buttons to claim it, withdraw your copy, share it again or give up the claim. When a title can't be played (every copy withdrawn, or all copies in use) the player says so; if all copies are in use, **OK** asks to be told when one is free. **Notifications** (claims, answers, "free now") are a button on the home screen when there are any. A TV holds its place for the playing-at-once limit like any other player. Profiles that are a child's can look but not claim or withdraw. The admin's controls (assigning owners, settling claims) stay on the web.
+
 **Skip intro, recap and credits:** where a show has the times (see the main README), a **Skip intro** / **Skip recap** / **Next episode** button shows on the picture while that part plays, and OK presses it (a profile can also skip them by itself). OK still plays and pauses the rest of the time.
 
 Keys: arrows move, OK chooses, Back goes back; play/pause/stop/rewind/fast-forward media keys work in players.
 
 ## Signing in on a TV
-The TV shows a five-character code (and a QR code). On a phone or computer where you are signed in, open `https://<your-roam>/link`, type the code (capitals or not) and approve it. Profiles that have a PIN are not offered on TVs yet.
+The TV shows a five-character code (and a QR code). On a phone or computer where you are signed in, open `https://<your-roam>/link`, type the code (capitals or not) and approve it. A profile with a PIN shows a PIN pad (digits and Delete, chosen with the remote; four digits send it, and the PIN is never put in an address); wrong guesses are limited the same way as on the web.
 
 ## Building the packages
 ```

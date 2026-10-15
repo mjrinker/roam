@@ -15,6 +15,7 @@ import { actionOf, directionOf, TIZEN_MEDIA_KEYS, type Action } from "./keys";
 import { clampSpeed, formatSpeed, SPEED_STEP } from "@/lib/player/speed";
 import { activeSkipButton, autoSkipNow, skipKey, type AutoSkipPrefs, type SkipButtonState } from "@/lib/skipdb/active";
 import type { SkipSegment } from "@/lib/skipdb/client";
+import { removedRanges, toViewTime, viewDuration, type RemovedRange } from "@/lib/content-filter/timeline";
 import { activeCues, type Cue } from "@/lib/subtitles/cues";
 import { readPreferredHeight, writePreferredHeight } from "@/lib/player/quality-preference";
 
@@ -662,7 +663,9 @@ const speedSuffix = (rate: number) => (Math.abs(rate - 1) < 1e-9 ? "" : "  ·  "
 // ── Player ───────────────────────────────────────────────────────────────
 
 interface PlayConfig {
-  ownerKind: "title" | "episode";
+  ownerKind: "title" | "episode" | "extra";
+  /** Opened at a chapter: where to start, in seconds (instead of where the viewer left off). */
+  start?: number;
   ownerId: string;
   back: string;
   next: string | null;
@@ -683,6 +686,12 @@ interface Manifest {
   /** Intro, recap, credits and preview times (SkipDB's, or marked by hand), for the skip button. */
   skipSegments?: SkipSegment[];
   autoSkip?: AutoSkipPrefs;
+  /** Scenes this profile chose not to see or hear (on the playback clock): jumped over, or played with the sound off. */
+  skips?: { startSeconds: number; endSeconds: number; action: "skip" | "mute"; categories: string[] }[];
+  /** Something to tell the viewer once when playing starts (filtering they asked for could not be applied). */
+  notice?: string;
+  /** Chapters, on the playback clock. */
+  chapters?: { title: string; startSeconds: number }[];
 }
 
 const SAVE_EVERY_MS = 15000;
@@ -777,13 +786,45 @@ function startPlayer(first: PlayConfig) {
     if (!manifest) return;
     const p = position();
     paintSkip(p);
-    fill.style.width = Math.min(100, (p / Math.max(1, manifest.durationSeconds)) * 100) + "%";
-    clock.textContent = formatClock(p) + " / " + formatClock(manifest.durationSeconds) + speedSuffix(speed.rate());
+    // The bar and the times are measured without the scenes this profile skips.
+    const shown = toViewTime(p, removed);
+    const total = viewDuration(manifest.durationSeconds, removed);
+    fill.style.width = Math.min(100, (shown / Math.max(1, total)) * 100) + "%";
+    clock.textContent = formatClock(shown) + " / " + formatClock(total) + speedSuffix(speed.rate());
   }
+
+  // ── Scenes this profile skips or mutes (content filtering) ──
+  let removed: RemovedRange[] = [];
+  let silenced = false;
+  let lastJump: { end: number; at: number } | null = null;
+  function filterTick() {
+    const skips = manifest && manifest.skips;
+    if (!skips || skips.length === 0) return;
+    const p = position();
+    let hit: (typeof skips)[number] | null = null;
+    for (let i = 0; i < skips.length; i++) {
+      if (p >= skips[i].startSeconds - 0.02 && p < skips[i].endSeconds - 0.02) {
+        hit = skips[i];
+        break;
+      }
+    }
+    if (hit && hit.action === "skip" && (!lastJump || lastJump.end !== hit.endSeconds || Date.now() - lastJump.at > 1000)) {
+      lastJump = { end: hit.endSeconds, at: Date.now() };
+      seekTo(Math.min(hit.endSeconds, Math.max(0, (manifest as Manifest).durationSeconds - 0.5)));
+      return;
+    }
+    const wantSilence = !!hit && hit.action === "mute";
+    if (wantSilence !== silenced) {
+      silenced = wantSilence;
+      video.muted = wantSilence;
+    }
+  }
+  window.setInterval(filterTick, 100);
 
   /** `leaving`: the page is about to change, so use sendBeacon, which the browser finishes even then (fetch can be cancelled). */
   function save(finished?: boolean, leaving?: boolean) {
-    if (!manifest) return;
+    // A trailer or other extra keeps no place.
+    if (!manifest || cfg.ownerKind === "extra") return;
     const p = Math.floor(position());
     lastSave = Date.now();
     const body = JSON.stringify({ ownerKind: cfg.ownerKind, ownerId: cfg.ownerId, positionSeconds: p, durationSeconds: Math.floor(manifest.durationSeconds), finished: finished === undefined ? isFinished(p, manifest.durationSeconds) : finished });
@@ -842,6 +883,19 @@ function startPlayer(first: PlayConfig) {
     showHud();
   }
 
+  let noticeText: string | null = null;
+  // Set when every copy is being played: OK then asks to be told when one is free.
+  let waitFor: { titleId: string; seasonId: string | null } | null = null;
+  function askToBeTold() {
+    if (!waitFor) return;
+    const unit = waitFor;
+    waitFor = null;
+    fetch("/api/playback/watch", { method: "PUT", credentials: "same-origin", headers: { "Content-Type": "application/json" }, body: JSON.stringify(unit) }).then(
+      (res) => say(res.ok ? "You'll be told on the home screen (Notifications) when it's free." : "Couldn't ask. Try again."),
+      () => say("Couldn't ask. Try again.")
+    );
+  }
+
   function fetchPlay(kind: string, id: string, version?: string): Promise<Manifest> {
     // Which resolution: the one asked for, else the closest to what this TV last picked, else the best the title has.
     let which = "";
@@ -860,8 +914,9 @@ function startPlayer(first: PlayConfig) {
       if (res.status === 429) throw new Error("The demo has reached today's play limit. Try again tomorrow.");
       if (res.status === 423) {
         // Every copy is withdrawn or being played (the server tracks who owns what): say what the server said.
-        return res.json().then((b: { error?: string }) => {
-          throw new Error(b && b.error ? b.error : "This can't be played right now.");
+        return res.json().then((b: { error?: string; code?: string; unit?: { titleId: string; seasonId: string | null } }) => {
+          waitFor = b && b.code === "busy" && b.unit ? b.unit : null;
+          throw new Error((b && b.error ? b.error : "This can't be played right now.") + (waitFor ? " Press OK to be told when it's free." : ""));
         });
       }
       if (!res.ok) throw new Error("This can't be played right now.");
@@ -893,6 +948,11 @@ function startPlayer(first: PlayConfig) {
     (ahead || fetchPlay(cfg.ownerKind, cfg.ownerId))
       .then((m: Manifest) => {
         manifest = m;
+        waitFor = null;
+        removed = removedRanges(m.skips);
+        silenced = false;
+        video.muted = false;
+        lastJump = null;
         holdPlace();
         autoDone = {};
         speed.applyDefault(m.defaultRate, m.libraryId);
@@ -901,6 +961,15 @@ function startPlayer(first: PlayConfig) {
         const at = locate(m.segments, start);
         say("");
         openPart(at.segment, at.localTime, autoplay === undefined ? true : autoplay);
+        if (m.notice) {
+          // Said as playing starts (and kept through the "playing" event), then gone after a few seconds.
+          noticeText = m.notice;
+          say(noticeText);
+          window.setTimeout(() => {
+            if (status.textContent === noticeText) say("");
+            noticeText = null;
+          }, 7000);
+        }
       })
       .catch((e: Error) => say(e.message || "This can't be played right now."));
   }
@@ -1006,7 +1075,7 @@ function startPlayer(first: PlayConfig) {
   });
   video.addEventListener("playing", () => {
     recoveries = 0;
-    say("");
+    say(noticeText || "");
     showHud();
   });
   video.addEventListener("waiting", () => say("Buffering…"));
@@ -1063,6 +1132,8 @@ function startPlayer(first: PlayConfig) {
       window.location.href = cfg.back;
       return true;
     }
+    // Every copy is being played: OK asks to be told when one is free.
+    if (action === "enter" && !manifest && waitFor) return askToBeTold(), true;
     // While a skip button shows, OK presses it; play/pause keys still pause.
     if (action === "enter" && skipNow) return doSkip(skipNow), true;
     if (action === "playpause" || action === "enter") return toggle(), true;
@@ -1075,7 +1146,7 @@ function startPlayer(first: PlayConfig) {
     return false;
   };
   bar.style.display = "block";
-  load();
+  load(cfg.start);
 }
 
 
@@ -1104,6 +1175,8 @@ interface AudioManifest {
   urls: { index: number; url: string; expiresAt: string }[];
   libraryId?: string;
   defaultRate?: number | null;
+  /** The server limits playing at once: send a heartbeat to keep this player's place. */
+  heartbeat?: boolean;
 }
 
 function startListening(cfg: ListenConfig) {
@@ -1285,9 +1358,33 @@ function startListening(cfg: ListenConfig) {
       }
       if (res.status === 429) throw new Error("The demo has reached today's play limit. Try again tomorrow.");
       if (res.status === 409) throw new Error("This isn't ready to play yet. Try again in a few minutes.");
+      if (res.status === 423) {
+        // Withdrawn by its owners, or every copy is being played (the server tracks who owns what).
+        return res.json().then((b: { error?: string }) => {
+          throw new Error(b && b.error ? b.error : "This can't be played right now.");
+        });
+      }
       if (!res.ok) throw new Error("This can't be played right now.");
       return res.json();
     });
+  }
+
+  // Holding a place, when the server limits playing at once.
+  let beatTimer: number | undefined;
+  function holdPlace() {
+    window.clearInterval(beatTimer);
+    if (!manifest || !manifest.heartbeat) return;
+    const id2 = cfg.ownerId;
+    beatTimer = window.setInterval(() => {
+      fetch("/api/playback/beat", { method: "POST", credentials: "same-origin", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ownerKind: "title", ownerId: id2, paused: audio.paused }) }).then(
+        (res) => {
+          if (res.status !== 423) return;
+          audio.pause();
+          res.json().then((b: { error?: string }) => say(b && b.error ? b.error : "This isn't available any more."));
+        },
+        () => undefined
+      );
+    }, 30000);
   }
 
   function load(resumeFrom?: number, autoplay?: boolean) {
@@ -1300,6 +1397,7 @@ function startListening(cfg: ListenConfig) {
       .then((m: AudioManifest) => {
         if (seq !== loadSeq) return;
         manifest = m;
+        holdPlace();
         speed.applyDefault(m.defaultRate, m.libraryId);
         const resume = cfg.remembers && m.resumeSeconds > 0 && m.resumeSeconds < m.durationSeconds - 30 ? m.resumeSeconds : 0;
         const at = partAt(resumeFrom !== undefined ? resumeFrom : resume);
@@ -1379,7 +1477,14 @@ function startListening(cfg: ListenConfig) {
       load(position(), wantPlaying);
     } else say("Playback failed. Press Back and try again.");
   });
-  window.addEventListener("pagehide", () => save(undefined, true));
+  window.addEventListener("pagehide", () => {
+    save(undefined, true);
+    try {
+      if (manifest && manifest.heartbeat && navigator.sendBeacon) navigator.sendBeacon("/api/playback/end");
+    } catch {
+      /* the place is let go after a minute and a half anyway */
+    }
+  });
 
   playerKeys = (action: Action | null, dirKey: string | null): boolean => {
     if (speed.isOpen()) return speed.key(action, dirKey);
@@ -1581,6 +1686,23 @@ function enhance() {
   const imgs = doc.querySelectorAll(".backdrop img[data-src]");
   for (let i = 0; i < imgs.length; i++) imgs[i].setAttribute("src", imgs[i].getAttribute("data-src") || "");
 }
+
+// ── PIN pad ────────────────────────────────────────────────────────────
+
+/** The digits chosen so far on the PIN page; four of them send the form. Kept in the page only (never in an address). */
+doc.addEventListener("click", (e: MouseEvent) => {
+  const target = e.target as Element | null;
+  const key = target && target.closest ? target.closest("[data-pin-digit],[data-pin-delete]") : null;
+  const value = doc.getElementById("pinvalue") as HTMLInputElement | null;
+  const dots = doc.getElementById("pindots");
+  if (!key || !value || !dots) return;
+  let pin = value.value;
+  if (key.hasAttribute("data-pin-delete")) pin = pin.slice(0, -1);
+  else if (pin.length < 4) pin += key.getAttribute("data-pin-digit") || "";
+  value.value = pin;
+  dots.textContent = [0, 1, 2, 3].map((i) => (i < pin.length ? "●" : "○")).join(" ");
+  if (pin.length === 4) (doc.getElementById("pinform") as HTMLFormElement).submit();
+});
 
 // ── "More" buttons ───────────────────────────────────────────────────────
 

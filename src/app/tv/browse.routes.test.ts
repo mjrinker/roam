@@ -1,6 +1,6 @@
 /** The TV pages end to end at the route level: who gets in, what they see, and what is hidden from them. */
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { and, eq } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 
 const h = vi.hoisted(() => ({
   testDb: null as unknown as { db: import("@/lib/playlists/test-db").TestDb },
@@ -43,6 +43,7 @@ vi.mock("@/lib/supabase/server", () => ({ createSupabaseServerClient: async () =
 import { episodes, libraryMembers, profiles, seasons, viewers, watchState } from "@/lib/db/schema";
 import { joinServer, makeAccount, makeLibrary, makeServer, makeShow, makeTitle, type TestDb } from "@/lib/playlists/test-db";
 import { VIEWER_COOKIE } from "@/lib/viewers/cookie";
+import { hashPin } from "@/lib/viewers/pin";
 import { GET as front } from "./route";
 import { GET as profilesRoute, POST as selectProfile } from "./profiles/route";
 import { GET as signoutGet, POST as signout } from "./signout/route";
@@ -246,41 +247,58 @@ describe("what a profile does not see", () => {
 });
 
 describe("profiles and signing out", () => {
-  it("offers only profiles without a PIN, picks the only one by itself, and sets the signed profile cookie", async () => {
+  it("lists every profile (a locked one marked), picks the only one by itself, and sets the signed profile cookie", async () => {
     const w = await world();
-    await db.insert(viewers).values({ accountId: w.member.accountId, name: "Dad", role: "owner", pinHash: "x", sortOrder: 2 });
     const solo = await profilesRoute(req("/tv/profiles"));
     expect(solo.headers.get("location")).toBe("https://roam.example/tv");
     expect(h.jar.get(VIEWER_COOKIE)).toContain(w.member.viewer.id);
     h.jar.clear();
+    await db.insert(viewers).values({ accountId: w.member.accountId, name: "Dad", role: "owner", pinHash: hashPin("1234"), sortOrder: 2 });
     const [kid] = await db.insert(viewers).values({ accountId: w.member.accountId, name: "Kid", role: "limited", sortOrder: 3 }).returning();
     const list = await text(await profilesRoute(req("/tv/profiles")));
     expect(list).toContain("Who&#39;s watching?");
     expect(list).toContain("Kid");
-    expect(list).not.toContain("Dad");
+    expect(list).toContain("Dad (PIN)");
     expect(list).toContain('method="post" action="/tv/profiles"'); // choosing is a POST
     const picked = await selectProfile(post("/tv/profiles", { viewer: kid.id }));
     expect(picked.headers.get("location")).toBe("https://roam.example/tv");
     expect(h.jar.get(VIEWER_COOKIE)).toContain(kid.id);
   });
-  it("won't select a profile with a PIN, or someone else's", async () => {
+  it("asks a locked profile for its PIN on a pad, and only the right PIN gets in", async () => {
     const w = await world();
-    const [locked] = await db.insert(viewers).values({ accountId: w.member.accountId, name: "Locked", role: "owner", pinHash: "x", sortOrder: 2 }).returning();
-    await db.insert(viewers).values({ accountId: w.member.accountId, name: "Open", role: "limited", sortOrder: 3 });
-    const stranger = await makeAccount(db, "stranger");
-    for (const id of [locked.id, stranger.viewer.id]) {
-      h.jar.clear();
-      const res = await selectProfile(post("/tv/profiles", { viewer: id }));
-      expect(res.headers.get("location")).toBe("https://roam.example/tv/profiles");
-      expect(h.jar.has(VIEWER_COOKIE)).toBe(false);
-    }
+    const [locked] = await db.insert(viewers).values({ accountId: w.member.accountId, name: "Locked", role: "owner", pinHash: hashPin("4321"), sortOrder: 2 }).returning();
+    h.jar.clear();
+    const pad = await selectProfile(post("/tv/profiles", { viewer: locked.id }));
+    const padHtml = await text(pad);
+    expect(padHtml).toContain("Enter your PIN");
+    expect(padHtml).toContain('data-pin-digit="7"');
+    expect(padHtml).not.toContain("4321");
+    expect(h.jar.has(VIEWER_COOKIE)).toBe(false);
+    const wrong = await selectProfile(post("/tv/profiles", { viewer: locked.id, pin: "1111" }));
+    expect(wrong.status).toBe(401);
+    expect(await text(wrong)).toContain("That PIN isn&#39;t right.");
+    expect(h.jar.has(VIEWER_COOKIE)).toBe(false);
+    for (const bad of ["12", "abcd", "43210"]) expect((await selectProfile(post("/tv/profiles", { viewer: locked.id, pin: bad }))).status).toBe(401);
+    const right = await selectProfile(post("/tv/profiles", { viewer: locked.id, pin: "4321" }));
+    expect(right.headers.get("location")).toBe("https://roam.example/tv");
+    expect(h.jar.get(VIEWER_COOKIE)).toContain(locked.id);
   });
-  it("needs a signed-in account, and explains when every profile is locked", async () => {
+  it("stops guessing a PIN after a few tries, and won't select someone else's profile", async () => {
+    const w = await world();
+    const [locked] = await db.insert(viewers).values({ accountId: w.member.accountId, name: "Locked", role: "owner", pinHash: hashPin("4321"), sortOrder: 2 }).returning();
+    for (let i = 0; i < 5; i++) await selectProfile(post("/tv/profiles", { viewer: locked.id, pin: "0000" }));
+    const blocked = await selectProfile(post("/tv/profiles", { viewer: locked.id, pin: "4321" }));
+    expect(blocked.status).toBe(429); // even the right PIN waits
+    expect(h.jar.has(VIEWER_COOKIE)).toBe(false);
+    const stranger = await makeAccount(db, "stranger");
+    h.jar.clear();
+    const res = await selectProfile(post("/tv/profiles", { viewer: stranger.viewer.id }));
+    expect(res.headers.get("location")).toBe("https://roam.example/tv/profiles");
+    expect(h.jar.has(VIEWER_COOKIE)).toBe(false);
+  });
+  it("needs a signed-in account", async () => {
     expect((await profilesRoute(req("/tv/profiles"))).headers.get("location")).toBe("https://roam.example/tv/pair");
     expect((await selectProfile(post("/tv/profiles", { viewer: "x" }))).headers.get("location")).toBe("https://roam.example/tv/pair");
-    const w = await world();
-    await db.update(viewers).set({ pinHash: "x" }).where(and(eq(viewers.accountId, w.member.accountId)));
-    expect(await text(await profilesRoute(req("/tv/profiles")))).toContain("Profiles with a PIN can&#39;t be used on a TV yet");
   });
   it("signs this TV out and forgets the profile, but only on a POST: opening the address just goes home", async () => {
     h.jar.set(VIEWER_COOKIE, "x");
