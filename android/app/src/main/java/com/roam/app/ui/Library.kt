@@ -32,6 +32,9 @@ import com.roam.app.data.ApiItem
 fun LibraryScreen(serverId: String, libraryId: String, style: String, name: String, nav: Nav) {
     val graph = LocalGraph.current
     var path by remember { mutableStateOf("") }
+    // A photo library is seen as the timeline, the favourites, or the albums (folders).
+    var mode by remember { mutableStateOf("timeline") }
+    val photos = style == "timeline"
     val folders = remember { mutableStateListOf<String>() }
     val items = remember { mutableStateListOf<ApiItem>() }
     var page by remember { mutableStateOf(0) }
@@ -40,16 +43,17 @@ fun LibraryScreen(serverId: String, libraryId: String, style: String, name: Stri
     var loading by remember { mutableStateOf(false) }
     var problem by remember { mutableStateOf<String?>(null) }
 
-    LaunchedEffect(path) {
+    LaunchedEffect(path, mode) {
         // A new folder starts the listing over.
         items.clear(); folders.clear(); page = 0; after = null; more = true; problem = null
     }
     // Loads the next page; called when the end of the list comes into view, and once to begin.
     suspend fun loadMore() {
-        if (loading || !more || style == "timeline") return
+        if (loading || !more) return
         loading = true
         try {
-            val next = graph.api.items(serverId, libraryId, page = if (style == "grid") page + 1 else null, path = if (style == "folders") path else null, after = after)
+            val next = if (photos) graph.api.photos(serverId, libraryId, view = if (mode == "timeline") null else mode, path = if (mode == "albums") path else null, after = after)
+            else graph.api.items(serverId, libraryId, page = if (style == "grid") page + 1 else null, path = if (style == "folders") path else null, after = after)
             if (style == "grid") page += 1
             if (next.path != null && folders.isEmpty()) folders.addAll(next.folders)
             items.addAll(next.items)
@@ -62,18 +66,23 @@ fun LibraryScreen(serverId: String, libraryId: String, style: String, name: Stri
             loading = false
         }
     }
-    LaunchedEffect(path, more) { if (items.isEmpty() && more) loadMore() }
+    LaunchedEffect(path, mode, more) { if (items.isEmpty() && more) loadMore() }
 
     val pad = if (graph.isTv) 48.dp else 16.dp
     Column(Modifier.fillMaxSize().padding(pad).testTag("library")) {
         Text(if (path.isEmpty()) name else path.substringAfterLast('/'), style = MaterialTheme.typography.headlineMedium, color = MaterialTheme.colorScheme.onBackground)
-        if (style == "timeline") {
-            Text("Photos aren't in this app yet. Use the web version for now.", color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 16.dp))
-            return@Column
+        if (photos) {
+            androidx.compose.foundation.layout.Row {
+                for ((key, label) in listOf("timeline" to "Timeline", "favorites" to "Favourites", "albums" to "Albums")) {
+                    androidx.compose.material3.TextButton(onClick = { mode = key; path = "" }, modifier = Modifier.testTag("mode-$key")) {
+                        Text(label, color = if (mode == key) Accent else MaterialTheme.colorScheme.onSurface)
+                    }
+                }
+            }
         }
         problem?.let { Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(top = 8.dp).testTag("problem")) }
         LazyVerticalGrid(columns = GridCells.Adaptive(if (graph.isTv) 170.dp else 120.dp), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalArrangement = Arrangement.spacedBy(16.dp), modifier = Modifier.padding(top = 12.dp)) {
-            if (style == "folders") {
+            if (style == "folders" || (photos && mode == "albums")) {
                 items(folders, span = { GridItemSpan(maxLineSpan) }) { folder ->
                     Text(
                         "📁  $folder", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurface,
@@ -81,7 +90,10 @@ fun LibraryScreen(serverId: String, libraryId: String, style: String, name: Stri
                     )
                 }
             }
-            items(items, key = { "${it.type}-${it.id}" }) { item -> PosterCard(item, onClick = { nav.open(routeFor(serverId, item)) }, width = if (graph.isTv) 170.dp else 120.dp) }
+            items(items, key = { "${it.type}-${it.id}" }) { item ->
+                val open = if (item.type == "photo") Routes.photo(serverId, item.id, if (mode == "favorites") "favorites" else if (mode == "albums") "album" else "timeline") else routeFor(serverId, item)
+                PosterCard(item, onClick = { nav.open(open) }, width = if (graph.isTv) 170.dp else 120.dp)
+            }
             if (more) {
                 item(span = { GridItemSpan(maxLineSpan) }) {
                     LaunchedEffect(items.size) { loadMore() }

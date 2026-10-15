@@ -72,6 +72,22 @@ data class Home(
 )
 
 @Serializable
+data class PhotoRef(val type: String, val id: String)
+
+@Serializable
+data class PhotoView(
+    val id: String,
+    val type: String = "photo",
+    val name: String = "",
+    val takenAt: String? = null,
+    val favorite: Boolean = false,
+    val folderPath: String = "",
+    val imagePath: String? = null,
+    val prev: PhotoRef? = null,
+    val next: PhotoRef? = null,
+)
+
+@Serializable
 data class PlaylistSummary(val id: String, val name: String, val itemCount: Int = 0, val ownerName: String? = null, val canAdd: Boolean = false)
 
 @Serializable

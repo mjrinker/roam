@@ -45,6 +45,9 @@ fun RoamApp(navController: NavHostController = rememberNavController()) {
             composable(Routes.ALBUM) { e -> AlbumScreen(e.arguments!!.getString("sid")!!, e.arguments!!.getString("id")!!, nav) }
             composable(Routes.ARTIST) { e -> ArtistScreen(e.arguments!!.getString("sid")!!, e.arguments!!.getString("id")!!, nav) }
             composable(Routes.SEARCH) { e -> SearchScreen(e.arguments!!.getString("sid")!!, nav) }
+            composable(Routes.PHOTO, arguments = listOf(navArgument("from") { type = NavType.StringType; defaultValue = "timeline" })) { e ->
+                PhotoScreen(e.arguments!!.getString("sid")!!, e.arguments!!.getString("id")!!, e.arguments!!.getString("from") ?: "timeline", nav)
+            }
             composable(Routes.PLAYLISTS) { e -> PlaylistsScreen(e.arguments!!.getString("sid")!!, nav) }
             composable(Routes.PLAYLIST) { e -> PlaylistScreen(e.arguments!!.getString("sid")!!, e.arguments!!.getString("id")!!, nav) }
             composable(Routes.NOTIFICATIONS) { NotificationsScreen(nav) }

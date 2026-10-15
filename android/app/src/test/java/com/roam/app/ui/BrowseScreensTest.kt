@@ -145,12 +145,6 @@ class BrowseScreensTest {
         assertEquals(listOf<String?>("", "Trips"), asked.distinct())
     }
 
-    @Test fun photosAreSaidToBeMissingRatherThanBroken() {
-        rule.setContent { Shown(testGraph(Unsupported)) { LibraryScreen("S", "P", "timeline", "Photos", FakeNav()) } }
-        rule.waitForIdle()
-        rule.onNodeWithText("Photos aren't in this app yet", substring = true).assertIsDisplayed()
-    }
-
     // ── search ──
     @Test fun searchWaitsForAPauseInTypingThenListsWhatWasFound() {
         val queries = mutableListOf<String>()

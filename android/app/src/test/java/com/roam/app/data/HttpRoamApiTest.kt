@@ -126,6 +126,33 @@ class HttpRoamApiTest {
         assertEquals("k~1", folder.next)
     }
 
+    @Test fun readsPhotosPlaylistsAndSetsAFavourite() = runBlocking {
+        reply("""{"items":[{"type":"photo","id":"p1","name":"IMG","posterUrl":"/api/photos/p1/thumb?v=1","square":true}],"next":"123~x"}""")
+        val page = api.photos("S", "L", view = "favorites", path = null, after = "1~a")
+        assertEquals("/api/v1/servers/S/libraries/L/items?view=favorites&after=1%7Ea", server.takeRequest().path)
+        assertEquals("/api/photos/p1/thumb?v=1", page.items.single().posterUrl)
+        assertEquals("123~x", page.next)
+        reply("""{"id":"p1","type":"photo","name":"IMG","takenAt":"2026-01-02T00:00:00.000Z","favorite":true,"imagePath":"/api/photos/p1/preview","prev":null,"next":{"type":"clip","id":"c1"}}""")
+        val photo = api.photo("S", "p1", "album")
+        assertEquals("/api/v1/servers/S/photos/p1?from=album", server.takeRequest().path)
+        assertTrue(photo.favorite)
+        assertEquals(PhotoRef("clip", "c1"), photo.next)
+        reply("{}")
+        api.setFavorite("p1", true)
+        val on = server.takeRequest()
+        assertEquals("PUT /api/photos/p1/favorite", "${on.method} ${on.path}")
+        reply("{}")
+        api.setFavorite("p1", false)
+        assertEquals("DELETE", server.takeRequest().method)
+        reply("""{"playlists":[{"id":"P","name":"Fri","itemCount":2,"ownerName":"Matt","canAdd":true}]}""")
+        assertEquals("Fri", api.playlists("S").single().name)
+        assertEquals("/api/v1/servers/S/playlists", server.takeRequest().path)
+        reply("""{"playlist":{"id":"P","name":"Fri"},"items":[{"entryId":"e","type":"episode","id":"x","name":"Ep","playable":true}],"next":"1024~z"}""")
+        val list = api.playlist("S", "P", after = "1~y")
+        assertEquals("/api/v1/servers/S/playlists/P?after=1%7Ey", server.takeRequest().path)
+        assertEquals("1024~z", list.next)
+    }
+
     @Test fun readsAMovieWithItsExtras() = runBlocking {
         reply(
             """{"type":"movie","id":"m","name":"The Film","year":2001,"runtimeSeconds":5400,"genres":["Drama"],"resume":{"positionSeconds":1800,"durationSeconds":5400},

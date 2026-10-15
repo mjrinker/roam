@@ -132,5 +132,6 @@ fun routeFor(serverId: String, item: ApiItem): String = when (item.type) {
     "artist" -> Routes.artist(serverId, item.id)
     "audio" -> Routes.audio(item.id, item.name, remember = false)
     "clip" -> Routes.player("title", item.id, item.name)
+    "photo" -> Routes.photo(serverId, item.id)
     else -> Routes.home(serverId)
 }

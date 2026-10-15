@@ -46,6 +46,7 @@ All under `/api/v1/servers/{serverId}`. Lists are cut for the profile in use: li
 | `…/playlists/{id}` | One playlist and a page of its items (`?after=` is the previous page's `next`): `{ playlist, items, next }`. Items are like list items, plus `entryId` and `playable`; photos and eBooks are left out. Changing a playlist uses `/api/playlists/{id}` and its `items`, below. |
 | `…/libraries/{id}/genres` | A grid library's genres with their counts (the same filters can be given). |
 | `…/titles/{id}` | A movie, show or audiobook (see below). |
+| `…/photos/{id}` | One picture or clip with its neighbours (`?from=timeline\|favorites\|album`): `{ id, type, name, takenAt, favorite, libraryId, folderPath, imagePath, prev, next }`. Fetch `imagePath` (relative to the server) with the token; set a favourite with `PUT`/`DELETE /api/photos/{id}/favorite`. |
 | `…/albums/{id}`, `…/artists/{id}` | An album with its songs in order; an artist with their albums. |
 | `…/search?q=` | `{ query, items }`: titles, books, audio files, albums and artists. |
 
@@ -75,4 +76,4 @@ Playlists (`/api/servers/{serverId}/playlists`, `/api/playlists/{id}`, `/api/pla
 
 ## Not in v1 yet
 
-Viewing a single photo, pictures of a title's cast, download-for-offline helpers for native apps, and the admin's screens (assigning owners, settling claims, server settings), which stay on the web.
+Pictures of a title's cast, download-for-offline helpers for native apps, and the admin's screens (assigning owners, settling claims, server settings), which stay on the web.
