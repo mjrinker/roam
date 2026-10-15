@@ -3,6 +3,7 @@ import { listArtists } from "@/lib/music/browse";
 import { timelineCursorSchema, type TimelineCursor } from "@/lib/photos/timeline";
 import { TV_LISTEN_KINDS } from "@/lib/libraries/profile";
 import { folderCursorParam, folderLevel, libraryTitles, parseFolderCursor, photoPage, tvLibrary } from "@/lib/tv/data";
+import { parseLibraryOptions } from "@/lib/tv/library-options";
 import { apiError, apiJson, apiNotFound, asId } from "@/lib/api/v1";
 import { apiAccess } from "@/lib/api/access";
 import type { ApiItem } from "@/lib/api/v1-shapes";
@@ -18,7 +19,7 @@ function parsePhotoCursor(raw: string | null): TimelineCursor | null | "bad" {
 
 /**
  * What is in a library, a page at a time, shaped by how it is browsed:
- *  - grid (movies, shows, audiobooks): `?page=1`; answers `{ items, hasMore }`.
+ *  - grid (movies, shows, audiobooks): `?page=1`; answers `{ items, hasMore }`. Optional: `sort=title|year|added`, `genre=Drama`, `unwatched=1`, `owner=<account id>|none`.
  *  - folders (video and audio folders): `?path=Some/Folder&after=CURSOR`; answers `{ path, folders, items, next }`.
  *  - artists (music): `?after=CURSOR`; answers `{ items, next }` (artists; open one for its albums).
  *  - timeline (photos): `?view=favorites|albums&after=CURSOR` (and `path` for albums); answers `{ items, next }`.
@@ -38,7 +39,7 @@ export async function GET(request: Request, ctx: RouteContext<"/api/v1/servers/[
 
   if (library.style === "grid") {
     const page = Math.min(Math.max(1, Math.floor(Number(q.get("page"))) || 1), 10_000);
-    const result = await libraryTitles(db, scope, libraryId, page);
+    const result = await libraryTitles(db, scope, libraryId, page, parseLibraryOptions(q));
     if (!result) return apiNotFound();
     const items: ApiItem[] = result.items.map((t) => ({ type: t.kind === "audiobook" ? "audiobook" : t.kind, id: t.id, name: t.name, subtitle: t.kind === "audiobook" ? (t.authors ?? []).join(", ") || null : t.year ? String(t.year) : null, posterUrl: t.posterUrl, square: t.kind === "audiobook" }));
     return apiJson({ ...base, page, hasMore: result.hasMore, items });

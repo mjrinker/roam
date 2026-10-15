@@ -4,8 +4,10 @@ import { db } from "@/lib/db/client";
 import type { LibraryKind } from "@/lib/db/schema";
 import { TV_LISTEN_KINDS } from "@/lib/libraries/profile";
 import { asUuid, notFoundPage, tvAccess, type TvAccess } from "@/lib/tv/context";
-import { folderCursorParam, folderLevel, libraryTitles, parseFolderCursor, photoPage, tvLibrary } from "@/lib/tv/data";
-import { html } from "@/lib/tv/http";
+import { folderCursorParam, folderLevel, libraryTitles, pageForLetter, parseFolderCursor, photoPage, tvLibrary } from "@/lib/tv/data";
+import { LETTERS, nextSort, optionsQuery, parseLetter, parseLibraryOptions, SORT_WORDS, type LibraryOptions } from "@/lib/tv/library-options";
+import { libraryOwnership } from "@/lib/ownership/view";
+import { html, redirectTo } from "@/lib/tv/http";
 import { listPage } from "@/tv/render";
 
 type Ok = Extract<TvAccess, { ok: true }>;
@@ -37,7 +39,7 @@ export async function GET(request: Request, ctx: RouteContext<"/tv/s/[serverId]/
 
   switch (library.style) {
     case "grid":
-      return gridPage(access, here, url, id);
+      return gridPage(access, here, url, id, request);
     case "folders":
       return folderPage(access, here, url, id, isAudioFolders(library.kind));
     case "artists":
@@ -47,19 +49,40 @@ export async function GET(request: Request, ctx: RouteContext<"/tv/s/[serverId]/
   }
 }
 
-async function gridPage(access: Ok, here: string, url: URL, id: string) {
+async function gridPage(access: Ok, here: string, url: URL, id: string, request: Request) {
+  const options = parseLibraryOptions(url.searchParams);
+  // A letter jumps to the page it starts on (titles sorted by name).
+  const letter = options.sort === "title" ? parseLetter(url.searchParams.get("letter")) : null;
+  if (letter) {
+    const page = await pageForLetter(db, access.scope, id, letter, options);
+    return redirectTo(request, `${here}${optionsQuery(options, { page: page > 1 ? page : null })}`);
+  }
   const page = Math.min(Math.max(1, Math.floor(Number(url.searchParams.get("page"))) || 1), 10_000);
-  const result = await libraryTitles(db, access.scope, id, page);
+  const result = await libraryTitles(db, access.scope, id, page, options);
   if (!result) return notFoundPage();
   const hrefOf = (t: { kind: string; id: string }) => `${access.base}/${t.kind === "movie" ? "title" : t.kind === "show" ? "show" : "book"}/${t.id}`;
+  const households = result.ownershipOn ? ((await libraryOwnership(db, { serverId: access.serverId, libraryId: id, accountId: access.who.accountId, isAdmin: access.who.isAdmin })) ?? { households: [] }).households : [];
+  const ownerWords = options.owner === "none" ? "No owner" : options.owner ? (households.find((h) => h.id === options.owner)?.name ?? "A household") : "Anyone";
+  const to = (o: LibraryOptions, extra: Record<string, string | number | null> = {}) => `${here}${optionsQuery(o, extra)}`;
+  const choose = (what: string) => `${here}/choose${optionsQuery(options, { what })}`;
+  const narrowed = !!(options.genre || options.unwatched || options.owner);
+  const toolbar = [
+    { href: to({ ...options, sort: nextSort(options.sort) }), label: `Sort: ${SORT_WORDS[options.sort]}` },
+    { href: choose("genre"), label: `Genre: ${options.genre ?? "Any"}` },
+    { href: to({ ...options, unwatched: !options.unwatched }), label: `Unwatched only: ${options.unwatched ? "On" : "Off"}` },
+    ...(result.ownershipOn ? [{ href: choose("owner"), label: `Owner: ${ownerWords}` }] : []),
+    ...(narrowed ? [{ href: to({ ...options, genre: null, unwatched: false, owner: null }), label: "Clear filters" }] : []),
+  ];
   return html(
     listPage({
       base: access.base,
       title: result.library.name,
       backHref: access.base,
+      toolbar,
+      letters: options.sort === "title" ? LETTERS.map((l) => ({ href: to(options, { letter: l }), label: l })) : undefined,
       items: result.items.map((t) => ({ href: hrefOf(t), name: t.name, meta: t.kind === "audiobook" ? (t.authors ?? []).join(", ") || null : t.year ? String(t.year) : null, posterUrl: t.posterUrl, square: t.kind === "audiobook" })),
-      prevHref: page > 1 ? `${here}?page=${page - 1}` : null,
-      nextHref: result.hasMore ? `${here}?page=${page + 1}` : null,
+      prevHref: page > 1 ? to(options, { page: page - 1 }) : null,
+      nextHref: result.hasMore ? to(options, { page: page + 1 }) : null,
     })
   );
 }

@@ -14,6 +14,8 @@ import type { LibraryKind } from "@/lib/db/schema";
 import { GLOBALLY_LISTED_LIBRARY_KINDS, isPhotoLibraryKind, libraryRemembersProgress, tvBrowseStyle, TV_LISTEN_KINDS, TV_WATCH_KINDS, type TvBrowseStyle } from "@/lib/libraries/profile";
 import { getAlbum, getArtist } from "@/lib/music/browse";
 import { shuffled } from "@/lib/tv/shuffle";
+import { DEFAULT_OPTIONS, type LibraryOptions, type LibrarySort } from "@/lib/tv/library-options";
+import { loadSettings } from "@/lib/ownership/owners";
 import { watchedShowIds } from "@/lib/watch/shows";
 import { listTimeline, loadPhoto, photoNeighbors, type NeighborScope, type TimelineCursor } from "@/lib/photos/timeline";
 
@@ -127,23 +129,72 @@ export interface ListedTitle {
   authors: string[] | null;
 }
 
-/** One page of a movies, TV shows or audiobooks library, by name. Null when the library isn't one this profile can open that way on TV. */
-export async function libraryTitles(ex: Db, scope: TvScope, libraryId: string, page: number) {
+/** The conditions a library list is narrowed by (on top of who may see what). */
+function libraryConditions(ex: Db, scope: TvScope, libraryId: string, o: LibraryOptions, ownershipOn: boolean, withGenre = true) {
+  const conditions = [eq(titles.libraryId, libraryId), inArray(titles.kind, ["movie", "show", "audiobook"]), contentFilter(scope.viewer, titles.ratingAges)];
+  if (withGenre && o.genre) conditions.push(sql`${titles.genres} @> ${JSON.stringify([o.genre])}::jsonb`);
+  if (o.unwatched) {
+    const v = scope.viewerId;
+    // A show is still to watch while any of its episodes that can be played isn't finished; a movie or book until it is finished.
+    conditions.push(sql`CASE WHEN ${titles.kind} = 'show' THEN EXISTS (
+      SELECT 1 FROM episodes e JOIN seasons s ON s.id = e.season_id
+      WHERE s.title_id = ${titles.id}
+        AND EXISTS (SELECT 1 FROM media_files m WHERE m.owner_kind = 'episode' AND m.owner_id = e.id)
+        AND NOT EXISTS (SELECT 1 FROM watch_state w WHERE w.owner_kind = 'episode' AND w.owner_id = e.id AND w.viewer_id = ${v} AND w.finished))
+      ELSE NOT EXISTS (SELECT 1 FROM watch_state w WHERE w.owner_kind = 'title' AND w.owner_id = ${titles.id} AND w.viewer_id = ${v} AND w.finished) END`);
+  }
+  if (ownershipOn && o.owner === "none") conditions.push(sql`NOT EXISTS (SELECT 1 FROM title_owners o WHERE o.title_id = ${titles.id})`);
+  else if (ownershipOn && o.owner) conditions.push(sql`EXISTS (SELECT 1 FROM title_owners o WHERE o.title_id = ${titles.id} AND o.account_id = ${o.owner})`);
+  void ex;
+  return and(...conditions);
+}
+
+const orderFor = (sort: LibrarySort) =>
+  sort === "year" ? [sql`${titles.year} DESC NULLS LAST`, sql`lower(${titles.name})`, asc(titles.id)] : sort === "added" ? [desc(titles.addedAt), asc(titles.id)] : [sql`lower(${titles.name})`, asc(titles.id)];
+
+/** One page of a movies, TV shows or audiobooks library, sorted and narrowed as asked (by title, with nothing narrowed, by default). Null when the library isn't one this profile can open that way on TV. */
+export async function libraryTitles(ex: Db, scope: TvScope, libraryId: string, page: number, options: LibraryOptions = DEFAULT_OPTIONS) {
   const library = await tvLibrary(ex, scope, libraryId);
   if (!styleIs(library, "grid")) return null;
   const offset = (Math.max(1, Math.floor(page)) - 1) * PAGE_SIZE;
+  const ownershipOn = (await loadSettings(ex, scope.actor.serverId)).enabled;
   const rows = await ex
     .select({ id: titles.id, kind: titles.kind, name: titles.name, year: titles.year, posterUrl: titles.posterUrl, authors: titles.authors })
     .from(titles)
-    .where(and(eq(titles.libraryId, libraryId), inArray(titles.kind, ["movie", "show", "audiobook"]), contentFilter(scope.viewer, titles.ratingAges)))
-    .orderBy(sql`lower(${titles.name})`, asc(titles.id))
+    .where(libraryConditions(ex, scope, libraryId, options, ownershipOn))
+    .orderBy(...orderFor(options.sort))
     .limit(PAGE_SIZE + 1)
     .offset(offset);
   return {
     library: library!,
     items: rows.slice(0, PAGE_SIZE) as ListedTitle[],
     hasMore: rows.length > PAGE_SIZE,
+    ownershipOn,
   };
+}
+
+/** Which page of the list (sorted by title) a letter starts on: the page holding the first title at or after it. "#" is the top. */
+export async function pageForLetter(ex: Db, scope: TvScope, libraryId: string, letter: string, options: LibraryOptions): Promise<number> {
+  if (letter === "#") return 1;
+  const ownershipOn = (await loadSettings(ex, scope.actor.serverId)).enabled;
+  const [row] = await ex
+    .select({ n: sql<number>`count(*)::int` })
+    .from(titles)
+    .where(and(libraryConditions(ex, scope, libraryId, options, ownershipOn), sql`lower(${titles.name}) < ${letter.toLowerCase()}`));
+  return Math.floor((row?.n ?? 0) / PAGE_SIZE) + 1;
+}
+
+/** The genres in a library (within what this profile may see, and the other options), with how many titles each has. */
+export async function libraryGenres(ex: Db, scope: TvScope, libraryId: string, options: LibraryOptions): Promise<{ name: string; count: number }[]> {
+  const ownershipOn = (await loadSettings(ex, scope.actor.serverId)).enabled;
+  const rows = await ex
+    .select({ name: sql<string>`g.value`, count: sql<number>`count(*)::int` })
+    .from(titles)
+    .innerJoin(sql`jsonb_array_elements_text(${titles.genres}) AS g(value)`, sql`true`)
+    .where(libraryConditions(ex, scope, libraryId, options, ownershipOn, false))
+    .groupBy(sql`g.value`)
+    .orderBy(sql`g.value`);
+  return rows;
 }
 
 async function visibleTitle(ex: Db, scope: TvScope, id: string, kind: "movie" | "show") {

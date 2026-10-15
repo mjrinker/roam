@@ -41,7 +41,8 @@ All under `/api/v1/servers/{serverId}`. Lists are cut for the profile in use: li
 | `GET /api/v1/servers` | `{ servers: [{ id, name, role }] }` (no profile needed). |
 | `…/home` | `server`, `libraries`, `continueWatching`, `continueListening`, `recentlyAdded` (items, below), `hasPlaylists`, `unreadNotifications`. |
 | `…/libraries` | `{ libraries: [{ id, name, kind, style }] }`. `style` says how to browse it: `grid`, `folders`, `artists`, `timeline`, or `null` (not listable yet, e.g. eBooks). |
-| `…/libraries/{id}/items` | One page, by style: **grid** `?page=1` → `{ items, page, hasMore }`; **folders** `?path=A/B&after=CURSOR` → `{ path, folders, items, next }`; **artists** `?after=CURSOR` → `{ items, next }`; **timeline** (photos) `?view=favorites` or `?view=albums&path=…&after=CURSOR` → `{ items, next }`. Pass `next` back as `after`; null means the end. |
+| `…/libraries/{id}/items` | One page, by style: **grid** `?page=1` (and optionally `sort=title\|year\|added`, `genre=Drama`, `unwatched=1`, `owner=<account id>\|none`) → `{ items, page, hasMore }`; **folders** `?path=A/B&after=CURSOR` → `{ path, folders, items, next }`; **artists** `?after=CURSOR` → `{ items, next }`; **timeline** (photos) `?view=favorites` or `?view=albums&path=…&after=CURSOR` → `{ items, next }`. Pass `next` back as `after`; null means the end. |
+| `…/libraries/{id}/genres` | A grid library's genres with their counts (the same filters can be given). |
 | `…/titles/{id}` | A movie, show or audiobook (see below). |
 | `…/albums/{id}`, `…/artists/{id}` | An album with its songs in order; an artist with their albums. |
 | `…/search?q=` | `{ query, items }`: titles, books, audio files, albums and artists. |

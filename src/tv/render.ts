@@ -153,12 +153,18 @@ export interface ListData {
   /** Link to the next page, or null. */
   nextHref: string | null;
   prevHref: string | null;
+  /** Buttons for sorting and narrowing the list (each leads to the same list, changed). */
+  toolbar?: { href: string; label: string }[];
+  /** A row of letters to jump to. */
+  letters?: { href: string; label: string }[];
 }
 
 export function listPage(d: ListData): string {
   const body =
     `<div class="page">${top(`<a data-f data-back href="${esc(d.backHref)}" class="btn" style="margin:0">Back</a>`)}<h1>${esc(d.title)}</h1>${d.subtitle ? `<p class="sub">${esc(d.subtitle)}</p>` : ""}` +
     (d.actions?.length ? `<div class="row">${actionRow(d.actions.map((f, i) => `<a class="tile folder" data-f${i === 0 ? " data-autofocus" : ""} href="${esc(safeUrl(f.href) ?? "/tv")}">${esc(f.name)}<small>${esc(f.note ?? "")}</small></a>`))}</div>` : "") +
+    (d.toolbar?.length ? `<div class="row">${d.toolbar.map((t) => `<a class="btn" data-f href="${esc(safeUrl(t.href) ?? "/tv")}">${esc(t.label)}</a>`).join("")}</div>` : "") +
+    (d.letters?.length ? `<div class="letters">${d.letters.map((l) => `<a class="key" data-f href="${esc(safeUrl(l.href) ?? "/tv")}">${esc(l.label)}</a>`).join("")}</div>` : "") +
     (d.folders?.length ? `<div class="row">${d.folders.map((f, i) => `<a class="tile folder" data-f${i === 0 && !d.actions?.length ? " data-autofocus" : ""} href="${esc(safeUrl(f.href) ?? "/tv")}">${esc(f.name)}<small>${esc(f.note ?? "Folder")}</small></a>`).join("")}</div>` : "") +
     (d.items.length ? `<div class="row" data-cards>${d.items.map((c, i) => card(c, i === 0 && !d.folders?.length && !d.actions?.length)).join("")}</div>` : d.folders?.length || d.actions?.length ? "" : `<p class="sub">Nothing here yet.</p>`) +
     `<div class="row">${d.prevHref ? `<a class="btn" data-f href="${esc(d.prevHref)}">Previous</a>` : ""}${d.nextHref ? `<a class="btn" data-f data-more href="${esc(d.nextHref)}">More</a>` : ""}</div></div>`;
