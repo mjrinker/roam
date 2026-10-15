@@ -948,6 +948,17 @@ export const titleOwners = pgTable(
   ]
 );
 
+// ── track_lyrics ─────────────────────────────────────────────────────────
+// What LRCLIB (a free, open lyrics service) has for a song, looked up the first time someone asks and kept, including "nothing found" (asked
+// again after a month). `synced` is the LRC text with a time on every line; `plain` is the words alone.
+export const trackLyrics = pgTable("track_lyrics", {
+  titleId: uuid("title_id").primaryKey().references(() => titles.id, { onDelete: "cascade" }),
+  synced: text("synced"),
+  plain: text("plain"),
+  instrumental: boolean("instrumental").notNull().default(false),
+  fetchedAt: timestamp("fetched_at", { withTimezone: true }).notNull().defaultNow(),
+}).enableRLS();
+
 // ── collections ──────────────────────────────────────────────────────────
 // A group of titles in one library shown as one tile: a film series (kind "tmdb": made from the titles' TMDB collection, so it fills and
 // empties by itself) or one an admin made by hand (kind "manual"). A collection is only listed to someone who can see at least one of its
