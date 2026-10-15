@@ -10,7 +10,7 @@ Roam has a light interface for TV browsers at `/tv` (a server-rendered page plus
 Movies, TV shows, videos, audiobooks, audio, music and photos (eBooks are deliberately not on TVs, and neither are the marking tools for scenes and skip times, which are web-only). On top of browsing:
 - **Search** with an on-screen keyboard (titles, books, audio files, albums and artists).
 - **Recently added** and **Continue watching / listening** rows on the home screen.
-- **Playlists:** list, open, **Play all** (the next item plays after each; show entries step through their episodes), and **Add to playlist** from movie, show and book pages. Playlists are created and shared on the web.
+- **Playlists:** list, open, **Play all** (the next item plays after each; show entries step through their episodes), and **Add to playlist** from movie, show and book pages. You can also make one (**New playlist**, or **New playlist…** while adding something, which names it and adds it), **Rename** it (typed with the on-screen keyboard; each word starts with a capital), **Arrange** it (Move up, Move down and Remove on each item; the button you pressed stays selected so you can keep going) and **Delete** it (after asking). Each of these shows only to a profile that is allowed to do it. Sharing and its settings stay on the web.
 - **Photos:** by date, by album (folder) and favourites; a full-screen viewer with a slideshow; a screensaver after five idle minutes on the home screen.
 - **Music:** artists, albums, songs; Shuffle and Play all for an artist; Up and Down move between songs.
 - **Back remembers your place** in a list.

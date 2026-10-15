@@ -380,9 +380,8 @@ export function searchPage(d: SearchData): string {
 // ── Playlists ─────────────────────────────────────────────────────────
 
 export function playlistsPage(d: { base: string; lists: { href: string; name: string; note: string }[] }): string {
-  const body = d.lists.length
-    ? `<div class="row">${d.lists.map((l, i) => `<a class="tile" data-f${i === 0 ? " data-autofocus" : ""} href="${esc(safeUrl(l.href) ?? "/tv")}">${esc(l.name)}<small>${esc(l.note)}</small></a>`).join("")}</div>`
-    : `<p class="sub">No playlists yet. Make them in Roam on a phone or computer and they show up here.</p>`;
+  const fresh = `<a class="tile" data-f${d.lists.length === 0 ? " data-autofocus" : ""} href="${esc(d.base)}/playlists/name">New playlist<small>Type a name</small></a>`;
+  const body = `<div class="row">${d.lists.map((l, i) => `<a class="tile" data-f${i === 0 ? " data-autofocus" : ""} href="${esc(safeUrl(l.href) ?? "/tv")}">${esc(l.name)}<small>${esc(l.note)}</small></a>`).join("")}${fresh}</div>` + (d.lists.length ? "" : `<p class="sub">No playlists yet.</p>`);
   return tvDocument({
     title: "Playlists",
     body: `<div class="page">${top(`<a data-f data-back href="${esc(d.base)}" class="btn" style="margin:0">Back</a>`)}<h1>Playlists</h1>${body}</div>`,
@@ -398,16 +397,20 @@ export interface AddToPlaylistData {
   /** Where to go back to, an address on this server's TV pages. */
   back: string;
   playlists: { id: string; name: string; note: string }[];
+  /** Offer "New playlist…" (name it, then it is added there). */
+  canCreate?: boolean;
 }
 
 /** Choosing which playlist to add something to: each playlist is a button that sends a POST, which works with the remote's OK key. */
 export function addToPlaylistPage(d: AddToPlaylistData): string {
   const list = d.playlists.length
     ? `<div class="row">${d.playlists.map((p, i) => postButton(`${d.base}/add`, p.name, { autofocus: i === 0, className: "tile", fields: { playlist: p.id, [d.target.field]: d.target.id, back: d.back } }).replace("</button>", `<small>${esc(p.note)}</small></button>`)).join("")}</div>`
-    : `<p class="sub">You don't have a playlist you can add to yet. Make one in Roam on a phone or computer, then come back.</p>`;
+    : "";
+  const carry = new URLSearchParams({ [d.target.field]: d.target.id, back: d.back }).toString();
+  const fresh = d.canCreate ? `<div class="row"><a class="tile" data-f${d.playlists.length === 0 ? " data-autofocus" : ""} href="${esc(d.base)}/playlists/name?${esc(carry)}">New playlist…<small>Name it, then add this</small></a></div>` : "";
   return tvDocument({
     title: "Add to a playlist",
-    body: `<div class="page">${top(`<a data-f data-back href="${esc(safeUrl(d.back) ?? d.base)}" class="btn" style="margin:0">Back</a>`)}<h1>Add to a playlist</h1><p class="sub">${esc(d.what)}</p>${list}</div>`,
+    body: `<div class="page">${top(`<a data-f data-back href="${esc(safeUrl(d.back) ?? d.base)}" class="btn" style="margin:0">Back</a>`)}<h1>Add to a playlist</h1><p class="sub">${esc(d.what)}</p>${list}${fresh}</div>`,
   });
 }
 
@@ -417,4 +420,74 @@ export function linesPage(d: { title: string; backHref: string; lines: { text: s
     ? d.lines.map((l) => (l.href ? `<a class="ep" data-f href="${esc(safeUrl(l.href) ?? "/tv")}">${esc(l.text)}${l.sub ? `<small>${esc(l.sub)}</small>` : ""}</a>` : `<p class="line">${esc(l.text)}${l.sub ? `<small>${esc(l.sub)}</small>` : ""}</p>`)).join("")
     : `<p class="msg">${esc(d.empty)}</p>`;
   return tvDocument({ title: d.title, body: `<div class="page">${top(`<a data-f data-back data-autofocus href="${esc(d.backHref)}" class="btn" style="margin:0">Back</a>`)}<h1>${esc(d.title)}</h1>${body}</div>` });
+}
+
+// ── Naming a playlist, arranging it, deleting it ─────────────────────────
+
+const NAME_KEYS = "abcdefghijklmnopqrstuvwxyz0123456789".split("");
+const NAME_PUNCT = ["'", "-", "&", ".", ",", "!", "?", ":"];
+
+export interface NameKeyboardData {
+  base: string;
+  heading: string;
+  name: string;
+  max: number;
+  focusKey: string | null;
+  /** What to carry from key to key and into the Save (which playlist is being renamed, what is to be added, where to go back). */
+  carry: Record<string, string>;
+  saveLabel: string;
+  backHref: string;
+  /** Said under the name (for instance why it can't be saved yet). */
+  note?: string | null;
+}
+
+/** A name typed with the remote: every key is a link that adds a letter (the first letter of each word is a capital), Save is a POST. */
+export function nameKeyboardPage(d: NameKeyboardData): string {
+  const at = (name: string, k: string) => `${esc(d.base)}/playlists/name?${esc(new URLSearchParams({ ...d.carry, name, k }).toString())}`;
+  const start = d.focusKey ?? "a";
+  const full = d.name.length >= d.max;
+  const add = (c: string) => (full ? d.name : d.name + (d.name === "" || d.name.endsWith(" ") ? c.toUpperCase() : c));
+  const keys = [...NAME_KEYS, ...NAME_PUNCT].map((c) => `<a class="key" data-f${start === c ? " data-autofocus" : ""} href="${at(add(c), c)}">${esc(c.toUpperCase())}</a>`).join("");
+  const wide = (id: string, label: string, name: string) => `<a class="key wide" data-f${start === id ? " data-autofocus" : ""} href="${at(name, id)}">${label}</a>`;
+  const save = d.name.trim()
+    ? `<form method="post" action="${esc(d.base)}/playlists/save" style="display:inline">${Object.entries({ ...d.carry, name: d.name.trim() }).map(([k, v]) => `<input type="hidden" name="${esc(k)}" value="${esc(v)}">`).join("")}<button type="submit" class="btn primary" data-f>${esc(d.saveLabel)}</button></form>`
+    : "";
+  return tvDocument({
+    title: d.heading,
+    body:
+      `<div class="page">${top(`<a data-f data-back href="${esc(safeUrl(d.backHref) ?? d.base)}" class="btn" style="margin:0">Back</a>`)}<h1>${esc(d.heading)}</h1>` +
+      `<div class="query">${d.name ? esc(d.name) : "&nbsp;"}</div>${d.note ? `<p class="sub">${esc(d.note)}</p>` : ""}` +
+      `<div class="row">${save}</div><div class="keys">${keys}${wide("space", "Space", full ? d.name : d.name + " ")}${wide("del", "Delete", d.name.slice(0, -1))}${wide("clear", "Clear", "")}</div></div>`,
+  });
+}
+
+export interface ArrangeData {
+  base: string;
+  title: string;
+  backHref: string;
+  /** The playlist's address, where moves and removals are sent. */
+  changeUrl: string;
+  items: { id: string; name: string; meta: string | null }[];
+  /** After a move, the button to land on (so the same item can be moved again), as "item:direction". */
+  focus: string | null;
+  note?: string | null;
+}
+
+/** Each item with Up, Down and Remove buttons (POSTs); focus stays with the item just moved so it can keep going. */
+export function arrangePage(d: ArrangeData): string {
+  const rows = d.items
+    .map((it, i) => {
+      const btn = (dir: "up" | "down" | "remove", label: string, hide: boolean) =>
+        hide ? "" : postButton(d.changeUrl, label, { fields: { action: dir, item: it.id }, autofocus: d.focus === `${it.id}:${dir}` });
+      return `<div class="arr"><span class="arrname">${i + 1}. ${esc(it.name)}${it.meta ? `<small>${esc(it.meta)}</small>` : ""}</span>${btn("up", "Move up", i === 0)}${btn("down", "Move down", i === d.items.length - 1)}${btn("remove", "Remove", false)}</div>`;
+    })
+    .join("");
+  return tvDocument({
+    title: d.title,
+    body:
+      `<div class="page">${top(`<a data-f data-back${d.focus ? "" : " data-autofocus"} href="${esc(safeUrl(d.backHref) ?? d.base)}" class="btn" style="margin:0">Done</a>`)}<h1>${esc(d.title)}</h1>` +
+      `<p class="sub">Move items up or down, or remove them. Press Done when finished.</p>${d.note ? `<p class="sub">${esc(d.note)}</p>` : ""}` +
+      (rows || `<p class="sub">Nothing in this playlist.</p>`) +
+      `</div>`,
+  });
 }

@@ -7,10 +7,11 @@ import { safeBack, sameHost } from "@/lib/tv/form";
 import { html } from "@/lib/tv/http";
 import { tvPlaylists } from "@/lib/tv/playlists";
 import { findAddableTarget } from "@/lib/playlists/items";
-import { addItem, addSongs, MAX_SONGS_PER_ADD } from "@/lib/playlists/item-service";
-import { addToPlaylistPage, messagePage } from "@/tv/render";
+import { MAX_SONGS_PER_ADD } from "@/lib/playlists/item-service";
+import { addTargetToPlaylist } from "@/lib/tv/add-target";
+import { addToPlaylistPage } from "@/tv/render";
 
-const targetFrom = (get: (name: string) => string | null | undefined) => {
+export const targetFrom = (get: (name: string) => string | null | undefined) => {
   const title = asUuid(get("title") ?? "");
   const episode = asUuid(get("episode") ?? "");
   const album = asUuid(get("album") ?? "");
@@ -50,6 +51,7 @@ export async function GET(request: Request, ctx: RouteContext<"/tv/s/[serverId]/
       target,
       back: safeBack(access.base, query.get("back")),
       playlists: lists.map((p) => ({ id: p.id, name: p.name, note: `${p.itemCount} ${p.itemCount === 1 ? "item" : "items"}` })),
+      canCreate: true,
     })
   );
 }
@@ -69,17 +71,5 @@ export async function POST(request: Request, ctx: RouteContext<"/tv/s/[serverId]
   const playlistId = asUuid(field("playlist") ?? "");
   if (!target || !playlistId) return notFoundPage();
   const back = safeBack(access.base, field("back"));
-  if (target.field === "album" || target.field === "artist") {
-    const songs = await addSongs(db, { playlistId, viewerId: access.scope.viewerId, ...(target.field === "album" ? { albumId: target.id } : { artistId: target.id }) });
-    const page = (title: string, message: string, status = 200) => html(messagePage(title, message, { href: back, label: "Back" }), status);
-    if (!songs.ok) return page("Couldn't add them", "That playlist can't be changed.", 404);
-    const { added, skipped, remaining } = songs.value;
-    if (added === 0) return page("Already there", "Those songs are already in this playlist.");
-    return page("Added", `Added ${added} ${added === 1 ? "song" : "songs"} to your playlist${skipped ? ` (${skipped} already there)` : ""}.${remaining > 0 ? ` ${remaining} more didn't fit this time: add again to continue.` : ""}`);
-  }
-  const result = await addItem(db, { playlistId, viewerId: access.scope.viewerId, ...(target.field === "title" ? { titleId: target.id } : { episodeId: target.id }) });
-  const done = (title: string, message: string) => html(messagePage(title, message, { href: back, label: "Back" }), result.ok ? 200 : result.status === 409 ? 200 : 404);
-  if (result.ok) return done("Added", "Added to your playlist.");
-  if (result.status === 409) return done("Already there", "That is already in this playlist.");
-  return done("Couldn't add it", "That playlist can't be changed.");
+  return addTargetToPlaylist(access.scope.viewerId, { playlistId, target, back });
 }
