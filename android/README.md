@@ -11,7 +11,7 @@ One app (Kotlin, Jetpack Compose, Media3 ExoPlayer) for phones and tablets, Andr
 - **Playing** (ExoPlayer): resumes where you left off, keeps Roam's record, plays the next episode of a season by itself, queues every file of a movie in several parts (a slice of a shared file is played as a clip), skips the scenes your profile skips and **really mutes** the ones it mutes, offers **Skip intro / recap / credits** (it takes focus on a TV; tap on a phone; Back dismisses), skips them automatically for a profile set to, says why when a title can't be played (every copy withdrawn, or all in use, with "Tell me when it's free"), and holds its place for the playing-at-once limit. The server is asked to convert audio this device can't play (DTS and so on) from what the device's decoders and HDMI pass-through report.
 - **Audiobooks and songs** play too; an audiobook keeps its place.
 
-Playlists can be opened and played (making and changing them is on the web and the TV interface). Not in the app yet: photos, subtitle search (a file's own subtitle tracks can be chosen in the player), downloads for offline, Chromecast, and playing in the background with the screen off.
+Playlists can be opened and played (making and changing them is on the web and the TV interface). Audiobooks and songs keep playing with the screen off, with a notification and lock-screen controls. Not in the app yet: photos, subtitle search (a file's own subtitle tracks can be chosen in the player), downloads for offline, Chromecast.
 
 ## Build and test
 

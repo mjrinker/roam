@@ -35,6 +35,8 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.media3.common.AudioAttributes
+import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
@@ -45,6 +47,7 @@ import com.roam.app.data.ApiException
 import com.roam.app.data.PlayManifest
 import com.roam.app.data.PlaySegment
 import com.roam.app.player.ApiReporter
+import com.roam.app.player.BackgroundAudio
 import com.roam.app.player.ExoEngine
 import com.roam.app.player.PlaybackSession
 import com.roam.app.player.PlayerEngine
@@ -150,7 +153,18 @@ fun PlayerHost(
 ) {
     val graph = LocalGraph.current
     val context = LocalContext.current
-    val player = remember(manifest) { ExoPlayer.Builder(context).build() }
+    val player = remember(manifest) {
+        ExoPlayer.Builder(context)
+            // Say what is playing, so other apps' sound makes way (and a call pauses it); headphones coming out pause it; a song keeps playing with the screen off.
+            .setAudioAttributes(
+                AudioAttributes.Builder().setUsage(C.USAGE_MEDIA).setContentType(if (audioOnly) C.AUDIO_CONTENT_TYPE_MUSIC else C.AUDIO_CONTENT_TYPE_MOVIE).build(),
+                true,
+            )
+            .setHandleAudioBecomingNoisy(true)
+            .setWakeMode(C.WAKE_MODE_NETWORK)
+            .build()
+    }
+    if (audioOnly) AllowNotifications()
     var failed by remember(manifest) { mutableStateOf<String?>(null) }
     DisposableEffect(player) {
         val listener = object : Player.Listener {
@@ -159,8 +173,10 @@ fun PlayerHost(
             }
         }
         player.addListener(listener)
+        if (audioOnly) BackgroundAudio.start(context, player)
         onDispose {
             player.removeListener(listener)
+            if (audioOnly) BackgroundAudio.stop(context, player)
             player.release()
         }
     }
@@ -233,6 +249,19 @@ fun PlayerHost(
             confirmButton = { TextButton(onClick = onError) { Text("Try again") } },
             dismissButton = { TextButton(onClick = { nav.back() }) { Text("Go back") } },
         )
+    }
+}
+
+/** Asks (once, on Android 13 and later) for the right to show the notification that has the play and pause buttons. Listening works without it, just without the notification. */
+@Composable
+private fun AllowNotifications() {
+    if (android.os.Build.VERSION.SDK_INT < 33) return
+    val context = LocalContext.current
+    val ask = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.RequestPermission()) {}
+    LaunchedEffect(Unit) {
+        if (androidx.core.content.ContextCompat.checkSelfPermission(context, android.Manifest.permission.POST_NOTIFICATIONS) != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+            runCatching { ask.launch(android.Manifest.permission.POST_NOTIFICATIONS) }
+        }
     }
 }
 
