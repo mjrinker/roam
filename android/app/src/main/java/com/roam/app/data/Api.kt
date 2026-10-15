@@ -49,6 +49,8 @@ interface RoamApi {
     suspend fun claimOwnership(titleId: String, seasonId: String?): String
     suspend fun shareCopy(titleId: String, seasonId: String?, shared: Boolean)
     suspend fun giveUpOwnership(titleId: String, seasonId: String?)
+    /** Marks a title, episode, season or show as watched (done) or not, for this profile. */
+    suspend fun markDone(kind: String, id: String, done: Boolean)
     suspend fun registerPush(token: String)
     suspend fun unregisterPush()
     suspend fun playlist(serverId: String, id: String, after: String? = null): PlaylistPage
@@ -163,6 +165,14 @@ class HttpRoamApi(
         call("DELETE", "/api/ownership/mine", body = unit(titleId, seasonId))
     }
 
+    override suspend fun markDone(kind: String, id: String, done: Boolean) {
+        call("POST", "/api/watch-state/mark", body = buildJsonObject {
+            put("kind", JsonPrimitive(kind))
+            put("id", JsonPrimitive(id))
+            put("done", JsonPrimitive(done))
+        })
+    }
+
     override suspend fun registerPush(token: String) {
         call("PUT", "/api/v1/device/push", body = buildJsonObject { put("token", JsonPrimitive(token)) })
     }
@@ -260,6 +270,7 @@ object Unsupported : RoamApi {
     override suspend fun claimOwnership(titleId: String, seasonId: String?) = nope()
     override suspend fun shareCopy(titleId: String, seasonId: String?, shared: Boolean) = nope()
     override suspend fun giveUpOwnership(titleId: String, seasonId: String?) = nope()
+    override suspend fun markDone(kind: String, id: String, done: Boolean) = nope()
     override suspend fun registerPush(token: String) = nope()
     override suspend fun unregisterPush() = nope()
     override suspend fun playlists(serverId: String) = nope()

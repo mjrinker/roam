@@ -19,6 +19,8 @@ A Kodi add-on (Python 3, Kodi 19 "Matrix" or newer) that uses the same JSON API 
 
 Press **C** (or the context-menu key, or long-press) on a movie for **Roam: details** (a text window with what it is about, the cast, ratings, the parental guide and the community's reports, with DoesTheDogDie.com credited when it is the source), **Roam: chapters** (each plays from where it starts) and **Roam: extras** (trailers, featurettes and the rest). A show has **Roam: details** too.
 
+Movies, episodes and shows also have **Roam: mark watched** and **Roam: mark not watched** in the same menu.
+
 ## Playlists and photos
 
 **Playlists** is on the front page: an episode plays with the episodes straight after it queued; movies play; shows open. A photo library has **Timeline**, **Favourites** and **Albums**; pictures open in Kodi's own picture viewer (so Kodi's slideshow works). Roam's pictures need the sign-in, which the add-on adds to each picture's address after a `|`.

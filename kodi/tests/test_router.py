@@ -35,7 +35,7 @@ class FakeApi:
         return self._answer("GET", path, q)
 
     def post(self, path, body=None):
-        return self._answer("POST", path)
+        return self._answer("POST", path, body)
 
     def patch(self, path, body):
         return self._answer("PATCH", path)
@@ -332,8 +332,8 @@ class Details(Base):
         self.run_action(action="library", id="L1", style="grid", name="Movies")
         film, shw = xbmcplugin.items
         menus = [label for label, _ in film["li"].context]
-        self.assertEqual(menus, ["Play from the beginning", "Roam: details", "Roam: chapters", "Roam: extras"])
-        self.assertEqual([label for label, _ in shw["li"].context], ["Roam: details"])
+        self.assertEqual(menus, ["Play from the beginning", "Roam: details", "Roam: chapters", "Roam: extras", "Roam: mark watched", "Roam: mark not watched"])
+        self.assertEqual([label for label, _ in shw["li"].context], ["Roam: details", "Roam: mark watched", "Roam: mark not watched"])
 
     def test_chapters_play_from_where_they_start(self):
         FakeApi.answers["/api/v1/servers/S/titles/m1"] = self.MOVIE
@@ -427,3 +427,23 @@ class PlaylistsAndPhotos(Base):
         FakeApi.answers["/api/v1/servers/S/libraries/P/items"] = {"items": []}
         self.run_action(action="library", id="P", style="timeline", name="Photos", view="favorites")
         self.assertIn(("GET", "/api/v1/servers/S/libraries/P/items", {"view": "favorites", "after": None}), FakeApi.seen)
+
+
+class Marking(Base):
+    def test_something_is_marked_watched_or_not_and_the_list_refreshed(self):
+        FakeApi.answers["/api/watch-state/mark"] = {"ok": True}
+        self.run_action(action="mark", kind="episode", id="e1", done="1")
+        self.run_action(action="mark", kind="title", id="m1", done="0")
+        self.assertIn(("POST", "/api/watch-state/mark", {"kind": "episode", "id": "e1", "done": True}), FakeApi.seen)
+        self.assertIn(("POST", "/api/watch-state/mark", {"kind": "title", "id": "m1", "done": False}), FakeApi.seen)
+        self.assertEqual([c for c in xbmc.calls if c == ("builtin", "Container.Refresh")], [("builtin", "Container.Refresh")] * 2)
+
+    def test_only_titles_episodes_and_shows_can_be_marked(self):
+        self.run_action(action="mark", kind="album", id="a1", done="1")
+        self.assertEqual([s for s in FakeApi.seen if s[0] == "POST"], [])
+
+    def test_episodes_in_a_season_can_be_marked_from_their_menu(self):
+        FakeApi.answers["/api/v1/servers/S/titles/s1"] = {"type": "show", "seasons": [1], "season": 1, "posterUrl": None, "episodes": [{"id": "e1", "number": 1, "name": "Pilot", "watched": False}]}
+        self.run_action(action="show", id="s1", name="The Show")
+        labels = [label for label, _ in xbmcplugin.items[0]["li"].context]
+        self.assertEqual(labels, ["Roam: mark watched", "Roam: mark not watched"])

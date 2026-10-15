@@ -81,6 +81,7 @@ sub buildMovie(d as Object)
   m.actions.push({ label: label, kind: "play", params: { serverId: p.serverId, kind: "title", id: d.id, name: d.name, queue: [] } })
   if d.resume <> invalid then m.actions.push({ label: "Start over", kind: "play", params: { serverId: p.serverId, kind: "title", id: d.id, name: d.name, startOver: true, queue: [] } })
   if d.chapters <> invalid and d.chapters.Count() > 0 then m.actions.push({ label: "Chapters", kind: "chapters" })
+  m.actions.push({ label: markLabel(d.finished), kind: "mark", markKind: "title", id: d.id, done: d.finished <> true })
   m.actions.push({ label: subtitleLabel(), kind: "subtitles" })
   m.actions.push({ label: "Subtitle language: " + languageName(m.lang), kind: "language" })
 end sub
@@ -171,6 +172,20 @@ sub backToMain()
   showActions(actions)
 end sub
 
+function markLabel(done as Dynamic) as String
+  if done = true then return "Mark as not watched"
+  return "Mark as watched"
+end function
+
+' After marking, the page is loaded again so the marks (and the Play button) are right.
+sub onMarked(event as Object)
+  if m.d <> invalid and m.d.type = "show" then
+    load(m.d.season)
+  else
+    load(invalid)
+  end if
+end sub
+
 sub showChapters()
   actions = [{ label: "Back", kind: "main" }]
   for each c in m.d.chapters
@@ -203,6 +218,7 @@ sub buildShow(d as Object)
     end for
     m.actions.push({ label: label + " next episode", kind: "play", params: playParams(d.continueEpisodeId, ids, d.name) })
   end if
+  m.actions.push({ label: markLabel(d.watched), kind: "mark", markKind: "show", id: d.id, done: d.watched <> true })
   if d.seasons.Count() > 1 then
     nextSeason = d.seasons[0]
     for each s in d.seasons
@@ -238,6 +254,8 @@ sub onSelected()
     m.top.route = { name: "play", params: params }
   else if a.kind = "season" then
     load(a.season)
+  else if a.kind = "mark" then
+    m.tasks.mark = apiCall("POST", "/api/watch-state/mark", { kind: a.markKind, id: a.id, done: a.done }, "onMarked")
   else if a.kind = "chapters" then
     showChapters()
   else if a.kind = "subtitles" then

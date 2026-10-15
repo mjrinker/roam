@@ -218,4 +218,36 @@ class TitleScreenTest {
         rule.waitForIdle()
         rule.onNodeWithText("This server doesn't track who owns what.").assertIsDisplayed()
     }
+
+    // ── marking watched ──
+    @Test fun aMovieAndAShowAndAnEpisodeCanBeMarkedWatchedOrNot() {
+        val log = mutableListOf<String>()
+        val show = Title(type = "show", id = "s1", name = "The Show", seasons = listOf(1), season = 1, watched = false, episodes = listOf(Episode("e1", 1, "Pilot", watched = true), Episode("e2", 2, "Two")))
+        val api = object : RoamApi by Unsupported {
+            override suspend fun title(serverId: String, id: String, season: Int?) = if (id == "s1") show else movie().copy(finished = true)
+            override suspend fun markDone(kind: String, id: String, done: Boolean) { log += "$kind $id $done" }
+        }
+        rule.setContent { Shown(testGraph(api)) { TitleScreen("S", "s1", FakeNav()) } }
+        rule.waitForIdle()
+        rule.onNodeWithTag("mark").performScrollTo().performClick()
+        rule.waitForIdle()
+        rule.onNodeWithTag("mark-e1").performScrollTo().performClick()
+        rule.waitForIdle()
+        rule.onNodeWithTag("mark-e2").performScrollTo().performClick()
+        rule.waitForIdle()
+        assertEquals(listOf("show s1 true", "episode e1 false", "episode e2 true"), log)
+    }
+
+    @Test fun aWatchedMovieOffersToUnmarkIt() {
+        val log = mutableListOf<String>()
+        val api = object : RoamApi by Unsupported {
+            override suspend fun title(serverId: String, id: String, season: Int?) = movie().copy(finished = true)
+            override suspend fun markDone(kind: String, id: String, done: Boolean) { log += "$kind $id $done" }
+        }
+        rule.setContent { Shown(testGraph(api)) { TitleScreen("S", "m1", FakeNav()) } }
+        rule.waitForIdle()
+        rule.onNodeWithText("Mark not watched").performScrollTo().performClick()
+        rule.waitForIdle()
+        assertEquals(listOf("title m1 false"), log)
+    }
 }

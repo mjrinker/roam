@@ -177,6 +177,15 @@ class HttpRoamApiTest {
         assertEquals("/api/v1/servers/S/libraries/L/genres", server.takeRequest().path)
     }
 
+    @Test fun marksSomethingWatched() = runBlocking {
+        reply("""{"ok":true,"count":1}""")
+        api.markDone("episode", "e1", true)
+        val req = server.takeRequest()
+        assertEquals("POST /api/watch-state/mark", "${req.method} ${req.path}")
+        assertEquals("""{"kind":"episode","id":"e1","done":true}""", req.body.readUtf8())
+        assertTrue(req.getHeader("Content-Type")!!.startsWith("application/json"))
+    }
+
     @Test fun readsAMovieWithItsExtras() = runBlocking {
         reply(
             """{"type":"movie","id":"m","name":"The Film","year":2001,"runtimeSeconds":5400,"genres":["Drama"],"resume":{"positionSeconds":1800,"durationSeconds":5400},

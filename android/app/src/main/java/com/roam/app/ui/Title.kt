@@ -62,6 +62,8 @@ fun TitleContent(serverId: String, t: Title, nav: Nav, onSeason: (Int) -> Unit, 
             }
         }
     }
+    // Marking something watched (or not) reloads the page so the marks show.
+    val mark: (String, String, Boolean) -> Unit = { kind, id, done -> change(null) { graph.api.markDone(kind, id, done); null } }
     val pad = if (graph.isTv) 48.dp else 16.dp
     LazyColumn(Modifier.fillMaxSize().testTag("title"), contentPadding = androidx.compose.foundation.layout.PaddingValues(pad), verticalArrangement = Arrangement.spacedBy(14.dp)) {
         item {
@@ -80,8 +82,8 @@ fun TitleContent(serverId: String, t: Title, nav: Nav, onSeason: (Int) -> Unit, 
             }
         }
         when (t.type) {
-            "movie" -> movieActions(t, nav)
-            "show" -> showBody(serverId, t, nav, onSeason)
+            "movie" -> movieActions(t, nav, mark)
+            "show" -> showBody(serverId, t, nav, onSeason, mark)
             "audiobook" -> item {
                 Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     Button(onClick = { nav.open(Routes.audio(t.id, t.name, remember = true)) }, modifier = Modifier.testTag("play")) {
@@ -161,18 +163,19 @@ fun TitleContent(serverId: String, t: Title, nav: Nav, onSeason: (Int) -> Unit, 
     }
 }
 
-private fun androidx.compose.foundation.lazy.LazyListScope.movieActions(t: Title, nav: Nav) {
+private fun androidx.compose.foundation.lazy.LazyListScope.movieActions(t: Title, nav: Nav, mark: (String, String, Boolean) -> Unit) {
     item {
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             Button(onClick = { nav.open(Routes.player("title", t.id, t.name)) }, modifier = Modifier.testTag("play")) {
                 Text(t.resume?.let { "Resume from ${clock(it.positionSeconds)}" } ?: "Play")
             }
             if (t.resume != null) OutlinedButton(onClick = { nav.open(Routes.player("title", t.id, t.name, startOver = true)) }, modifier = Modifier.testTag("start-over")) { Text("Start over") }
+            OutlinedButton(onClick = { mark("title", t.id, !t.finished) }, modifier = Modifier.testTag("mark")) { Text(if (t.finished) "Mark not watched" else "Mark watched") }
         }
     }
 }
 
-private fun androidx.compose.foundation.lazy.LazyListScope.showBody(serverId: String, t: Title, nav: Nav, onSeason: (Int) -> Unit) {
+private fun androidx.compose.foundation.lazy.LazyListScope.showBody(serverId: String, t: Title, nav: Nav, onSeason: (Int) -> Unit, mark: (String, String, Boolean) -> Unit) {
     val ids = t.episodes.map { it.id }
     t.continueEpisodeId?.let { next ->
         item {
@@ -181,6 +184,9 @@ private fun androidx.compose.foundation.lazy.LazyListScope.showBody(serverId: St
                 Text(if (resuming) "Resume next episode" else "Play next episode")
             }
         }
+    }
+    item {
+        OutlinedButton(onClick = { mark("show", t.id, !t.watched) }, modifier = Modifier.testTag("mark")) { Text(if (t.watched) "Mark show not watched" else "Mark show watched") }
     }
     if (t.seasons.size > 1) {
         item {
@@ -202,6 +208,7 @@ private fun androidx.compose.foundation.lazy.LazyListScope.showBody(serverId: St
                 Text("${e.number}. ${e.name ?: "Episode ${e.number}"}", color = MaterialTheme.colorScheme.onSurface)
                 if (e.watched) Text("Watched", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
                 else if (e.inProgress) Text("In progress", color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.bodySmall)
+                androidx.compose.material3.TextButton(onClick = { mark("episode", e.id, !e.watched) }, modifier = Modifier.testTag("mark-${e.id}")) { Text(if (e.watched) "Mark unwatched" else "Mark watched") }
             }
         }
     }

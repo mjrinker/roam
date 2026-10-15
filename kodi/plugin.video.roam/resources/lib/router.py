@@ -85,6 +85,12 @@ def add_playable(ctx, label, url, thumb=None, square=False, info=None, context=N
     xbmcplugin.addDirectoryItem(ctx.handle, url, li, False)
 
 
+def mark_menu(kind, item_id, done_now=None):
+    """The context-menu entries to mark something watched or not (we don't always know which it is now, so both are offered)."""
+    return [("Roam: mark watched", "RunPlugin(%s)" % build_url(action="mark", kind=kind, id=item_id, done="1")),
+            ("Roam: mark not watched", "RunPlugin(%s)" % build_url(action="mark", kind=kind, id=item_id, done="0"))]
+
+
 def add_item(ctx, item, queue=None):
     """One of the API's items as a list entry."""
     kind, label, thumb, square = item["type"], item["name"], item.get("posterUrl"), bool(item.get("square"))
@@ -96,13 +102,13 @@ def add_item(ctx, item, queue=None):
                      [("Play from the beginning", "PlayMedia(%s)" % build_url(action="play", kind="title", id=item["id"], name=item["name"], start_over="1")),
                       ("Roam: details", "RunPlugin(%s)" % build_url(action="info", id=item["id"])),
                       ("Roam: chapters", "Container.Update(%s)" % build_url(action="chapters", id=item["id"], name=item["name"])),
-                      ("Roam: extras", "Container.Update(%s)" % build_url(action="extras", id=item["id"], name=item["name"]))])
+                      ("Roam: extras", "Container.Update(%s)" % build_url(action="extras", id=item["id"], name=item["name"]))] + mark_menu("title", item["id"]))
     elif kind == "episode":
-        add_playable(ctx, label, build_url(action="play", kind="episode", id=item["id"], name=item["name"], queue=queue), thumb, square, {"mediatype": "episode"})
+        add_playable(ctx, label, build_url(action="play", kind="episode", id=item["id"], name=item["name"], queue=queue), thumb, square, {"mediatype": "episode"}, mark_menu("episode", item["id"]))
     elif kind == "show":
         li = xbmcgui.ListItem(label=label)
         art(li, thumb)
-        li.addContextMenuItems([("Roam: details", "RunPlugin(%s)" % build_url(action="info", id=item["id"]))])
+        li.addContextMenuItems([("Roam: details", "RunPlugin(%s)" % build_url(action="info", id=item["id"]))] + mark_menu("show", item["id"]))
         xbmcplugin.addDirectoryItem(ctx.handle, build_url(action="show", id=item["id"], name=item["name"]), li, True)
     elif kind == "artist":
         add_folder(ctx, label, build_url(action="artist", id=item["id"]), thumb, True)
@@ -371,8 +377,22 @@ def show(ctx, show_id, name):
         label = "%s. %s" % (e["number"], e.get("name") or "Episode %s" % e["number"])
         rest = ",".join(ids[i + 1:]) or None  # the ones after it, so the next one can start by itself
         add_playable(ctx, label, build_url(action="play", kind="episode", id=e["id"], name=name, queue=rest), d.get("posterUrl"), False,
-                     {"mediatype": "episode", "playcount": 1 if e.get("watched") else 0, "episode": e["number"]})
+                     {"mediatype": "episode", "playcount": 1 if e.get("watched") else 0, "episode": e["number"]}, mark_menu("episode", e["id"]))
     end(ctx, "episodes")
+
+
+def mark(ctx, kind, item_id, done):
+    """Marks a movie, episode or show watched (or not), and refreshes the list so it shows."""
+    if not ready(ctx):
+        return
+    if kind not in ("title", "episode", "show"):
+        return
+    try:
+        ctx.api.post("/api/watch-state/mark", {"kind": kind, "id": item_id, "done": done == "1"})
+    except ApiError as e:
+        return fail(ctx, e)
+    xbmcgui.Dialog().notification("Roam", "Marked watched." if done == "1" else "Marked not watched.", xbmcgui.NOTIFICATION_INFO, 2500)
+    xbmc.executebuiltin("Container.Refresh")
 
 
 def clock(seconds):
@@ -632,6 +652,8 @@ def run(argv):
         playlist(ctx, params["id"])
     elif action == "show":
         show(ctx, params["id"], params.get("name", ""))
+    elif action == "mark":
+        mark(ctx, params.get("kind", ""), params["id"], params.get("done", "1"))
     elif action == "info":
         info(ctx, params["id"])
     elif action == "chapters":
