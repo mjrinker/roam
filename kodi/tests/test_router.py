@@ -80,7 +80,7 @@ class Lists(Base):
         FakeApi.answers["/api/v1/servers/S/libraries"] = {"libraries": [{"id": "L1", "name": "Movies", "kind": "movies", "style": "grid"}, {"id": "L2", "name": "Books", "kind": "ebooks", "style": None}]}
         self.run_action()
         labels = [i["li"].label for i in xbmcplugin.items]
-        self.assertEqual(labels, ["Continue watching", "Recently added", "Movies", "Search", "Switch profile", "Sign out"])
+        self.assertEqual(labels, ["Continue watching", "Recently added", "Movies", "Playlists", "Search", "Switch profile", "Sign out"])
         self.assertTrue(all(i["folder"] for i in xbmcplugin.items))
         self.assertEqual(xbmcplugin.ended, [True])
 
@@ -365,3 +365,65 @@ class ChapterStart(Playing):
         self.assertEqual(playlist.items[1][1].props["StartOffset"], "30")
         self.run_action(action="play", kind="title", id="m1", name="F", start_at="junk")
         self.assertEqual(xbmc.Player.last.played[1], 0)
+
+
+class PlaylistsAndPhotos(Base):
+    def test_the_playlists_are_listed_and_open(self):
+        FakeApi.answers["/api/v1/servers/S/playlists"] = {"playlists": [{"id": "P1", "name": "Friday", "itemCount": 2, "ownerName": "Matt"}, {"id": "P2", "name": "Solo", "itemCount": 1}]}
+        self.run_action(action="playlists")
+        self.assertEqual([i["li"].label for i in xbmcplugin.items], ["Friday  (2 items · Matt)", "Solo  (1 item)"])
+        self.assertEqual(params_of(xbmcplugin.items[0]["url"]), {"action": "playlist", "id": "P1"})
+
+    def test_no_playlists_is_said_in_words(self):
+        FakeApi.answers["/api/v1/servers/S/playlists"] = {"playlists": []}
+        self.run_action(action="playlists")
+        self.assertTrue(any("No playlists yet" in t for kind, t in xbmcgui.shown if kind == "ok"))
+        self.assertEqual(xbmcplugin.items, [])
+
+    def test_an_episode_queues_the_episodes_straight_after_it_and_a_movie_breaks_the_run(self):
+        FakeApi.answers["/api/v1/servers/S/playlists/P1"] = {"playlist": {"id": "P1"}, "next": "1024~z", "items": [
+            {"type": "episode", "id": "e1", "name": "One", "playable": True},
+            {"type": "episode", "id": "e2", "name": "Two", "playable": True},
+            {"type": "movie", "id": "m1", "name": "Film", "subtitle": "2001", "playable": True},
+            {"type": "episode", "id": "e3", "name": "Three", "playable": True},
+            {"type": "show", "id": "s9", "name": "Empty show", "playable": False},
+        ]}
+        self.run_action(action="playlist", id="P1")
+        urls = [params_of(i["url"]) for i in xbmcplugin.items]
+        self.assertEqual(urls[0]["queue"], "e2")
+        self.assertNotIn("queue", urls[1])
+        self.assertEqual(urls[2]["kind"], "title")
+        self.assertNotIn("queue", urls[3])
+        self.assertEqual(len(urls), 5)  # the show with nothing to play is left out; the next page link is last
+        self.assertEqual(urls[4], {"action": "playlist", "id": "P1", "after": "1024~z"})
+        self.assertIn(("GET", "/api/v1/servers/S/playlists/P1", {}), FakeApi.seen)
+
+    def test_a_photo_library_offers_its_three_views(self):
+        self.run_action(action="library", id="P", style="timeline", name="Photos")
+        self.assertEqual([i["li"].label for i in xbmcplugin.items], ["Timeline", "Favourites", "Albums"])
+        self.assertEqual(params_of(xbmcplugin.items[1]["url"])["view"], "favorites")
+
+    def test_the_timeline_lists_pictures_with_the_sign_in_and_clips_that_play(self):
+        FakeApi.answers["/api/v1/servers/S/libraries/P/items"] = {"items": [
+            {"type": "photo", "id": "p1", "name": "IMG 1", "posterUrl": "/api/photos/p1/thumb?v=1"},
+            {"type": "clip", "id": "c1", "name": "Clip", "posterUrl": None},
+        ], "next": "99~x"}
+        self.run_action(action="library", id="P", style="timeline", name="Photos", view="timeline")
+        photo, clip, nxt = xbmcplugin.items
+        self.assertFalse(photo["folder"])
+        self.assertTrue(photo["url"].startswith("https://roam.example/api/photos/p1/preview|Authorization=Bearer%20rdt_x"))
+        self.assertTrue(photo["li"].art["thumb"].startswith("https://roam.example/api/photos/p1/thumb?v=1|Authorization="))
+        self.assertEqual(params_of(clip["url"])["kind"], "title")
+        self.assertEqual(params_of(nxt["url"])["after"], "99~x")
+        self.assertIn(("GET", "/api/v1/servers/S/libraries/P/items", {"after": None}), FakeApi.seen)
+
+    def test_favourites_and_albums_ask_for_their_view_and_albums_keep_their_folder(self):
+        FakeApi.answers["/api/v1/servers/S/libraries/P/items"] = {"path": "", "folders": ["Trip"], "items": []}
+        self.run_action(action="library", id="P", style="timeline", name="Photos", view="albums")
+        self.assertIn(("GET", "/api/v1/servers/S/libraries/P/items", {"view": "albums", "path": "", "after": None}), FakeApi.seen)
+        self.assertEqual(params_of(xbmcplugin.items[0]["url"])["path"], "Trip")
+        self.assertEqual(params_of(xbmcplugin.items[0]["url"])["view"], "albums")
+        xbmcplugin.reset()
+        FakeApi.answers["/api/v1/servers/S/libraries/P/items"] = {"items": []}
+        self.run_action(action="library", id="P", style="timeline", name="Photos", view="favorites")
+        self.assertIn(("GET", "/api/v1/servers/S/libraries/P/items", {"view": "favorites", "after": None}), FakeApi.seen)

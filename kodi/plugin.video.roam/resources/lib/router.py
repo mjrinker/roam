@@ -108,8 +108,29 @@ def add_item(ctx, item, queue=None):
         add_folder(ctx, label, build_url(action="artist", id=item["id"]), thumb, True)
     elif kind == "album":
         add_folder(ctx, label, build_url(action="album", id=item["id"]), thumb, True)
+    elif kind == "clip":
+        add_playable(ctx, label, build_url(action="play", kind="title", id=item["id"], name=item["name"]), picture(ctx, thumb), True, {"mediatype": "movie"})
+    elif kind == "photo":
+        add_picture(ctx, item)
     elif kind in ("audiobook", "audio"):
         add_playable(ctx, label, build_url(action="play_audio", id=item["id"], name=item["name"], remember="1" if kind == "audiobook" else "0"), thumb, True)
+
+
+def picture(ctx, path):
+    """A picture's address for Kodi. Roam's own pictures (a path) need the sign-in, which Kodi sends when it is added to the address after a bar."""
+    if not path or not path.startswith("/") or path.startswith("//"):
+        return path
+    token = ctx.store.get("token")
+    url = ctx.base + path
+    return "%s|Authorization=%s" % (url, urllib.parse.quote("Bearer %s" % token)) if token else url
+
+
+def add_picture(ctx, item):
+    li = xbmcgui.ListItem(label=item["name"])
+    big = picture(ctx, "/api/photos/%s/preview" % item["id"])
+    li.setArt({"thumb": picture(ctx, item.get("posterUrl")) or big, "icon": big})
+    li.setInfo("pictures", {"title": item["name"]})
+    xbmcplugin.addDirectoryItem(ctx.handle, big, li, False)
 
 
 def end(ctx, content="videos", ok=True):
@@ -236,6 +257,7 @@ def root(ctx):
     for lib in libs:
         if lib.get("style"):
             add_folder(ctx, lib["name"], build_url(action="library", id=lib["id"], style=lib["style"], name=lib["name"]))
+    add_folder(ctx, "Playlists", build_url(action="playlists"))
     add_folder(ctx, "Search", build_url(action="search"))
     add_folder(ctx, "Switch profile", build_url(action="switch_profile"))
     add_folder(ctx, "Sign out", build_url(action="sign_out"))
@@ -257,9 +279,21 @@ def home_section(ctx, section):
 def library(ctx, lib_id, style, name):
     if not ready(ctx):
         return
+    if style == "timeline" and not ctx.params.get("view"):
+        # A photo library is seen as the timeline, the favourites or the albums.
+        for view, label in (("timeline", "Timeline"), ("favorites", "Favourites"), ("albums", "Albums")):
+            add_folder(ctx, label, build_url(action="library", id=lib_id, style=style, name=name, view=view))
+        return end(ctx)
     q = {}
     if style == "grid":
         q["page"] = ctx.params.get("page", "1")
+    elif style == "timeline":
+        view = ctx.params["view"]
+        if view != "timeline":
+            q["view"] = view
+        if view == "albums":
+            q["path"] = ctx.params.get("path", "")
+        q["after"] = ctx.params.get("after")
     else:
         q["path"] = ctx.params.get("path", "")
         q["after"] = ctx.params.get("after")
@@ -268,15 +302,54 @@ def library(ctx, lib_id, style, name):
     except ApiError as e:
         return fail(ctx, e)
     path = r.get("path", "")
+    view = ctx.params.get("view")
     for folder in r.get("folders", []):
-        add_folder(ctx, folder, build_url(action="library", id=lib_id, style=style, name=name, path=(path + "/" + folder) if path else folder))
+        add_folder(ctx, folder, build_url(action="library", id=lib_id, style=style, name=name, view=view, path=(path + "/" + folder) if path else folder))
     for item in r.get("items", []):
         add_item(ctx, item)
     if style == "grid" and r.get("hasMore"):
         add_folder(ctx, "Next page", build_url(action="library", id=lib_id, style=style, name=name, page=int(r.get("page", 1)) + 1))
     elif style != "grid" and r.get("next"):
-        add_folder(ctx, "Next page", build_url(action="library", id=lib_id, style=style, name=name, path=path or None, after=r["next"]))
-    end(ctx, "albums" if style == "artists" else "movies")
+        add_folder(ctx, "Next page", build_url(action="library", id=lib_id, style=style, name=name, view=view, path=path or None, after=r["next"]))
+    end(ctx, "albums" if style == "artists" else "images" if style == "timeline" else "movies")
+
+
+def playlists(ctx):
+    """The playlists this profile can see."""
+    if not ready(ctx):
+        return
+    try:
+        lists = ctx.api.get(sp(ctx, "/playlists")).get("playlists", [])
+    except ApiError as e:
+        return fail(ctx, e)
+    if not lists:
+        xbmcgui.Dialog().ok("Roam", "No playlists yet. Make one on the web or in another app.")
+        return end(ctx, ok=False)
+    for p in lists:
+        count = "%s %s" % (p.get("itemCount", 0), "item" if p.get("itemCount") == 1 else "items")
+        add_folder(ctx, "%s  (%s%s)" % (p["name"], count, " · " + p["ownerName"] if p.get("ownerName") else ""), build_url(action="playlist", id=p["id"]))
+    end(ctx, "files")
+
+
+def playlist(ctx, playlist_id):
+    """One playlist: each episode plays with the episodes straight after it queued; movies play, shows open."""
+    if not ready(ctx):
+        return
+    try:
+        r = ctx.api.get(sp(ctx, "/playlists/%s" % playlist_id), **({"after": ctx.params["after"]} if ctx.params.get("after") else {}))
+    except ApiError as e:
+        return fail(ctx, e)
+    items = [i for i in r.get("items", []) if i.get("playable", True)]
+    for n, item in enumerate(items):
+        rest = []
+        for later in items[n + 1:]:
+            if later["type"] != "episode":
+                break
+            rest.append(later["id"])
+        add_item(ctx, item, queue=",".join(rest) or None)
+    if r.get("next"):
+        add_folder(ctx, "Next page", build_url(action="playlist", id=playlist_id, after=r["next"]))
+    end(ctx, "episodes")
 
 
 def show(ctx, show_id, name):
@@ -553,6 +626,10 @@ def run(argv):
         home_section(ctx, params["section"])
     elif action == "library":
         library(ctx, params["id"], params["style"], params.get("name", ""))
+    elif action == "playlists":
+        playlists(ctx)
+    elif action == "playlist":
+        playlist(ctx, params["id"])
     elif action == "show":
         show(ctx, params["id"], params.get("name", ""))
     elif action == "info":
