@@ -35,9 +35,9 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 @Composable
-fun SearchScreen(serverId: String, nav: Nav) {
+fun SearchScreen(serverId: String, nav: Nav, initialQuery: String = "") {
     val graph = LocalGraph.current
-    var query by remember { mutableStateOf("") }
+    var query by remember { mutableStateOf(initialQuery) }
     var results by remember { mutableStateOf<List<ApiItem>?>(null) }
     var problem by remember { mutableStateOf<String?>(null) }
     LaunchedEffect(query) {

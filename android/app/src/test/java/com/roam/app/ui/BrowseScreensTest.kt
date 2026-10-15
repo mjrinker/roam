@@ -190,5 +190,19 @@ class BrowseScreensTest {
         rule.onNodeWithText("Artist").performClick()
         assertEquals(listOf(Routes.audio("t2", "Two", remember = false), Routes.artist("S", "ar1")), nav.routes)
     }
-}
 
+    @Test fun searchOpenedByAVoiceRequestStartsWithTheWordsAlreadySaid() {
+        val queries = mutableListOf<String>()
+        val api = object : RoamApi by Unsupported {
+            override suspend fun search(serverId: String, query: String): List<ApiItem> {
+                queries += query
+                return listOf(movie("m1", "The Matrix"))
+            }
+        }
+        rule.setContent { Shown(testGraph(api)) { SearchScreen("S", FakeNav(), initialQuery = "the matrix") } }
+        rule.mainClock.advanceTimeBy(1000)
+        rule.waitForIdle()
+        rule.onNodeWithText("The Matrix").assertIsDisplayed()
+        assertEquals(listOf("the matrix"), queries)
+    }
+}

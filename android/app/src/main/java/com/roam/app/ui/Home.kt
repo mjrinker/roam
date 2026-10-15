@@ -30,7 +30,10 @@ fun HomeScreen(serverId: String, nav: Nav) {
         androidx.compose.runtime.LaunchedEffect(Unit) { graph.push.register(graph.api) }
     }
     val loader = rememberLoader(serverId) { graph.api.home(serverId) }
-    LoadView(loader, nav) { home -> HomeContent(serverId, home, nav) }
+    LoadView(loader, nav) { home ->
+        androidx.compose.runtime.LaunchedEffect(home) { graph.continueRow.publish(home.continueWatching, graph.serverUrl) }
+        HomeContent(serverId, home, nav)
+    }
 }
 
 @Composable

@@ -26,6 +26,17 @@ fun RoamApp(navController: NavHostController = rememberNavController()) {
             }
         }
     }
+    // Something outside asked for a screen (the launcher's "continue watching", a voice search): once signed in, go to home and then there.
+    val pending = com.roam.app.PendingRoute.route
+    androidx.compose.runtime.LaunchedEffect(pending) {
+        val route = pending ?: return@LaunchedEffect
+        val server = graph.settings.serverId
+        if (graph.settings.token != null && server != null) {
+            navController.navigate(Routes.home(server)) { popUpTo(0) { inclusive = true } }
+            navController.navigate(route)
+        }
+        com.roam.app.PendingRoute.route = null
+    }
     val toHome: (String) -> Unit = { sid -> navController.navigate(Routes.home(sid)) { popUpTo(0) { inclusive = true } } }
 
     RoamTheme {
@@ -44,7 +55,7 @@ fun RoamApp(navController: NavHostController = rememberNavController()) {
             composable(Routes.TITLE) { e -> TitleScreen(e.arguments!!.getString("sid")!!, e.arguments!!.getString("id")!!, nav) }
             composable(Routes.ALBUM) { e -> AlbumScreen(e.arguments!!.getString("sid")!!, e.arguments!!.getString("id")!!, nav) }
             composable(Routes.ARTIST) { e -> ArtistScreen(e.arguments!!.getString("sid")!!, e.arguments!!.getString("id")!!, nav) }
-            composable(Routes.SEARCH) { e -> SearchScreen(e.arguments!!.getString("sid")!!, nav) }
+            composable(Routes.SEARCH, arguments = listOf(navArgument("q") { type = NavType.StringType; defaultValue = "" })) { e -> SearchScreen(e.arguments!!.getString("sid")!!, nav, e.arguments!!.getString("q").orEmpty()) }
             composable(Routes.PHOTO, arguments = listOf(navArgument("from") { type = NavType.StringType; defaultValue = "timeline" })) { e ->
                 PhotoScreen(e.arguments!!.getString("sid")!!, e.arguments!!.getString("id")!!, e.arguments!!.getString("from") ?: "timeline", nav)
             }

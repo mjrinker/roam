@@ -17,8 +17,8 @@ object Routes {
     fun album(sid: String, id: String) = "album/$sid/$id"
     const val ARTIST = "artist/{sid}/{id}"
     fun artist(sid: String, id: String) = "artist/$sid/$id"
-    const val SEARCH = "search/{sid}"
-    fun search(sid: String) = "search/$sid"
+    const val SEARCH = "search/{sid}?q={q}"
+    fun search(sid: String, query: String = "") = "search/$sid?q=${Uri.encode(query)}"
     const val PLAYER = "player/{kind}/{id}?name={name}&startOver={startOver}&startAt={startAt}&queue={queue}"
     fun player(kind: String, id: String, name: String, startOver: Boolean = false, startAt: Double? = null, queue: List<String> = emptyList()) =
         "player/$kind/$id?name=${Uri.encode(name)}&startOver=$startOver&startAt=${startAt ?: -1.0}&queue=${Uri.encode(queue.joinToString(","))}"
