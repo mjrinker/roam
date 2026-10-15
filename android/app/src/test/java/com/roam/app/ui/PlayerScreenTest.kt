@@ -11,6 +11,7 @@ import com.roam.app.data.ApiException
 import com.roam.app.data.MemorySettings
 import com.roam.app.data.PlayManifest
 import com.roam.app.data.PlaySegment
+import com.roam.app.data.VersionOption
 import com.roam.app.data.RoamApi
 import com.roam.app.data.SceneSkip
 import com.roam.app.data.SkipSegment
@@ -209,5 +210,35 @@ class PlayerScreenTest {
         rule.waitForIdle()
         rule.onNodeWithTag("lost").assertIsDisplayed()
         assertTrue("stop" in engine.log)
+    }
+
+    // ── quality ──
+    @Test fun aVideoInSeveralVersionsOffersQualityAndCarriesOnFromTheSamePlace() {
+        val graph = AppGraph(MemorySettings(token = "t"), Unsupported, isTv = false)
+        val picked = mutableListOf<Pair<String, Double>>()
+        val engine = FakeEngine().apply { position = 42.0 }
+        val m = manifest().copy(version = "1080p", versions = listOf(VersionOption("1080p", "1080p", 1080), VersionOption("720p", "720p", 720)))
+        rule.setContent {
+            Shown(graph) {
+                PlayerHost(
+                    manifest = m, items = emptyList(), startSeconds = 0.0, kind = "title", id = "m1", keepsPlace = true, audioOnly = false, nav = FakeNav(),
+                    onFinished = {}, onError = {}, onQuality = { v, at -> picked += v.label to at }, engineFor = { engine }, reporterFor = { FakeReporter() }, begin = { _, _, _ -> },
+                )
+            }
+        }
+        rule.waitForIdle()
+        rule.onNodeWithTag("quality").assertIsDisplayed()
+        rule.onNodeWithTag("quality").performClick()
+        rule.onNodeWithTag("version-1080p").performClick() // the one already playing: nothing changes
+        rule.onNodeWithTag("quality").performClick()
+        rule.onNodeWithTag("version-720p").performClick()
+        assertEquals(1, picked.size)
+        assertEquals("720p", picked[0].first)
+    }
+
+    @Test fun aVideoWithOneVersionHasNoQualityButton() {
+        host(manifest(), FakeEngine())
+        rule.waitForIdle()
+        assertEquals(0, rule.onAllNodesWithTagCount("quality"))
     }
 }

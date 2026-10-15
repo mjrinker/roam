@@ -25,6 +25,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
+import kotlinx.coroutines.launch
 import com.roam.app.LocalGraph
 import com.roam.app.data.Title
 
@@ -42,12 +43,25 @@ fun TitleScreen(serverId: String, id: String, nav: Nav) {
     val graph = LocalGraph.current
     var season by remember { mutableStateOf<Int?>(null) }
     val loader = rememberLoader(serverId, id, season) { graph.api.title(serverId, id, season) }
-    LoadView(loader, nav) { title -> TitleContent(serverId, title, nav, onSeason = { season = it }) }
+    LoadView(loader, nav) { title -> TitleContent(serverId, title, nav, onSeason = { season = it }, onChanged = loader.reload) }
 }
 
 @Composable
-fun TitleContent(serverId: String, t: Title, nav: Nav, onSeason: (Int) -> Unit) {
+fun TitleContent(serverId: String, t: Title, nav: Nav, onSeason: (Int) -> Unit, onChanged: () -> Unit = {}) {
     val graph = LocalGraph.current
+    val scope = androidx.compose.runtime.rememberCoroutineScope()
+    var ownerNote by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf<String?>(null) }
+    // Runs one ownership change, says what happened, and reloads the page so it shows the new state.
+    fun change(done: String?, block: suspend () -> String?) {
+        scope.launch {
+            try {
+                ownerNote = block() ?: done
+                onChanged()
+            } catch (e: com.roam.app.data.ApiException) {
+                if (e.status == 401) nav.signedOut() else ownerNote = if (e.status == 0) "Roam can't be reached." else e.message
+            }
+        }
+    }
     val pad = if (graph.isTv) 48.dp else 16.dp
     LazyColumn(Modifier.fillMaxSize().testTag("title"), contentPadding = androidx.compose.foundation.layout.PaddingValues(pad), verticalArrangement = Arrangement.spacedBy(14.dp)) {
         item {
@@ -118,11 +132,31 @@ fun TitleContent(serverId: String, t: Title, nav: Nav, onSeason: (Int) -> Unit) 
                     what + when {
                         !u.playable -> "every owner has withdrawn this"
                         u.iOwn -> if (u.myShared) "you own it and share it" else "you own it, and have withdrawn your copy"
-                        else -> "ask the admin or use the web to claim it"
+                        else -> "you haven't said you own it"
                     },
                     color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.testTag("ownership-line"),
                 )
+                if (o.canChange) Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    if (!u.iOwn) {
+                        androidx.compose.material3.OutlinedButton(onClick = {
+                            change(null) {
+                                when (graph.api.claimOwnership(t.id, u.seasonId)) {
+                                    "owned" -> "Marked as yours."
+                                    "pending" -> "Sent to the admin to settle."
+                                    "already_pending" -> "Already waiting for the admin."
+                                    else -> null
+                                }
+                            }
+                        }, modifier = Modifier.testTag("claim-${u.seasonId ?: "title"}")) { Text("I own this") }
+                    } else {
+                        androidx.compose.material3.OutlinedButton(onClick = { change(if (u.myShared) "Your copy is withdrawn." else "Your copy is shared again.") { graph.api.shareCopy(t.id, u.seasonId, !u.myShared); null } }, modifier = Modifier.testTag("share-${u.seasonId ?: "title"}")) {
+                            Text(if (u.myShared) "Withdraw my copy" else "Share my copy")
+                        }
+                        androidx.compose.material3.TextButton(onClick = { change("You no longer own this.") { graph.api.giveUpOwnership(t.id, u.seasonId); null } }, modifier = Modifier.testTag("giveup-${u.seasonId ?: "title"}")) { Text("I don't own this") }
+                    }
+                }
             }
+            ownerNote?.let { item { Text(it, color = MaterialTheme.colorScheme.onSurface, modifier = Modifier.testTag("ownership-note")) } }
         }
     }
 }

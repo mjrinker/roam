@@ -46,6 +46,7 @@ import com.roam.app.LocalGraph
 import com.roam.app.data.ApiException
 import com.roam.app.data.PlayManifest
 import com.roam.app.data.PlaySegment
+import com.roam.app.data.VersionOption
 import com.roam.app.player.ApiReporter
 import com.roam.app.player.BackgroundAudio
 import com.roam.app.player.ExoEngine
@@ -65,11 +66,14 @@ fun PlayerScreen(kind: String, id: String, name: String, startOver: Boolean, sta
     var attempt by remember { mutableIntStateOf(0) }
     var stage by remember { mutableStateOf<Stage>(Stage.Loading) }
     val scope = rememberCoroutineScope()
+    // A different quality starts over from where the person was, in that version.
+    var version by remember { mutableStateOf<String?>(null) }
+    var resumeFrom by remember { mutableStateOf<Double?>(null) }
 
-    LaunchedEffect(kind, id, attempt) {
+    LaunchedEffect(kind, id, attempt, version) {
         stage = Stage.Loading
         stage = try {
-            Stage.Ready(graph.api.play(kind, id, graph.unsupportedAudio()))
+            Stage.Ready(version?.let { graph.api.playVersion(kind, id, graph.unsupportedAudio(), it) } ?: graph.api.play(kind, id, graph.unsupportedAudio()))
         } catch (e: ApiException) {
             if (e.status == 401) { nav.signedOut(); return@LaunchedEffect }
             when {
@@ -94,6 +98,7 @@ fun PlayerScreen(kind: String, id: String, name: String, startOver: Boolean, sta
         )
         is Stage.Ready -> {
             val start = when {
+                resumeFrom != null -> resumeFrom!!
                 startAt != null && startAt >= 0 -> startAt
                 !startOver && s.manifest.resumeSeconds > 0 && s.manifest.resumeSeconds < s.manifest.durationSeconds - 30 -> s.manifest.resumeSeconds
                 else -> 0.0
@@ -104,6 +109,7 @@ fun PlayerScreen(kind: String, id: String, name: String, startOver: Boolean, sta
                     if (finished && queue.isNotEmpty()) onNext(queue.first(), queue.drop(1)) else nav.back()
                 },
                 onError = { attempt++ },
+                onQuality = { option, at -> resumeFrom = at; version = option.label },
             )
         }
     }
@@ -142,6 +148,8 @@ fun PlayerHost(
     nav: Nav,
     onFinished: (finished: Boolean) -> Unit,
     onError: () -> Unit,
+    /** Chosen from the Quality button (shown when the video comes in more than one version): the version, and where to carry on from. */
+    onQuality: ((VersionOption, Double) -> Unit)? = null,
     engineFor: (Player) -> PlayerEngine = { ExoEngine(it) },
     reporterFor: (() -> Reporter)? = null,
     /** Hands the files to the player and starts it (tests replace this, so no real connection is made). */
@@ -231,6 +239,27 @@ fun PlayerHost(
         ui.offer?.let { offer ->
             Button(onClick = session::pressSkip, modifier = Modifier.align(Alignment.BottomEnd).padding(end = 32.dp, bottom = 96.dp).focusRequester(focus).testTag("skip")) { Text(offer.label) }
         }
+    }
+
+    var choosingQuality by remember { mutableStateOf(false) }
+    if (onQuality != null && !audioOnly && manifest.versions.size > 1) {
+        Box(Modifier.fillMaxSize()) {
+            TextButton(onClick = { choosingQuality = true }, modifier = Modifier.align(Alignment.TopEnd).padding(16.dp).background(Color(0x99000000)).testTag("quality")) { Text(manifest.versions.firstOrNull { it.label == manifest.version }?.name ?: "Quality", color = Color.White) }
+        }
+    }
+    if (choosingQuality) {
+        AlertDialog(
+            onDismissRequest = { choosingQuality = false },
+            title = { Text("Quality") },
+            text = {
+                Column {
+                    for (v in manifest.versions) TextButton(onClick = { choosingQuality = false; if (v.label != manifest.version) onQuality?.invoke(v, session.globalSeconds) }, modifier = Modifier.testTag("version-${v.label}")) {
+                        Text((if (v.label == manifest.version) "✓ " else "") + v.name)
+                    }
+                }
+            },
+            confirmButton = { TextButton(onClick = { choosingQuality = false }) { Text("Close") } },
+        )
     }
 
     ui.lostMessage?.let { message ->

@@ -45,12 +45,18 @@ interface RoamApi {
     /** A page of a grid library, sorted ("title", "year" or "added") and narrowed (a genre, only what hasn't been watched). */
     suspend fun filtered(serverId: String, libraryId: String, page: Int, sort: String, genre: String?, unwatched: Boolean): ItemsPage
     suspend fun genres(serverId: String, libraryId: String): List<Genre>
+    /** Says this household owns a copy: the answer is "owned", "pending" (the admin settles it), "already_owner" or "already_pending". */
+    suspend fun claimOwnership(titleId: String, seasonId: String?): String
+    suspend fun shareCopy(titleId: String, seasonId: String?, shared: Boolean)
+    suspend fun giveUpOwnership(titleId: String, seasonId: String?)
     suspend fun registerPush(token: String)
     suspend fun unregisterPush()
     suspend fun playlist(serverId: String, id: String, after: String? = null): PlaylistPage
     suspend fun album(serverId: String, id: String): Album
     suspend fun artist(serverId: String, id: String): Artist
     suspend fun play(kind: String, id: String, unsupportedCodecs: String = ""): PlayManifest
+    /** The same, in one of the manifest's versions (a resolution), by its label. */
+    suspend fun playVersion(kind: String, id: String, unsupportedCodecs: String, version: String): PlayManifest
     suspend fun audiobook(id: String): AudiobookManifest
     suspend fun audiobookSegmentUrl(id: String, index: Int): String
     suspend fun saveProgress(kind: String, id: String, positionSeconds: Int, durationSeconds: Int, finished: Boolean)
@@ -138,6 +144,25 @@ class HttpRoamApi(
 
     override suspend fun genres(serverId: String, libraryId: String): List<Genre> = get<GenresResponse>("/api/v1/servers/$serverId/libraries/$libraryId/genres").genres
 
+    private fun unit(titleId: String, seasonId: String?) = buildJsonObject {
+        put("titleId", JsonPrimitive(titleId))
+        if (seasonId != null) put("seasonId", JsonPrimitive(seasonId))
+    }
+
+    override suspend fun claimOwnership(titleId: String, seasonId: String?): String = json.decodeFromString<ClaimResult>(call("POST", "/api/ownership/claims", body = unit(titleId, seasonId))).status
+
+    override suspend fun shareCopy(titleId: String, seasonId: String?, shared: Boolean) {
+        call("PUT", "/api/ownership/mine", body = buildJsonObject {
+            put("titleId", JsonPrimitive(titleId))
+            if (seasonId != null) put("seasonId", JsonPrimitive(seasonId))
+            put("shared", JsonPrimitive(shared))
+        })
+    }
+
+    override suspend fun giveUpOwnership(titleId: String, seasonId: String?) {
+        call("DELETE", "/api/ownership/mine", body = unit(titleId, seasonId))
+    }
+
     override suspend fun registerPush(token: String) {
         call("PUT", "/api/v1/device/push", body = buildJsonObject { put("token", JsonPrimitive(token)) })
     }
@@ -152,6 +177,9 @@ class HttpRoamApi(
     override suspend fun artist(serverId: String, id: String): Artist = get("/api/v1/servers/$serverId/artists/$id")
     override suspend fun play(kind: String, id: String, unsupportedCodecs: String): PlayManifest =
         get("/api/play/$kind/$id", mapOf("unsupportedCodecs" to unsupportedCodecs.ifEmpty { null }))
+
+    override suspend fun playVersion(kind: String, id: String, unsupportedCodecs: String, version: String): PlayManifest =
+        get("/api/play/$kind/$id", mapOf("unsupportedCodecs" to unsupportedCodecs.ifEmpty { null }, "version" to version))
 
     override suspend fun audiobook(id: String): AudiobookManifest = get("/api/audiobooks/$id/manifest")
     override suspend fun audiobookSegmentUrl(id: String, index: Int): String = get<AudioUrl>("/api/audiobooks/$id/segments/$index").url
@@ -229,6 +257,9 @@ object Unsupported : RoamApi {
     override suspend fun setFavorite(photoId: String, favorite: Boolean) = nope()
     override suspend fun filtered(serverId: String, libraryId: String, page: Int, sort: String, genre: String?, unwatched: Boolean) = nope()
     override suspend fun genres(serverId: String, libraryId: String) = nope()
+    override suspend fun claimOwnership(titleId: String, seasonId: String?) = nope()
+    override suspend fun shareCopy(titleId: String, seasonId: String?, shared: Boolean) = nope()
+    override suspend fun giveUpOwnership(titleId: String, seasonId: String?) = nope()
     override suspend fun registerPush(token: String) = nope()
     override suspend fun unregisterPush() = nope()
     override suspend fun playlists(serverId: String) = nope()
@@ -236,6 +267,7 @@ object Unsupported : RoamApi {
     override suspend fun album(serverId: String, id: String) = nope()
     override suspend fun artist(serverId: String, id: String) = nope()
     override suspend fun play(kind: String, id: String, unsupportedCodecs: String) = nope()
+    override suspend fun playVersion(kind: String, id: String, unsupportedCodecs: String, version: String) = nope()
     override suspend fun audiobook(id: String) = nope()
     override suspend fun audiobookSegmentUrl(id: String, index: Int) = nope()
     override suspend fun saveProgress(kind: String, id: String, positionSeconds: Int, durationSeconds: Int, finished: Boolean) = nope()

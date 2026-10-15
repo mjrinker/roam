@@ -158,4 +158,64 @@ class TitleScreenTest {
         assertEquals(listOf(Routes.audio("b1", "A Book", remember = true)), nav.routes)
         rule.onNodeWithText("Resume from 1:06:40").assertIsDisplayed()
     }
+
+    // ── ownership actions ──
+    private fun ownershipApi(units: List<OwnershipUnit>, canChange: Boolean = true, claim: String = "owned", log: MutableList<String>) = object : RoamApi by Unsupported {
+        override suspend fun title(serverId: String, id: String, season: Int?) = movie().copy(ownership = Ownership("review", canChange, units))
+        override suspend fun claimOwnership(titleId: String, seasonId: String?): String { log += "claim $titleId $seasonId"; return claim }
+        override suspend fun shareCopy(titleId: String, seasonId: String?, shared: Boolean) { log += "share $titleId $shared" }
+        override suspend fun giveUpOwnership(titleId: String, seasonId: String?) { log += "giveup $titleId" }
+    }
+
+    @Test fun someoneWhoDoesntOwnItCanSayTheyDoAndIsToldWhatHappened() {
+        val log = mutableListOf<String>()
+        rule.setContent { Shown(testGraph(ownershipApi(listOf(OwnershipUnit()), claim = "pending", log = log))) { TitleScreen("S", "m1", FakeNav()) } }
+        rule.waitForIdle()
+        rule.onNodeWithTag("claim-title").performScrollTo().performClick()
+        rule.waitForIdle()
+        assertEquals(listOf("claim m1 null"), log)
+        rule.onNodeWithTag("ownership-note").performScrollTo().assertIsDisplayed()
+        rule.onNodeWithText("Sent to the admin to settle.").assertIsDisplayed()
+    }
+
+    @Test fun anOwnerCanWithdrawShareAndGiveUp() {
+        val log = mutableListOf<String>()
+        rule.setContent { Shown(testGraph(ownershipApi(listOf(OwnershipUnit(iOwn = true, myShared = true)), log = log))) { TitleScreen("S", "m1", FakeNav()) } }
+        rule.waitForIdle()
+        rule.onNodeWithText("Withdraw my copy").performScrollTo().performClick()
+        rule.waitForIdle()
+        rule.onNodeWithTag("giveup-title").performScrollTo().performClick()
+        rule.waitForIdle()
+        assertEquals(listOf("share m1 false", "giveup m1"), log)
+    }
+
+    @Test fun aShowsSeasonsAreClaimedOneAtATime() {
+        val log = mutableListOf<String>()
+        val units = listOf(OwnershipUnit(seasonId = "s1", label = "Season 1"), OwnershipUnit(seasonId = "s2", label = "Season 2", iOwn = true))
+        rule.setContent { Shown(testGraph(ownershipApi(units, log = log))) { TitleScreen("S", "m1", FakeNav()) } }
+        rule.waitForIdle()
+        rule.onNodeWithTag("claim-s1").performScrollTo().performClick()
+        rule.waitForIdle()
+        assertEquals(listOf("claim m1 s1"), log)
+        rule.onNodeWithTag("share-s2").performScrollTo().assertIsDisplayed()
+    }
+
+    @Test fun aChildsProfileSeesOwnershipButNoButtons() {
+        rule.setContent { Shown(testGraph(ownershipApi(listOf(OwnershipUnit()), canChange = false, log = mutableListOf()))) { TitleScreen("S", "m1", FakeNav()) } }
+        rule.waitForIdle()
+        rule.onNodeWithTag("ownership-line").performScrollTo().assertIsDisplayed()
+        assertEquals(0, rule.onAllNodesWithTag("claim-title").fetchSemanticsNodes().size)
+    }
+
+    @Test fun aFailedChangeIsSaidAndDoesNotCrash() {
+        val api = object : RoamApi by Unsupported {
+            override suspend fun title(serverId: String, id: String, season: Int?) = movie().copy(ownership = Ownership("review", true, listOf(OwnershipUnit())))
+            override suspend fun claimOwnership(titleId: String, seasonId: String?): String = throw com.roam.app.data.ApiException(409, "This server doesn't track who owns what.", "x")
+        }
+        rule.setContent { Shown(testGraph(api)) { TitleScreen("S", "m1", FakeNav()) } }
+        rule.waitForIdle()
+        rule.onNodeWithTag("claim-title").performScrollTo().performClick()
+        rule.waitForIdle()
+        rule.onNodeWithText("This server doesn't track who owns what.").assertIsDisplayed()
+    }
 }

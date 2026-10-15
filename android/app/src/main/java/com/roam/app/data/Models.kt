@@ -81,6 +81,9 @@ data class Genre(val name: String, val count: Int = 0)
 data class GenresResponse(val genres: List<Genre> = emptyList())
 
 @Serializable
+data class ClaimResult(val status: String = "")
+
+@Serializable
 data class PhotoRef(val type: String, val id: String)
 
 @Serializable
