@@ -43,7 +43,6 @@ vi.mock("@/lib/supabase/server", () => ({ createSupabaseServerClient: async () =
 import { mediaFiles, notifications, profiles, titleExtras, viewers } from "@/lib/db/schema";
 import { joinServer, makeAccount, makeLibrary, makeServer, makeShow, makeTitle, type TestDb } from "@/lib/playlists/test-db";
 import { saveSettings } from "@/lib/ownership/owners";
-import { hashPin } from "@/lib/viewers/pin";
 import { GET as home } from "./s/[serverId]/route";
 import { GET as title } from "./s/[serverId]/title/[id]/route";
 import { GET as show } from "./s/[serverId]/show/[id]/route";
