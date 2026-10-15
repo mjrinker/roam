@@ -216,6 +216,10 @@ A Kodi add-on is in [`kodi/`](kodi/README.md) (Python, using the same JSON API):
 
 One Kotlin app for phones, Android TV and Fire TV is in [`android/`](android/README.md) (Compose and Media3, using the same JSON API). Its 101 tests run on the JVM (Robolectric draws the real screens); tests that play a real video on an emulator are written and compile, but need hardware virtualization to run. Build with `./gradlew :app:assembleDebug` in `android/`.
 
+### Xbox
+
+A small UWP app in [`xbox/`](xbox/README.md) shows the TV interface (above) in a web view and passes the controller's buttons to it. It is built on a Windows machine by a GitHub workflow (`.github/workflows/xbox.yml`, run it from the Actions tab), which also runs its tests. It builds and passes its tests there but has not been run on a console.
+
 ### Trailers and extras
 
 A movie's page lists its trailers and other extras when its folder has them, named the way Plex names them. Either put the type at the end of the file name, right after a hyphen (`Teaser-trailer.mp4`, `Making Of-behindthescenes.mp4`, `Cut Scene-deleted.mp4`, `The Look-featurette.mp4`, `Talk-interview.mp4`, `Opening-scene.mp4`, `Little Film-short.mp4`, `Misc-other.mp4`), or put the videos in a subfolder of the movie's folder named for the type (`Trailers`, `Behind The Scenes`, `Deleted Scenes`, `Featurettes`, `Interviews`, `Scenes`, `Shorts`, `Other`). They are found on the next scan of the library (or Resync on the movie), appear once Roam has read their length, and play in the normal player. They never record progress and aren't offered for download. Only MP4, M4V and MOV files are used, as for movies.
