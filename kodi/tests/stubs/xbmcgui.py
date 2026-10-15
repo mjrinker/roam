@@ -49,6 +49,9 @@ class Dialog:
     def yesno(self, heading, text):
         return answers["yesno"]
 
+    def textviewer(self, heading, text):
+        shown.append(("text", text))
+
 
 class DialogProgress:
     def create(self, heading, text):

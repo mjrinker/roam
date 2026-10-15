@@ -15,9 +15,13 @@ A Kodi add-on (Python 3, Kodi 19 "Matrix" or newer) that uses the same JSON API 
 - **Playing-at-once limit**: it holds its place while playing and says why when something can't be played.
 - **Audiobooks and songs** play (an audiobook keeps its place; songs don't).
 
+## Details, chapters and extras
+
+Press **C** (or the context-menu key, or long-press) on a movie for **Roam: details** (a text window with what it is about, the cast, ratings, the parental guide and the community's reports, with DoesTheDogDie.com credited when it is the source), **Roam: chapters** (each plays from where it starts) and **Roam: extras** (trailers, featurettes and the rest). A show has **Roam: details** too.
+
 ## Not in the add-on yet
 
-Photos, subtitles search, chapters, playlists, notifications and the ownership screens. (Kodi's own subtitle tools work on what it plays.)
+Photos, subtitles search, playlists, notifications and the ownership screens. (Kodi's own subtitle tools work on what it plays.)
 
 ## Install
 

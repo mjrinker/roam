@@ -298,3 +298,70 @@ class Playing(Base):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class Details(Base):
+    MOVIE = {"type": "movie", "name": "The Film", "year": 2001, "certification": "PG", "runtimeSeconds": 5400, "genres": ["Drama", "Comedy"], "overview": "A story about a film.",
+             "imdbRating": 7.5, "rottenTomatoesScore": 88, "posterUrl": "https://img/f.jpg",
+             "cast": [{"name": "A. Actor", "character": "The Hero"}, {"name": "B. Actor"}],
+             "chapters": [{"title": "Opening", "startSeconds": 0}, {"title": "The Chase", "startSeconds": 3725}],
+             "extras": [{"category": "behind_the_scenes", "items": [{"id": "x1", "name": "Making of", "durationSeconds": 600}]}, {"category": "trailer", "items": []}],
+             "guide": {"lines": [{"category": "violence", "severity": "high", "scenes": 2, "skippedForYou": True}, {"category": "language", "scenes": 1}],
+                       "reports": [{"topic": "a dog dies", "yes": 5, "no": 1}], "fromCommunity": True}}
+
+    def texts(self):
+        return [t for kind, t in xbmcgui.shown if kind == "text"]
+
+    def test_the_details_say_what_the_film_is_who_is_in_it_and_what_the_guide_says(self):
+        FakeApi.answers["/api/v1/servers/S/titles/m1"] = self.MOVIE
+        self.run_action(action="info", id="m1")
+        text = self.texts()[0]
+        for part in ("The Film", "2001 · PG · 1:30:00", "Drama, Comedy", "IMDb 7.5", "Rotten Tomatoes 88%", "A story about a film.", "A. Actor as The Hero", "B. Actor",
+                     "Violence (high, 2 scenes)  - skipped for you", "Language (1 scene)", "a dog dies: 5 yes, 1 no", "Powered by DoesTheDogDie.com"):
+            self.assertIn(part, text)
+
+    def test_a_title_with_little_to_say_still_opens(self):
+        FakeApi.answers["/api/v1/servers/S/titles/m1"] = {"type": "movie", "name": "Bare"}
+        self.run_action(action="info", id="m1")
+        self.assertEqual(self.texts(), ["Bare\n"])
+        self.assertNotIn("DoesTheDogDie", self.texts()[0])
+
+    def test_movies_and_shows_offer_the_details_from_their_menu(self):
+        FakeApi.answers["/api/v1/servers/S/libraries/L1/items"] = {"page": 1, "hasMore": False, "items": [
+            {"type": "movie", "id": "m1", "name": "The Film", "subtitle": "2001"}, {"type": "show", "id": "s1", "name": "The Show"}]}
+        self.run_action(action="library", id="L1", style="grid", name="Movies")
+        film, shw = xbmcplugin.items
+        menus = [label for label, _ in film["li"].context]
+        self.assertEqual(menus, ["Play from the beginning", "Roam: details", "Roam: chapters", "Roam: extras"])
+        self.assertEqual([label for label, _ in shw["li"].context], ["Roam: details"])
+
+    def test_chapters_play_from_where_they_start(self):
+        FakeApi.answers["/api/v1/servers/S/titles/m1"] = self.MOVIE
+        self.run_action(action="chapters", id="m1", name="The Film")
+        self.assertEqual([i["li"].label for i in xbmcplugin.items], ["0:00  Opening", "1:02:05  The Chase"])
+        self.assertEqual(params_of(xbmcplugin.items[1]["url"]), {"action": "play", "kind": "title", "id": "m1", "name": "The Film", "start_at": "3725"})
+
+    def test_extras_are_listed_by_kind_and_play_as_extras(self):
+        FakeApi.answers["/api/v1/servers/S/titles/m1"] = self.MOVIE
+        self.run_action(action="extras", id="m1", name="The Film")
+        self.assertEqual([i["li"].label for i in xbmcplugin.items], ["Behind the scenes: Making of (10:00)"])
+        self.assertEqual(params_of(xbmcplugin.items[0]["url"])["kind"], "extra")
+
+    def test_nothing_to_list_is_said_in_words(self):
+        FakeApi.answers["/api/v1/servers/S/titles/m1"] = {"type": "movie", "name": "Bare"}
+        self.run_action(action="chapters", id="m1", name="Bare")
+        self.run_action(action="extras", id="m1", name="Bare")
+        said = [t for kind, t in xbmcgui.shown if kind == "ok"]
+        self.assertEqual(said, ["This has no chapters.", "This has no extras."])
+        self.assertEqual(xbmcplugin.items, [])
+
+
+class ChapterStart(Playing):
+    def test_a_chapter_starts_in_the_right_file_at_the_right_second_whatever_was_saved(self):
+        FakeApi.answers["/api/play/title/m1"] = self.manifest(resumeSeconds=10)
+        self.run_action(action="play", kind="title", id="m1", name="F", start_at="130")
+        playlist, start = xbmc.Player.last.played
+        self.assertEqual(start, 1)
+        self.assertEqual(playlist.items[1][1].props["StartOffset"], "30")
+        self.run_action(action="play", kind="title", id="m1", name="F", start_at="junk")
+        self.assertEqual(xbmc.Player.last.played[1], 0)

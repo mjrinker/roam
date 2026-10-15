@@ -93,11 +93,17 @@ def add_item(ctx, item, queue=None):
         label = "%s (%s)" % (label, sub) if str(sub).isdigit() else label
     if kind == "movie":
         add_playable(ctx, label, build_url(action="play", kind="title", id=item["id"], name=item["name"]), thumb, square, {"mediatype": "movie", "year": sub if str(sub or "").isdigit() else None},
-                     [("Play from the beginning", "PlayMedia(%s)" % build_url(action="play", kind="title", id=item["id"], name=item["name"], start_over="1"))])
+                     [("Play from the beginning", "PlayMedia(%s)" % build_url(action="play", kind="title", id=item["id"], name=item["name"], start_over="1")),
+                      ("Roam: details", "RunPlugin(%s)" % build_url(action="info", id=item["id"])),
+                      ("Roam: chapters", "Container.Update(%s)" % build_url(action="chapters", id=item["id"], name=item["name"])),
+                      ("Roam: extras", "Container.Update(%s)" % build_url(action="extras", id=item["id"], name=item["name"]))])
     elif kind == "episode":
         add_playable(ctx, label, build_url(action="play", kind="episode", id=item["id"], name=item["name"], queue=queue), thumb, square, {"mediatype": "episode"})
     elif kind == "show":
-        add_folder(ctx, label, build_url(action="show", id=item["id"], name=item["name"]), thumb)
+        li = xbmcgui.ListItem(label=label)
+        art(li, thumb)
+        li.addContextMenuItems([("Roam: details", "RunPlugin(%s)" % build_url(action="info", id=item["id"]))])
+        xbmcplugin.addDirectoryItem(ctx.handle, build_url(action="show", id=item["id"], name=item["name"]), li, True)
     elif kind == "artist":
         add_folder(ctx, label, build_url(action="artist", id=item["id"]), thumb, True)
     elif kind == "album":
@@ -296,6 +302,90 @@ def show(ctx, show_id, name):
     end(ctx, "episodes")
 
 
+def clock(seconds):
+    s = int(seconds or 0)
+    return "%d:%02d:%02d" % (s // 3600, s % 3600 // 60, s % 60) if s >= 3600 else "%d:%02d" % (s // 60, s % 60)
+
+
+def chapters(ctx, title_id, name):
+    """A movie's chapters, each of which plays from where it starts."""
+    if not ready(ctx):
+        return
+    try:
+        d = ctx.api.get(sp(ctx, "/titles/%s" % title_id))
+    except ApiError as e:
+        return fail(ctx, e)
+    if not d.get("chapters"):
+        xbmcgui.Dialog().ok("Roam", "This has no chapters.")
+        return end(ctx, ok=False)
+    for c in d["chapters"]:
+        add_playable(ctx, "%s  %s" % (clock(c.get("startSeconds")), c.get("title") or "Chapter"), build_url(action="play", kind="title", id=title_id, name=name, start_at=c.get("startSeconds", 0)), d.get("posterUrl"))
+    end(ctx, "movies")
+
+
+def extras(ctx, title_id, name):
+    """Trailers, featurettes and the rest, by kind."""
+    if not ready(ctx):
+        return
+    try:
+        d = ctx.api.get(sp(ctx, "/titles/%s" % title_id))
+    except ApiError as e:
+        return fail(ctx, e)
+    groups = [g for g in d.get("extras", []) if g.get("items")]
+    if not groups:
+        xbmcgui.Dialog().ok("Roam", "This has no extras.")
+        return end(ctx, ok=False)
+    for g in groups:
+        for x in g["items"]:
+            label = "%s: %s (%s)" % (str(g.get("category", "")).replace("_", " ").capitalize(), x.get("name"), clock(x.get("durationSeconds")))
+            add_playable(ctx, label, build_url(action="play", kind="extra", id=x["id"], name=x.get("name", "")), None)
+    end(ctx, "movies")
+
+
+CATEGORY_WORDS = {"violence": "Violence", "language": "Language", "sex": "Sex", "nudity": "Nudity", "fear": "Frightening scenes", "drugs": "Drugs and alcohol",
+                  "discrimination": "Discrimination", "commercial": "Commercial content", "dispensable": "Dispensable scenes", "animals": "Animal harm", "distress": "Distressing themes"}
+
+
+def describe(d):
+    """Everything the title page has, as words for a text window."""
+    head = " · ".join(str(x) for x in (d.get("year"), d.get("certification"), clock(d["runtimeSeconds"]) if d.get("runtimeSeconds") else None) if x)
+    lines = [d.get("name", ""), head]
+    if d.get("genres"):
+        lines.append(", ".join(d["genres"]))
+    ratings = [t for t in ("IMDb %s" % d["imdbRating"] if d.get("imdbRating") else None, "Rotten Tomatoes %s%%" % d["rottenTomatoesScore"] if d.get("rottenTomatoesScore") is not None else None) if t]
+    if ratings:
+        lines.append("  ".join(ratings))
+    if d.get("overview"):
+        lines += ["", d["overview"]]
+    if d.get("cast"):
+        lines += ["", "Cast"] + ["  %s%s" % (c["name"], " as %s" % c["character"] if c.get("character") else "") for c in d["cast"][:20]]
+    guide = d.get("guide") or {}
+    if guide.get("lines"):
+        lines += ["", "Parental guide"]
+        for g in guide["lines"]:
+            word = CATEGORY_WORDS.get(g.get("category"), str(g.get("category", "")).capitalize())
+            detail = ", ".join(x for x in (g.get("severity"), "%s scene%s" % (g["scenes"], "" if g["scenes"] == 1 else "s") if g.get("scenes") else None) if x)
+            lines.append("  %s%s%s" % (word, " (%s)" % detail if detail else "", "  - skipped for you" if g.get("skippedForYou") else ""))
+    if guide.get("reports"):
+        lines += ["", "Community reports"] + ["  %s: %s yes, %s no" % (r["topic"], r.get("yes", 0), r.get("no", 0)) for r in guide["reports"]]
+    if guide.get("fromCommunity"):
+        lines += ["", "Powered by DoesTheDogDie.com. Reports are from the community and unverified."]
+    return "\n".join(lines)
+
+
+def info(ctx, title_id):
+    """The title's page in words: what it is about, who is in it, what its parental guide says."""
+    if not ready(ctx):
+        return
+    try:
+        d = ctx.api.get(sp(ctx, "/titles/%s" % title_id))
+    except ApiError as e:
+        return fail(ctx, e)
+    if d.get("type") == "show":
+        d = dict(d, runtimeSeconds=None)
+    xbmcgui.Dialog().textviewer(d.get("name", "Roam"), describe(d))
+
+
 def artist(ctx, artist_id):
     if not ready(ctx):
         return
@@ -350,7 +440,12 @@ def play(ctx):
         return fail(ctx, e)
     segments = manifest["segments"]
     start = 0.0
-    if p.get("start_over") != "1" and 0 < manifest.get("resumeSeconds", 0) < manifest["durationSeconds"] - 30:
+    if p.get("start_at"):  # a chapter
+        try:
+            start = max(0.0, float(p["start_at"]))
+        except ValueError:
+            start = 0.0
+    elif p.get("start_over") != "1" and 0 < manifest.get("resumeSeconds", 0) < manifest["durationSeconds"] - 30:
         start = manifest["resumeSeconds"]
     index, _seg, local = timeline.locate_part(segments, start)
     playlist = xbmc.PlayList(xbmc.PLAYLIST_VIDEO)
@@ -460,6 +555,12 @@ def run(argv):
         library(ctx, params["id"], params["style"], params.get("name", ""))
     elif action == "show":
         show(ctx, params["id"], params.get("name", ""))
+    elif action == "info":
+        info(ctx, params["id"])
+    elif action == "chapters":
+        chapters(ctx, params["id"], params.get("name", ""))
+    elif action == "extras":
+        extras(ctx, params["id"], params.get("name", ""))
     elif action == "artist":
         artist(ctx, params["id"])
     elif action == "album":
