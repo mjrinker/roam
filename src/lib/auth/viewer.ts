@@ -3,7 +3,7 @@ import { cookies } from "next/headers";
 import { asc, eq } from "drizzle-orm";
 import { db } from "@/lib/db/client";
 import { viewers, type Viewer } from "@/lib/db/schema";
-import { getCurrentProfile } from "@/lib/auth/guards";
+import { getCurrentProfile, getRequestDeviceToken } from "@/lib/auth/guards";
 import type { Profile } from "@/lib/auth/guards";
 import { VIEWER_COOKIE, verifyViewerCookie, viewerIdFromCookie } from "@/lib/viewers/cookie";
 import { VIEWER_NAME_MAX_LENGTH } from "@/lib/viewers/config";
@@ -67,7 +67,14 @@ export const getCurrentViewer = cache(async (): Promise<ViewerResolution | null>
     all = [await ensureDefaultViewer(account)];
   }
 
-  const cookie = (await cookies()).get(VIEWER_COOKIE)?.value;
+  // An app or device signed in with a token uses the profile it chose (re-checked against the account's profiles and PIN version).
+  const device = await getRequestDeviceToken();
+  if (device) {
+    const chosen = all.find((v) => v.id === device.viewerId);
+    if (chosen && chosen.pinVersion === device.pinVersion) return { account, viewer: chosen, viewers: all };
+  }
+
+  const cookie = device ? undefined : (await cookies()).get(VIEWER_COOKIE)?.value;
   if (cookie) {
     const id = viewerIdFromCookie(cookie);
     // Looking the id up among THIS account's profiles is the ownership check.

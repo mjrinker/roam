@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { deleteExpiredDdd } from "@/lib/ddd/service";
 import { db } from "@/lib/db/client";
 import { purgeStale } from "@/lib/ownership/sessions";
+import { purgeDeviceTokens } from "@/lib/auth/device-token";
 import { runAndRecordTmdbRefresh } from "@/lib/tmdb/refresh-job";
 
 export const maxDuration = 60;
@@ -20,5 +21,7 @@ export async function GET(request: Request) {
   const dddDeleted = await deleteExpiredDdd().catch(() => 0);
   // Players that went quiet let go of their copy (and whoever waited for it is told).
   const playersReleased = await purgeStale(db).catch(() => 0);
-  return NextResponse.json({ ...refreshed, dddDeleted, playersReleased }, { headers: { "Cache-Control": "no-store" } });
+  // Device tokens signed out a month ago, or unused for half a year, are forgotten.
+  const devicesForgotten = await purgeDeviceTokens(db).catch(() => 0);
+  return NextResponse.json({ ...refreshed, dddDeleted, playersReleased, devicesForgotten }, { headers: { "Cache-Control": "no-store" } });
 }

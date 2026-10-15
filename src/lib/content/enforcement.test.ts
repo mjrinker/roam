@@ -25,6 +25,7 @@ const ALLOWLIST: Record<string, string> = {
   "(app)/s/[serverId]/(browse)/admin/page.tsx": "admin-only (requireServerAdmin requires an unrestricted profile)",
   "platform/page.tsx": "platform-admin only (requirePlatformAdmin); shows aggregate counts, never an item",
   "api/audiobooks/search/route.ts": "admin-only (getCurrentServerAdmin)",
+  "api/v1/servers/[serverId]/titles/[id]/route.ts": "reads only through lib/tv/data (library visibility and the age filter) and the ownership view; covered by app/api/v1/browse.routes.test.ts",
   "api/ownership/owners/route.ts": "admin-only (getCurrentServerAdmin); only reads the titles of that admin's own server, to assign owners",
   "api/titles/[id]/match/route.ts": "admin-only (getCurrentServerAdmin)",
   "api/titles/[id]/match-audible/route.ts": "admin-only (getCurrentServerAdmin)",

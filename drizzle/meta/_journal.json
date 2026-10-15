@@ -379,6 +379,13 @@
       "when": 1792022714635,
       "tag": "0053_ownership",
       "breakpoints": true
+    },
+    {
+      "idx": 54,
+      "version": "7",
+      "when": 1792068351871,
+      "tag": "0054_device_tokens",
+      "breakpoints": true
     }
   ]
 }

@@ -7,6 +7,9 @@ import { ProfilePicker } from "@/components/profiles/profile-picker";
 import { MULTIPLE_VIEWERS_ENABLED } from "@/lib/viewers/config";
 import { normalizePrefs } from "@/lib/content-filter/categories";
 import { normalizeAutoSkip } from "@/lib/skipdb/active";
+import { db } from "@/lib/db/client";
+import { listDeviceTokens } from "@/lib/auth/device-token";
+import { DevicesList } from "@/components/profiles/devices-list";
 
 export default async function ProfilesPage({ searchParams }: PageProps<"/profiles">) {
   const resolved = await getCurrentViewer();
@@ -15,6 +18,8 @@ export default async function ProfilesPage({ searchParams }: PageProps<"/profile
   const params = await searchParams;
   const next = typeof params.next === "string" ? params.next : null;
   const manage = params.manage === "1";
+  // Apps signed in with a code (shown when managing, to a grown-up profile; guests have none).
+  const devices = manage && !resolved.account.isGuest && resolved.viewer?.role !== "limited" ? await listDeviceTokens(db, resolved.account.id) : [];
 
   return (
     <div className="relative flex flex-1 flex-col overflow-hidden">
@@ -58,6 +63,7 @@ export default async function ProfilesPage({ searchParams }: PageProps<"/profile
           next={next}
           startInManage={manage}
         />
+        <DevicesList devices={devices.map((d) => ({ id: d.id, label: d.label, lastUsedAt: d.lastUsedAt.toISOString() }))} />
       </main>
     </div>
   );

@@ -1,4 +1,5 @@
 import { cache } from "react";
+import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { db } from "@/lib/db/client";
 import { profiles, serverMembers } from "@/lib/db/schema";
@@ -7,6 +8,7 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
 import type { profiles as ProfilesTable, Viewer } from "@/lib/db/schema";
 import { getCurrentViewer } from "@/lib/auth/viewer";
 import { touchGuest } from "@/lib/auth/guests";
+import { bearerToken, findDeviceToken, type DeviceToken } from "@/lib/auth/device-token";
 
 export type Profile = typeof ProfilesTable.$inferSelect;
 export type ServerRole = "admin" | "viewer";
@@ -22,7 +24,29 @@ export interface ServerMembership {
  * Resolves the current session's profile row, or null if signed out.
  * Use in Server Components / Route Handlers.
  */
+/**
+ * The device token this request carries: `undefined` when it carries none (the browser's cookies decide), `null` when it carries
+ * one that isn't valid (revoked, unknown or malformed: the request is then signed out, never falling back to cookies), else its row.
+ */
+export const getRequestDeviceToken = cache(async (): Promise<DeviceToken | null | undefined> => {
+  let header: string | null;
+  try {
+    header = (await headers()).get("authorization");
+  } catch {
+    return undefined; // not inside a request (a script or a test)
+  }
+  if (!header) return undefined;
+  const token = bearerToken(header);
+  return token ? ((await findDeviceToken(db, token)) ?? null) : null;
+});
+
 export const getCurrentProfile = cache(async (): Promise<Profile | null> => {
+  const device = await getRequestDeviceToken();
+  if (device !== undefined) {
+    if (!device) return null;
+    const [account] = await db.select().from(profiles).where(eq(profiles.id, device.accountId)).limit(1);
+    return account ?? null;
+  }
   const supabase = await createSupabaseServerClient();
   const {
     data: { user },

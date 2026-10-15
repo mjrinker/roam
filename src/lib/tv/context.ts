@@ -20,21 +20,31 @@ export interface TvWho {
 
 export type TvAccess = { ok: true; scope: TvScope; base: string; profileName: string; serverId: string; who: TvWho } | { ok: false; response: Response };
 
-/** Signed out goes to the pairing screen, no chosen profile to the profile screen, a server you're not in to "not found". */
-export async function tvAccess(request: Request, serverId: string): Promise<TvAccess> {
+export type Resolved =
+  | { ok: true; scope: TvScope; profileName: string; serverId: string; who: TvWho }
+  | { ok: false; reason: "signed_out" | "no_profile" | "not_member" };
+
+/** Who is asking and whether they belong to the server: the checks every TV page and every /api/v1 route makes before reading anything. */
+export async function resolveAccess(serverId: string): Promise<Resolved> {
   const resolved = await getCurrentViewer();
-  if (!resolved) return { ok: false, response: redirectTo(request, "/tv/pair") };
-  if (!resolved.viewer) return { ok: false, response: redirectTo(request, "/tv/profiles") };
+  if (!resolved) return { ok: false, reason: "signed_out" };
+  if (!resolved.viewer) return { ok: false, reason: "no_profile" };
   const membership = await getServerMembership(resolved.account.id, serverId);
-  if (!membership) return { ok: false, response: notFoundPage() };
+  if (!membership) return { ok: false, reason: "not_member" };
   return {
     ok: true,
     serverId,
-    base: `/tv/s/${serverId}`,
     profileName: resolved.viewer.name,
     who: { accountId: resolved.account.id, isAdmin: membership.role === "admin", limited: resolved.viewer.role === "limited", filterPrefs: normalizePrefs(resolved.viewer.contentFilter) },
     scope: { actor: libraryActor({ profile: resolved.account, role: membership.role }, serverId), viewer: resolved.viewer, viewerId: resolved.viewer.id },
   };
+}
+
+/** Signed out goes to the pairing screen, no chosen profile to the profile screen, a server you're not in to "not found". */
+export async function tvAccess(request: Request, serverId: string): Promise<TvAccess> {
+  const r = await resolveAccess(serverId);
+  if (!r.ok) return { ok: false, response: r.reason === "signed_out" ? redirectTo(request, "/tv/pair") : r.reason === "no_profile" ? redirectTo(request, "/tv/profiles") : notFoundPage() };
+  return { ok: true, serverId, base: `/tv/s/${serverId}`, profileName: r.profileName, scope: r.scope, who: r.who };
 }
 
 /** A path parameter that is a UUID, or null: anything else is "not found" without touching the database. */

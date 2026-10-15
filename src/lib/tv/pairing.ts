@@ -33,7 +33,8 @@ export const hashSecret = (secret: string): string => createHash("sha256").updat
 export const addressKey = (ip: string): string => hmacSign("roam-tv-address", ip || "unknown");
 
 /** A plain-words label for a TV from its browser identification, shown when someone approves its code. */
-export function deviceLabel(userAgent: string | null | undefined): string {
+export function deviceLabel(userAgent: string | null | undefined, given?: string | null): string {
+  if (given) return given;
   const ua = userAgent ?? "";
   if (/Tizen/i.test(ua)) return "Samsung TV";
   if (/Web0S|webOS/i.test(ua)) return "LG TV";
@@ -45,7 +46,7 @@ export function deviceLabel(userAgent: string | null | undefined): string {
 
 export type StartResult = { ok: true; userCode: string; secret: string; expiresAt: Date } | { ok: false; reason: "too_many" | "busy" };
 
-export async function startPairing(ex: Db, args: { ip: string; userAgent: string | null; location?: string | null; now?: Date; /** For tests: the random source for the code. */ rand?: (max: number) => number }): Promise<StartResult> {
+export async function startPairing(ex: Db, args: { ip: string; userAgent: string | null; /** A name the app gives itself ("Living room Roku"), instead of guessing from the browser. */ label?: string | null; location?: string | null; now?: Date; /** For tests: the random source for the code. */ rand?: (max: number) => number }): Promise<StartResult> {
   const now = args.now ?? new Date();
   const ipHash = addressKey(args.ip);
   // Old rows are not worth keeping: an hour past their life they go.
@@ -62,7 +63,7 @@ export async function startPairing(ex: Db, args: { ip: string; userAgent: string
     const userCode = generateUserCode(args.rand);
     const inserted = await ex
       .insert(tvPairings)
-      .values({ userCode, deviceHash: hashSecret(secret), deviceLabel: deviceLabel(args.userAgent), locationHint: args.location?.slice(0, 80) || null, ipHash, expiresAt, createdAt: now })
+      .values({ userCode, deviceHash: hashSecret(secret), deviceLabel: deviceLabel(args.userAgent, args.label), locationHint: args.location?.slice(0, 80) || null, ipHash, expiresAt, createdAt: now })
       .onConflictDoNothing({ target: tvPairings.userCode })
       .returning({ userCode: tvPairings.userCode });
     if (inserted.length > 0) return { ok: true, userCode, secret, expiresAt };
@@ -125,7 +126,7 @@ export async function approvePairing(ex: Db, args: { userCode: string; accountId
   return rows.length === 1;
 }
 
-export type PollResult = { status: "pending" } | { status: "expired" } | { status: "approved"; accountId: string };
+export type PollResult = { status: "pending" } | { status: "expired" } | { status: "approved"; accountId: string; deviceLabel: string };
 
 /** What the TV learns when it asks. An approved pairing is handed over exactly once: the claim is one conditional update. */
 export async function pollPairing(ex: Db, secret: string, now = new Date()): Promise<PollResult> {
@@ -134,8 +135,8 @@ export async function pollPairing(ex: Db, secret: string, now = new Date()): Pro
     .update(tvPairings)
     .set({ status: "consumed" })
     .where(and(eq(tvPairings.deviceHash, deviceHash), eq(tvPairings.status, "approved"), gt(tvPairings.expiresAt, now)))
-    .returning({ accountId: tvPairings.accountId });
-  if (claimed.length === 1 && claimed[0].accountId) return { status: "approved", accountId: claimed[0].accountId };
+    .returning({ accountId: tvPairings.accountId, deviceLabel: tvPairings.deviceLabel });
+  if (claimed.length === 1 && claimed[0].accountId) return { status: "approved", accountId: claimed[0].accountId, deviceLabel: claimed[0].deviceLabel };
 
   const [row] = await ex.select({ status: tvPairings.status, expiresAt: tvPairings.expiresAt }).from(tvPairings).where(eq(tvPairings.deviceHash, deviceHash)).limit(1);
   if (row && row.status === "pending" && row.expiresAt > now) return { status: "pending" };

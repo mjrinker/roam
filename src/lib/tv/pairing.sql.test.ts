@@ -69,7 +69,7 @@ describe("pairing", () => {
     const who = await makeAccount(db, "pairer");
     const r = await start();
     expect(await approvePairing(db, { userCode: r.userCode, accountId: who.accountId })).toBe(true);
-    expect(await pollPairing(db, r.secret)).toEqual({ status: "approved", accountId: who.accountId });
+    expect(await pollPairing(db, r.secret)).toEqual({ status: "approved", accountId: who.accountId, deviceLabel: expect.any(String) });
     expect(await pollPairing(db, r.secret)).toEqual({ status: "expired" }); // already taken
     expect(await approvePairing(db, { userCode: r.userCode, accountId: who.accountId })).toBe(false); // and no longer open
   });

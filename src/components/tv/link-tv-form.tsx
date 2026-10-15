@@ -65,7 +65,7 @@ export function LinkTvForm({ email, initial }: { email: string; initial?: { code
       className="flex flex-col gap-4"
     >
       <label htmlFor="tv-code" className="text-sm text-muted-foreground">
-        The code shown on your TV
+        The code shown on your TV or app
       </label>
       <input
         id="tv-code"

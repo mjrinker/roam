@@ -5,7 +5,7 @@ import { LinkTvForm } from "./link-tv-form";
 describe("LinkTvForm", () => {
   it("asks for the code when there is none", () => {
     const html = renderToStaticMarkup(<LinkTvForm email="me@example.com" />);
-    expect(html).toContain("The code shown on your TV");
+    expect(html).toContain("The code shown on your TV or app");
     expect(html).not.toContain("Yes, sign in this TV");
   });
   it("opens straight on the confirmation when the TV's QR code brought the code, naming the TV, where it asked from, and what approving means", () => {

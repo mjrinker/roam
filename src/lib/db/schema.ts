@@ -1322,6 +1322,28 @@ export const tvPairings = pgTable(
   ]
 ).enableRLS();
 
+// ── device_tokens ────────────────────────────────────────────────────────
+// A signed-in app or device (a TV, a phone app, Kodi...): it holds a long random token, of which only a hash is kept. It signs in as
+// the account that approved its pairing code, and as one profile of it at a time (`viewer_id`, with that profile's PIN version at the time,
+// so changing a PIN signs the profile out). Revoking sets `revoked_at`. See lib/auth/device-token.
+export const deviceTokens = pgTable(
+  "device_tokens",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    accountId: uuid("account_id")
+      .notNull()
+      .references(() => profiles.id, { onDelete: "cascade" }),
+    viewerId: uuid("viewer_id").references(() => viewers.id, { onDelete: "set null" }),
+    pinVersion: integer("pin_version").notNull().default(0),
+    tokenHash: text("token_hash").notNull(),
+    label: text("label").notNull().default("Device"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    lastUsedAt: timestamp("last_used_at", { withTimezone: true }).notNull().defaultNow(),
+    revokedAt: timestamp("revoked_at", { withTimezone: true }),
+  },
+  (t) => [uniqueIndex("device_tokens_hash_idx").on(t.tokenHash), index("device_tokens_account_idx").on(t.accountId)]
+).enableRLS();
+
 // ── viewer_library_speeds ────────────────────────────────────────────────
 // The speed (0.25 to 3) a profile's playback starts at in one library; no row = normal speed. Only that profile sees it. A speed picked
 // while playing is not saved by itself: it lasts until the player closes, unless the profile chooses to make it their default.
