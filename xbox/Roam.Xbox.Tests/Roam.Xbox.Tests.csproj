@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net8.0-windows10.0.19041.0</TargetFramework>
+    <IsPackable>false</IsPackable>
+    <Nullable>disable</Nullable>
+    <RootNamespace>Roam.Xbox.Tests</RootNamespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <!-- The app's plain logic, compiled here so it can be tested without an Xbox. -->
+    <Compile Include="..\Roam.Xbox\Navigation.cs" Link="App\Navigation.cs" />
+    <Compile Include="..\Roam.Xbox\Gamepad.cs" Link="App\Gamepad.cs" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.11.1" />
+    <PackageReference Include="xunit" Version="2.9.2" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="2.8.2" />
+  </ItemGroup>
+</Project>

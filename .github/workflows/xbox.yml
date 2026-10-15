@@ -28,6 +28,9 @@ jobs:
 
       - uses: microsoft/setup-msbuild@v2
 
+      - name: Test the app's own logic
+        run: dotnet test xbox/Roam.Xbox.Tests/Roam.Xbox.Tests.csproj --nologo
+
       - name: Make a signing certificate for this build
         id: cert
         shell: pwsh
