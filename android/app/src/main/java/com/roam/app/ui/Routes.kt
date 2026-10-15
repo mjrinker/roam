@@ -24,6 +24,10 @@ object Routes {
         "player/$kind/$id?name=${Uri.encode(name)}&startOver=$startOver&startAt=${startAt ?: -1.0}&queue=${Uri.encode(queue.joinToString(","))}"
     const val AUDIO = "audio/{id}?name={name}&remember={remember}"
     fun audio(id: String, name: String, remember: Boolean) = "audio/$id?name=${Uri.encode(name)}&remember=$remember"
+    const val PLAYLISTS = "playlists/{sid}"
+    fun playlists(sid: String) = "playlists/$sid"
+    const val PLAYLIST = "playlist/{sid}/{id}"
+    fun playlist(sid: String, id: String) = "playlist/$sid/$id"
     const val NOTIFICATIONS = "notifications"
     const val ACCOUNT = "account"
 }

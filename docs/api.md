@@ -42,6 +42,8 @@ All under `/api/v1/servers/{serverId}`. Lists are cut for the profile in use: li
 | `…/home` | `server`, `libraries`, `continueWatching`, `continueListening`, `recentlyAdded` (items, below), `hasPlaylists`, `unreadNotifications`. |
 | `…/libraries` | `{ libraries: [{ id, name, kind, style }] }`. `style` says how to browse it: `grid`, `folders`, `artists`, `timeline`, or `null` (not listable yet, e.g. eBooks). |
 | `…/libraries/{id}/items` | One page, by style: **grid** `?page=1` (and optionally `sort=title\|year\|added`, `genre=Drama`, `unwatched=1`, `owner=<account id>\|none`) → `{ items, page, hasMore }`; **folders** `?path=A/B&after=CURSOR` → `{ path, folders, items, next }`; **artists** `?after=CURSOR` → `{ items, next }`; **timeline** (photos) `?view=favorites` or `?view=albums&path=…&after=CURSOR` → `{ items, next }`. Pass `next` back as `after`; null means the end. |
+| `…/playlists` | The playlists this profile can see: `{ playlists: [{ id, name, itemCount, ownerName, canAdd }] }`. |
+| `…/playlists/{id}` | One playlist and a page of its items (`?after=` is the previous page's `next`): `{ playlist, items, next }`. Items are like list items, plus `entryId` and `playable`; photos and eBooks are left out. Changing a playlist uses `/api/playlists/{id}` and its `items`, below. |
 | `…/libraries/{id}/genres` | A grid library's genres with their counts (the same filters can be given). |
 | `…/titles/{id}` | A movie, show or audiobook (see below). |
 | `…/albums/{id}`, `…/artists/{id}` | An album with its songs in order; an artist with their albums. |

@@ -73,3 +73,4 @@ class FakeReporter : com.roam.app.player.Reporter {
         ended++
     }
 }
+fun androidx.compose.ui.test.junit4.ComposeContentTestRule.onAllNodesWithTagCount(tag: String): Int = onAllNodes(androidx.compose.ui.test.hasTestTag(tag)).fetchSemanticsNodes().size

@@ -39,6 +39,7 @@ fun HomeContent(serverId: String, home: Home, nav: Nav) {
                 Text(home.server.name, style = MaterialTheme.typography.headlineMedium, color = MaterialTheme.colorScheme.onBackground)
                 Row {
                     TextButton(onClick = { nav.open(Routes.search(serverId)) }, modifier = Modifier.testTag("go-search")) { Text("Search") }
+                    if (home.hasPlaylists) TextButton(onClick = { nav.open(Routes.playlists(serverId)) }, modifier = Modifier.testTag("go-playlists")) { Text("Playlists") }
                     TextButton(onClick = { nav.open(Routes.NOTIFICATIONS) }, modifier = Modifier.testTag("go-notifications")) { Text(if (home.unreadNotifications > 0) "Notifications (${home.unreadNotifications})" else "Notifications") }
                     TextButton(onClick = { nav.open(Routes.ACCOUNT) }, modifier = Modifier.testTag("go-account")) { Text("Account") }
                 }

@@ -37,6 +37,8 @@ interface RoamApi {
     suspend fun items(serverId: String, libraryId: String, page: Int? = null, path: String? = null, after: String? = null): ItemsPage
     suspend fun title(serverId: String, id: String, season: Int? = null): Title
     suspend fun search(serverId: String, query: String): List<ApiItem>
+    suspend fun playlists(serverId: String): List<PlaylistSummary>
+    suspend fun playlist(serverId: String, id: String, after: String? = null): PlaylistPage
     suspend fun album(serverId: String, id: String): Album
     suspend fun artist(serverId: String, id: String): Artist
     suspend fun play(kind: String, id: String, unsupportedCodecs: String = ""): PlayManifest
@@ -114,6 +116,8 @@ class HttpRoamApi(
 
     override suspend fun title(serverId: String, id: String, season: Int?): Title = get("/api/v1/servers/$serverId/titles/$id", mapOf("season" to season?.toString()))
     override suspend fun search(serverId: String, query: String): List<ApiItem> = get<SearchResponse>("/api/v1/servers/$serverId/search", mapOf("q" to query)).items
+    override suspend fun playlists(serverId: String): List<PlaylistSummary> = get<PlaylistsResponse>("/api/v1/servers/$serverId/playlists").playlists
+    override suspend fun playlist(serverId: String, id: String, after: String?): PlaylistPage = get("/api/v1/servers/$serverId/playlists/$id", mapOf("after" to after))
     override suspend fun album(serverId: String, id: String): Album = get("/api/v1/servers/$serverId/albums/$id")
     override suspend fun artist(serverId: String, id: String): Artist = get("/api/v1/servers/$serverId/artists/$id")
     override suspend fun play(kind: String, id: String, unsupportedCodecs: String): PlayManifest =
@@ -190,6 +194,8 @@ object Unsupported : RoamApi {
     override suspend fun items(serverId: String, libraryId: String, page: Int?, path: String?, after: String?) = nope()
     override suspend fun title(serverId: String, id: String, season: Int?) = nope()
     override suspend fun search(serverId: String, query: String) = nope()
+    override suspend fun playlists(serverId: String) = nope()
+    override suspend fun playlist(serverId: String, id: String, after: String?) = nope()
     override suspend fun album(serverId: String, id: String) = nope()
     override suspend fun artist(serverId: String, id: String) = nope()
     override suspend fun play(kind: String, id: String, unsupportedCodecs: String) = nope()

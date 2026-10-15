@@ -71,6 +71,33 @@ data class Home(
     val unreadNotifications: Int = 0,
 )
 
+@Serializable
+data class PlaylistSummary(val id: String, val name: String, val itemCount: Int = 0, val ownerName: String? = null, val canAdd: Boolean = false)
+
+@Serializable
+data class PlaylistsResponse(val playlists: List<PlaylistSummary> = emptyList())
+
+/** A playlist entry: an ApiItem-like thing, with the entry's own id and whether it can be played yet. */
+@Serializable
+data class PlaylistEntry(
+    val entryId: String,
+    val type: String,
+    val id: String,
+    val name: String,
+    val subtitle: String? = null,
+    val posterUrl: String? = null,
+    val square: Boolean = false,
+    val playable: Boolean = true,
+) {
+    fun asItem() = ApiItem(type, id, name, subtitle, posterUrl, square)
+}
+
+@Serializable
+data class PlaylistHeader(val id: String, val name: String, val description: String? = null, val itemCount: Int = 0, val ownerName: String? = null)
+
+@Serializable
+data class PlaylistPage(val playlist: PlaylistHeader, val items: List<PlaylistEntry> = emptyList(), val next: String? = null)
+
 /** One page of a library: a grid (page, hasMore), or folders and files (path, folders, next). */
 @Serializable
 data class ItemsPage(
