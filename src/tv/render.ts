@@ -108,6 +108,8 @@ export interface HomeData {
   recentlyAdded?: Poster[];
   /** Whether this profile has any playlists to show. */
   hasPlaylists?: boolean;
+  /** Show the Settings button (a profile that may change its own settings). */
+  hasSettings?: boolean;
   /** Unread notifications; the button shows when there are any. */
   unread?: number;
   /** A screensaver of the profile's pictures, started by a newer browser after a quiet spell on this page. */
@@ -134,7 +136,7 @@ export function homePage(d: HomeData): string {
   const more = d.unsupported > 0 ? `<p class="note">${d.unsupported} more ${d.unsupported === 1 ? "library isn't" : "libraries aren't"} available on TV yet.</p>` : "";
   return tvDocument({
     title: d.serverName,
-    body: `<div class="page"${d.screensaver ? ` data-saver="${esc(safeUrl(d.screensaver.href) ?? "")}" data-saver-after="${Math.max(1, Math.floor(d.screensaver.afterSeconds))}"` : ""}>${top(esc(d.profileName))}<h1>${esc(d.serverName)}</h1>${cont}${listening}${recent}${libs}${more}<div class="row" style="margin-top:2rem">${actionRow([`<a class="btn" data-f href="${esc(d.base)}/search">Search</a>`, ...(d.hasPlaylists ? [`<a class="btn" data-f href="${esc(d.base)}/playlists">Playlists</a>`] : []), ...(d.unread ? [`<a class="btn" data-f href="${esc(d.base)}/notifications">Notifications (${d.unread})</a>`] : []), `<a class="btn" data-f href="/tv/profiles">Switch profile</a>`, postButton("/tv/signout", "Sign out")])}</div></div>`,
+    body: `<div class="page"${d.screensaver ? ` data-saver="${esc(safeUrl(d.screensaver.href) ?? "")}" data-saver-after="${Math.max(1, Math.floor(d.screensaver.afterSeconds))}"` : ""}>${top(esc(d.profileName))}<h1>${esc(d.serverName)}</h1>${cont}${listening}${recent}${libs}${more}<div class="row" style="margin-top:2rem">${actionRow([`<a class="btn" data-f href="${esc(d.base)}/search">Search</a>`, ...(d.hasPlaylists ? [`<a class="btn" data-f href="${esc(d.base)}/playlists">Playlists</a>`] : []), ...(d.unread ? [`<a class="btn" data-f href="${esc(d.base)}/notifications">Notifications (${d.unread})</a>`] : []), ...(d.hasSettings ? [`<a class="btn" data-f href="${esc(d.base)}/settings">Settings</a>`] : []), `<a class="btn" data-f href="/tv/profiles">Switch profile</a>`, postButton("/tv/signout", "Sign out")])}</div></div>`,
   });
 }
 
@@ -250,12 +252,12 @@ export function watchPage(d: WatchData): string {
 }
 
 /** The PIN pad for a profile protected by a PIN: digits are buttons the remote can reach; four digits send the PIN (the page's script does that, without putting it in the address). */
-export function pinPage(args: { profileName: string; viewerId: string; selectUrl: string; error?: string | null }): string {
+export function pinPage(args: { profileName: string; viewerId: string; selectUrl: string; error?: string | null; backHref?: string; heading?: string }): string {
   const digit = (d: string, i: number) => `<button type="button" class="btn key" data-f data-pin-digit="${d}"${i === 0 ? " data-autofocus" : ""}>${d}</button>`;
   return tvDocument({
     title: "Enter your PIN",
     body:
-      `<div class="page">${top(`<a data-f data-back href="/tv/profiles" class="btn" style="margin:0">Back</a>`)}<h1>${esc(args.profileName)}</h1><p class="msg">Enter your PIN</p>` +
+      `<div class="page">${top(`<a data-f data-back href="${esc(safeUrl(args.backHref ?? "/tv/profiles") ?? "/tv/profiles")}" class="btn" style="margin:0">Back</a>`)}<h1>${esc(args.profileName)}</h1><p class="msg">${esc(args.heading ?? "Enter your PIN")}</p>` +
       (args.error ? `<p class="msg" role="alert">${esc(args.error)}</p>` : "") +
       `<form method="post" action="${esc(args.selectUrl)}" id="pinform"><input type="hidden" name="viewer" value="${esc(args.viewerId)}"><input type="hidden" name="pin" id="pinvalue" value="">` +
       `<p class="pindots" id="pindots" aria-live="polite">○ ○ ○ ○</p></form>` +
@@ -489,5 +491,33 @@ export function arrangePage(d: ArrangeData): string {
       `<p class="sub">Move items up or down, or remove them. Press Done when finished.</p>${d.note ? `<p class="sub">${esc(d.note)}</p>` : ""}` +
       (rows || `<p class="sub">Nothing in this playlist.</p>`) +
       `</div>`,
+  });
+}
+
+// ── Profile settings ──────────────────────────────────────────────────
+
+export interface SettingsPageData {
+  base: string;
+  profileName: string;
+  autoSkip: { key: string; label: string; on: boolean }[];
+  filters: { key: string; label: string; words: string }[];
+  /** The button to land on after a change (so the same one can be pressed again). */
+  focus: string | null;
+}
+
+/** What this profile skips: each is a button that changes to its next choice; every press is a POST and the page comes back with the same button selected. */
+export function settingsPage(d: SettingsPageData): string {
+  const action = `${d.base}/settings`;
+  const one = (kind: "auto" | "filter", key: string, label: string, value: string) =>
+    postButton(action, `${label}: ${value}`, { fields: { kind, key }, autofocus: d.focus === `${kind}:${key}`, className: "btn" });
+  const start = d.focus === null;
+  const auto = d.autoSkip.map((a) => one("auto", a.key, a.label, a.on ? "On" : "Off")).join("");
+  const filters = d.filters.map((f) => one("filter", f.key, f.label, f.words)).join("");
+  return tvDocument({
+    title: "Settings",
+    body:
+      `<div class="page">${top(`<a data-f data-back${start ? " data-autofocus" : ""} href="${esc(d.base)}" class="btn" style="margin:0">Back</a>`)}<h1>Settings for ${esc(d.profileName)}</h1>` +
+      `<h2>Skip automatically</h2><p class="sub">Each of these is skipped by itself, once per play, when it starts. Off by default.</p><div class="row">${auto}</div>` +
+      `<h2>What to skip</h2><p class="sub">Press a button to change it: Off, then Mild and up, Moderate and up, Strong only. Scenes in these categories are skipped or muted when a movie has them marked.</p><div class="row">${filters}</div></div>`,
   });
 }

@@ -286,8 +286,16 @@ describe("profiles and signing out", () => {
   it("stops guessing a PIN after a few tries, and won't select someone else's profile", async () => {
     const w = await world();
     const [locked] = await db.insert(viewers).values({ accountId: w.member.accountId, name: "Locked", role: "owner", pinHash: hashPin("4321"), sortOrder: 2 }).returning();
-    for (let i = 0; i < 5; i++) await selectProfile(post("/tv/profiles", { viewer: locked.id, pin: "0000" }));
-    const blocked = await selectProfile(post("/tv/profiles", { viewer: locked.id, pin: "4321" }));
+    // The limiter counts in fixed windows of fifteen minutes; keep the clock mid-window so the tries can't straddle two.
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-10-15T14:07:00Z"));
+    let blocked: Response;
+    try {
+      for (let i = 0; i < 5; i++) await selectProfile(post("/tv/profiles", { viewer: locked.id, pin: "0000" }));
+      blocked = await selectProfile(post("/tv/profiles", { viewer: locked.id, pin: "4321" }));
+    } finally {
+      vi.useRealTimers();
+    }
     expect(blocked.status).toBe(429); // even the right PIN waits
     expect(h.jar.has(VIEWER_COOKIE)).toBe(false);
     const stranger = await makeAccount(db, "stranger");

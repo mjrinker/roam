@@ -2,6 +2,7 @@
 import { getCurrentViewer } from "@/lib/auth/viewer";
 import { getServerMembership } from "@/lib/auth/guards";
 import { normalizePrefs, type ContentFilterPrefs } from "@/lib/content-filter/categories";
+import { normalizeAutoSkip, type AutoSkipPrefs } from "@/lib/skipdb/active";
 import { libraryActor } from "@/lib/content/library-access";
 import type { TvScope } from "@/lib/tv/data";
 import { html, redirectTo } from "@/lib/tv/http";
@@ -16,6 +17,11 @@ export interface TvWho {
   /** A child's profile: it can look, not change who owns what. */
   limited: boolean;
   filterPrefs: ContentFilterPrefs;
+  /** The profile in use, for its own settings. */
+  viewerId: string;
+  viewerRole: "owner" | "admin" | "limited";
+  hasPin: boolean;
+  autoSkip: AutoSkipPrefs;
 }
 
 export type TvAccess = { ok: true; scope: TvScope; base: string; profileName: string; serverId: string; who: TvWho } | { ok: false; response: Response };
@@ -35,7 +41,7 @@ export async function resolveAccess(serverId: string): Promise<Resolved> {
     ok: true,
     serverId,
     profileName: resolved.viewer.name,
-    who: { accountId: resolved.account.id, isAdmin: membership.role === "admin", limited: resolved.viewer.role === "limited", filterPrefs: normalizePrefs(resolved.viewer.contentFilter) },
+    who: { accountId: resolved.account.id, isAdmin: membership.role === "admin", limited: resolved.viewer.role === "limited", filterPrefs: normalizePrefs(resolved.viewer.contentFilter), viewerId: resolved.viewer.id, viewerRole: resolved.viewer.role, hasPin: !!resolved.viewer.pinHash, autoSkip: normalizeAutoSkip(resolved.viewer.autoSkip) },
     scope: { actor: libraryActor({ profile: resolved.account, role: membership.role }, serverId), viewer: resolved.viewer, viewerId: resolved.viewer.id },
   };
 }

@@ -7,6 +7,7 @@ import { html } from "@/lib/tv/http";
 import { tvPlaylists } from "@/lib/tv/playlists";
 import { isPhotoLibraryKind, TV_KIND_LABEL } from "@/lib/libraries/profile";
 import { unreadCount } from "@/lib/ownership/notify";
+import { canChangeOwnSettings } from "@/lib/tv/settings";
 import { homePage } from "@/tv/render";
 
 
@@ -27,6 +28,7 @@ export async function GET(request: Request, ctx: RouteContext<"/tv/s/[serverId]"
       continueListening: cont.listening.map((c) => ({ href: `${access.base}/listen/${c.id}`, name: c.name, meta: c.meta, posterUrl: c.posterUrl, progress: c.progress, square: true })),
       hasPlaylists: lists.length > 0,
       unread: await unreadCount(db, access.who.accountId),
+      hasSettings: canChangeOwnSettings({ id: access.who.viewerId, role: access.who.viewerRole }),
       screensaver: libs.supported.some((l) => isPhotoLibraryKind(l.kind)) ? { href: `${access.base}/screensaver`, afterSeconds: 300 } : null,
       recentlyAdded: recent.map((r) => ({ href: `${access.base}${r.href}`, name: r.name, meta: r.meta, posterUrl: r.posterUrl, square: r.square })),
       libraries: libs.supported.map((l) => ({ id: l.id, name: l.name, kind: TV_KIND_LABEL[l.kind] ?? l.kind })),
