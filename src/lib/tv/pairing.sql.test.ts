@@ -43,6 +43,7 @@ describe("codes", () => {
     expect(deviceLabel("Mozilla/5.0 (SMART-TV; Linux; Tizen 5.5) AppleWebKit/537.36")).toBe("Samsung TV");
     expect(deviceLabel("Mozilla/5.0 (Web0S; Linux/SmartTV) Chrome/87")).toBe("LG TV");
     expect(deviceLabel("Mozilla/5.0 (Linux; Android 9; AFTMM) Silk/100")).toBe("Fire TV");
+    expect(deviceLabel("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120 Safari/537.36 Edg/120 Xbox RoamXbox/1.0")).toBe("Xbox");
     expect(deviceLabel("Mozilla/5.0 (X11; Linux) VIZIO SmartCast")).toBe("Vizio TV");
     expect(deviceLabel(null)).toBe("TV");
   });

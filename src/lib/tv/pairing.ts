@@ -36,6 +36,7 @@ export const addressKey = (ip: string): string => hmacSign("roam-tv-address", ip
 export function deviceLabel(userAgent: string | null | undefined, given?: string | null): string {
   if (given) return given;
   const ua = userAgent ?? "";
+  if (/Xbox/i.test(ua)) return "Xbox";
   if (/Tizen/i.test(ua)) return "Samsung TV";
   if (/Web0S|webOS/i.test(ua)) return "LG TV";
   if (/AFT[A-Z0-9]|Silk|FireTV/i.test(ua)) return "Fire TV";

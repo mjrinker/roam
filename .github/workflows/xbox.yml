@@ -1,0 +1,61 @@
+# Builds the Xbox app (xbox/) on a Windows machine, as a package that can be installed on an Xbox in developer mode.
+# Run it from the Actions tab ("Run workflow") to build for another Roam address; it also runs when the app changes.
+name: Xbox app
+
+on:
+  push:
+    branches: [master, xbox-ci]
+    paths: ["xbox/**", ".github/workflows/xbox.yml"]
+  workflow_dispatch:
+    inputs:
+      server:
+        description: "The address of your Roam (https, no path), if not the default in xbox/Roam.Xbox/Config.cs"
+        required: false
+        default: ""
+
+jobs:
+  build:
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Point the app at this Roam
+        if: ${{ inputs.server != '' }}
+        shell: pwsh
+        run: |
+          $f = "xbox/Roam.Xbox/Config.cs"
+          (Get-Content $f -Raw) -replace 'public const string Server = "[^"]*";', 'public const string Server = "${{ inputs.server }}";' | Set-Content $f
+
+      - uses: microsoft/setup-msbuild@v2
+
+      - name: Make a signing certificate for this build
+        id: cert
+        shell: pwsh
+        run: |
+          # A sideloaded package has to be signed; this certificate is made here for this build, and its public part is published beside the package.
+          $cert = New-SelfSignedCertificate -Type Custom -Subject "CN=Roam" -KeyUsage DigitalSignature -FriendlyName "Roam Xbox test" -CertStoreLocation "Cert:\CurrentUser\My" -TextExtension @("2.5.29.37={text}1.3.6.1.5.5.7.3.3", "2.5.29.19={text}")
+          $password = ConvertTo-SecureString -String "roam-build" -Force -AsPlainText
+          Export-PfxCertificate -Cert $cert -FilePath xbox/Roam.Xbox/Roam.Xbox_TemporaryKey.pfx -Password $password | Out-Null
+          Export-Certificate -Cert $cert -FilePath xbox/Roam.Xbox.cer | Out-Null
+
+      - name: Restore packages
+        run: msbuild xbox/Roam.Xbox/Roam.Xbox.csproj /t:Restore /p:Configuration=Release /p:Platform=x64
+
+      - name: Build the package
+        run: >
+          msbuild xbox/Roam.Xbox/Roam.Xbox.csproj
+          /p:Configuration=Release /p:Platform=x64
+          /p:AppxBundle=Never /p:UapAppxPackageBuildMode=SideloadOnly /p:AppxPackageSigningEnabled=true
+          /p:PackageCertificateKeyFile=Roam.Xbox_TemporaryKey.pfx /p:PackageCertificatePassword=roam-build
+          /p:AppxPackageDir="${{ github.workspace }}\xbox\AppPackages\\"
+
+      - name: List what was built
+        shell: pwsh
+        run: Get-ChildItem -Recurse xbox/AppPackages | Select-Object FullName, Length
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: roam-xbox
+          path: |
+            xbox/AppPackages/**
+            xbox/Roam.Xbox.cer
