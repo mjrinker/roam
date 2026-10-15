@@ -42,6 +42,8 @@ interface RoamApi {
     suspend fun photo(serverId: String, id: String, from: String): PhotoView
     suspend fun setFavorite(photoId: String, favorite: Boolean)
     suspend fun playlists(serverId: String): List<PlaylistSummary>
+    suspend fun registerPush(token: String)
+    suspend fun unregisterPush()
     suspend fun playlist(serverId: String, id: String, after: String? = null): PlaylistPage
     suspend fun album(serverId: String, id: String): Album
     suspend fun artist(serverId: String, id: String): Artist
@@ -128,6 +130,14 @@ class HttpRoamApi(
         call(if (favorite) "PUT" else "DELETE", "/api/photos/$photoId/favorite")
     }
 
+    override suspend fun registerPush(token: String) {
+        call("PUT", "/api/v1/device/push", body = buildJsonObject { put("token", JsonPrimitive(token)) })
+    }
+
+    override suspend fun unregisterPush() {
+        call("DELETE", "/api/v1/device/push")
+    }
+
     override suspend fun playlists(serverId: String): List<PlaylistSummary> = get<PlaylistsResponse>("/api/v1/servers/$serverId/playlists").playlists
     override suspend fun playlist(serverId: String, id: String, after: String?): PlaylistPage = get("/api/v1/servers/$serverId/playlists/$id", mapOf("after" to after))
     override suspend fun album(serverId: String, id: String): Album = get("/api/v1/servers/$serverId/albums/$id")
@@ -209,6 +219,8 @@ object Unsupported : RoamApi {
     override suspend fun photos(serverId: String, libraryId: String, view: String?, path: String?, after: String?) = nope()
     override suspend fun photo(serverId: String, id: String, from: String) = nope()
     override suspend fun setFavorite(photoId: String, favorite: Boolean) = nope()
+    override suspend fun registerPush(token: String) = nope()
+    override suspend fun unregisterPush() = nope()
     override suspend fun playlists(serverId: String) = nope()
     override suspend fun playlist(serverId: String, id: String, after: String?) = nope()
     override suspend fun album(serverId: String, id: String) = nope()

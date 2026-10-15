@@ -72,7 +72,7 @@ Playback uses endpoints that already existed for the website; they accept the sa
 
 ## Everything else an app may want
 
-Playlists (`/api/servers/{serverId}/playlists`, `/api/playlists/{id}`, `/api/playlists/{id}/items`, `…/next`), notifications (`GET /api/notifications`, `POST /api/notifications/read`), and ownership (`POST /api/ownership/claims`, `PUT /api/ownership/mine`, evidence pictures at `/api/ownership/claims/{id}/evidence`). They take and answer JSON like the rest. Push notifications to apps are not part of v1: poll `notifications` (or the `unreadNotifications` count in `home`).
+Playlists (`/api/servers/{serverId}/playlists`, `/api/playlists/{id}`, `/api/playlists/{id}/items`, `…/next`), notifications (`GET /api/notifications`, `POST /api/notifications/read`), and ownership (`POST /api/ownership/claims`, `PUT /api/ownership/mine`, evidence pictures at `/api/ownership/claims/{id}/evidence`). They take and answer JSON like the rest. Push to Android apps: an app that has a Firebase registration token gives it with `PUT /api/v1/device/push` `{ token }` (and `DELETE` to stop); Roam then sends each notification to it too, when the server has `FCM_SERVICE_ACCOUNT` set. Other apps poll `notifications` (or the `unreadNotifications` count in `home`).
 
 ## Not in v1 yet
 

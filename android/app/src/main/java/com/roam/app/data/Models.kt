@@ -72,6 +72,9 @@ data class Home(
 )
 
 @Serializable
+data class Ok(val ok: Boolean = true)
+
+@Serializable
 data class PhotoRef(val type: String, val id: String)
 
 @Serializable

@@ -25,6 +25,10 @@ import com.roam.app.data.Home
 @Composable
 fun HomeScreen(serverId: String, nav: Nav) {
     val graph = LocalGraph.current
+    if (graph.push.available) {
+        AllowNotifications()
+        androidx.compose.runtime.LaunchedEffect(Unit) { graph.push.register(graph.api) }
+    }
     val loader = rememberLoader(serverId) { graph.api.home(serverId) }
     LoadView(loader, nav) { home -> HomeContent(serverId, home, nav) }
 }

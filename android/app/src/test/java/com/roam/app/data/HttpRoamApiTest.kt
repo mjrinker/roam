@@ -153,6 +153,18 @@ class HttpRoamApiTest {
         assertEquals("1024~z", list.next)
     }
 
+    @Test fun registersAndDropsThePushToken() = runBlocking {
+        reply("""{"ok":true}""")
+        api.registerPush("fcm-token-123")
+        val put = server.takeRequest()
+        assertEquals("PUT /api/v1/device/push", "${put.method} ${put.path}")
+        assertEquals("""{"token":"fcm-token-123"}""", put.body.readUtf8())
+        assertEquals("Bearer rdt_abc", put.getHeader("Authorization"))
+        reply("""{"ok":true}""")
+        api.unregisterPush()
+        assertEquals("DELETE", server.takeRequest().method)
+    }
+
     @Test fun readsAMovieWithItsExtras() = runBlocking {
         reply(
             """{"type":"movie","id":"m","name":"The Film","year":2001,"runtimeSeconds":5400,"genres":["Drama"],"resume":{"positionSeconds":1800,"durationSeconds":5400},

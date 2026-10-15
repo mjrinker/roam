@@ -50,6 +50,29 @@ class PlaylistsScreenTest {
         assertEquals(0, rule.onAllNodesWithTagCount("go-playlists"))
     }
 
+    @Test fun homeGivesRoamThisDevicesPushRegistrationWhenPushIsSetUp() {
+        val registered = mutableListOf<RoamApi>()
+        val api = object : RoamApi by Unsupported {
+            override suspend fun home(serverId: String) = Home(ServerRef("S", "Server"))
+        }
+        val withPush = object : com.roam.app.push.PushRegistrar {
+            override val available = true
+            override suspend fun register(api: RoamApi) { registered += api }
+        }
+        rule.setContent { Shown(testGraph(api).let { com.roam.app.AppGraph(it.settings, it.api, it.isTv, deviceName = it.deviceName, push = withPush) }) { HomeScreen("S", FakeNav()) } }
+        rule.waitForIdle()
+        assertEquals(1, registered.size)
+    }
+
+    @Test fun homeAsksNothingOfPushWhenItIsNotSetUp() {
+        val api = object : RoamApi by Unsupported {
+            override suspend fun home(serverId: String) = Home(ServerRef("S", "Server"))
+        }
+        rule.setContent { Shown(testGraph(api)) { HomeScreen("S", FakeNav()) } } // the default graph has no push, and Unsupported would throw if it were asked
+        rule.waitForIdle()
+        rule.onNodeWithText("Server").assertIsDisplayed()
+    }
+
     @Test fun listsThePlaylistsAndOpensOne() {
         val nav = FakeNav()
         val api = object : RoamApi by Unsupported {

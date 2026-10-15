@@ -1340,6 +1340,8 @@ export const deviceTokens = pgTable(
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     lastUsedAt: timestamp("last_used_at", { withTimezone: true }).notNull().defaultNow(),
     revokedAt: timestamp("revoked_at", { withTimezone: true }),
+    // The Firebase Cloud Messaging registration of the app on this device, once it has allowed notifications (null: it hasn't, or the app has none).
+    pushToken: text("push_token"),
   },
   (t) => [uniqueIndex("device_tokens_hash_idx").on(t.tokenHash), index("device_tokens_account_idx").on(t.accountId)]
 ).enableRLS();

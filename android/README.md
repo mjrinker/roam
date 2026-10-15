@@ -11,7 +11,7 @@ One app (Kotlin, Jetpack Compose, Media3 ExoPlayer) for phones and tablets, Andr
 - **Playing** (ExoPlayer): resumes where you left off, keeps Roam's record, plays the next episode of a season by itself, queues every file of a movie in several parts (a slice of a shared file is played as a clip), skips the scenes your profile skips and **really mutes** the ones it mutes, offers **Skip intro / recap / credits** (it takes focus on a TV; tap on a phone; Back dismisses), skips them automatically for a profile set to, says why when a title can't be played (every copy withdrawn, or all in use, with "Tell me when it's free"), and holds its place for the playing-at-once limit. The server is asked to convert audio this device can't play (DTS and so on) from what the device's decoders and HDMI pass-through report.
 - **Audiobooks and songs** play too; an audiobook keeps its place.
 
-Playlists can be opened and played (making and changing them is on the web and the TV interface). Audiobooks and songs keep playing with the screen off, with a notification and lock-screen controls. Photos work too (timeline, favourites, albums, a large viewer with next and previous, favourite toggle and a slideshow). Not in the app yet: subtitle search (a file's own subtitle tracks can be chosen in the player), downloads for offline, Chromecast.
+Playlists can be opened and played (making and changing them is on the web and the TV interface). Audiobooks and songs keep playing with the screen off, with a notification and lock-screen controls. Photos work too (timeline, favourites, albums, a large viewer with next and previous, favourite toggle and a slideshow). Notifications can also arrive as push, once a Firebase project is connected (below). Not in the app yet: subtitle search (a file's own subtitle tracks can be chosen in the player), downloads for offline, Chromecast.
 
 ## Build and test
 
@@ -47,3 +47,13 @@ A Play Store or Amazon Appstore release needs a signing key and a store account,
 - **The skip button and a TV remote.** The button takes focus when it appears; Back dismisses it (`PlayerHost` in `ui/Player.kt`).
 - **Focus order on a TV.** Rows and grids rely on Compose's default focus search (`focusRing` in `ui/Common.kt` draws the highlight).
 - **Mute.** It sets the player's own volume to zero for the scene (`ExoEngine.setMuted`), which the system volume doesn't change.
+
+## Push notifications (optional)
+
+The app lists notifications on its own. To also have them arrive as a phone notification:
+
+1. Make a Firebase project (console.firebase.google.com, free), add an Android app with the package name `com.roam.app`, and download its **`google-services.json`** into `android/app/` (it is git-ignored; the build picks it up when it is there and builds without it when it isn't).
+2. In the project's settings, **Service accounts**, generate a private key (a JSON file) and put its whole contents in the Vercel variable **`FCM_SERVICE_ACCOUNT`** for Production.
+3. Apply database migration 0055 (a `push_token` column on device tokens) before deploying the server change.
+
+After that, each signed-in app registers itself when the home screen opens, and every notification Roam makes (an owned title is free, a claim to settle) also goes to those devices. A device that has uninstalled the app is forgotten the first time a push to it fails.

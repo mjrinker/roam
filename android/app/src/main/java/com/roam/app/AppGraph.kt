@@ -24,6 +24,7 @@ class AppGraph(
     val deviceName: String = "Android",
     /** For work that has to finish even when the screen that asked for it is gone (telling Roam where you stopped). */
     val appScope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.IO),
+    val push: com.roam.app.push.PushRegistrar = com.roam.app.push.NoPush,
 ) {
     val serverUrl: String get() = settings.serverUrl ?: BuildConfig.DEFAULT_SERVER
 
@@ -38,6 +39,7 @@ class AppGraph(
                 settings, api, tv,
                 unsupportedAudio = { AudioSupport.unsupported(AudioSupport.deviceCanPlay(context)) },
                 deviceName = android.os.Build.MODEL ?: "Android",
+                push = com.roam.app.push.FcmPush(context),
             )
         }
     }

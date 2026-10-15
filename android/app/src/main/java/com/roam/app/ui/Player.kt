@@ -254,7 +254,7 @@ fun PlayerHost(
 
 /** Asks (once, on Android 13 and later) for the right to show the notification that has the play and pause buttons. Listening works without it, just without the notification. */
 @Composable
-private fun AllowNotifications() {
+fun AllowNotifications() {
     if (android.os.Build.VERSION.SDK_INT < 33) return
     val context = LocalContext.current
     val ask = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.RequestPermission()) {}

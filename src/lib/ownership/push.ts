@@ -3,6 +3,7 @@ import { eq, inArray } from "drizzle-orm";
 import type { PgDatabase, PgQueryResultHKT } from "drizzle-orm/pg-core";
 import webpush from "web-push";
 import { pushSubscriptions } from "@/lib/db/schema";
+import { sendFcmTo } from "@/lib/push/fcm";
 
 type Db = PgDatabase<PgQueryResultHKT, Record<string, unknown>>;
 
@@ -19,6 +20,7 @@ export interface PushPayload {
 
 /** Sends to every browser the account has allowed. A browser that is gone for good is forgotten; any other failure is ignored. */
 export async function sendPushTo(ex: Db, accountId: string, payload: PushPayload): Promise<void> {
+  await sendFcmTo(ex, accountId, payload).catch(() => undefined); // the account's apps, if push to apps is set up
   const publicKey = pushPublicKey();
   if (!publicKey) return;
   const subs = await ex.select().from(pushSubscriptions).where(eq(pushSubscriptions.accountId, accountId));

@@ -74,6 +74,8 @@ dependencies {
     implementation(libs.media3.exoplayer)
     implementation(libs.media3.ui)
     implementation(libs.media3.session)
+    implementation(platform(libs.firebase.bom))
+    implementation(libs.firebase.messaging)
     implementation(libs.coil.compose)
     implementation(libs.okhttp)
     implementation(libs.kotlinx.serialization.json)
@@ -94,3 +96,6 @@ dependencies {
     androidTestImplementation(libs.okhttp.mockwebserver)
     debugImplementation(libs.compose.ui.test.manifest)
 }
+
+// Push notifications need the Firebase project's google-services.json (see android/README.md). Without that file the app builds and works the same, just without push.
+if (file("google-services.json").exists()) apply(plugin = "com.google.gms.google-services")

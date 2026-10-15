@@ -31,6 +31,9 @@ const ALLOWLIST: Record<string, string> = {
   "api/titles/[id]/match-audible/route.ts": "admin-only (getCurrentServerAdmin)",
   "api/titles/[id]/sync/route.ts": "admin-only (getCurrentServerAdmin)",
   "tv/s/[serverId]/album/[id]/route.ts": "reads only through getAlbum in lib/music/browse (access-controlled); `episodes` is just the name of the list of rows detailPage draws (data.kinds.sql.test.ts and browse.routes.test.ts)",
+  "tv/s/[serverId]/library/[id]/route.ts": "reads only through libraryTitles, pageForLetter and the folder and photo readers in lib/tv/data, which apply library visibility and the age filter (library-view.sql.test.ts, data.sql.test.ts and library-view.routes.test.ts)",
+  "tv/s/[serverId]/library/[id]/choose/route.ts": "reads only through tvLibrary and libraryGenres in lib/tv/data (library visibility and the age filter; library-view.sql.test.ts and library-view.routes.test.ts)",
+  "api/v1/servers/[serverId]/libraries/[libraryId]/genres/route.ts": "reads only through tvLibrary and libraryGenres in lib/tv/data (library visibility and the age filter; library-view.sql.test.ts)",
   "tv/s/[serverId]/show/[id]/route.ts": "reads only through showDetail in lib/tv/data, which applies library visibility and the age filter (data.sql.test.ts and browse.routes.test.ts)",
 };
 
