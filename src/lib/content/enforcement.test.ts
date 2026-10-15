@@ -34,6 +34,10 @@ const ALLOWLIST: Record<string, string> = {
   "tv/s/[serverId]/library/[id]/route.ts": "reads only through libraryTitles, pageForLetter and the folder and photo readers in lib/tv/data, which apply library visibility and the age filter (library-view.sql.test.ts, data.sql.test.ts and library-view.routes.test.ts)",
   "tv/s/[serverId]/library/[id]/choose/route.ts": "reads only through tvLibrary and libraryGenres in lib/tv/data (library visibility and the age filter; library-view.sql.test.ts and library-view.routes.test.ts)",
   "api/v1/servers/[serverId]/libraries/[libraryId]/genres/route.ts": "reads only through tvLibrary and libraryGenres in lib/tv/data (library visibility and the age filter; library-view.sql.test.ts)",
+  "api/v1/servers/[serverId]/collections/[id]/route.ts": "reads only through getCollection in lib/collections/queries, which applies library visibility and the age filter (collections.sql.test.ts, collections.routes.test.ts)",
+  "api/collections/[id]/items/route.ts": "admin-only (getCurrentServerAdmin via adminOfCollection); only touches a collection of that admin's own server (collections.routes.test.ts)",
+  "tv/s/[serverId]/collections/[libraryId]/route.ts": "reads only through tvLibrary and listCollections (library visibility and the age filter; collections.sql.test.ts and collections.tv.routes.test.ts)",
+  "tv/s/[serverId]/collection/[id]/route.ts": "reads only through getCollection (library visibility and the age filter; collections.sql.test.ts and collections.tv.routes.test.ts)",
   "tv/s/[serverId]/show/[id]/route.ts": "reads only through showDetail in lib/tv/data, which applies library visibility and the age filter (data.sql.test.ts and browse.routes.test.ts)",
 };
 

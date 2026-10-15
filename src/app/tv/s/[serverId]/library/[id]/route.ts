@@ -7,6 +7,7 @@ import { asUuid, notFoundPage, tvAccess, type TvAccess } from "@/lib/tv/context"
 import { folderCursorParam, folderLevel, libraryTitles, pageForLetter, parseFolderCursor, photoPage, tvLibrary } from "@/lib/tv/data";
 import { LETTERS, nextSort, optionsQuery, parseLetter, parseLibraryOptions, SORT_WORDS, type LibraryOptions } from "@/lib/tv/library-options";
 import { libraryOwnership } from "@/lib/ownership/view";
+import { listCollections } from "@/lib/collections/queries";
 import { html, redirectTo } from "@/lib/tv/http";
 import { listPage } from "@/tv/render";
 
@@ -66,7 +67,9 @@ async function gridPage(access: Ok, here: string, url: URL, id: string, request:
   const to = (o: LibraryOptions, extra: Record<string, string | number | null> = {}) => `${here}${optionsQuery(o, extra)}`;
   const choose = (what: string) => `${here}/choose${optionsQuery(options, { what })}`;
   const narrowed = !!(options.genre || options.unwatched || options.owner);
+  const collections = await listCollections(db, { actor: access.scope.actor, viewer: access.scope.viewer, libraryId: id });
   const toolbar = [
+    ...(collections.length > 0 ? [{ href: `${access.base}/collections/${id}`, label: `Collections (${collections.length})` }] : []),
     { href: to({ ...options, sort: nextSort(options.sort) }), label: `Sort: ${SORT_WORDS[options.sort]}` },
     { href: choose("genre"), label: `Genre: ${options.genre ?? "Any"}` },
     { href: to({ ...options, unwatched: !options.unwatched }), label: `Unwatched only: ${options.unwatched ? "On" : "Off"}` },

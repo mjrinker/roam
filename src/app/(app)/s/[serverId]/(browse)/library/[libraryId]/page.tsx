@@ -29,6 +29,9 @@ import { listMonths, listTimeline } from "@/lib/photos/timeline";
 import { favoriteWords } from "@/lib/photos/favorite-word";
 import { PhotoTimeline } from "@/components/photos/photo-timeline";
 import { decodeCursor, encodeCursor } from "@/lib/playlists/http";
+import { listCollections } from "@/lib/collections/queries";
+import { CollectionGrid, CollectionViewTabs, parseLibraryView } from "@/components/collections/collection-views";
+import { NewCollectionButton } from "@/components/collections/collection-admin";
 import {
   LibraryBrowser,
   type LibraryBrowserItem,
@@ -368,6 +371,12 @@ export default async function LibraryDetailPage({
   });
 
   const Icon = KIND_ICON[library.kind];
+  // Movies and shows can be seen as collections too (film series and ones an admin made).
+  const canCollect = library.kind === "movies" || library.kind === "shows";
+  const collectionCards = canCollect ? await listCollections(db, { actor: lib, viewer, libraryId }) : [];
+  const isAdmin = role === "admin" && viewer.role !== "limited";
+  const showTabs = canCollect && items.length > 0 && (collectionCards.length > 0 || isAdmin);
+  const libraryView = showTabs ? parseLibraryView(typeof query.view === "string" ? query.view : null) : "titles";
   const bookView = library.kind === "audiobooks" ? parseAudiobookView(typeof query.view === "string" ? query.view : null) : null;
 
   return (
@@ -386,6 +395,12 @@ export default async function LibraryDetailPage({
         {items.length > 0 && <ChooseButton serverId={serverId} libraryId={libraryId} className="ml-auto" />}
       </div>
       {bookView && items.length > 0 && <AudiobookViewTabs serverId={serverId} libraryId={libraryId} active={bookView} />}
+      {showTabs && (
+        <div className="flex flex-wrap items-center gap-3">
+          <CollectionViewTabs serverId={serverId} libraryId={libraryId} active={libraryView} titlesLabel={KIND_LABEL[library.kind]} />
+          {libraryView === "collections" && isAdmin && <NewCollectionButton serverId={serverId} libraryId={libraryId} />}
+        </div>
+      )}
 
       {items.length === 0 ? (
         <div className="mx-auto flex max-w-sm flex-col items-center gap-3 py-24 text-center">
@@ -401,6 +416,8 @@ export default async function LibraryDetailPage({
             </Button>
           )}
         </div>
+      ) : libraryView === "collections" ? (
+        <CollectionGrid serverId={serverId} collections={collectionCards} />
       ) : bookView === "authors" ? (
         <AuthorGrid serverId={serverId} authors={groupAuthors(libraryTitles.filter((t) => t.kind === "audiobook"))} />
       ) : (

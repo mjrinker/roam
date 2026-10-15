@@ -8,6 +8,7 @@ import { refuseUnlessExternalMetadata } from "@/lib/libraries/kind";
 import { titles } from "@/lib/db/schema";
 import { tmdbImageUrl } from "@/lib/tmdb/client";
 import { getMovieDetails, getTvShowDetails } from "@/lib/tmdb/cache";
+import { collectionColumnsOnMatch } from "@/lib/tmdb/project";
 import { ratingsFromMovieDetails, ratingsFromTvDetails } from "@/lib/content/ratings";
 import { refreshShowEpisodesFromTmdb } from "@/lib/scan/scanner";
 import { stampTmdbIdOnBox } from "@/lib/scan/tag-rename";
@@ -67,6 +68,7 @@ export async function POST(
         ratingAges,
         ratingsAttemptedAt: new Date(),
         imdbId,
+        ...collectionColumnsOnMatch(details),
         // A new match means any previously-fetched OMDb data belongs to the
         // wrong film; clear it and let the backfill re-fetch for the new id.
         ...(imdbId !== title.imdbId

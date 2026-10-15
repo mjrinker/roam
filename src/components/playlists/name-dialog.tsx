@@ -13,6 +13,7 @@ export function NameDialog({
   description,
   submitLabel,
   initialName = "",
+  placeholder = "Playlist name",
   onSubmit,
 }: {
   open: boolean;
@@ -21,6 +22,7 @@ export function NameDialog({
   description?: string;
   submitLabel: string;
   initialName?: string;
+  placeholder?: string;
   onSubmit: (name: string) => Promise<string | null>;
 }) {
   const [name, setName] = useState(initialName);
@@ -52,8 +54,8 @@ export function NameDialog({
             value={name}
             maxLength={100}
             onChange={(e) => setName(e.target.value)}
-            placeholder="Playlist name"
-            aria-label="Playlist name"
+            placeholder={placeholder}
+            aria-label={placeholder}
           />
           {error && <p className="text-sm text-destructive">{error}</p>}
           <div className="flex justify-end gap-2">

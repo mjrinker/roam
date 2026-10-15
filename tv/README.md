@@ -22,6 +22,8 @@ Movies, TV shows, videos, audiobooks, audio, music and photos (eBooks are delibe
 
 **Library lists:** movies, shows and audiobooks have **Sort** (title, newest year, recently added), **Genre**, **Unwatched only** and, where the server tracks ownership, **Owner** buttons, and a row of letters (A–Z, #) that jumps to where that letter starts when sorted by title.
 
+**Collections:** a movies or shows library with collections has a **Collections** button: film series (grouped by TMDB, shown once at least two of their films are in the library) and ones the admin made on the web.
+
 **Settings:** a profile that may change its own settings (the owner's and an admin's, not a child's) has a **Settings** button on the home screen: each category of **What to skip** (violence, language, sex, nudity and the rest) cycles Off, Mild and up, Moderate and up, Strong only, and each **Skip automatically** kind (intros, recaps, next-time previews, credits) switches on and off. A profile with a PIN is asked for it before the page opens, as the web asks. Other profiles' settings, ratings limits, PINs and names stay on the web.
 
 **Skip intro, recap and credits:** where a show has the times (see the main README), a **Skip intro** / **Skip recap** / **Next episode** button shows on the picture while that part plays, and OK presses it (a profile can also skip them by itself). OK still plays and pauses the rest of the time.

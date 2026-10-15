@@ -492,6 +492,12 @@ export const titles = pgTable(
     externalRatingsAttemptedAt: timestamp("external_ratings_attempted_at", { withTimezone: true }),
     // When this title's cast was last asked of TMDB (null = not yet); the cast itself is in title_cast.
     castAttemptedAt: timestamp("cast_attempted_at", { withTimezone: true }),
+    // The film series TMDB says a movie belongs to ("Alien Collection"), from its details; null when it is not in one. Collections are built
+    // from these (lib/collections). collectionAttemptedAt is when it was last looked for (null = not yet).
+    collectionTmdbId: integer("collection_tmdb_id"),
+    collectionName: text("collection_name"),
+    collectionPosterUrl: text("collection_poster_url"),
+    collectionAttemptedAt: timestamp("collection_attempted_at", { withTimezone: true }),
 
     addedAt: timestamp("added_at", { withTimezone: true })
       .notNull()
@@ -941,6 +947,36 @@ export const titleOwners = pgTable(
     index("title_owners_title_idx").on(t.titleId),
   ]
 );
+
+// ── collections ──────────────────────────────────────────────────────────
+// A group of titles in one library shown as one tile: a film series (kind "tmdb": made from the titles' TMDB collection, so it fills and
+// empties by itself) or one an admin made by hand (kind "manual"). A collection is only listed to someone who can see at least one of its
+// titles (two for a series), and only those titles are shown to them.
+export const collections = pgTable(
+  "collections",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    libraryId: uuid("library_id").notNull().references(() => libraries.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    kind: text("kind").$type<"tmdb" | "manual">().notNull(),
+    tmdbCollectionId: integer("tmdb_collection_id"),
+    posterUrl: text("poster_url"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex("collections_tmdb_idx").on(t.libraryId, t.tmdbCollectionId), index("collections_library_idx").on(t.libraryId)]
+).enableRLS();
+
+export const collectionItems = pgTable(
+  "collection_items",
+  {
+    collectionId: uuid("collection_id").notNull().references(() => collections.id, { onDelete: "cascade" }),
+    titleId: uuid("title_id").notNull().references(() => titles.id, { onDelete: "cascade" }),
+    // Order inside a hand-made collection (a series is ordered by year).
+    position: integer("position").notNull().default(0),
+    addedAt: timestamp("added_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [primaryKey({ columns: [t.collectionId, t.titleId] }), index("collection_items_title_idx").on(t.titleId)]
+).enableRLS();
 
 export type ClaimStatus = "pending" | "evidence_requested" | "evidence_submitted" | "approved" | "rejected";
 

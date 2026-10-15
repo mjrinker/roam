@@ -1,4 +1,5 @@
 import { db } from "@/lib/db/client";
+import { collectionsOfTitle } from "@/lib/collections/queries";
 import { countryFromLocale, displayCertification } from "@/lib/content/ratings";
 import { bookDetail, movieDetail, showDetail, visibleTitleKind } from "@/lib/tv/data";
 import { loadMovieExtras } from "@/lib/title-extras";
@@ -106,5 +107,6 @@ export async function GET(request: Request, ctx: RouteContext<"/api/v1/servers/[
     extras: extras.extras.map((g) => ({ category: g.category, items: g.items.map((i) => ({ ...i, playPath: `/api/play/extra/${i.id}` })) })),
     cast: extras.cast,
     ownership: await ownership(a.access, id, movie.libraryKind),
+    collections: await collectionsOfTitle(db, { actor: scope.actor, viewer: scope.viewer, titleId: id }),
   });
 }

@@ -63,10 +63,12 @@ import {
 import { searchMovie, findTmdbIdByImdbId, searchTvShow, tmdbImageUrl } from "@/lib/tmdb/client";
 // Details come through the shared cache: fetched from TMDB once for every server, and refreshed there (see lib/tmdb/cache).
 import { getMovieDetails, getSeasonEpisodes, getTvShowDetails, refreshEntry } from "@/lib/tmdb/cache";
+import { collectionColumnsOnMatch } from "@/lib/tmdb/project";
 import { ratingsFromMovieDetails, ratingsFromTvDetails } from "@/lib/content/ratings";
 import { backfillRatings } from "@/lib/content/ratings-backfill";
 import { backfillExternalRatings } from "@/lib/content/external-ratings-backfill";
 import { backfillCast } from "@/lib/content/cast-backfill";
+import { backfillCollections, syncSeriesCollections } from "@/lib/collections/sync";
 import { libraryRootIds, rootLabel } from "@/lib/libraries/sources";
 
 function assertNever(value: never): never {
@@ -344,7 +346,10 @@ export async function scanLibrary(
         const moreRatings = await backfillRatings(library.id, enrichDeadline);
         const moreExternalRatings = await backfillExternalRatings(library.id, enrichDeadline);
         const moreCast = await backfillCast(library.id, enrichDeadline);
-        incomplete = incomplete || moreRatings || moreExternalRatings || moreCast;
+        // Film series: which collection each movie is in, and the collections that follow from it (only movie libraries have any).
+        const moreCollections = library.kind === "movies" ? await backfillCollections(db, library.id, enrichDeadline) : false;
+        if (library.kind === "movies") await syncSeriesCollections(db, library.id);
+        incomplete = incomplete || moreRatings || moreExternalRatings || moreCast || moreCollections;
       }
       const audibleRegion = library.kind === "audiobooks" ? library.audibleRegion : null;
       const probeIncomplete =
@@ -649,6 +654,7 @@ async function enrichMovieMetadataIfNeeded(
         ratingAges,
         ratingsAttemptedAt: new Date(),
         imdbId: details.imdb_id ?? null,
+        ...collectionColumnsOnMatch(details),
         ...((details.imdb_id ?? null) !== current.imdbId ? STALE_EXTERNAL_RATINGS : {}),
       })
       .where(eq(titles.id, titleId));

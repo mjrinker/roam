@@ -37,6 +37,9 @@ import { normalizePrefs } from "@/lib/content-filter/categories";
 import { Breadcrumbs } from "@/components/shell/breadcrumbs";
 import { OwnershipSection } from "@/components/ownership/ownership-section";
 import { isFileTreeLibraryKind } from "@/lib/libraries/profile";
+import { collectionsOfTitle } from "@/lib/collections/queries";
+import { AddToCollectionMenu } from "@/components/collections/collection-admin";
+import Link from "next/link";
 
 export default async function TitleDetailPage({
   params,
@@ -89,6 +92,7 @@ export default async function TitleDetailPage({
     )
     .limit(1);
 
+  const inCollections = await collectionsOfTitle(db, { actor: lib, viewer, titleId: title.id });
   const extras = await loadTitleExtras(db, title.id);
   const cast = await loadTitleCast(db, title.id);
   const crew = await loadTitleCrew(db, title.id);
@@ -127,6 +131,17 @@ export default async function TitleDetailPage({
       }
       below={
         <>
+          {inCollections.length > 0 && (
+            <p className="px-4 text-sm text-muted-foreground sm:px-8">
+              Part of{" "}
+              {inCollections.map((c, i) => (
+                <span key={c.id}>
+                  {i > 0 && ", "}
+                  <Link href={`/s/${serverId}/collection/${c.id}`} className="font-medium text-foreground underline-offset-4 hover:underline">{c.name}</Link>
+                </span>
+              ))}
+            </p>
+          )}
           <ChaptersList serverId={serverId} ownerKind="title" ownerId={title.id} chapters={chaptersFromRows(segments)} />
           <ParentalGuide lines={guideLines} prefs={filterPrefs} imdbId={title.imdbId} reports={ddd.reports} />
           <CastRow serverId={serverId} cast={cast} />
@@ -177,6 +192,7 @@ export default async function TitleDetailPage({
         </div>
       )}
       <AddToPlaylistMenu serverId={serverId} target={{ titleId: title.id }} />
+      {role === "admin" && viewer.role !== "limited" && !isGeneric && <AddToCollectionMenu libraryId={row.libraryId} titleId={title.id} />}
       <MoreMenu>
         {ready && <DownloadButton serverId={serverId} ownerKind="title" ownerId={title.id} />}
         {libraryHasDoneState(row.libraryKind) && <MarkDoneButton kind="title" id={title.id} done={!!state?.finished} media="watch" />}

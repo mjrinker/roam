@@ -75,6 +75,8 @@ export interface TmdbMovieDetails extends TmdbMovieSearchResult {
   adult?: boolean;
   // Already on the base movie response — no append_to_response needed.
   imdb_id?: string | null;
+  // The film series this belongs to (null when none; absent when the entry was stored before Roam asked).
+  belongs_to_collection?: { id: number; name: string; poster_path?: string | null; backdrop_path?: string | null } | null;
   // Present only when fetched with `append: ["release_dates"]`.
   release_dates?: { results: TmdbReleaseDatesResult[] };
   // Present only when fetched with `append: ["credits"]`.

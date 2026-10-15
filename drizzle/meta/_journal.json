@@ -393,6 +393,13 @@
       "when": 1792096823555,
       "tag": "0055_device_push_token",
       "breakpoints": true
+    },
+    {
+      "idx": 56,
+      "version": "7",
+      "when": 1792104239462,
+      "tag": "0056_collections",
+      "breakpoints": true
     }
   ]
 }

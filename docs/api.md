@@ -44,6 +44,8 @@ All under `/api/v1/servers/{serverId}`. Lists are cut for the profile in use: li
 | `…/libraries/{id}/items` | One page, by style: **grid** `?page=1` (and optionally `sort=title\|year\|added`, `genre=Drama`, `unwatched=1`, `owner=<account id>\|none`) → `{ items, page, hasMore }`; **folders** `?path=A/B&after=CURSOR` → `{ path, folders, items, next }`; **artists** `?after=CURSOR` → `{ items, next }`; **timeline** (photos) `?view=favorites` or `?view=albums&path=…&after=CURSOR` → `{ items, next }`. Pass `next` back as `after`; null means the end. |
 | `…/playlists` | The playlists this profile can see: `{ playlists: [{ id, name, itemCount, ownerName, canAdd }] }`. |
 | `…/playlists/{id}` | One playlist and a page of its items (`?after=` is the previous page's `next`): `{ playlist, items, next }`. Items are like list items, plus `entryId` and `playable`; photos and eBooks are left out. Changing a playlist uses `/api/playlists/{id}` and its `items`, below. |
+| `…/libraries/{id}/collections` | A movies, shows or audiobooks library's collections (film series and hand-made ones): `{ collections: [{ id, name, kind, count, posterUrl }] }`. |
+| `…/collections/{id}` | One collection with its titles as list items: `{ collection, items }`. |
 | `…/libraries/{id}/genres` | A grid library's genres with their counts (the same filters can be given). |
 | `…/titles/{id}` | A movie, show or audiobook (see below). |
 | `…/photos/{id}` | One picture or clip with its neighbours (`?from=timeline\|favorites\|album`): `{ id, type, name, takenAt, favorite, libraryId, folderPath, imagePath, prev, next }`. Fetch `imagePath` (relative to the server) with the token; set a favourite with `PUT`/`DELETE /api/photos/{id}/favorite`. |
@@ -52,7 +54,7 @@ All under `/api/v1/servers/{serverId}`. Lists are cut for the profile in use: li
 
 An **item** is `{ type, id, name, subtitle, posterUrl, square, progress? }` with `type` one of `movie`, `show`, `episode`, `audiobook`, `audio`, `album`, `artist`, `photo`, `clip`. `square` says whether the picture is a square cover or a tall poster. Open `movie`, `show` and `audiobook` with `…/titles/{id}`, `album` and `artist` with their own calls.
 
-**A movie** (`type: "movie"`) has `name, year, overview, posterUrl, backdropUrl, runtimeSeconds, genres, certification, imdbRating, rottenTomatoesScore, finished, resume ({ positionSeconds, durationSeconds } or null)`, `play.manifestPath`, `chapters`, `extras` (groups of `{ id, name, durationSeconds, playPath }`), `cast`, `ownership`, and `guide` (parental guide lines and community reports). If `guide.fromCommunity` is true, show "Powered by DoesTheDogDie.com" with it, and say the reports are unverified: their terms require it.
+**A movie** (`type: "movie"`) has `name, year, overview, posterUrl, backdropUrl, runtimeSeconds, genres, certification, imdbRating, rottenTomatoesScore, finished, resume ({ positionSeconds, durationSeconds } or null)`, `play.manifestPath`, `chapters`, `extras` (groups of `{ id, name, durationSeconds, playPath }`), `cast`, `ownership`, `collections` (`[{ id, name }]`, the collections it is in), and `guide` (parental guide lines and community reports). If `guide.fromCommunity` is true, show "Powered by DoesTheDogDie.com" with it, and say the reports are unverified: their terms require it.
 
 **A show** has `seasons` (numbers), `season` (the one whose `episodes` are listed; choose with `?season=N`), `episodes` (`id, number, name, watched, inProgress, playPath`), `continueEpisodeId`, `watched`, `ownership` (for the listed season).
 

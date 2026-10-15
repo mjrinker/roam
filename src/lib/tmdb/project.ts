@@ -14,6 +14,17 @@ type Db = PgDatabase<PgQueryResultHKT, Record<string, unknown>>;
 const MATCHED = ["matched", "manual"] as const;
 const titleKind = (kind: "movie" | "tv") => (kind === "movie" ? "movie" : "show");
 
+/** The collection columns of a movie from its entry (the entry says "none" with null; an old entry that was never asked leaves them alone). */
+export function collectionColumns(d: TmdbMovieDetails) {
+  const c = d.belongs_to_collection;
+  return { collectionTmdbId: c?.id ?? null, collectionName: c?.name ?? null, collectionPosterUrl: tmdbImageUrl(c?.poster_path, "w342"), collectionAttemptedAt: new Date() };
+}
+
+/** The same for a title that was just matched: when the entry hasn't been asked yet, whatever an earlier match left is cleared and the backfill asks. */
+export function collectionColumnsOnMatch(d: TmdbMovieDetails) {
+  return d.belongs_to_collection !== undefined ? collectionColumns(d) : { collectionTmdbId: null, collectionName: null, collectionPosterUrl: null, collectionAttemptedAt: null };
+}
+
 /** Updates every matched movie (on any server) with this TMDB id from the entry. Returns how many titles it touched. */
 export async function projectMovie(ex: Db, tmdbId: number, d: TmdbMovieDetails): Promise<number> {
   const { certifications, ratingAges } = ratingsFromMovieDetails(d);
@@ -28,6 +39,7 @@ export async function projectMovie(ex: Db, tmdbId: number, d: TmdbMovieDetails):
       ratingAges,
       ratingsAttemptedAt: new Date(),
       imdbId: d.imdb_id ?? null,
+      ...(d.belongs_to_collection !== undefined ? collectionColumns(d) : {}),
       // OMDb's scores belong to an IMDb id: if it changed, they are fetched again.
       externalRatingsAttemptedAt: sql`CASE WHEN ${titles.imdbId} IS DISTINCT FROM ${d.imdb_id ?? null} THEN NULL ELSE ${titles.externalRatingsAttemptedAt} END`,
     })
@@ -89,5 +101,5 @@ export async function clearProjection(ex: Db, kind: "movie" | "tv" | "tv-season"
         AND ${titles.tmdbId} = ${tmdbId} AND ${titles.kind} = 'show' AND ${seasons.number} = ${season}`);
     return;
   }
-  await ex.update(titles).set({ overview: null, posterUrl: null, backdropUrl: null, genres: [] }).where(and(eq(titles.tmdbId, tmdbId), eq(titles.kind, titleKind(kind))));
+  await ex.update(titles).set({ overview: null, posterUrl: null, backdropUrl: null, genres: [], collectionTmdbId: null, collectionName: null, collectionPosterUrl: null, collectionAttemptedAt: null }).where(and(eq(titles.tmdbId, tmdbId), eq(titles.kind, titleKind(kind))));
 }

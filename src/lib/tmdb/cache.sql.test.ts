@@ -81,7 +81,7 @@ describe("reading TMDB details through the shared cache", () => {
     expect(h.movie).toHaveBeenCalledWith(id, { append: ["release_dates", "credits"] });
     // only the parts Roam uses are stored
     const stored = (await entryOf("movie", id)).payload as Record<string, unknown>;
-    expect(Object.keys(stored).sort()).toEqual(["adult", "backdrop_path", "genres", "id", "imdb_id", "overview", "poster_path", "release_dates", "release_date", "runtime", "title"].sort().filter((k) => k in stored));
+    expect(Object.keys(stored).sort()).toEqual(["adult", "backdrop_path", "belongs_to_collection", "genres", "id", "imdb_id", "overview", "poster_path", "release_dates", "release_date", "runtime", "title"].sort().filter((k) => k in stored));
     expect(JSON.stringify(stored)).not.toMatch(/junk|credits|homepage/);
     expect((stored.release_dates as { results: unknown[] }).results).toHaveLength(2);
     expect(await db.select().from(tmdbCast).where(eq(tmdbCast.tmdbId, id))).toHaveLength(1);

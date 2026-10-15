@@ -16,6 +16,8 @@ export function trimMovie(d: TmdbMovieDetails): TmdbMovieDetails {
     genres: d.genres?.map((g) => ({ id: g.id, name: g.name })),
     adult: d.adult,
     imdb_id: d.imdb_id,
+    // Always written (null when there is none), so an entry that has the key has been asked.
+    belongs_to_collection: d.belongs_to_collection ? { id: d.belongs_to_collection.id, name: d.belongs_to_collection.name, poster_path: d.belongs_to_collection.poster_path ?? null } : null,
     release_dates: d.release_dates
       ? { results: d.release_dates.results.map((r) => ({ iso_3166_1: r.iso_3166_1, release_dates: r.release_dates.map((x) => ({ certification: x.certification, type: x.type })) })) }
       : undefined,
