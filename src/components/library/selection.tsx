@@ -86,6 +86,7 @@ export function SelectionBar({
   resolve,
   canPlaylist = true,
   canDownload = true,
+  extraActions,
 }: {
   serverId: string;
   count: number;
@@ -98,6 +99,8 @@ export function SelectionBar({
   resolve: () => Promise<string[]>;
   canPlaylist?: boolean;
   canDownload?: boolean;
+  /** More actions for this view (the admin's "Set owner"). */
+  extraActions?: React.ReactNode;
 }) {
   const none = count === 0;
   return (
@@ -112,6 +115,7 @@ export function SelectionBar({
       </button>
       {canPlaylist && <BulkPlaylistMenu serverId={serverId} resolve={resolve} count={count} disabled={none} />}
       {canDownload && <BulkDownloadButton serverId={serverId} resolve={resolve} count={count} disabled={none} />}
+      {extraActions}
       <button type="button" onClick={onDone} className="h-10 rounded-xl px-3 text-sm font-medium text-primary transition hover:bg-primary/10">
         Done
       </button>

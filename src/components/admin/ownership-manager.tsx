@@ -20,20 +20,14 @@ export function OwnershipManager({
   serverId,
   initial,
   claims,
-  households,
-  libraries,
 }: {
   serverId: string;
   initial: OwnershipSettings;
   claims: ClaimView[];
-  households: { accountId: string; name: string; isAdmin: boolean }[];
-  libraries: { id: string; name: string; kind: string }[];
 }) {
   const router = useRouter();
   const [s, setS] = useState(initial);
   const [busy, setBusy] = useState(false);
-  const [household, setHousehold] = useState("");
-  const [libraryId, setLibraryId] = useState("");
   const [note, setNote] = useState<Record<string, string>>({});
 
   async function save(patch: Partial<OwnershipSettings>) {
@@ -62,25 +56,6 @@ export function OwnershipManager({
       setBusy(false);
     }
   }
-  async function bulk(action: "assign" | "remove") {
-    const lib = libraries.find((l) => l.id === libraryId);
-    const who = households.find((h) => h.accountId === household);
-    if (!lib || !who) return;
-    if (!window.confirm(`${action === "assign" ? "Make" : "Stop making"} ${who.name} the owner of everything in “${lib.name}”?`)) return;
-    setBusy(true);
-    try {
-      const res = await send("/api/ownership/owners", "PUT", { serverId, accountId: household, action, libraryId });
-      if (!res.ok) throw new Error();
-      const r = (await res.json()) as { added?: number; removed?: number };
-      toast.success(action === "assign" ? `${r.added ?? 0} added.` : `${r.removed ?? 0} removed.`);
-      router.refresh();
-    } catch {
-      toast.error("Couldn't do that.");
-    } finally {
-      setBusy(false);
-    }
-  }
-
   const kinds: readonly string[] = OWNABLE_LIBRARY_KINDS;
   return (
     <section className="flex flex-col gap-3" id="claims">
@@ -175,36 +150,6 @@ export function OwnershipManager({
                     ))}
                   </ul>
                 )}
-              </div>
-
-              <div className="flex flex-col gap-2 text-sm">
-                <h3 className="font-medium">Assign a whole library</h3>
-                <p className="text-muted-foreground">For when one household&apos;s discs are a library of their own. You can also assign single titles and seasons on their pages.</p>
-                <div className="flex flex-wrap items-center gap-2">
-                  <select aria-label="Library" className="h-9 min-w-0 max-w-full rounded-lg bg-white/[0.06] px-2 ring-1 ring-white/10" value={libraryId} onChange={(e) => setLibraryId(e.target.value)}>
-                    <option value="">Choose a library…</option>
-                    {libraries.map((l) => (
-                      <option key={l.id} value={l.id}>
-                        {l.name}
-                      </option>
-                    ))}
-                  </select>
-                  <select aria-label="Household" className="h-9 min-w-0 max-w-full rounded-lg bg-white/[0.06] px-2 ring-1 ring-white/10" value={household} onChange={(e) => setHousehold(e.target.value)}>
-                    <option value="">Choose a household…</option>
-                    {households.map((h) => (
-                      <option key={h.accountId} value={h.accountId}>
-                        {h.name}
-                        {h.isAdmin ? " (admin)" : ""}
-                      </option>
-                    ))}
-                  </select>
-                  <Button type="button" variant="secondary" disabled={busy || !libraryId || !household} onClick={() => bulk("assign")}>
-                    Make owner
-                  </Button>
-                  <Button type="button" variant="ghost" disabled={busy || !libraryId || !household} onClick={() => bulk("remove")}>
-                    Remove as owner
-                  </Button>
-                </div>
               </div>
             </>
           )}

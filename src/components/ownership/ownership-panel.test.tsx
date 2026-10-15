@@ -72,7 +72,7 @@ describe("the admin's ownership card", () => {
   const settings = { enabled: true, claimMode: "review" as const, limitConcurrent: true, limitKinds: ["movies"] };
   const claim = { id: "c1", titleId: "t", titleName: "Fellowship", seasonNumber: null, accountId: "a", household: "Ann", status: "evidence_submitted" as const, adminNote: null, createdAt: "2026-10-20T00:00:00Z", pictures: [{ id: "p1", contentType: "image/jpeg" }] };
   const card = (s: typeof settings, claims: (typeof claim)[] = []) =>
-    renderToStaticMarkup(<OwnershipManager serverId="s1" initial={s} claims={claims} households={[{ accountId: "a", name: "Ann", isAdmin: false }]} libraries={[{ id: "l", name: "Movies", kind: "movies" }]} />);
+    renderToStaticMarkup(<OwnershipManager serverId="s1" initial={s} claims={claims} />);
   it("is just the switch while ownership is off", () => {
     const html = card({ ...settings, enabled: false });
     expect(html).toContain("Track who owns each title");
@@ -87,7 +87,7 @@ describe("the admin's ownership card", () => {
     expect(html).toContain("Ann</strong> says they own <strong>Fellowship");
     expect(html).toContain("/api/ownership/claims/c1/pictures/p1");
     expect(html).toContain("Ask for evidence");
-    expect(html).toContain("Assign a whole library");
+    expect(html).not.toContain("whole library");
   });
   it("says when nothing is waiting", () => {
     expect(card(settings)).toContain("None right now.");

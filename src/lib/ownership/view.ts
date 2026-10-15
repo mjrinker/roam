@@ -66,3 +66,27 @@ export async function ownershipView(ex: Db, opts: { serverId: string; titleId: s
   return { serverId: opts.serverId, settings, units, households: opts.isAdmin ? await serverHouseholds(ex, opts.serverId) : [] };
 }
 
+
+export interface LibraryOwnership {
+  /** Who owns each title of the library (a show: any of its seasons). Titles nobody owns are absent. */
+  byTitle: Record<string, string[]>;
+  /** The households that own something here, for the filter ("You" for the viewer's own). */
+  households: { id: string; name: string }[];
+  /** For the admin: everyone who can be made an owner. */
+  assignable: { id: string; name: string }[];
+}
+
+/** Owners of the titles of one library, for the owner filter and the bulk "Set owner" action. Null when the server doesn't track ownership. */
+export async function libraryOwnership(ex: Db, opts: { serverId: string; libraryId: string; accountId: string; isAdmin: boolean }): Promise<LibraryOwnership | null> {
+  const settings = await loadSettings(ex, opts.serverId);
+  if (!settings.enabled) return null;
+  const rows = await ex.select({ titleId: titleOwners.titleId, accountId: titleOwners.accountId }).from(titleOwners).innerJoin(titles, eq(titleOwners.titleId, titles.id)).where(eq(titles.libraryId, opts.libraryId));
+  const byTitle: Record<string, string[]> = {};
+  for (const r of rows) if (!(byTitle[r.titleId] ??= []).includes(r.accountId)) byTitle[r.titleId].push(r.accountId);
+  const ids = [...new Set(rows.map((r) => r.accountId))];
+  const names = await householdNames(ex, ids, opts.isAdmin);
+  const label = (id: string) => (id === opts.accountId ? "You" : (names.get(id) ?? "A household"));
+  const households = ids.map((id) => ({ id, name: label(id) })).sort((a, b) => (a.name === "You" ? -1 : b.name === "You" ? 1 : a.name.localeCompare(b.name)));
+  const assignable = opts.isAdmin ? (await serverHouseholds(ex, opts.serverId)).map((h) => ({ id: h.accountId, name: h.name + (h.isAdmin ? " (admin)" : "") })) : [];
+  return { byTitle, households, assignable };
+}

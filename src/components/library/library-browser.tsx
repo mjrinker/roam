@@ -12,9 +12,11 @@ import {
 import { LetterRail } from "@/components/library/letter-rail";
 import { SelectionBar, SelectOverlay, SelectToggle, useSelection } from "@/components/library/selection";
 import { Slider } from "@/components/ui/slider";
+import { BulkOwnerButton } from "@/components/ownership/bulk-owner-button";
 import {
   DEFAULT_DIRECTION,
   EMPTY_FILTERS,
+  NO_OWNER,
   UNRATED,
   activeFilterCount,
   applyFilters,
@@ -80,10 +82,13 @@ export function LibraryBrowser({
   items,
   serverId,
   isAdmin = false,
+  ownership = null,
 }: {
   items: LibraryBrowserItem[];
   serverId: string;
   isAdmin?: boolean;
+  /** Set on servers that track who owns what: the households for the Owner filter, and (for the admin) who can be made an owner. */
+  ownership?: { households: { id: string; name: string }[]; assignable: { id: string; name: string }[] } | null;
 }) {
   const [query, setQuery] = useState("");
   const [sort, setSort] = useState<SortKey>("title");
@@ -274,6 +279,7 @@ export function LibraryBrowser({
           onClear={clear}
           onDone={stop}
           resolve={resolveSelected}
+          extraActions={isAdmin && ownership && ownership.assignable.length > 0 ? <BulkOwnerButton serverId={serverId} resolve={resolveSelected} count={selected.size} disabled={selected.size === 0} households={ownership.assignable} /> : undefined}
         />
       )}
 
@@ -291,6 +297,21 @@ export function LibraryBrowser({
                     {g}
                   </Chip>
                 ))}
+              </div>
+            </FilterGroup>
+          )}
+
+          {ownership && (
+            <FilterGroup label="Owner">
+              <div className="flex flex-wrap gap-1.5">
+                {ownership.households.map((h) => (
+                  <Chip key={h.id} active={filters.owners.has(h.id)} onClick={() => setFilters((f) => ({ ...f, owners: toggled(f.owners, h.id) }))}>
+                    {h.name}
+                  </Chip>
+                ))}
+                <Chip active={filters.owners.has(NO_OWNER)} onClick={() => setFilters((f) => ({ ...f, owners: toggled(f.owners, NO_OWNER) }))}>
+                  No owner
+                </Chip>
               </div>
             </FilterGroup>
           )}

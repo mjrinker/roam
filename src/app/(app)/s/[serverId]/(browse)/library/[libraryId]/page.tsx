@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { libraryOwnership } from "@/lib/ownership/view";
 import { and, asc, count, eq, inArray, isNotNull, max, ne, sum } from "drizzle-orm";
 import { describeVersions } from "@/lib/player/versions";
 import { notFound } from "next/navigation";
@@ -334,6 +335,7 @@ export default async function LibraryDetailPage({
   const watchedShows = library.kind === "shows" ? await watchedShowIds(db, viewer.id, libraryTitles.map((t) => t.id)) : new Set<string>();
   const country = countryFromLocale(viewer.locale);
 
+  const ownership = await libraryOwnership(db, { serverId, libraryId, accountId: profile.id, isAdmin: role === "admin" && viewer.role !== "limited" });
   const items: LibraryBrowserItem[] = libraryTitles.map((t) => {
     const state = stateById.get(t.id);
     const stats = statsById.get(t.id);
@@ -355,6 +357,7 @@ export default async function LibraryDetailPage({
       imdbRating: t.imdbRating,
       rottenTomatoesScore: t.rottenTomatoesScore,
       needsAudioFix: audioFixIds.has(t.id),
+      ownerIds: ownership ? (ownership.byTitle[t.id] ?? []) : undefined,
       watched: t.kind === "show" ? watchedShows.has(t.id) : (state?.finished ?? false),
       progressFraction:
         state && !state.finished && state.durationSeconds
@@ -401,7 +404,7 @@ export default async function LibraryDetailPage({
       ) : bookView === "authors" ? (
         <AuthorGrid serverId={serverId} authors={groupAuthors(libraryTitles.filter((t) => t.kind === "audiobook"))} />
       ) : (
-        <LibraryBrowser items={items} serverId={serverId} isAdmin={role === "admin"} />
+        <LibraryBrowser items={items} serverId={serverId} isAdmin={role === "admin"} ownership={ownership} />
       )}
     </div>
   );

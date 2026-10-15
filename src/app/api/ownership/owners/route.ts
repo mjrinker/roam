@@ -13,8 +13,6 @@ const body = z
     action: z.enum(["assign", "remove"]),
     // Whole titles (a show stands for all its seasons), or exact units (a season on its own).
     titleIds: z.array(uuid).max(3000).default([]),
-    // Everything in a library of this server.
-    libraryId: uuid.optional(),
     units: z.array(z.object({ titleId: uuid, seasonId: uuid.nullable() })).max(3000).default([]),
   })
   .strict();
@@ -24,12 +22,7 @@ export async function PUT(request: Request) {
   const data = await readJson(request, body);
   if (data instanceof NextResponse) return data;
   if (!(await getCurrentServerAdmin(data.serverId))) return notFound();
-  let titleIds = data.titleIds;
-  if (data.libraryId) {
-    const rows = await db.select({ id: titles.id }).from(titles).innerJoin(libraries, eq(titles.libraryId, libraries.id)).where(and(eq(libraries.id, data.libraryId), eq(libraries.serverId, data.serverId)));
-    titleIds = [...titleIds, ...rows.map((r) => r.id)];
-  }
-  const units = [...(await unitsOfTitles(db, titleIds)), ...data.units];
+  const units = [...(await unitsOfTitles(db, data.titleIds)), ...data.units];
   if (data.action === "assign") {
     const added = await assignOwners(db, { serverId: data.serverId, units, accountId: data.accountId, via: "assigned" });
     return json({ added: added.length });

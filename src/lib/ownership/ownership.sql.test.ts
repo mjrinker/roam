@@ -13,6 +13,7 @@ import { episodes, notifications, ownershipEvidence, playbackSessions, seasons, 
 import { makeAccount, makeLibrary, makeServer, makeTitle, type TestDb } from "@/lib/playlists/test-db";
 import { addEvidence, assignOwners, decideClaim, openClaims, ownersOf, saveSettings, setShared, submitClaim, unitsOfTitles } from "./owners";
 import { listNotifications, markRead, unreadCount } from "./notify";
+import { libraryOwnership } from "./view";
 import { announceFreed, availabilityFor, beat, endPlay, playUnitFor, purgeStale, stopWatching, sweepForWatcher, watchForAvailability } from "./sessions";
 
 let db: TestDb;
@@ -38,7 +39,7 @@ async function world() {
   const [s1] = await db.insert(seasons).values({ titleId: show.id, number: 1, boxFolderId: `own-s1-${n}` }).returning();
   const [s2] = await db.insert(seasons).values({ titleId: show.id, number: 2, boxFolderId: `own-s2-${n}` }).returning();
   const [ep] = await db.insert(episodes).values({ seasonId: s1.id, number: 1, boxFolderId: `own-e-${n}` }).returning();
-  return { admin, server, movies, movie, show, s1, s2, ep, ann: members[0], bo: members[1], cy: members[2] };
+  return { admin, server, movies, shows, movie, show, s1, s2, ep, ann: members[0], bo: members[1], cy: members[2] };
 }
 const whole = (titleId: string) => ({ titleId, seasonId: null });
 const who = (m: { accountId: string; viewer: { id: string } }) => ({ viewerId: m.viewer.id, accountId: m.accountId });
@@ -305,5 +306,28 @@ describe("deleting what is owned", () => {
     await assignOwners(db, { serverId: w.server.id, units: [whole(w.movie.id)], accountId: w.ann.accountId, via: "assigned" });
     await db.delete((await import("@/lib/db/schema")).titles).where(eq((await import("@/lib/db/schema")).titles.id, w.movie.id));
     expect(await db.select().from(titleOwners).where(eq(titleOwners.titleId, w.movie.id))).toEqual([]);
+  });
+});
+
+describe("the library's owner filter data", () => {
+  it("is absent while ownership is off", async () => {
+    const w = await world();
+    expect(await libraryOwnership(db, { serverId: w.server.id, libraryId: w.movies.id, accountId: w.ann.accountId, isAdmin: false })).toBeNull();
+  });
+  it("lists who owns each title (a show by any season), names the viewer 'You', and gives the admin the people to assign", async () => {
+    const w = await world();
+    await saveSettings(db, w.server.id, { enabled: true });
+    await assignOwners(db, { serverId: w.server.id, units: [whole(w.movie.id)], accountId: w.ann.accountId, via: "assigned" });
+    await assignOwners(db, { serverId: w.server.id, units: [whole(w.movie.id)], accountId: w.bo.accountId, via: "assigned" });
+    await assignOwners(db, { serverId: w.server.id, units: [{ titleId: w.show.id, seasonId: w.s2.id }], accountId: w.bo.accountId, via: "assigned" });
+    const asAnn = (await libraryOwnership(db, { serverId: w.server.id, libraryId: w.movies.id, accountId: w.ann.accountId, isAdmin: false }))!;
+    expect(asAnn.byTitle[w.movie.id].sort()).toEqual([w.ann.accountId, w.bo.accountId].sort());
+    expect(asAnn.households[0]).toEqual({ id: w.ann.accountId, name: "You" });
+    expect(asAnn.assignable).toEqual([]);
+    const shows = (await libraryOwnership(db, { serverId: w.server.id, libraryId: w.shows.id, accountId: w.ann.accountId, isAdmin: false }))!;
+    expect(shows.byTitle[w.show.id]).toEqual([w.bo.accountId]);
+    const asAdmin = (await libraryOwnership(db, { serverId: w.server.id, libraryId: w.movies.id, accountId: w.admin.accountId, isAdmin: true }))!;
+    expect(asAdmin.assignable.map((a) => a.id).sort()).toEqual([w.admin.accountId, w.ann.accountId, w.bo.accountId, w.cy.accountId].sort());
+    expect(Object.keys(asAdmin.byTitle)).toEqual([w.movie.id]); // only this library's titles
   });
 });

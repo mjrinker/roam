@@ -157,15 +157,14 @@ describe("evidence pictures", () => {
 });
 
 describe("assigning owners", () => {
-  it("is for the server's admin, covers a whole library, and never reaches into another server", async () => {
+  it("is for the server's admin, takes titles, and never reaches into another server", async () => {
     const w = await world();
-    const body = { serverId: w.server.id, accountId: w.ann.accountId, action: "assign", libraryId: w.movies.id };
+    const body = { serverId: w.server.id, accountId: w.ann.accountId, action: "assign", titleIds: [w.movie.id] };
     w.as(w.bo);
     expect((await ownersPut(req("/", "PUT", body))).status).toBe(404);
     w.as(w.admin, "admin");
     expect(await (await ownersPut(req("/", "PUT", body))).json()).toEqual({ added: 1 });
     const other = await world();
-    expect(await (await ownersPut(req("/", "PUT", { ...body, libraryId: other.movies.id }))).json()).toEqual({ added: 0 });
     expect(await (await ownersPut(req("/", "PUT", { serverId: w.server.id, accountId: w.ann.accountId, action: "assign", titleIds: [other.movie.id] }))).json()).toEqual({ added: 0 });
     expect(await (await ownersPut(req("/", "PUT", { ...body, action: "remove" }))).json()).toEqual({ removed: 1 });
   });

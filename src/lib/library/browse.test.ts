@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   EMPTY_FILTERS,
+  NO_OWNER,
   UNRATED,
   activeFilterCount,
   applyFilters,
@@ -72,6 +73,7 @@ describe("activeFilterCount", () => {
         genres: new Set(["a", "b"]),
         certifications: new Set(),
         minSeconds: 1,
+        owners: new Set(),
         maxSeconds: null,
         audioNeedsFix: true,
       })
@@ -154,5 +156,32 @@ describe("letterKey", () => {
     expect(letterKey("2001: A Space Odyssey")).toBe("0");
     expect(letterKey("(500) Days of Summer")).toBe("0");
     expect(letterKey("\u9be8")).toBe("0");
+  });
+});
+
+describe("the owner filter", () => {
+  const mine = item("Mine", { ownerIds: ["me"] });
+  const theirs = item("Theirs", { ownerIds: ["them"] });
+  const both = item("Both", { ownerIds: ["me", "them"] });
+  const nobody = item("Nobody", { ownerIds: [] });
+  const untracked = item("Untracked"); // a server that doesn't track ownership
+  const all = [mine, theirs, both, nobody, untracked];
+  const owners = (...ids: string[]) => ({ ...EMPTY_FILTERS, owners: new Set(ids) });
+
+  it("does nothing until something is chosen, and counts as one filter", () => {
+    expect(applyFilters(all, EMPTY_FILTERS)).toEqual(all);
+    expect(activeFilterCount(owners("me", NO_OWNER))).toBe(1);
+  });
+  it("shows what any chosen household owns, including shared copies", () => {
+    expect(applyFilters(all, owners("me")).map((i) => i.name)).toEqual(["Mine", "Both"]);
+    expect(applyFilters(all, owners("me", "them")).map((i) => i.name)).toEqual(["Mine", "Theirs", "Both"]);
+  });
+  it("shows what nobody owns, alone or with households", () => {
+    expect(applyFilters(all, owners(NO_OWNER)).map((i) => i.name)).toEqual(["Nobody", "Untracked"]);
+    expect(applyFilters(all, owners(NO_OWNER, "them")).map((i) => i.name)).toEqual(["Theirs", "Both", "Nobody", "Untracked"]);
+  });
+  it("combines with the other filters", () => {
+    const g = item("G", { genres: ["Drama"], ownerIds: [] });
+    expect(applyFilters([g, nobody], { ...owners(NO_OWNER), genres: new Set(["Drama"]) })).toEqual([g]);
   });
 });

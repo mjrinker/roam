@@ -23,9 +23,13 @@ export interface BrowseItem {
   imdbRating: number | null;
   rottenTomatoesScore: number | null;
   needsAudioFix: boolean;
+  /** The accounts that own a copy (of any season, for a show); only set on servers that track ownership. */
+  ownerIds?: string[];
 }
 
 export const UNRATED = "Unrated";
+/** The owner filter's "nobody owns it" choice (not an account id). */
+export const NO_OWNER = "none";
 
 /** The name to alphabetize by: a leading "The " doesn't count. */
 export function sortName(name: string): string {
@@ -48,6 +52,8 @@ export interface BrowseFilters {
   minSeconds: number | null;
   maxSeconds: number | null;
   audioNeedsFix: boolean;
+  /** Account ids, and/or NO_OWNER: titles owned by any of them, or by nobody. */
+  owners: ReadonlySet<string>;
 }
 
 export const EMPTY_FILTERS: BrowseFilters = {
@@ -56,6 +62,7 @@ export const EMPTY_FILTERS: BrowseFilters = {
   minSeconds: null,
   maxSeconds: null,
   audioNeedsFix: false,
+  owners: new Set(),
 };
 
 export const DEFAULT_DIRECTION: Record<SortKey, SortDir> = {
@@ -74,7 +81,8 @@ export function activeFilterCount(f: BrowseFilters): number {
     (f.genres.size > 0 ? 1 : 0) +
     (f.certifications.size > 0 ? 1 : 0) +
     (f.minSeconds !== null || f.maxSeconds !== null ? 1 : 0) +
-    (f.audioNeedsFix ? 1 : 0)
+    (f.audioNeedsFix ? 1 : 0) +
+    (f.owners.size > 0 ? 1 : 0)
   );
 }
 
@@ -89,6 +97,10 @@ export function applyFilters<T extends BrowseItem>(items: readonly T[], f: Brows
       if (f.maxSeconds !== null && i.runtimeSeconds > f.maxSeconds) return false;
     }
     if (f.audioNeedsFix && !i.needsAudioFix) return false;
+    if (f.owners.size > 0) {
+      const owned = i.ownerIds ?? [];
+      if (owned.length === 0 ? !f.owners.has(NO_OWNER) : !owned.some((o) => f.owners.has(o))) return false;
+    }
     return true;
   });
 }

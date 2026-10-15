@@ -13,9 +13,9 @@ import { InviteManager } from "@/components/admin/invite-manager";
 import { JoinLinkManager } from "@/components/admin/join-link-manager";
 import { UnmatchedTitles } from "@/components/admin/unmatched-titles";
 import { OwnershipManager } from "@/components/admin/ownership-manager";
-import { loadSettings, openClaims, serverHouseholds } from "@/lib/ownership/owners";
+import { loadSettings, openClaims } from "@/lib/ownership/owners";
 import { Breadcrumbs } from "@/components/shell/breadcrumbs";
-import { OWNABLE_LIBRARY_KINDS, libraryKindUsesExternalMetadata } from "@/lib/libraries/profile";
+import { libraryKindUsesExternalMetadata } from "@/lib/libraries/profile";
 
 const BOX_ERROR_MESSAGES: Record<string, string> = {
   "box-connect-cancelled": "Box connection was cancelled.",
@@ -82,7 +82,6 @@ export default async function AdminPage({
 
   const ownership = await loadSettings(db, serverId);
   const claims = ownership.enabled ? await openClaims(db, serverId) : [];
-  const households = ownership.enabled ? await serverHouseholds(db, serverId) : [];
 
   return (
     <div className="mx-auto flex w-full max-w-4xl flex-col gap-10 px-4 py-8 sm:px-8">
@@ -139,8 +138,6 @@ export default async function AdminPage({
         serverId={serverId}
         initial={ownership}
         claims={claims.map((c) => ({ ...c, createdAt: c.createdAt.toISOString() }))}
-        households={households}
-        libraries={allLibraries.filter((l) => (OWNABLE_LIBRARY_KINDS as readonly string[]).includes(l.kind)).map((l) => ({ id: l.id, name: l.name, kind: l.kind }))}
       />
       {adminAccount.canManageOpenLinks && <JoinLinkManager serverId={serverId} initialToken={server?.joinToken ?? null} initialDemo={server?.isDemo ?? false} visibleProfileNames={visibleProfileNames} />}
 

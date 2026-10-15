@@ -77,6 +77,7 @@ async function main() {
         import { OwnershipPanel } from "@/components/ownership/ownership-panel";
         import { OwnershipManager } from "@/components/admin/ownership-manager";
         import { UnavailableScreen } from "@/components/player/unavailable-screen";
+        import { LibraryBrowser } from "@/components/library/library-browser";
         import { NotificationBell } from "@/components/shell/notification-bell";
         const root = document.getElementById("root");
         const which = root.dataset.which;
@@ -89,8 +90,13 @@ async function main() {
         const el = {
           panel: <div className="mx-auto max-w-5xl px-4 py-8 sm:px-8"><OwnershipPanel titleId="t1" canClaim isAdmin view={view([unit({ label: "Season 1", seasonId: "s1" }), unit({ label: "Season 2", seasonId: "s2", owners, iOwn: true, myShared: false, playable: true })])} /></div>,
           evidence: <div className="mx-auto max-w-5xl px-4 py-8 sm:px-8"><OwnershipPanel titleId="t1" canClaim isAdmin={false} view={view([unit({ myClaim: { id: "c9", status: "evidence_requested", note: "A photo of the case with today's newspaper next to it, please" } })])} /></div>,
-          admin: <div className="mx-auto max-w-4xl px-4 py-8"><OwnershipManager serverId="s1" initial={settings} claims={[claim]} households={households} libraries={[{ id: "l1", name: "Family movies library with a long name", kind: "movies" }]} /></div>,
+          admin: <div className="mx-auto max-w-4xl px-4 py-8"><OwnershipManager serverId="s1" initial={settings} claims={[claim]} /></div>,
           waiting: <UnavailableScreen info={{ code: "busy", error: "All 2 copies are being played right now. You can wait until one is free.", unit: { titleId: "t", seasonId: null }, watching: false }} backHref="/x" onRetry={() => undefined} />,
+          library: <div className="px-4 py-8 sm:px-8"><LibraryBrowser serverId="s1" isAdmin items={[
+            { id: "m1", kind: "movie", name: "Owned by Ann", year: 2001, posterUrl: null, addedAtMs: 1, genres: [], runtimeSeconds: 6000, certification: null, ratingAge: null, imdbRating: null, rottenTomatoesScore: null, needsAudioFix: false, watched: false, progressFraction: null, processing: false, ownerIds: ["a"] },
+            { id: "m2", kind: "movie", name: "Owned by nobody", year: 2002, posterUrl: null, addedAtMs: 2, genres: [], runtimeSeconds: 6000, certification: null, ratingAge: null, imdbRating: null, rottenTomatoesScore: null, needsAudioFix: false, watched: false, progressFraction: null, processing: false, ownerIds: [] },
+            { id: "m3", kind: "movie", name: "Also nobody's", year: 2003, posterUrl: null, addedAtMs: 3, genres: [], runtimeSeconds: 6000, certification: null, ratingAge: null, imdbRating: null, rottenTomatoesScore: null, needsAudioFix: false, watched: false, progressFraction: null, processing: false, ownerIds: [] },
+          ]} ownership={{ households: [{ id: "a", name: "The Anderson household with a long name" }], assignable: households.map((h) => ({ id: h.accountId, name: h.name })) }} /></div>,
           bell: <div className="flex h-16 items-center justify-end gap-3 px-4"><NotificationBell /></div>,
         }[which];
         createRoot(root).render(el);`,
@@ -144,6 +150,37 @@ async function main() {
       check(`${label}: the notification list stays on the screen`, inside, await page.evaluate(`JSON.stringify(document.querySelector('[role="dialog"]').getBoundingClientRect())`));
       check(`${label}: the bell counts what is unread`, await page.evaluate<boolean>(`document.querySelector('[aria-label="Notifications, 2 new"]') !== null`));
       if (label === "phone") await page.send("Page.captureScreenshot", { format: "png" }).then((s) => process.env.SHOT && fs.writeFileSync(`${process.env.SHOT}-bell.png`, Buffer.from(s.data as string, "base64")));
+    }
+
+    // The library's Owner filter and the bulk Set owner action.
+    for (const [label, width, mobile] of [["phone", 375, true], ["small phone", 320, true], ["desktop", 1100, false]] as const) {
+      await page.send("Emulation.setDeviceMetricsOverride", { width, height: 800, deviceScaleFactor: 1, mobile });
+      await page.goto(`${base}/library`);
+      await page.waitFor(`document.body.innerText.includes("3 titles")`, 5000);
+      await click("Filters");
+      await page.waitFor(`document.body.innerText.includes("No owner")`, 3000);
+      await click("No owner");
+      await page.waitFor(`document.body.innerText.includes("2 of 3")`, 3000);
+      check(`${label}: the No owner filter keeps only titles nobody owns`, await page.evaluate<boolean>(`!document.body.innerText.includes("Owned by Ann") && document.body.innerText.includes("Owned by nobody")`));
+      await click("No owner");
+      await click("The Anderson household with a long name");
+      await page.waitFor(`document.body.innerText.includes("1 of 3")`, 3000);
+      check(`${label}: a household filter keeps only what it owns`, await page.evaluate<boolean>(`document.body.innerText.includes("Owned by Ann") && !document.body.innerText.includes("Owned by nobody")`));
+      await click("The Anderson household with a long name");
+      await click("No owner");
+      await click("Select");
+      await page.waitFor(`document.body.innerText.includes("Select all shown")`, 3000);
+      await click("Select all shown (2)");
+      await click("Set owner");
+      await page.waitFor(`document.body.innerText.includes("Set owner for 2 selected")`, 3000);
+      check(`${label}: the Set owner dialog fits the screen`, (await page.evaluate<string[]>(overflowScript)).length === 0 && (await page.evaluate<boolean>(`(() => { const r = document.querySelector('[role="dialog"]').getBoundingClientRect(); return r.left >= -1 && r.right <= window.innerWidth + 1; })()`)), await page.evaluate(overflowScript));
+      if (label === "phone") {
+        requests.length = 0;
+        await setSelect(0, "a");
+        await click("Make owner");
+        await new Promise((r) => setTimeout(r, 400));
+        check("Set owner sends the selected titles with the household", requests.some((r) => r.startsWith("PUT /api/ownership/owners") && r.includes('"action":"assign"') && r.includes('"accountId":"a"') && r.includes('"m2"') && r.includes('"m3"') && !r.includes('"m1"')), requests);
+      }
     }
 
     // Pressing things sends the right requests.
