@@ -212,6 +212,10 @@ A Roku channel is in [`roku/`](roku/README.md) (BrightScript, using the same JSO
 
 A Kodi add-on is in [`kodi/`](kodi/README.md) (Python, using the same JSON API): sign in with a code, browse, play with your place kept, scenes skipped or muted for the profile, and skip buttons. `npx tsx scripts/package-kodi.ts --url https://your-roam.example` builds the zip to install in Kodi. It is tested against stand-ins for Kodi but has not yet been run inside a real Kodi.
 
+### Android, Android TV and Fire TV
+
+One Kotlin app for phones, Android TV and Fire TV is in [`android/`](android/README.md) (Compose and Media3, using the same JSON API). Its 101 tests run on the JVM (Robolectric draws the real screens); tests that play a real video on an emulator are written and compile, but need hardware virtualization to run. Build with `./gradlew :app:assembleDebug` in `android/`.
+
 ### Trailers and extras
 
 A movie's page lists its trailers and other extras when its folder has them, named the way Plex names them. Either put the type at the end of the file name, right after a hyphen (`Teaser-trailer.mp4`, `Making Of-behindthescenes.mp4`, `Cut Scene-deleted.mp4`, `The Look-featurette.mp4`, `Talk-interview.mp4`, `Opening-scene.mp4`, `Little Film-short.mp4`, `Misc-other.mp4`), or put the videos in a subfolder of the movie's folder named for the type (`Trailers`, `Behind The Scenes`, `Deleted Scenes`, `Featurettes`, `Interviews`, `Scenes`, `Shorts`, `Other`). They are found on the next scan of the library (or Resync on the movie), appear once Roam has read their length, and play in the normal player. They never record progress and aren't offered for download. Only MP4, M4V and MOV files are used, as for movies.
