@@ -21,6 +21,8 @@ export interface PlaySegment {
 }
 
 export interface PlayManifest {
+  /** The server limits playing at once, so this player holds a place and must send a heartbeat (see lib/ownership/client). */
+  heartbeat?: boolean;
   ownerKind: PlayOwnerKind;
   ownerId: string;
   durationSeconds: number;
@@ -66,6 +68,8 @@ export interface AudiobookSegmentUrl {
 }
 
 export interface AudiobookManifest {
+  /** The server limits playing at once, so this player holds a place and must send a heartbeat. */
+  heartbeat?: boolean;
   titleId: string;
   name: string;
   authors: string[];

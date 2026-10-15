@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { authorizeOwner } from "@/lib/auth/resolve-server";
 import { buildDownloadOptions } from "@/lib/offline/build-options";
+import { ownershipGate } from "@/lib/ownership/gate";
 
 const notFound = () => NextResponse.json({ error: "Not found" }, { status: 404 });
 
@@ -14,6 +15,8 @@ export async function GET(_request: Request, ctx: RouteContext<"/api/download/[o
   if ((ownerKind !== "title" && ownerKind !== "episode") || !z.string().uuid().safeParse(ownerId).success) return notFound();
   const auth = await authorizeOwner(ownerKind, ownerId);
   if (!auth.ok) return auth.status === 403 ? NextResponse.json({ error: "Forbidden" }, { status: 403 }) : notFound();
+  const blocked = await ownershipGate({ viewerId: auth.member.viewer.id, accountId: auth.member.profile.id }, ownerKind, ownerId, { take: false });
+  if (blocked) return blocked;
   const options = await buildDownloadOptions(ownerKind, ownerId);
   if (!options) return notFound();
   return NextResponse.json(options, { headers: { "Cache-Control": "no-store" } });

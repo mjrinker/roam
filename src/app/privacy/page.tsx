@@ -80,6 +80,7 @@ export default function PrivacyPage() {
           items={[
             "The Google sign-in tokens, encrypted at rest, so Roam can keep reading the folders the admin chose without asking them to sign in each time.",
             "Library information drawn from the chosen folders: file and folder names, sizes, durations, formats, tags, and artwork (such as embedded album covers). Roam does not keep copies of the media files themselves; files are streamed from Google when played.",
+            "If the admin turns on ownership tracking: which accounts own which movies, seasons or books, claims to own one (with any pictures sent as evidence, which only the admin can see and which are deleted when the claim is decided), who is playing what right now, and the notifications and, if you turn them on, the browser push address Roam uses to send them.",
           ]}
         />
 

@@ -22,6 +22,7 @@ import { queueNext } from "@/lib/playlists/next";
 import { Breadcrumbs } from "@/components/shell/breadcrumbs";
 import { BookCredits } from "@/components/library/audiobook-views";
 import { libraryKindUsesExternalMetadata } from "@/lib/libraries/profile";
+import { OwnershipSection } from "@/components/ownership/ownership-section";
 
 export default async function BookDetailPage({ params, searchParams }: PageProps<"/s/[serverId]/book/[id]">) {
   const { serverId, id } = await params;
@@ -210,6 +211,8 @@ export default async function BookDetailPage({ params, searchParams }: PageProps
         )}
 
         <BookCredits serverId={serverId} authors={authors} narrators={narrators} />
+
+        <OwnershipSection serverId={serverId} titleId={book.id} libraryKind={row.libraryKind} accountId={profile.id} viewerId={viewer.id} isAdmin={role === "admin"} limited={viewer.role === "limited"} />
 
         {ready && chapters.length > 0 && (
           <section>

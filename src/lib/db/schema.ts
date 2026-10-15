@@ -167,6 +167,14 @@ export const servers = pgTable("servers", {
   // How much this server may use Does the Dog Die (through the deployment's own API key; see lib/ddd): "disabled" (never asks),
   // "limited" (asks when someone is about to play a title) or "full" (also asks when a title's page opens).
   dddAccess: text("ddd_access").$type<"disabled" | "limited" | "full">().notNull().default("disabled"),
+  // Who owns which copy (lib/ownership). Off: nothing changes. On: titles can be claimed, an owner can withdraw their copy, and (with the
+  // limit on) no more people can play a title at once than there are copies shared.
+  ownershipEnabled: boolean("ownership_enabled").notNull().default(false),
+  // How a member's claim to own a title is settled: at once, or by the server's admin.
+  claimMode: text("claim_mode").$type<"instant" | "review">().notNull().default("review"),
+  limitConcurrent: boolean("limit_concurrent").notNull().default(false),
+  // Which kinds of library the concurrent limit covers (the rest play without one).
+  limitKinds: jsonb("limit_kinds").$type<string[]>().notNull().default(["movies", "shows"]),
   createdAt: timestamp("created_at", { withTimezone: true })
     .notNull()
     .defaultNow(),
@@ -908,6 +916,129 @@ export const dddItems = pgTable("ddd_items", {
   data: jsonb("data").$type<import("@/lib/ddd/types").DddTitleData | import("@/lib/ddd/types").DddReference>(),
   fetchedAt: timestamp("fetched_at", { withTimezone: true }).notNull().defaultNow(),
 });
+
+// ── ownership ────────────────────────────────────────────────────────────
+// One row per household (account) that holds a copy of a movie, book or album, or of one season of a show (`season_id`). `shared` is whether that copy is available to the whole server: an owner
+// can withdraw it (and share it again), all or nothing. See lib/ownership.
+
+export const titleOwners = pgTable(
+  "title_owners",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    titleId: uuid("title_id").notNull().references(() => titles.id, { onDelete: "cascade" }),
+    // For a show, the season that is owned; null for everything else (a show's seasons are owned one by one).
+    seasonId: uuid("season_id").references(() => seasons.id, { onDelete: "cascade" }),
+    accountId: uuid("account_id").notNull().references(() => profiles.id, { onDelete: "cascade" }),
+    shared: boolean("shared").notNull().default(true),
+    // "assigned": the server's admin made them the owner. "claimed": they claimed it and it was accepted.
+    via: text("via").$type<"assigned" | "claimed">().notNull(),
+    since: timestamp("since", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("title_owners_whole_idx").on(t.titleId, t.accountId).where(sql`${t.seasonId} is null`),
+    uniqueIndex("title_owners_season_idx").on(t.seasonId, t.accountId).where(sql`${t.seasonId} is not null`),
+    index("title_owners_account_idx").on(t.accountId),
+    index("title_owners_title_idx").on(t.titleId),
+  ]
+);
+
+export type ClaimStatus = "pending" | "evidence_requested" | "evidence_submitted" | "approved" | "rejected";
+
+export const ownershipClaims = pgTable(
+  "ownership_claims",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    titleId: uuid("title_id").notNull().references(() => titles.id, { onDelete: "cascade" }),
+    seasonId: uuid("season_id").references(() => seasons.id, { onDelete: "cascade" }),
+    accountId: uuid("account_id").notNull().references(() => profiles.id, { onDelete: "cascade" }),
+    status: text("status").$type<ClaimStatus>().notNull().default("pending"),
+    // What the admin said when asking for evidence or turning a claim down.
+    adminNote: text("admin_note"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    decidedAt: timestamp("decided_at", { withTimezone: true }),
+  },
+  (t) => [
+    // A household has at most one open claim on a title.
+    uniqueIndex("ownership_claims_open_idx").on(sql`coalesce(${t.seasonId}, ${t.titleId})`, t.accountId).where(sql`${t.status} in ('pending','evidence_requested','evidence_submitted')`),
+    index("ownership_claims_title_idx").on(t.titleId),
+  ]
+);
+
+// Pictures sent as evidence, kept only until the claim is decided.
+export const ownershipEvidence = pgTable("ownership_evidence", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  claimId: uuid("claim_id").notNull().references(() => ownershipClaims.id, { onDelete: "cascade" }),
+  contentType: text("content_type").notNull(),
+  dataBase64: text("data_base64").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+// Who is playing what right now, for the limit on playing a title at once. A row is a player (one device), kept alive by its heartbeat.
+export const playbackSessions = pgTable(
+  "playback_sessions",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    serverId: uuid("server_id").notNull().references(() => servers.id, { onDelete: "cascade" }),
+    // What is limited: the movie, the book, the album, or the season of a show being watched.
+    titleId: uuid("title_id").notNull().references(() => titles.id, { onDelete: "cascade" }),
+    seasonId: uuid("season_id").references(() => seasons.id, { onDelete: "cascade" }),
+    accountId: uuid("account_id").notNull().references(() => profiles.id, { onDelete: "cascade" }),
+    viewerId: uuid("viewer_id").notNull().references(() => viewers.id, { onDelete: "cascade" }),
+    startedAt: timestamp("started_at", { withTimezone: true }).notNull().defaultNow(),
+    lastSeenAt: timestamp("last_seen_at", { withTimezone: true }).notNull().defaultNow(),
+    // Set while paused: a paused player keeps its place for a while, then lets go.
+    pausedAt: timestamp("paused_at", { withTimezone: true }),
+  },
+  // A viewer plays one thing at a time, and the same thing on two of their devices counts once.
+  (t) => [index("playback_sessions_title_idx").on(t.titleId), uniqueIndex("playback_sessions_viewer_idx").on(t.viewerId)]
+);
+
+// "Tell me when a copy is free."
+export const availabilityWatches = pgTable(
+  "availability_watches",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    titleId: uuid("title_id").notNull().references(() => titles.id, { onDelete: "cascade" }),
+    seasonId: uuid("season_id").references(() => seasons.id, { onDelete: "cascade" }),
+    viewerId: uuid("viewer_id").notNull().references(() => viewers.id, { onDelete: "cascade" }),
+    accountId: uuid("account_id").notNull().references(() => profiles.id, { onDelete: "cascade" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex("availability_watches_unit_viewer_idx").on(sql`coalesce(${t.seasonId}, ${t.titleId})`, t.viewerId)]
+);
+
+export type NotificationKind = "claim_waiting" | "claim_approved" | "claim_rejected" | "evidence_requested" | "available";
+
+export const notifications = pgTable(
+  "notifications",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    accountId: uuid("account_id").notNull().references(() => profiles.id, { onDelete: "cascade" }),
+    serverId: uuid("server_id").references(() => servers.id, { onDelete: "cascade" }),
+    kind: text("kind").$type<NotificationKind>().notNull(),
+    titleId: uuid("title_id").references(() => titles.id, { onDelete: "cascade" }),
+    message: text("message").notNull(),
+    // Where it leads (a path in the app).
+    href: text("href"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    readAt: timestamp("read_at", { withTimezone: true }),
+  },
+  (t) => [index("notifications_account_idx").on(t.accountId, t.createdAt)]
+);
+
+// Browsers that agreed to push notifications (web push).
+export const pushSubscriptions = pgTable(
+  "push_subscriptions",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    accountId: uuid("account_id").notNull().references(() => profiles.id, { onDelete: "cascade" }),
+    endpoint: text("endpoint").notNull(),
+    p256dh: text("p256dh").notNull(),
+    auth: text("auth").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex("push_subscriptions_endpoint_idx").on(t.endpoint)]
+);
 
 // ── title_extras ─────────────────────────────────────────────────────────
 // A movie's trailers, behind-the-scenes videos and other extras, found in its folder by Plex's naming (a "-trailer" style suffix on a

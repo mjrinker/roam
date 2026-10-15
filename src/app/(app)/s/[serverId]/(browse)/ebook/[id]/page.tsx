@@ -12,6 +12,7 @@ import { MarkDoneButton } from "@/components/library/mark-done-button";
 import { MoreMenu } from "@/components/shell/more-menu";
 import { formatFileSize } from "@/lib/format";
 import { isUuid } from "@/lib/playlists/http";
+import { OwnershipSection } from "@/components/ownership/ownership-section";
 import { Breadcrumbs } from "@/components/shell/breadcrumbs";
 import { PdfOpenButton } from "@/components/ebooks/pdf-open-button";
 
@@ -89,6 +90,7 @@ export default async function EbookPage({ params }: PageProps<"/s/[serverId]/ebo
           {book.overview && <p className="max-w-prose text-sm leading-relaxed text-muted-foreground">{book.overview}</p>}
         </div>
       </div>
+      <OwnershipSection serverId={serverId} titleId={id} libraryKind="ebooks" accountId={profile.id} viewerId={viewer.id} isAdmin={role === "admin"} limited={viewer.role === "limited"} />
     </div>
   );
 }

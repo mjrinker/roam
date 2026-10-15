@@ -7,6 +7,7 @@ import { mediaFiles } from "@/lib/db/schema";
 import { createStorageForServer } from "@/lib/storage/server-storage";
 import { StorageReauthRequiredError } from "@/lib/storage/reauth";
 import { checkRateLimit } from "@/lib/rate-limit";
+import { ownershipGate } from "@/lib/ownership/gate";
 
 const notFound = () => NextResponse.json({ error: "Not found" }, { status: 404 });
 
@@ -20,6 +21,8 @@ export async function GET(_request: Request, ctx: RouteContext<"/api/ebooks/[id]
 
   const auth = await authorizeOwner("title", id, { titleKinds: ["ebook"] });
   if (!auth.ok) return notFound();
+  const blocked = await ownershipGate({ viewerId: auth.member.viewer.id, accountId: auth.member.profile.id }, "title", id, { take: false });
+  if (blocked) return blocked;
   if (!(await checkRateLimit(auth.member.profile.id, "ebook_file", 120, 60))) return NextResponse.json({ error: "Too many requests" }, { status: 429 });
 
   const [file] = await db

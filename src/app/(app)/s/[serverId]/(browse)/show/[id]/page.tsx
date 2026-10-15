@@ -21,6 +21,7 @@ import { AddToPlaylistMenu } from "@/components/playlists/add-to-playlist-menu";
 import { Breadcrumbs } from "@/components/shell/breadcrumbs";
 import { loadTitleCast, loadTitleCrew } from "@/lib/cast/queries";
 import { CastRow } from "@/components/library/cast-row";
+import { OwnershipSection } from "@/components/ownership/ownership-section";
 import { CrewRow } from "@/components/library/crew-row";
 import { SeasonEpisodes, type EpisodeRowData } from "@/components/library/season-episodes";
 import { chaptersFromRows } from "@/lib/chapters/rows";
@@ -216,7 +217,8 @@ export default async function ShowDetailPage({
         initialSeasonId={nextRow?.seasonId ?? allSeasons[0]?.id ?? ""}
         prefs={filterPrefs}
       />
-      <div className="pb-16">
+      <div className="flex flex-col gap-8 px-4 pb-16 sm:px-8">
+        <OwnershipSection serverId={serverId} titleId={show.id} libraryKind="shows" accountId={profile.id} viewerId={viewer.id} isAdmin={role === "admin"} limited={viewer.role === "limited"} />
         <CastRow serverId={serverId} cast={cast} />
         <CrewRow serverId={serverId} crew={crew} />
       </div>

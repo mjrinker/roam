@@ -1,5 +1,6 @@
 "use client";
 
+import { holdPlace } from "@/lib/ownership/client";
 import {
   createContext,
   useContext,
@@ -151,6 +152,8 @@ interface Engine {
   list: ListQueue | null;
   /** The downloaded files the book is playing from, if it is a downloaded one (their addresses are let go when it ends). */
   localFiles: LocalFiles | null;
+  /** Lets go of the place this book holds when the server limits playing at once (see lib/ownership/client). */
+  releaseHold: (() => void) | null;
 }
 
 /** Exported for tests; the provider below is the only real caller. */
@@ -175,6 +178,7 @@ export function createPlayer(
     queue: null,
     list: null,
     localFiles: null,
+    releaseHold: null,
   };
 
   const patch = (p: Partial<AudioPlayerState>) => setState((s) => ({ ...s, ...p }));
@@ -470,6 +474,13 @@ export function createPlayer(
         }
 
         e.book = book;
+        e.releaseHold?.();
+        e.releaseHold = manifest.heartbeat
+          ? holdPlace("title", titleId, () => !!audio()?.paused, (lost) => {
+              audio()?.pause();
+              patch({ status: "error", error: lost.error, buffering: false });
+            })
+          : null;
         e.hasPlayed = false;
         e.recoveries = 0;
         e.urls = new Map(urls.map((u) => [u.index, { url: u.url, expiresAtMs: Date.parse(u.expiresAt) }]));
@@ -545,6 +556,8 @@ export function createPlayer(
       e.token++;
       e.playRequested = false;
       e.book = null;
+      e.releaseHold?.();
+      e.releaseHold = null;
       e.urls.clear();
       e.localFiles?.release();
       e.localFiles = null;

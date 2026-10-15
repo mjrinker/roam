@@ -32,6 +32,10 @@ export const GLOBALLY_LISTED_LIBRARY_KINDS: readonly LibraryKind[] = ["movies", 
 export const EXTERNAL_METADATA_KINDS = ["movies", "shows", "audiobooks"] as const satisfies readonly LibraryKind[];
 
 /** Libraries of pictures (and the videos beside them): browsed as a timeline and albums rather than folder by folder. */
+/** The libraries whose titles are copies someone can own (not music or photos): what ownership tracking and its playing-at-once limit cover. */
+export const OWNABLE_LIBRARY_KINDS = ["movies", "shows", "audiobooks", "video", "ebooks"] as const satisfies readonly LibraryKind[];
+export const OWNABLE_KIND_LABEL: Record<(typeof OWNABLE_LIBRARY_KINDS)[number], string> = { movies: "Movies", shows: "TV shows", audiobooks: "Audiobooks", video: "Videos", ebooks: "eBooks" };
+
 export const PHOTO_LIBRARY_KINDS = ["photos"] as const satisfies readonly LibraryKind[];
 
 /**

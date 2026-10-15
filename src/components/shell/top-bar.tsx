@@ -4,6 +4,7 @@ import { Menu } from "lucide-react";
 import { BackButton } from "@/components/shell/back-button";
 import { BrandLogo } from "@/components/shell/brand";
 import { SearchBox } from "@/components/shell/search-box";
+import { NotificationBell } from "@/components/shell/notification-bell";
 import { UserMenu } from "@/components/shell/user-menu";
 import { useShell } from "@/components/shell/shell-context";
 
@@ -37,6 +38,7 @@ export function TopBar({
         <SearchBox serverId={serverId} />
       </div>
 
+      <NotificationBell />
       <UserMenu email={email} profileName={profileName} avatarKey={avatarKey} />
     </header>
   );

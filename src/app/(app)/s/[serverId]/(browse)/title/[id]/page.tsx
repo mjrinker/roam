@@ -35,6 +35,7 @@ import { loadDddForMovie } from "@/lib/ddd/page";
 import { mergeGuideLines } from "@/lib/ddd/transform";
 import { normalizePrefs } from "@/lib/content-filter/categories";
 import { Breadcrumbs } from "@/components/shell/breadcrumbs";
+import { OwnershipSection } from "@/components/ownership/ownership-section";
 import { isFileTreeLibraryKind } from "@/lib/libraries/profile";
 
 export default async function TitleDetailPage({
@@ -131,6 +132,7 @@ export default async function TitleDetailPage({
           <CastRow serverId={serverId} cast={cast} />
           <CrewRow serverId={serverId} crew={crew} />
           <ExtrasSection serverId={serverId} groups={extras} />
+          <OwnershipSection serverId={serverId} titleId={title.id} libraryKind={row.libraryKind} accountId={profile.id} viewerId={viewer.id} isAdmin={role === "admin"} limited={viewer.role === "limited"} />
         </>
       }
       meta={[

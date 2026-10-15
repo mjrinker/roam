@@ -41,6 +41,8 @@ import {
   windowClampTarget,
 } from "@/lib/player/timeline";
 import { snapToChapter } from "@/lib/chapters/chapters";
+import { holdPlace, readUnavailable, releasePlace, type Unavailable } from "@/lib/ownership/client";
+import { UnavailableScreen } from "@/components/player/unavailable-screen";
 import { isRemoved, removedRanges, toRealTime, toViewTime, viewDuration } from "@/lib/content-filter/timeline";
 
 /** What a floating bar needs to know about the player, reported as it changes. */
@@ -184,6 +186,10 @@ export function SeamlessPlayer({
   const manifestRef = useRef<PlayManifest | null>(null);
   const [manifest, setManifest] = useState<PlayManifest | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // The server tracks who owns what, and no copy of this can be played now (withdrawn, or all being played); retry bumps to ask again.
+  const [unavailable, setUnavailable] = useState<Unavailable | null>(null);
+  const [retryKey, setRetryKey] = useState(0);
+  const retry = useCallback(() => setRetryKey((k) => k + 1), []);
 
   // Which physical <video> element (0 or 1) is currently the visible/active one.
   const [frontSlot, setFrontSlot] = useState<0 | 1>(0);
@@ -296,6 +302,12 @@ export function SeamlessPlayer({
         localFilesRef.current = files;
         data = offline;
       } else {
+        const blocked = await readUnavailable(res);
+        if (cancelled) return;
+        if (blocked) {
+          setUnavailable(blocked);
+          return;
+        }
         const body = res ? await res.json().catch(() => ({})) : {};
         setError(body.error ?? (res ? "This can't be played right now." : "You're offline, and this isn't downloaded."));
         return;
@@ -305,6 +317,7 @@ export function SeamlessPlayer({
         data.resumeSeconds = Math.max(0, Math.min(startAtRef.current, Math.max(0, data.durationSeconds - 1)));
         handledStartRef.current = startTokenRef.current;
       }
+      setUnavailable(null);
       manifestRef.current = data;
       setManifest(data);
       if (!rateTouchedRef.current) setRate(clampSpeed(data.defaultRate ?? 1));
@@ -334,7 +347,34 @@ export function SeamlessPlayer({
       localFilesRef.current?.release();
       localFilesRef.current = null;
     };
-  }, [ownerKind, ownerId]);
+  }, [ownerKind, ownerId, retryKey]);
+
+  // ── Hold this player's place (when the server limits playing at once) ──
+  const playingRef = useRef(false);
+  useEffect(() => {
+    playingRef.current = playing;
+  }, [playing]);
+  const holdsPlace = !!manifest?.heartbeat;
+  useEffect(() => {
+    if (!holdsPlace) return;
+    return holdPlace(
+      ownerKind,
+      ownerId,
+      () => !playingRef.current,
+      (lost) => {
+        // The place was lost (an owner withdrew their copy): stop and say so.
+        videoRefs.current.forEach((el) => el?.pause());
+        setUnavailable(lost);
+        setManifest(null);
+      }
+    );
+  }, [holdsPlace, ownerKind, ownerId]);
+  useEffect(() => {
+    const leave = () => releasePlace();
+    if (!holdsPlace) return;
+    window.addEventListener("pagehide", leave);
+    return () => window.removeEventListener("pagehide", leave);
+  }, [holdsPlace]);
 
   // ── Initialize playback once the manifest is available ─────────────────
   // NOTE: this effect re-runs not just on first mount, but also whenever
@@ -779,8 +819,8 @@ export function SeamlessPlayer({
 
   // ...and watches it through this.
   useEffect(() => {
-    onStatus?.({ ready: !!manifest, playing, buffering, finished, error, time: toViewTime(globalTime, removedRanges(manifest?.skips)), duration: viewDuration(manifest?.durationSeconds ?? 0, removedRanges(manifest?.skips)) });
-  }, [onStatus, manifest, playing, buffering, finished, error, globalTime]);
+    onStatus?.({ ready: !!manifest, playing, buffering, finished, error: error ?? unavailable?.error ?? null, time: toViewTime(globalTime, removedRanges(manifest?.skips)), duration: viewDuration(manifest?.durationSeconds ?? 0, removedRanges(manifest?.skips)) });
+  }, [onStatus, manifest, playing, buffering, finished, error, unavailable, globalTime]);
 
   // Closing the player, switching video or leaving the page saves where it got to (only if it ever played, and never over a finished title).
   useEffect(() => {
@@ -911,6 +951,10 @@ export function SeamlessPlayer({
     rateTouchedRef.current = true;
     setRate(clampSpeed(speed));
   }, []);
+
+  if (unavailable && !manifest && mode === "full") {
+    return <UnavailableScreen info={unavailable} backHref={backHref} onRetry={retry} />;
+  }
 
   if (error && !manifest && mode === "full") {
     return (

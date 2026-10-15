@@ -6,6 +6,7 @@ import { isPhotoLibraryKind } from "@/lib/libraries/profile";
 import { parseUnsupportedCodecs } from "@/lib/player/variant-selection";
 import { viewerLibrarySpeed } from "@/lib/player/library-speed";
 import { parseSkipParam } from "@/lib/content-filter/timeline";
+import { needsHeartbeat, ownershipGate } from "@/lib/ownership/gate";
 
 // authorizeOwner covers server membership AND the profile's rating limit —
 // see lib/content/access. A title blocked by the limit 404s exactly like a
@@ -28,6 +29,11 @@ export async function GET(
   const demo = await checkDemoPlay(auth.serverId, auth.member.profile.id);
   if (!demo.ok) return NextResponse.json({ error: demo.error }, { status: 429, headers: { "Cache-Control": "no-store", "Retry-After": String(secondsUntilWindowRenews()) } });
 
+  // With ownership tracked: a title every owner has withdrawn, or one whose copies are all being played, doesn't play (and a play that
+  // can start takes its place at once). Extras (bonus features) are only checked for withdrawal.
+  const blocked = await ownershipGate({ viewerId: auth.member.viewer.id, accountId: auth.member.profile.id }, ownerKind, ownerId, { take: true });
+  if (blocked) return blocked;
+
   const params = new URL(request.url).searchParams;
   const unsupportedCodecs = parseUnsupportedCodecs(params.get("unsupportedCodecs"));
   const heightParam = Number(params.get("height"));
@@ -43,5 +49,5 @@ export async function GET(
   }
   // A server's admin (a profile that may change settings) can mark scenes while watching; the marking route checks again.
   const canMark = ownerKind !== "extra" && auth.member.role === "admin" && auth.member.viewer.role !== "limited";
-  return NextResponse.json({ ...result.manifest, canMark, libraryId: auth.libraryId, defaultRate: await viewerLibrarySpeed(auth.member.viewer.id, auth.libraryId) });
+  return NextResponse.json({ ...result.manifest, heartbeat: await needsHeartbeat(ownerKind, ownerId), canMark, libraryId: auth.libraryId, defaultRate: await viewerLibrarySpeed(auth.member.viewer.id, auth.libraryId) });
 }

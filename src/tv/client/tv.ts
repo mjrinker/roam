@@ -671,6 +671,8 @@ interface PlayConfig {
   subtitle?: string | null;
 }
 interface Manifest {
+  /** The server limits playing at once: send a heartbeat to keep this player's place. */
+  heartbeat?: boolean;
   durationSeconds: number;
   segments: Segment[];
   resumeSeconds: number;
@@ -856,9 +858,34 @@ function startPlayer(first: PlayConfig) {
         throw new Error("Signed out.");
       }
       if (res.status === 429) throw new Error("The demo has reached today's play limit. Try again tomorrow.");
+      if (res.status === 423) {
+        // Every copy is withdrawn or being played (the server tracks who owns what): say what the server said.
+        return res.json().then((b: { error?: string }) => {
+          throw new Error(b && b.error ? b.error : "This can't be played right now.");
+        });
+      }
       if (!res.ok) throw new Error("This can't be played right now.");
       return res.json();
     });
+  }
+
+  // ── Holding a place, when the server limits how many can play a title at once ──
+  let beatTimer: number | undefined;
+  function holdPlace() {
+    window.clearInterval(beatTimer);
+    if (!manifest || !manifest.heartbeat) return;
+    const kind = cfg.ownerKind;
+    const id = cfg.ownerId;
+    beatTimer = window.setInterval(() => {
+      fetch("/api/playback/beat", { method: "POST", credentials: "same-origin", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ownerKind: kind, ownerId: id, paused: video.paused }) }).then(
+        (res) => {
+          if (res.status !== 423) return;
+          video.pause();
+          res.json().then((b: { error?: string }) => say(b && b.error ? b.error : "This isn't available any more."));
+        },
+        () => undefined
+      );
+    }, 30000);
   }
 
   function load(resumeFrom?: number, autoplay?: boolean, ahead?: Promise<Manifest>) {
@@ -866,6 +893,7 @@ function startPlayer(first: PlayConfig) {
     (ahead || fetchPlay(cfg.ownerKind, cfg.ownerId))
       .then((m: Manifest) => {
         manifest = m;
+        holdPlace();
         autoDone = {};
         speed.applyDefault(m.defaultRate, m.libraryId);
         subs.setOwner(cfg.ownerKind, cfg.ownerId);
@@ -1001,7 +1029,14 @@ function startPlayer(first: PlayConfig) {
       load(position(), wantPlaying);
     } else say("Playback failed. Press Back and try again.");
   });
-  window.addEventListener("pagehide", () => save(undefined, true));
+  window.addEventListener("pagehide", () => {
+    save(undefined, true);
+    try {
+      if (manifest && manifest.heartbeat && navigator.sendBeacon) navigator.sendBeacon("/api/playback/end");
+    } catch {
+      /* the place is let go after a minute and a half anyway */
+    }
+  });
 
   /** Player keys, called from the page's key handler; returns true when it handled the key. */
   playerKeys = (action: Action | null, dirKey: string | null): boolean => {
