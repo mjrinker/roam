@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<component name="DetailScreen" extends="Group">
+  <script type="text/brightscript" uri="pkg:/components/DetailScreen.brs" />
+  <script type="text/brightscript" uri="pkg:/source/util.brs" />
+  <script type="text/brightscript" uri="pkg:/source/config.brs" />
+  <interface>
+    <field id="params" type="assocarray" />
+    <field id="route" type="assocarray" alwaysNotify="true" />
+    <function name="activate" />
+  </interface>
+  <children>
+    <Poster id="poster" translation="[60,60]" width="300" height="450" loadDisplayMode="scaleToFit" />
+    <Label id="name" translation="[400,50]" width="800" font="font:LargeBoldSystemFont" color="0xECECF1FF" wrap="true" maxLines="2" />
+    <Label id="meta" translation="[400,150]" width="800" color="0x8D8D99FF" />
+    <Label id="overview" translation="[400,190]" width="800" height="150" wrap="true" maxLines="5" lineSpacing="4" color="0xB8B8C4FF" font="font:SmallSystemFont" />
+    <LabelList id="list" translation="[400,350]" itemSize="[800,44]" numRows="7" color="0xECECF1FF" focusedColor="0x0B0B10FF" visible="false" />
+    <Label id="status" translation="[400,350]" width="800" wrap="true" color="0xB8B8C4FF" text="Loading..." />
+  </children>
+</component>

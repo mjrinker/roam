@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<component name="RoamScene" extends="Scene">
+  <script type="text/brightscript" uri="pkg:/components/RoamScene.brs" />
+  <script type="text/brightscript" uri="pkg:/source/util.brs" />
+  <script type="text/brightscript" uri="pkg:/source/config.brs" />
+  <interface>
+    <field id="launchArgs" type="assocarray" />
+  </interface>
+  <children>
+    <Rectangle id="bg" color="0x0B0B10FF" width="1280" height="720" />
+    <Label id="loading" text="Opening Roam..." width="1280" height="720" horizAlign="center" vertAlign="center" color="0xECECF1FF" />
+    <Group id="stackRoot" />
+  </children>
+</component>

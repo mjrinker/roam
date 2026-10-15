@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<component name="ChoiceScreen" extends="Group">
+  <script type="text/brightscript" uri="pkg:/components/ChoiceScreen.brs" />
+  <interface>
+    <field id="params" type="assocarray" onChange="onParams" />
+    <field id="route" type="assocarray" alwaysNotify="true" />
+    <function name="activate" />
+  </interface>
+  <children>
+    <Label id="title" translation="[140,80]" width="1000" font="font:LargeBoldSystemFont" color="0xECECF1FF" />
+    <LabelList id="list" translation="[140,170]" itemSize="[1000,56]" numRows="8" color="0xECECF1FF" focusedColor="0x0B0B10FF" focusBitmapUri="" />
+  </children>
+</component>

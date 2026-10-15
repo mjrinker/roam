@@ -1,0 +1,7 @@
+{
+  "rootDir": ".",
+  "files": ["manifest", "source/**/*", "components/**/*", "images/**/*"],
+  "stagingDir": "../.roku-staging",
+  "createPackage": false,
+  "diagnosticFilters": []
+}

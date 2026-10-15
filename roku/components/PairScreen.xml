@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<component name="PairScreen" extends="Group">
+  <script type="text/brightscript" uri="pkg:/components/PairScreen.brs" />
+  <script type="text/brightscript" uri="pkg:/source/util.brs" />
+  <script type="text/brightscript" uri="pkg:/source/config.brs" />
+  <interface>
+    <field id="params" type="assocarray" />
+    <field id="route" type="assocarray" alwaysNotify="true" />
+    <function name="activate" />
+  </interface>
+  <children>
+    <Label id="heading" translation="[140,110]" width="1000" text="Sign in to Roam" font="font:LargeBoldSystemFont" color="0xECECF1FF" />
+    <Label id="step" translation="[140,190]" width="1000" wrap="true" lineSpacing="6" color="0xB8B8C4FF" text="Getting a code..." />
+    <Label id="code" translation="[140,330]" width="1000" font="font:LargeBoldSystemFont" color="0x2DD4BFFF" text="" />
+    <Label id="hint" translation="[140,430]" width="1000" wrap="true" color="0x8D8D99FF" text="" />
+    <ButtonGroup id="buttons" translation="[140,540]" />
+    <Timer id="pollTimer" repeat="true" duration="3" />
+  </children>
+</component>

@@ -131,7 +131,7 @@ export async function buildPlayManifest(
       }
       const { url, expiresAt } = streaming ?? (await provider.getStreamingUrl(row.boxFileId));
       if (!earliestExpiry || expiresAt < earliestExpiry) earliestExpiry = expiresAt;
-      const segment: PlaySegment = { ...buildPlaySegment(row, index, url, cursor), sizeBytes: (usedVariant ?? row).sizeBytes ?? undefined };
+      const segment: PlaySegment = { ...buildPlaySegment(row, index, url, cursor), sizeBytes: (usedVariant ?? row).sizeBytes ?? undefined, container: (usedVariant ?? row).container ?? undefined };
       segments.push(segment);
       // A trimmed segment's window duration, not the whole physical
       // file's — the next segment's startSeconds has to pick up right

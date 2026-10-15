@@ -1,0 +1,10 @@
+title=Roam
+major_version=1
+minor_version=0
+build_version=0
+mm_icon_focus_hd=pkg:/images/icon-hd.png
+mm_icon_focus_sd=pkg:/images/icon-sd.png
+splash_screen_hd=pkg:/images/splash-hd.jpg
+splash_color=#0b0b10
+splash_min_time=1000
+ui_resolutions=hd

@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<component name="HomeScreen" extends="Group">
+  <script type="text/brightscript" uri="pkg:/components/HomeScreen.brs" />
+  <script type="text/brightscript" uri="pkg:/source/util.brs" />
+  <script type="text/brightscript" uri="pkg:/source/config.brs" />
+  <interface>
+    <field id="params" type="assocarray" />
+    <field id="route" type="assocarray" alwaysNotify="true" />
+    <function name="activate" />
+  </interface>
+  <children>
+    <Label id="title" translation="[60,30]" width="1100" font="font:LargeBoldSystemFont" color="0xECECF1FF" text="Roam" />
+    <Label id="status" translation="[60,120]" width="1100" color="0xB8B8C4FF" text="Loading..." />
+    <RowList id="rows" translation="[40,90]" itemComponentName="PosterRowItem" itemSize="[1200,320]" itemSpacing="[0,30]" rowItemSize="[[170,310]]" rowItemSpacing="[[16,0]]" rowLabelOffset="[[20,10]]" showRowLabel="[true]" rowFocusAnimationStyle="floatingFocus" numRows="2" focusXOffset="[20]" visible="false" />
+  </children>
+</component>

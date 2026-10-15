@@ -9,6 +9,8 @@ export interface PlaySegment {
   startSeconds: number;
   /** The physical file's size in bytes when known (a download shows progress against it). */
   sizeBytes?: number;
+  /** The file's container ("mp4", "mkv"...) when known; the address has no file extension, so a native player needs this to know how to open it. */
+  container?: string;
   // Both PRESENT together only for a trimmed segment — an episode's
   // estimated slice of a multi-episode file (see lib/scan/episode-split.ts)
   // — and OMITTED entirely (not even `undefined`) for an ordinary segment,

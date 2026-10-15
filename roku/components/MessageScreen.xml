@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<component name="MessageScreen" extends="Group">
+  <script type="text/brightscript" uri="pkg:/components/MessageScreen.brs" />
+  <interface>
+    <field id="params" type="assocarray" onChange="onParams" />
+    <field id="route" type="assocarray" alwaysNotify="true" />
+    <function name="activate" />
+  </interface>
+  <children>
+    <Label id="title" translation="[140,200]" width="1000" font="font:LargeBoldSystemFont" color="0xECECF1FF" />
+    <Label id="message" translation="[140,280]" width="1000" wrap="true" lineSpacing="6" color="0xB8B8C4FF" />
+    <ButtonGroup id="buttons" translation="[140,420]" />
+  </children>
+</component>

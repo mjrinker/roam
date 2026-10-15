@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<component name="PosterRowItem" extends="Group">
+  <script type="text/brightscript" uri="pkg:/components/PosterRowItem.brs" />
+  <interface>
+    <field id="itemContent" type="node" onChange="onContent" />
+    <field id="width" type="float" alias="poster.width" />
+    <field id="height" type="float" alias="poster.height" />
+  </interface>
+  <children>
+    <Poster id="poster" translation="[0,0]" width="170" height="250" loadDisplayMode="scaleToZoom" />
+    <Rectangle id="bar" translation="[0,244]" width="170" height="6" color="0x2DD4BFFF" visible="false" />
+    <Label id="title" translation="[0,258]" width="170" height="52" wrap="true" maxLines="2" color="0xECECF1FF" font="font:SmallSystemFont" />
+  </children>
+</component>

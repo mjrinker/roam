@@ -204,6 +204,10 @@ For a server whose library is several households' discs pooled together. **Serve
 
 Native apps (TV apps, phone apps, Kodi) use a JSON API documented in [`docs/api.md`](docs/api.md). An app is signed in the way a TV is: it shows a short code, a person approves it at `/link` while signed in, and the app receives a **device token** (kept only as a hash; sent as `Authorization: Bearer`) that acts as that account and one chosen profile (a PIN profile asks for its PIN). Signed-in apps are listed, with a **Sign out** each, under *Manage profiles*. The token works with the older endpoints too (play, watch progress, playlists, ownership, notifications), so an app needs no cookies. The browse side (`/api/v1/servers/…`: home, libraries, items, titles, albums, artists, search) answers with the same sharing and age rules as the web.
 
+### Roku
+
+A Roku channel is in [`roku/`](roku/README.md) (BrightScript, using the same JSON API). `npx tsx scripts/package-roku.ts --url https://your-roam.example` builds the zip to install on a Roku in developer mode. It compiles under test but has not yet been run on a real Roku.
+
 ### Trailers and extras
 
 A movie's page lists its trailers and other extras when its folder has them, named the way Plex names them. Either put the type at the end of the file name, right after a hyphen (`Teaser-trailer.mp4`, `Making Of-behindthescenes.mp4`, `Cut Scene-deleted.mp4`, `The Look-featurette.mp4`, `Talk-interview.mp4`, `Opening-scene.mp4`, `Little Film-short.mp4`, `Misc-other.mp4`), or put the videos in a subfolder of the movie's folder named for the type (`Trailers`, `Behind The Scenes`, `Deleted Scenes`, `Featurettes`, `Interviews`, `Scenes`, `Shorts`, `Other`). They are found on the next scan of the library (or Resync on the movie), appear once Roam has read their length, and play in the normal player. They never record progress and aren't offered for download. Only MP4, M4V and MOV files are used, as for movies.

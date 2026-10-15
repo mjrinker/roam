@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<component name="SearchScreen" extends="Group">
+  <script type="text/brightscript" uri="pkg:/components/SearchScreen.brs" />
+  <script type="text/brightscript" uri="pkg:/source/util.brs" />
+  <script type="text/brightscript" uri="pkg:/source/config.brs" />
+  <interface>
+    <field id="params" type="assocarray" />
+    <field id="route" type="assocarray" alwaysNotify="true" />
+    <function name="activate" />
+  </interface>
+  <children>
+    <Label id="heading" translation="[60,30]" text="Search" font="font:LargeBoldSystemFont" color="0xECECF1FF" />
+    <Keyboard id="keyboard" translation="[60,100]" />
+    <Label id="status" translation="[560,110]" width="660" wrap="true" color="0xB8B8C4FF" text="Type to search your movies and shows." />
+    <PosterGrid id="results" translation="[540,90]" basePosterSize="[140,210]" itemSpacing="[12,12]" numColumns="4" numRows="2" caption1NumLines="1" visible="false" />
+    <Timer id="debounce" repeat="false" duration="0.7" />
+  </children>
+</component>

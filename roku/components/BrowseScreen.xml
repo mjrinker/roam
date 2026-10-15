@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<component name="BrowseScreen" extends="Group">
+  <script type="text/brightscript" uri="pkg:/components/BrowseScreen.brs" />
+  <script type="text/brightscript" uri="pkg:/source/util.brs" />
+  <script type="text/brightscript" uri="pkg:/source/config.brs" />
+  <interface>
+    <field id="params" type="assocarray" />
+    <field id="route" type="assocarray" alwaysNotify="true" />
+    <function name="activate" />
+  </interface>
+  <children>
+    <Label id="title" translation="[60,30]" width="1100" font="font:LargeBoldSystemFont" color="0xECECF1FF" />
+    <Label id="status" translation="[60,120]" width="1100" color="0xB8B8C4FF" text="Loading..." />
+    <PosterGrid id="grid" translation="[60,90]" basePosterSize="[170,250]" itemSpacing="[16,16]" numColumns="6" numRows="2" caption1NumLines="1" caption2NumLines="1" visible="false" />
+  </children>
+</component>
