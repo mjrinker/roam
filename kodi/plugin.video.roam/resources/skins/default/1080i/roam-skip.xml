@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<window type="dialog">
+  <defaultcontrol always="true">10</defaultcontrol>
+  <controls>
+    <control type="group">
+      <right>60</right>
+      <bottom>160</bottom>
+      <width>420</width>
+      <height>90</height>
+      <control type="button" id="10">
+        <left>0</left>
+        <top>0</top>
+        <width>420</width>
+        <height>90</height>
+        <label>Skip</label>
+        <font>font13</font>
+        <align>center</align>
+        <aligny>center</aligny>
+        <textcolor>FF0B0B10</textcolor>
+        <focusedcolor>FF0B0B10</focusedcolor>
+        <texturefocus colordiffuse="FFFFFFFF">common/white.png</texturefocus>
+        <texturenofocus colordiffuse="CCFFFFFF">common/white.png</texturenofocus>
+      </control>
+    </control>
+  </controls>
+</window>

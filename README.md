@@ -208,6 +208,10 @@ Native apps (TV apps, phone apps, Kodi) use a JSON API documented in [`docs/api.
 
 A Roku channel is in [`roku/`](roku/README.md) (BrightScript, using the same JSON API). `npx tsx scripts/package-roku.ts --url https://your-roam.example` builds the zip to install on a Roku in developer mode. It compiles under test but has not yet been run on a real Roku.
 
+### Kodi
+
+A Kodi add-on is in [`kodi/`](kodi/README.md) (Python, using the same JSON API): sign in with a code, browse, play with your place kept, scenes skipped or muted for the profile, and skip buttons. `npx tsx scripts/package-kodi.ts --url https://your-roam.example` builds the zip to install in Kodi. It is tested against stand-ins for Kodi but has not yet been run inside a real Kodi.
+
 ### Trailers and extras
 
 A movie's page lists its trailers and other extras when its folder has them, named the way Plex names them. Either put the type at the end of the file name, right after a hyphen (`Teaser-trailer.mp4`, `Making Of-behindthescenes.mp4`, `Cut Scene-deleted.mp4`, `The Look-featurette.mp4`, `Talk-interview.mp4`, `Opening-scene.mp4`, `Little Film-short.mp4`, `Misc-other.mp4`), or put the videos in a subfolder of the movie's folder named for the type (`Trailers`, `Behind The Scenes`, `Deleted Scenes`, `Featurettes`, `Interviews`, `Scenes`, `Shorts`, `Other`). They are found on the next scan of the library (or Resync on the movie), appear once Roam has read their length, and play in the normal player. They never record progress and aren't offered for download. Only MP4, M4V and MOV files are used, as for movies.

@@ -1,0 +1,29 @@
+# Kodi Media Center language file
+msgid ""
+msgstr ""
+"Content-Type: text/plain; charset=UTF-8\n"
+"Language: en_GB\n"
+
+msgctxt "#30000"
+msgid "General"
+msgstr ""
+
+msgctxt "#30001"
+msgid "Server address"
+msgstr ""
+
+msgctxt "#30002"
+msgid "Skip muted scenes instead of muting them"
+msgstr ""
+
+msgctxt "#30003"
+msgid "A profile can have scenes muted (their sound goes off for a few seconds). Turn this on to skip those few seconds instead."
+msgstr ""
+
+msgctxt "#30004"
+msgid "Sign in with a code"
+msgstr ""
+
+msgctxt "#30005"
+msgid "Sign out"
+msgstr ""

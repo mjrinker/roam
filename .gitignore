@@ -44,3 +44,5 @@ demo-credits.json
 public/tv/tv.js
 /dist/
 .roku-staging
+__pycache__/
+*.pyc
