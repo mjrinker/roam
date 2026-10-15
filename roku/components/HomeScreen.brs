@@ -43,7 +43,11 @@ sub onHome(event as Object)
   end for
   tools = root.createChild("ContentNode")
   tools.title = "More"
-  for each t in [{ id: "search", name: "Search" }, { id: "profile", name: "Switch profile" }, { id: "signout", name: "Sign out" }]
+  more = [{ id: "search", name: "Search" }]
+  if h.hasPlaylists = true then more.push({ id: "playlists", name: "Playlists" })
+  more.push({ id: "profile", name: "Switch profile" })
+  more.push({ id: "signout", name: "Sign out" })
+  for each t in more
     node = tools.createChild("ContentNode")
     node.title = t.name
     node.shortDescriptionLine1 = t.name
@@ -75,6 +79,7 @@ sub onSelected()
     m.top.route = { name: "browse", serverId: m.serverId, libraryId: item.itemId, title: item.title, style: item.style }
   else if t = "action" then
     if item.itemId = "search" then m.top.route = { name: "search", serverId: m.serverId }
+    if item.itemId = "playlists" then m.top.route = { name: "playlists", serverId: m.serverId }
     if item.itemId = "profile" then m.top.route = { name: "switchProfile" }
     if item.itemId = "signout" then m.top.route = { name: "signOut" }
   else if t = "episode" then

@@ -196,6 +196,10 @@ sub onRoute(event as Object)
     show("DetailScreen", { serverId: r.serverId, type: r.type, id: r.id })
   else if r.name = "browse" then
     show("BrowseScreen", { serverId: r.serverId, libraryId: r.libraryId, name: r.title, style: r.style })
+  else if r.name = "playlists" then
+    show("PlaylistScreen", { serverId: r.serverId })
+  else if r.name = "playlist" then
+    show("PlaylistScreen", { serverId: r.serverId, playlistId: r.playlistId, name: r.title })
   else if r.name = "search" then
     show("SearchScreen", { serverId: r.serverId })
   else if r.name = "play" then

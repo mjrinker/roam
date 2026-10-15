@@ -10,11 +10,13 @@ A Roku channel written in BrightScript and SceneGraph. It uses the same JSON API
 - Who's watching (a PIN pad for a profile with a PIN), and which server if there are several.
 - Home: continue watching, recently added, your movie, show and video libraries, search, switch profile, sign out.
 - Libraries as poster grids (more load as you scroll), video folders, movie and show pages (a show lists one season's episodes and can change season), search.
+- **Playlists** (Home, More): the playlists you can see; an episode plays at once with the ones after it queued, a movie or show opens its page. Audiobooks and photos in a playlist are left out.
+- **Chapters** on a movie's page (each plays from where it starts) and **subtitles**: choose a language, search, pick one; it is shown as words on the picture while the movie plays (movies only, not episodes yet; Roku's own menu still handles tracks inside a file).
 - Playing: resumes where you left off (or **Start over**), keeps your place, plays the next episode of a season by itself, skips the scenes your profile skips, and offers **Skip intro / recap / credits** (press **Down**; a profile that skips them automatically does). It holds its place when the server limits how many can watch a title at once, and says why when it can't play something.
 
 ## Not on the Roku yet
 
-Audiobooks and music, photos, playlists, subtitles, chapters, notifications, the parental guide, and ownership screens. Roku also can't reliably switch a scene's sound off on every model, so a profile that **mutes** a scene has it **skipped** instead (`roamMuteAsSkip()` in `source/config.brs`).
+Audiobooks and music, photos, notifications, the parental guide, and ownership screens. Roku also can't reliably switch a scene's sound off on every model, so a profile that **mutes** a scene has it **skipped** instead (`roamMuteAsSkip()` in `source/config.brs`).
 
 ## Install it on your Roku (developer mode)
 

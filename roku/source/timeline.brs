@@ -48,3 +48,26 @@ function skipButtonAt(segments as Dynamic, t as Float, duration as Float) as Dyn
   end for
   return invalid
 end function
+
+' The subtitle words to show at global time t, or "" when there are none. `cues` is the API's list of [start, end, text]; `offset` shifts the whole track.
+function subtitleTextAt(cues as Dynamic, t as Float, offset as Float) as String
+  if cues = invalid then return ""
+  time = t - offset
+  text = ""
+  ' Cues are in order of start: look at the last few that started at or before this time.
+  lo = 0
+  hi = cues.Count()
+  while lo < hi
+    mid = (lo + hi) \ 2
+    if cues[mid][0] <= time then lo = mid + 1 else hi = mid
+  end while
+  first = lo - 8
+  if first < 0 then first = 0
+  for i = first to lo - 1
+    if cues[i][1] > time then
+      if text <> "" then text = text + chr(10)
+      text = text + cues[i][2]
+    end if
+  end for
+  return text
+end function

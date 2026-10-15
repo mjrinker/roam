@@ -28,6 +28,9 @@ sub activate()
   m.kind = m.top.params.kind
   m.id = m.top.params.id
   m.queue = m.top.params.queue
+  m.cues = m.top.params.subtitles
+  m.startAt = m.top.params.startAt
+  m.startOver = m.top.params.startOver
   if m.queue = invalid then m.queue = []
   fetchManifest()
 end sub
@@ -63,7 +66,10 @@ sub onManifest(event as Object)
   if m.retryAt <> invalid then
     startAt = m.retryAt
     m.retryAt = invalid
-  else if m.top.params.startOver <> true and m.manifest.resumeSeconds <> invalid and m.manifest.resumeSeconds > 0 and m.manifest.resumeSeconds < m.manifest.durationSeconds - 30 then
+  else if m.startAt <> invalid then
+    startAt = m.startAt
+    m.startAt = invalid
+  else if m.startOver <> true and m.manifest.resumeSeconds <> invalid and m.manifest.resumeSeconds > 0 and m.manifest.resumeSeconds < m.manifest.durationSeconds - 30 then
     startAt = m.manifest.resumeSeconds
   end if
   if m.manifest.notice <> invalid and m.manifest.notice <> "" then
@@ -151,7 +157,9 @@ sub finishVideo()
     m.id = m.queue[0]
     m.queue.Delete(0)
     m.manifest = invalid
-    m.top.params.startOver = false
+    m.startOver = false
+    m.cues = invalid
+    m.top.findNode("subtitleText").visible = false
     m.g = 0.0
     fetchManifest()
   else
@@ -176,6 +184,16 @@ sub onTick()
     return
   end if
   updateSkipButton()
+  showSubtitle()
+end sub
+
+' The subtitle for this moment, if the person chose some on the movie's page.
+sub showSubtitle()
+  if m.cues = invalid then return
+  label = m.top.findNode("subtitleText")
+  text = subtitleTextAt(m.cues, m.g, 0.0)
+  if text <> label.text then label.text = text
+  label.visible = text <> ""
 end sub
 
 ' "Skip intro" and the like: offered with a press of Down, or done by itself for a profile that skips that kind automatically.
