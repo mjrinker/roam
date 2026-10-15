@@ -8,7 +8,7 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { writeZip } from "@/lib/ebooks/zip-writer";
-import { siteOrigin, tizenConfig, webosAppInfo, webosIndexHtml } from "@/tv/packaging";
+import { launchPageHtml, siteOrigin, tizenConfig, webosAppInfo } from "@/tv/packaging";
 
 const arg = (name: string) => {
   const i = process.argv.indexOf(name);
@@ -36,11 +36,13 @@ async function main() {
   const tizenIcon = await icon(117);
   await writeFile(path.join(tizen, "config.xml"), config);
   await writeFile(path.join(tizen, "icon.png"), tizenIcon);
+  const launch = launchPageHtml(origin);
+  await writeFile(path.join(tizen, "index.html"), launch);
   // An unsigned package for reference; the TV only installs one signed with your certificate (tizen package -t wgt -s <profile>).
-  await writeFile(path.join(tizen, "roam-unsigned.wgt"), writeZip([{ name: "config.xml", data: config }, { name: "icon.png", data: tizenIcon, store: true }]));
+  await writeFile(path.join(tizen, "roam-unsigned.wgt"), writeZip([{ name: "config.xml", data: config }, { name: "index.html", data: launch }, { name: "icon.png", data: tizenIcon, store: true }]));
 
   await writeFile(path.join(webos, "appinfo.json"), webosAppInfo(version));
-  await writeFile(path.join(webos, "index.html"), webosIndexHtml(origin));
+  await writeFile(path.join(webos, "index.html"), launchPageHtml(origin));
   await writeFile(path.join(webos, "icon.png"), await icon(80));
   await writeFile(path.join(webos, "largeIcon.png"), await icon(130));
 

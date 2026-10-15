@@ -20,7 +20,8 @@ describe("Tizen config", () => {
   it("is well-formed, opens the site's /tv, and asks only for the remote's keys and the network", () => {
     const xml = tizenConfig("https://roam.example", "1.2.3");
     const doc = parseXml(xml);
-    expect(findAll(doc, "content")[0].attrs.src).toBe("https://roam.example/tv");
+    // The app opens its own page first, which hands over to the site (and explains a dead network).
+    expect(findAll(doc, "content")[0].attrs.src).toBe("index.html");
     expect(findAll(doc, "widget")[0].attrs.version).toBe("1.2.3");
     const app = findAll(doc, "application")[0].attrs;
     expect([app.id, app.package, app.required_version]).toEqual([TIZEN_APP_ID, TIZEN_PACKAGE_ID, "4.0"]);

@@ -21,7 +21,7 @@ export function tizenConfig(origin: string, version: string): string {
   return `<?xml version="1.0" encoding="UTF-8"?>
 <widget xmlns="http://www.w3.org/ns/widgets" xmlns:tizen="http://tizen.org/ns/widgets" id="${xmlEscape(start)}" version="${version}" viewmodes="maximized">
   <tizen:application id="${TIZEN_APP_ID}" package="${TIZEN_PACKAGE_ID}" required_version="4.0"/>
-  <content src="${xmlEscape(start)}"/>
+  <content src="index.html"/>
   <feature name="http://tizen.org/feature/screen.size.all"/>
   <icon src="icon.png"/>
   <name>Roam</name>
@@ -45,8 +45,11 @@ export function webosAppInfo(version: string): string {
   );
 }
 
-/** webOS needs a local main page; this one hands over to the site, and says what's wrong if it can't. */
-export function webosIndexHtml(origin: string): string {
+/**
+ * The app's own first page (webOS requires one; Samsung's review wants the app to say what is wrong when the network is down, which a bare
+ * remote address cannot). It hands over to the site, and says what's wrong if it can't.
+ */
+export function launchPageHtml(origin: string): string {
   if (siteOrigin(origin) !== origin) throw new Error("A site origin is required.");
   const start = JSON.stringify(`${origin}/tv`).replace(/</g, "\\u003c");
   return `<!doctype html><html><head><meta charset="utf-8"><title>Roam</title>
@@ -66,3 +69,5 @@ try { x.send(); } catch (e) { fail(); }
 </script></body></html>
 `;
 }
+
+export const webosIndexHtml = launchPageHtml;
