@@ -2,6 +2,7 @@
 import { eq, sql } from "drizzle-orm";
 import type { PgDatabase, PgQueryResultHKT } from "drizzle-orm/pg-core";
 import { libraries, musicAlbums, musicArtists, titles, trackLyrics } from "@/lib/db/schema";
+import { isSongLibraryKind } from "@/lib/libraries/profile";
 import { findLyrics, type LrclibResult, type Song } from "@/lib/lyrics/lrclib";
 import { parseLrc, type LyricLine } from "@/lib/lyrics/lrc";
 
@@ -36,7 +37,7 @@ export async function songOf(ex: Db, titleId: string): Promise<Song | null> {
     .leftJoin(musicArtists, eq(musicArtists.id, musicAlbums.artistId))
     .where(eq(titles.id, titleId))
     .limit(1);
-  if (!row || (row.kind !== "music" && row.kind !== "audio")) return null;
+  if (!row || !isSongLibraryKind(row.kind)) return null;
   const artist = row.artist ?? row.authors?.[0] ?? row.folderAuthor ?? "";
   const seconds = row.runtime ?? (row.fileSeconds ? Number(row.fileSeconds) : null);
   // A file's name often begins with its number ("03 - Song"): the service wants the title alone.
