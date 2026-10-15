@@ -85,6 +85,9 @@ data class GenresResponse(val genres: List<Genre> = emptyList())
 data class ClaimResult(val status: String = "")
 
 @Serializable
+data class MoreInCollection(val id: String, val name: String, val items: List<ApiItem> = emptyList())
+
+@Serializable
 data class PhotoRef(val type: String, val id: String)
 
 @Serializable
@@ -227,6 +230,7 @@ data class Title(
     val narrators: List<String> = emptyList(),
     val series: SeriesRef? = null,
     val ownership: Ownership? = null,
+    val moreInCollections: List<MoreInCollection> = emptyList(),
 )
 
 @Serializable

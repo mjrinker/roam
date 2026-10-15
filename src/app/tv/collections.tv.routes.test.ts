@@ -49,6 +49,7 @@ import { GET as collectionList } from "./s/[serverId]/collections/[libraryId]/ro
 import { GET as collectionOne } from "./s/[serverId]/collection/[id]/route";
 import { syncSeriesCollections } from "@/lib/collections/sync";
 import { collections } from "@/lib/db/schema";
+import { GET as titlePage } from "./s/[serverId]/title/[id]/route";
 
 let db: TestDb;
 beforeAll(() => { db = h.testDb.db; });
@@ -110,5 +111,15 @@ describe("collections on a TV", () => {
     expect((await collectionOne(req("/x"), ctx({ ...w.sid, id: c.id }))).status).toBe(404);
     expect((await collectionOne(req("/x"), ctx({ ...w.sid, id: "nope" }))).status).toBe(404);
     expect((await collectionList(req("/x"), ctx({ ...w.sid, libraryId: other.lib.id }))).status).toBe(404);
+  });
+
+  it("shows the rest of a collection on a movie's page", async () => {
+    const w = await world();
+    const alien = await series(w.lib.id, "Alien", 1979);
+    const aliens = await series(w.lib.id, "Aliens", 1986);
+    await syncSeriesCollections(db, w.lib.id);
+    const page = await text(await titlePage(req("/x"), ctx({ ...w.sid, id: alien.id })));
+    expect(page).toContain("More in Alien Collection");
+    expect(page).toContain(`/tv/s/${w.server.id}/title/${aliens.id}`);
   });
 });

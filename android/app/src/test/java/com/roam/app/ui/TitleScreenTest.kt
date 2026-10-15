@@ -250,4 +250,17 @@ class TitleScreenTest {
         rule.waitForIdle()
         assertEquals(listOf("title m1 false"), log)
     }
+
+    @Test fun otherFilmsInACollectionAreOfferedAndOpen() {
+        val nav = FakeNav()
+        val api = object : RoamApi by Unsupported {
+            override suspend fun title(serverId: String, id: String, season: Int?) =
+                movie().copy(moreInCollections = listOf(com.roam.app.data.MoreInCollection("c1", "Alien Collection", listOf(com.roam.app.data.ApiItem("movie", "m2", "Aliens", "1986")))))
+        }
+        rule.setContent { Shown(testGraph(api)) { TitleScreen("S", "m1", nav) } }
+        rule.waitForIdle()
+        rule.onNodeWithText("More in Alien Collection").performScrollTo().assertIsDisplayed()
+        rule.onNodeWithTag("card-m2").performScrollTo().performClick()
+        assertEquals(listOf(Routes.title("S", "m2")), nav.routes)
+    }
 }

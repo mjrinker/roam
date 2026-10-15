@@ -80,3 +80,21 @@ export async function collectionsOfTitle(ex: Db, args: { actor: LibraryActor; vi
     .where(and(eq(collectionItems.titleId, args.titleId), libraryVisible(ex, args.actor)));
   return rows.filter((r) => r.visible >= (r.kind === "tmdb" ? SERIES_MIN : 1)).map((r) => ({ id: r.id, name: r.name }));
 }
+
+export interface MoreInCollection {
+  id: string;
+  name: string;
+  /** The other titles of it this profile can see (not the one asked about), in the collection's order. */
+  items: CollectionDetail["items"];
+}
+
+/** For a title's page: each collection it is in, with the rest of what is in it. A collection with nothing else to show is left out. */
+export async function moreInCollections(ex: Db, args: { actor: LibraryActor; viewer: AccessProfile; titleId: string }): Promise<MoreInCollection[]> {
+  const out: MoreInCollection[] = [];
+  for (const c of await collectionsOfTitle(ex, args)) {
+    const detail = await getCollection(ex, { actor: args.actor, viewer: args.viewer, collectionId: c.id });
+    const items = detail?.items.filter((i) => i.id !== args.titleId) ?? [];
+    if (items.length > 0) out.push({ id: c.id, name: c.name, items });
+  }
+  return out;
+}

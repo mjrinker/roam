@@ -37,9 +37,10 @@ import { normalizePrefs } from "@/lib/content-filter/categories";
 import { Breadcrumbs } from "@/components/shell/breadcrumbs";
 import { OwnershipSection } from "@/components/ownership/ownership-section";
 import { isFileTreeLibraryKind } from "@/lib/libraries/profile";
-import { collectionsOfTitle } from "@/lib/collections/queries";
+import { moreInCollections } from "@/lib/collections/queries";
+import { MediaRow } from "@/components/library/media-row";
+import { PosterCard } from "@/components/library/poster-card";
 import { AddToCollectionMenu } from "@/components/collections/collection-admin";
-import Link from "next/link";
 
 export default async function TitleDetailPage({
   params,
@@ -92,7 +93,7 @@ export default async function TitleDetailPage({
     )
     .limit(1);
 
-  const inCollections = await collectionsOfTitle(db, { actor: lib, viewer, titleId: title.id });
+  const inCollections = await moreInCollections(db, { actor: lib, viewer, titleId: title.id });
   const extras = await loadTitleExtras(db, title.id);
   const cast = await loadTitleCast(db, title.id);
   const crew = await loadTitleCrew(db, title.id);
@@ -131,17 +132,13 @@ export default async function TitleDetailPage({
       }
       below={
         <>
-          {inCollections.length > 0 && (
-            <p className="px-4 text-sm text-muted-foreground sm:px-8">
-              Part of{" "}
-              {inCollections.map((c, i) => (
-                <span key={c.id}>
-                  {i > 0 && ", "}
-                  <Link href={`/s/${serverId}/collection/${c.id}`} className="font-medium text-foreground underline-offset-4 hover:underline">{c.name}</Link>
-                </span>
+          {inCollections.map((c) => (
+            <MediaRow key={c.id} title={`More in ${c.name}`} href={`/s/${serverId}/collection/${c.id}`}>
+              {c.items.map((t) => (
+                <PosterCard key={t.id} serverId={serverId} title={{ id: t.id, kind: t.kind, name: t.name, year: t.year, posterUrl: t.posterUrl }} className="w-36 sm:w-40 lg:w-44" />
               ))}
-            </p>
-          )}
+            </MediaRow>
+          ))}
           <ChaptersList serverId={serverId} ownerKind="title" ownerId={title.id} chapters={chaptersFromRows(segments)} />
           <ParentalGuide lines={guideLines} prefs={filterPrefs} imdbId={title.imdbId} reports={ddd.reports} />
           <CastRow serverId={serverId} cast={cast} />

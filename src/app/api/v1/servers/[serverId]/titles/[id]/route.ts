@@ -1,5 +1,5 @@
 import { db } from "@/lib/db/client";
-import { collectionsOfTitle } from "@/lib/collections/queries";
+import { collectionsOfTitle, moreInCollections } from "@/lib/collections/queries";
 import { countryFromLocale, displayCertification } from "@/lib/content/ratings";
 import { bookDetail, movieDetail, showDetail, visibleTitleKind } from "@/lib/tv/data";
 import { loadMovieExtras } from "@/lib/title-extras";
@@ -108,5 +108,10 @@ export async function GET(request: Request, ctx: RouteContext<"/api/v1/servers/[
     cast: extras.cast,
     ownership: await ownership(a.access, id, movie.libraryKind),
     collections: await collectionsOfTitle(db, { actor: scope.actor, viewer: scope.viewer, titleId: id }),
+    moreInCollections: (await moreInCollections(db, { actor: scope.actor, viewer: scope.viewer, titleId: id })).map((c) => ({
+      id: c.id,
+      name: c.name,
+      items: c.items.map((i) => ({ type: i.kind, id: i.id, name: i.name, subtitle: i.year ? String(i.year) : null, posterUrl: i.posterUrl, square: i.kind === "audiobook" })),
+    })),
   });
 }

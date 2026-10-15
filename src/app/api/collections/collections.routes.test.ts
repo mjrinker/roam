@@ -114,6 +114,7 @@ describe("reading collections through the API", () => {
     expect(one.items.map((i: { name: string; subtitle: string }) => [i.name, i.subtitle])).toEqual([["Alien", "1979"], ["Aliens", "1986"]]);
     const title = await json(await v1Title(send("/x", "GET"), ctx({ ...w.sid, id: w.a.id })));
     expect(title.collections).toEqual([{ id: cards.collections[0].id, name: "Alien Collection" }]);
+    expect(title.moreInCollections).toEqual([{ id: cards.collections[0].id, name: "Alien Collection", items: [expect.objectContaining({ type: "movie", id: w.b.id, name: "Aliens", subtitle: "1986" })] }]); // the rest, not this one
   });
 
   it("hides them from a profile whose age limit leaves under two films, and from other servers", async () => {

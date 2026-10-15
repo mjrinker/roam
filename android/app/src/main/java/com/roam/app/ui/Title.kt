@@ -126,6 +126,16 @@ fun TitleContent(serverId: String, t: Title, nav: Nav, onSeason: (Int) -> Unit, 
             item { Text("Cast", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onBackground) }
             item { Text(t.cast.joinToString("   ") { c -> if (c.character != null) "${c.name} (${c.character})" else c.name }, color = MaterialTheme.colorScheme.onSurfaceVariant) }
         }
+        for (c in t.moreInCollections) {
+            item(key = "more-${c.id}") {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("More in ${c.name}", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onBackground)
+                    androidx.compose.foundation.lazy.LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.testTag("more-${c.id}")) {
+                        items(c.items.size, key = { c.items[it].id }) { i -> PosterCard(c.items[i], onClick = { nav.open(routeFor(serverId, c.items[i])) }) }
+                    }
+                }
+            }
+        }
         t.ownership?.let { o ->
             item { Text("Who owns it", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onBackground) }
             for (u in o.units) item {
