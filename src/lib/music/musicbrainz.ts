@@ -155,8 +155,43 @@ type Fetch = typeof fetch;
 export interface MusicBrainzClient {
   searchReleases(artist: string, album: string): Promise<ReleaseCandidate[]>;
   getRelease(id: string): Promise<{ id: string; title: string; artist: string; artistId: string | null; date: string | null; tracks: ReleaseTrack[] } | null>;
+  /** The artist's links (Wikipedia, Wikidata), or null if MusicBrainz doesn't know the id. */
+  getArtistLinks(id: string): Promise<EntityLinks | null>;
+  /** Artists matching a name, best first. */
+  searchArtists(name: string): Promise<{ id: string; name: string; score: number; type: string | null }[]>;
+  /** The links of the release group a release belongs to (an album's Wikipedia page is attached to the group, not the release). */
+  getReleaseGroupLinks(releaseId: string): Promise<EntityLinks | null>;
   /** The front cover (500 px), or null if the release has none. */
   getFrontCover(releaseId: string): Promise<{ contentType: "image/jpeg" | "image/png"; bytes: Uint8Array } | null>;
+}
+
+/** The links on a MusicBrainz artist or release group that lead to an encyclopedia article. */
+export interface EntityLinks {
+  name: string;
+  wikidataId: string | null;
+  /** A Wikipedia article address (any language), if one is linked. */
+  wikipediaUrl: string | null;
+}
+
+interface MbRelation {
+  type?: string;
+  url?: { resource?: string };
+}
+
+/** The Wikidata item id and Wikipedia address among a MusicBrainz entity's url relations. */
+export function linksFromRelations(name: string, relations: MbRelation[] | undefined): EntityLinks {
+  let wikidataId: string | null = null;
+  let wikipediaUrl: string | null = null;
+  for (const r of relations ?? []) {
+    const resource = r.url?.resource ?? "";
+    if (r.type === "wikidata") {
+      const m = /^https:\/\/www\.wikidata\.org\/(?:wiki|entity)\/(Q\d+)$/.exec(resource);
+      if (m) wikidataId = m[1];
+    } else if (r.type === "wikipedia" && /^https:\/\/[a-z-]+\.wikipedia\.org\/wiki\/[^?#]+$/.test(resource)) {
+      wikipediaUrl ??= resource;
+    }
+  }
+  return { name, wikidataId, wikipediaUrl };
 }
 
 interface MbSearchRelease {
@@ -273,6 +308,26 @@ export function createMusicBrainz(opts: { fetch?: Fetch; userAgent?: string; min
       }
       const credit = data["artist-credit"] ?? [];
       return { id: data.id, title: data.title, artist: creditName(credit), artistId: credit.length === 1 ? (credit[0].artist?.id ?? null) : null, date: data.date ?? null, tracks };
+    },
+
+    async getArtistLinks(id) {
+      if (!/^[0-9a-f-]{36}$/i.test(id)) throw new Error("Not a MusicBrainz id");
+      const data = await mb<{ name?: string; relations?: MbRelation[] }>(`/artist/${id}?inc=url-rels&fmt=json`);
+      return data ? linksFromRelations(data.name ?? "", data.relations) : null;
+    },
+
+    async searchArtists(name) {
+      const data = await mb<{ artists?: { id: string; name: string; score?: number; type?: string }[] }>(`/artist/?query=${encodeURIComponent(`artist:${luceneQuote(name)}`)}&fmt=json&limit=5`);
+      return (data?.artists ?? []).map((a) => ({ id: a.id, name: a.name, score: a.score ?? 0, type: a.type ?? null }));
+    },
+
+    async getReleaseGroupLinks(releaseId) {
+      if (!/^[0-9a-f-]{36}$/i.test(releaseId)) throw new Error("Not a MusicBrainz id");
+      const release = await mb<{ "release-group"?: { id?: string; title?: string } }>(`/release/${releaseId}?inc=release-groups&fmt=json`);
+      const group = release?.["release-group"];
+      if (!group?.id) return null;
+      const data = await mb<{ title?: string; relations?: MbRelation[] }>(`/release-group/${group.id}?inc=url-rels&fmt=json`);
+      return data ? linksFromRelations(data.title ?? group.title ?? "", data.relations) : null;
     },
 
     async getFrontCover(releaseId) {

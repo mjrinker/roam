@@ -48,6 +48,9 @@ function client(over: Partial<MusicBrainzClient> = {}): MusicBrainzClient & { ca
       calls.release++,
       { id: RID, title: "Abbey Road", artist: "The Beatles", artistId: "artist-1", date: "1969-09-26", tracks: [{ disc: 1, position: 1, title: "Come Together", recordingId: null }, { disc: 1, position: 2, title: "Something", recordingId: null }] }
     ),
+    getArtistLinks: async () => null,
+    searchArtists: async () => [],
+    getReleaseGroupLinks: async () => null,
     getFrontCover: async () => (calls.cover++, { contentType: "image/jpeg" as const, bytes: Uint8Array.from(TEST_JPEG) }),
     ...over,
   };

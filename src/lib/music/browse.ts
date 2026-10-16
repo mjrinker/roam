@@ -3,7 +3,7 @@
  * (library access and age limit applied before anything is counted or grouped), so an album or artist whose
  * songs are all hidden never appears and neither do its name, count or cover.
  */
-import { and, asc, eq, gt, or, sql, type SQL } from "drizzle-orm";
+import { and, asc, eq, gt, inArray, or, sql, type SQL } from "drizzle-orm";
 import type { PgDatabase, PgQueryResultHKT } from "drizzle-orm/pg-core";
 import { contentFilter, type AccessProfile } from "@/lib/content/access";
 import { libraryVisible, type LibraryActor } from "@/lib/content/library-access";
@@ -76,7 +76,7 @@ const inMusicLibrary = (ex: Db, scope: Scope, libraryId?: string): SQL =>
   and(eq(libraries.kind, "music"), libraryVisible(ex, scope.actor), libraryId ? eq(libraries.id, libraryId) : undefined) as SQL;
 
 /** One page of a library's artists, by name. Null when the library isn't a music library this viewer can see. */
-export async function listArtists(ex: Db, scope: Scope & { libraryId: string; limit?: number; after?: Cursor | null }): Promise<{ items: ArtistCard[]; next: Cursor | null } | null> {
+export async function listArtists(ex: Db, scope: Scope & { libraryId: string; limit?: number; after?: Cursor | null; /** Only these artists. */ ids?: string[] }): Promise<{ items: ArtistCard[]; next: Cursor | null } | null> {
   const limit = clampLimit(scope.limit);
   const [library] = await ex.select({ id: libraries.id }).from(libraries).where(and(eq(libraries.id, scope.libraryId), inMusicLibrary(ex, scope)));
   if (!library) return null;
@@ -92,7 +92,7 @@ export async function listArtists(ex: Db, scope: Scope & { libraryId: string; li
       covers: sql<string[]>`COALESCE((SELECT json_agg(x.url ORDER BY x.year NULLS LAST, x.name_key) FROM (SELECT c.url, c.year, c.name_key FROM (SELECT (SELECT vt.poster_url FROM titles vt WHERE vt.album_id = al.id AND vt.kind = 'audiobook' AND vt.poster_url IS NOT NULL AND ${contentFilter(scope.viewer, sql`vt.rating_ages`) ?? sql`true`} ORDER BY vt.disc_number NULLS LAST, vt.track_number NULLS LAST, vt.id LIMIT 1) AS url, al.year AS year, al.name_key AS name_key FROM music_albums al WHERE al.artist_id = music_artists.id) c WHERE c.url IS NOT NULL ORDER BY c.year NULLS LAST, c.name_key LIMIT 4) x), '[]'::json)`,
     })
     .from(musicArtists)
-    .where(and(eq(musicArtists.libraryId, scope.libraryId), after, sql`EXISTS (SELECT 1 FROM music_albums al WHERE al.artist_id = music_artists.id AND EXISTS (${visibleTrackOf(scope, sql`al.id`)}))`))
+    .where(and(eq(musicArtists.libraryId, scope.libraryId), after, scope.ids ? (scope.ids.length ? inArray(musicArtists.id, scope.ids) : sql`false`) : undefined, sql`EXISTS (SELECT 1 FROM music_albums al WHERE al.artist_id = music_artists.id AND EXISTS (${visibleTrackOf(scope, sql`al.id`)}))`))
     .orderBy(asc(musicArtists.sortKey), asc(musicArtists.id))
     .limit(limit + 1);
 

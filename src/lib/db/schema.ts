@@ -966,6 +966,29 @@ export const ratings = pgTable(
   (t) => [primaryKey({ columns: [t.viewerId, t.ownerKind, t.ownerId] }), index("ratings_owner_idx").on(t.ownerKind, t.ownerId)]
 ).enableRLS();
 
+// ── artist_about / album_about ───────────────────────────────────────────
+// What Wikipedia says about an artist or album (found through MusicBrainz) and which artists listeners of the artist also play (ListenBrainz),
+// looked up the first time someone opens the page and kept. `found` is false when there was nothing (asked again after a week; a find is
+// refreshed after a month). `similar` is the artists most like this one: [{ mbid, name, score }].
+export const artistAbout = pgTable("artist_about", {
+  artistId: uuid("artist_id").primaryKey().references(() => musicArtists.id, { onDelete: "cascade" }),
+  found: boolean("found").notNull().default(false),
+  summary: text("summary"),
+  sourceTitle: text("source_title"),
+  sourceUrl: text("source_url"),
+  similar: jsonb("similar").$type<{ mbid: string; name: string; score: number }[]>().notNull().default([]),
+  fetchedAt: timestamp("fetched_at", { withTimezone: true }).notNull().defaultNow(),
+}).enableRLS();
+
+export const albumAbout = pgTable("album_about", {
+  albumId: uuid("album_id").primaryKey().references(() => musicAlbums.id, { onDelete: "cascade" }),
+  found: boolean("found").notNull().default(false),
+  summary: text("summary"),
+  sourceTitle: text("source_title"),
+  sourceUrl: text("source_url"),
+  fetchedAt: timestamp("fetched_at", { withTimezone: true }).notNull().defaultNow(),
+}).enableRLS();
+
 // ── watchlist_items ──────────────────────────────────────────────────────
 // Movies, shows and audiobooks a profile means to get to. Private to the profile; a title drops off once the profile has finished it.
 export const watchlistItems = pgTable(

@@ -19,6 +19,7 @@ import { DownloadAlbumButton } from "@/components/offline/download-album-button"
 import { Breadcrumbs } from "@/components/shell/breadcrumbs";
 import { AlbumPlayButtons, TrackList } from "@/components/music/track-list";
 import { AlbumRematchButton } from "@/components/admin/album-rematch-button";
+import { AboutSection } from "@/components/music/about-section";
 
 export default async function AlbumPage({ params }: PageProps<"/s/[serverId]/album/[id]">) {
   const { serverId, id } = await params;
@@ -77,6 +78,7 @@ export default async function AlbumPage({ params }: PageProps<"/s/[serverId]/alb
         </div>
       </header>
       <TrackList tracks={tracks} serverId={serverId} />
+      <AboutSection serverId={serverId} kind="album" id={album.id} />
     </div>
   );
 }

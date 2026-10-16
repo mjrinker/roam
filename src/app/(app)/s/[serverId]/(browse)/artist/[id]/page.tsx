@@ -9,6 +9,7 @@ import { Breadcrumbs } from "@/components/shell/breadcrumbs";
 import { AlbumTile, TILE_GRID } from "@/components/music/music-cards";
 import { AddSongsToPlaylistMenu } from "@/components/playlists/add-songs-to-playlist-menu";
 import { AlbumPlayButtons } from "@/components/music/track-list";
+import { AboutSection } from "@/components/music/about-section";
 
 export default async function ArtistPage({ params }: PageProps<"/s/[serverId]/artist/[id]">) {
   const { serverId, id } = await params;
@@ -43,6 +44,7 @@ export default async function ArtistPage({ params }: PageProps<"/s/[serverId]/ar
           <AlbumTile key={a.id} serverId={serverId} album={a} showArtist={false} />
         ))}
       </div>
+      <AboutSection serverId={serverId} kind="artist" id={artist.id} />
     </div>
   );
 }
