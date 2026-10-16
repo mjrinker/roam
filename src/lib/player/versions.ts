@@ -41,7 +41,9 @@ export function describeVersions<T extends VersionRowLike>(rows: readonly T[]): 
     const probed = group.find((r) => r.width || r.height);
     const height = probed ? effectiveHeight(probed.width, probed.height) : labelHeightHint(label);
     const fromPicture = probed ? resolutionName(probed.width, probed.height) : null;
-    const base = fromPicture ?? (label ? label.replace(/^(\d{3,4})p\b/, "$1p").replace(/^([248])k\b/, "$1K").toUpperCase().replace(/(\d)P\b/, "$1p") : "Original");
+    // A label that names a resolution ("360p", "4k") is what the file says it is, and is what to call it, even if the picture probes as something near it.
+    const fromLabel = /^(\d{3,4})p\b/i.exec(label) ? `${/^(\d{3,4})/.exec(label)![1]}p` : /^([248])k\b/i.test(label) ? `${label[0]}K` : null;
+    const base = fromLabel ?? fromPicture ?? (label ? label.replace(/^(\d{3,4})p\b/, "$1p").replace(/^([248])k\b/, "$1K").toUpperCase().replace(/(\d)P\b/, "$1p") : "Original");
     return { label, base, height };
   });
   infos.sort((a, b) => (b.height ?? -1) - (a.height ?? -1) || a.label.localeCompare(b.label));

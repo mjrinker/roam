@@ -16,6 +16,15 @@ describe("describeVersions", () => {
     const v = describeVersions([row("1080p bluray", 1920, 1080), row("1080p web", 1920, 1080)]);
     expect(v.map((x) => x.name)).toEqual(["1080p (bluray)", "1080p (web)"]);
   });
+  it("calls a version by the resolution in its label, even when two probe as the same picture (a 360p copy that probes as 480p)", () => {
+    const v = describeVersions([row("480p", 854, 480), row("360p", 854, 480)]);
+    expect(v.map((x) => [x.label, x.name])).toEqual([["360p", "360p"], ["480p", "480p"]]);
+    expect(describeVersions([row("4k", 3840, 1600), row("1080P", 1920, 1080)]).map((x) => x.name)).toEqual(["4K", "1080p"]);
+  });
+  it("still names a version with no resolution in its label from the picture, and tells apart extras on one resolution", () => {
+    expect(describeVersions([row("extended", 1920, 1080)])[0].name).toBe("1080p");
+    expect(describeVersions([row("1080p bluray", 1920, 1080), row("1080p web", 1280, 720)]).map((x) => x.name)).toEqual(["1080p (bluray)", "1080p (web)"]);
+  });
   it("counts only the first probed part of a version", () => {
     expect(describeVersions([row("4k"), row("4k", 3840, 2160)])[0].name).toBe("4K");
   });
