@@ -4,7 +4,7 @@ import { and, asc, eq } from "drizzle-orm";
 import { Headphones, Loader2 } from "lucide-react";
 import { db } from "@/lib/db/client";
 import { libraries, mediaFiles, titles, watchState } from "@/lib/db/schema";
-import { ratingsOf } from "@/lib/ratings/service";
+import { averageOf, ratingsOf } from "@/lib/ratings/service";
 import { StarRating } from "@/components/ratings/star-rating";
 import { requireServerMember } from "@/lib/auth/guards";
 import { libraryActor, libraryVisible } from "@/lib/content/library-access";
@@ -146,7 +146,7 @@ export default async function BookDetailPage({ params, searchParams }: PageProps
                 </p>
               )}
             </div>
-            <StarRating kind="title" id={book.id} initial={(await ratingsOf(db, viewer.id, "title", [book.id])).get(book.id) ?? null} />
+            <StarRating kind="title" id={book.id} initial={(await ratingsOf(db, viewer.id, "title", [book.id])).get(book.id) ?? null} average={(await averageOf(db, "title", [book.id])).get(book.id) ?? null} />
             <p className="text-sm text-muted-foreground">
               {[
                 book.year ? String(book.year) : null,

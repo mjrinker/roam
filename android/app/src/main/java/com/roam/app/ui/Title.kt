@@ -81,7 +81,7 @@ fun TitleContent(serverId: String, t: Title, nav: Nav, onSeason: (Int) -> Unit, 
                 }
             }
         }
-        if (t.type == "movie" || t.type == "show" || t.type == "audiobook") item(key = "my-rating") { MyRating(t.id, t.myRating) }
+        if (t.type == "movie" || t.type == "show" || t.type == "audiobook") item(key = "my-rating") { MyRating(t.id, t.myRating, average = t.averageRating) }
         when (t.type) {
             "movie" -> movieActions(t, nav, mark)
             "show" -> showBody(serverId, t, nav, onSeason, mark)
@@ -222,7 +222,7 @@ private fun androidx.compose.foundation.lazy.LazyListScope.showBody(serverId: St
                 else if (e.inProgress) Text("In progress", color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.bodySmall)
                 androidx.compose.material3.TextButton(onClick = { mark("episode", e.id, !e.watched) }, modifier = Modifier.testTag("mark-${e.id}")) { Text(if (e.watched) "Mark unwatched" else "Mark watched") }
             }
-            MyRating(e.id, e.myRating, kind = "episode")
+            MyRating(e.id, e.myRating, kind = "episode", average = e.averageRating)
             }
         }
     }
@@ -230,7 +230,7 @@ private fun androidx.compose.foundation.lazy.LazyListScope.showBody(serverId: St
 
 /** Your own rating, in stars: press a star to give that many, the same star again to clear it. (A half-star rating made on the web shows as it is.) */
 @Composable
-fun MyRating(titleId: String, initial: Int?, kind: String = "title") {
+fun MyRating(titleId: String, initial: Int?, kind: String = "title", average: com.roam.app.data.AverageRating? = null) {
     val graph = LocalGraph.current
     val scope = androidx.compose.runtime.rememberCoroutineScope()
     var value by androidx.compose.runtime.remember(titleId) { androidx.compose.runtime.mutableStateOf(initial) }
@@ -238,7 +238,10 @@ fun MyRating(titleId: String, initial: Int?, kind: String = "title") {
     Column(Modifier.testTag(if (kind == "title") "my-rating" else "my-rating-$titleId")) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             for (star in 1..5) {
-                val filled = (value ?: 0) >= star * 2
+                // With no rating of your own, what everyone on the server gave it on average shows in white (to the nearest half star).
+                val avg = if (value == null && average != null) Math.round(average.halfStars).toInt().coerceIn(1, 10) else null
+                val shownHalf = value ?: avg ?: 0
+                val filled = shownHalf >= star * 2
                 androidx.compose.material3.TextButton(
                     onClick = {
                         val next = if (value == star * 2) null else star * 2
@@ -255,9 +258,9 @@ fun MyRating(titleId: String, initial: Int?, kind: String = "title") {
                         }
                     },
                     modifier = Modifier.testTag(if (kind == "title") "star-$star" else "star-$titleId-$star"),
-                ) { Text(if (filled) "★" else if ((value ?: 0) == star * 2 - 1) "⯨" else "☆", style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.primary) }
+                ) { Text(if (filled) "★" else if (shownHalf == star * 2 - 1) "⯨" else "☆", style = MaterialTheme.typography.titleLarge, color = if (avg != null) androidx.compose.ui.graphics.Color.White else MaterialTheme.colorScheme.primary) }
             }
-            Text(value?.let { (it / 2.0).toString().removeSuffix(".0") } ?: "Rate", color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.testTag(if (kind == "title") "my-rating-value" else "my-rating-value-$titleId"))
+            Text(value?.let { (it / 2.0).toString().removeSuffix(".0") } ?: average?.let { "${(Math.round(it.halfStars).toInt().coerceIn(1, 10) / 2.0).toString().removeSuffix(".0")} avg (${it.count})" } ?: "Rate", color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.testTag(if (kind == "title") "my-rating-value" else "my-rating-value-$titleId"))
         }
         problem?.let { Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.testTag("rating-problem")) }
     }

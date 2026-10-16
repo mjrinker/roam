@@ -313,4 +313,17 @@ class TitleScreenTest {
         rule.waitForIdle()
         assertEquals(listOf("episode e2 8", "episode e1 null"), calls)
     }
+
+    @Test fun withNoRatingOfYourOwnTheServersAverageShowsAndYoursReplacesIt() {
+        val api = object : RoamApi by Unsupported {
+            override suspend fun title(serverId: String, id: String, season: Int?) = movie().copy(averageRating = com.roam.app.data.AverageRating(7.6, 4))
+            override suspend fun rate(kind: String, id: String, halfStars: Int?) = Unit
+        }
+        rule.setContent { Shown(testGraph(api)) { TitleScreen("S", "m1", FakeNav()) } }
+        rule.waitForIdle()
+        rule.onNodeWithText("4 avg (4)").assertIsDisplayed() // 7.6 half stars is four stars
+        rule.onNodeWithTag("star-2").performClick()
+        rule.waitForIdle()
+        rule.onNodeWithText("2").assertIsDisplayed()
+    }
 }

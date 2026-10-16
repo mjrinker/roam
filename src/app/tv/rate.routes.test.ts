@@ -95,6 +95,20 @@ describe("rating on a TV", () => {
     expect((await ratingsOf(db, w.member.viewer.id, "title", [w.film.id])).size).toBe(0);
   });
 
+  it("tells you what everyone on the server gave it when you have not rated, and your own once you have", async () => {
+    const w = await world();
+    const other = await makeAccount(db, "avgother");
+    await joinServer(db, w.server.id, other.accountId);
+    const { ratings } = await import("@/lib/db/schema");
+    await db.insert(ratings).values([{ viewerId: other.viewer.id, ownerKind: "title", ownerId: w.film.id, halfStars: 9 }]);
+    const page = async () => text(await titlePage(new Request("https://roam.example/x"), ctx({ ...w.sid, id: w.film.id })));
+    expect(await page()).toContain("everyone on this server gave it 4.5 on average, from 1 rating");
+    await ratePost(post({ kind: "title", id: w.film.id, stars: "2" }), ctx(w.sid));
+    const mine = await page();
+    expect(mine).toContain("Your rating: 2 stars");
+    expect(mine).not.toContain("on average");
+  });
+
   it("shows a half-star rating made on the web as it is", async () => {
     const w = await world();
     await ratePost(post({ kind: "title", id: w.film.id, stars: "3" }), ctx(w.sid));

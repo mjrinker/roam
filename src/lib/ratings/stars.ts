@@ -3,6 +3,9 @@ export const MAX_HALF_STARS = 10;
 
 export const isHalfStars = (v: unknown): v is number => typeof v === "number" && Number.isInteger(v) && v >= 1 && v <= MAX_HALF_STARS;
 
+/** The average of a few ratings, shown to the nearest half star. */
+export const nearestHalf = (avg: number): number => Math.min(MAX_HALF_STARS, Math.max(1, Math.round(avg)));
+
 /** "3.5", "4", from half stars. */
 export const starsText = (half: number): string => (half / 2).toFixed(half % 2 ? 1 : 0);
 

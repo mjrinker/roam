@@ -1,5 +1,5 @@
 import { db } from "@/lib/db/client";
-import { ratingsOf } from "@/lib/ratings/service";
+import { averageOf, ratingsOf } from "@/lib/ratings/service";
 import { collectionsOfTitle, moreInCollections } from "@/lib/collections/queries";
 import { countryFromLocale, displayCertification } from "@/lib/content/ratings";
 import { bookDetail, movieDetail, showDetail, visibleTitleKind } from "@/lib/tv/data";
@@ -36,16 +36,20 @@ export async function GET(request: Request, ctx: RouteContext<"/api/v1/servers/[
   const country = countryFromLocale(scope.viewer.locale);
   /** This profile's own rating in half stars (1 to 10), or null. */
   const myRating = (await ratingsOf(db, scope.viewerId, "title", [id])).get(id) ?? null;
+  /** What everyone on the server gave it, on average: `{ halfStars, count }`, or null when nobody has rated it. */
+  const averageRating = (await averageOf(db, "title", [id])).get(id) ?? null;
 
   if (found.kind === "show") {
     const requested = Number(new URL(request.url).searchParams.get("season"));
     const show = await showDetail(db, scope, id, Number.isInteger(requested) ? requested : undefined);
     const episodeRatings = show ? await ratingsOf(db, scope.viewerId, "episode", show.episodes.map((e) => e.id)) : new Map<string, number>();
+    const episodeAverages = show ? await averageOf(db, "episode", show.episodes.map((e) => e.id)) : new Map<string, { halfStars: number; count: number }>();
     if (!show) return apiNotFound();
     const t = show.title;
     const next = show.episodes.find((e) => e.inProgress) ?? show.episodes.find((e) => !e.watched) ?? show.episodes[0] ?? null;
     return apiJson({
     myRating,
+    averageRating,
       type: "show",
       id,
       name: t.name,
@@ -59,7 +63,7 @@ export async function GET(request: Request, ctx: RouteContext<"/api/v1/servers/[
       watched: show.showWatched,
       seasons: show.seasons,
       season: show.currentSeason,
-      episodes: show.episodes.map((e) => ({ type: "episode", id: e.id, number: e.number, name: e.name, watched: e.watched, inProgress: e.inProgress, playPath: playPath("episode", e.id), myRating: episodeRatings.get(e.id) ?? null })),
+      episodes: show.episodes.map((e) => ({ type: "episode", id: e.id, number: e.number, name: e.name, watched: e.watched, inProgress: e.inProgress, playPath: playPath("episode", e.id), myRating: episodeRatings.get(e.id) ?? null, averageRating: episodeAverages.get(e.id) ?? null })),
       continueEpisodeId: next?.id ?? null,
       ownership: show.currentSeasonId ? await ownership(a.access, id, "shows") : null,
     });
@@ -71,6 +75,7 @@ export async function GET(request: Request, ctx: RouteContext<"/api/v1/servers/[
     const t = book.title;
     return apiJson({
     myRating,
+    averageRating,
       type: "audiobook",
       id,
       name: t.name,
@@ -93,6 +98,7 @@ export async function GET(request: Request, ctx: RouteContext<"/api/v1/servers/[
   const extras = await loadMovieExtras(db, { serverId, titleId: id, title: { imdbId: t.imdbId, tmdbId: t.tmdbId }, filterPrefs: who.filterPrefs });
   return apiJson({
     myRating,
+    averageRating,
     type: "movie",
     id,
     name: t.name,

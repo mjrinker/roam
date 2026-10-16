@@ -29,6 +29,8 @@ export interface EpisodeRowData {
   watched: boolean;
   /** This profile's own rating in half stars (1 to 10), or null. */
   myRating: number | null;
+  /** What everyone on the server gave it on average, shown when there is no rating of the profile's own. */
+  average: { halfStars: number; count: number } | null;
   /** Where the episode's chapters are, for jumping in; empty when it has fewer than two. */
   chapters: Chapter[];
   /** What the episode's content filter file lists, by category; empty when it has none. Playing offers choices for that viewing. */
@@ -123,7 +125,7 @@ function EpisodeRow({ ep, serverId, prefs }: { ep: EpisodeRowData; serverId: str
         <div className={cn(classes, "pr-32 opacity-70")}>{body}</div>
       )}
       <div className="pb-1 pl-[9.5rem] sm:pl-[15rem]">
-        <StarRating kind="episode" id={ep.id} initial={ep.myRating} compact />
+        <StarRating kind="episode" id={ep.id} initial={ep.myRating} average={ep.average} compact />
       </div>
       {ep.ready && ep.chapters.length > 0 && <ChaptersList serverId={serverId} ownerKind="episode" ownerId={ep.id} chapters={ep.chapters} compact />}
       <div className="absolute top-2 right-2 flex items-center gap-1.5">

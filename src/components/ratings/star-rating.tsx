@@ -4,17 +4,19 @@ import { useState } from "react";
 import { Star } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
-import { starsText } from "@/lib/ratings/stars";
+import { nearestHalf, starsText } from "@/lib/ratings/stars";
 
 /**
  * Your own rating of a title, an episode or an album, in half stars: click the left or right half of a star; clicking the rating you gave
  * clears it. (Only you see it.) Each half is a button, so it works from the keyboard too.
  */
-export function StarRating({ kind, id, initial, className, compact = false }: { kind: "title" | "episode" | "album"; id: string; initial: number | null; className?: string; compact?: boolean }) {
+export function StarRating({ kind, id, initial, className, compact = false, average = null }: { kind: "title" | "episode" | "album"; id: string; initial: number | null; className?: string; compact?: boolean; average?: { halfStars: number; count: number } | null }) {
   const [value, setValue] = useState<number | null>(initial);
   const [hover, setHover] = useState<number | null>(null);
   const [busy, setBusy] = useState(false);
-  const shown = hover ?? value ?? 0;
+  // With no rating of your own, what everyone on the server gave it on average is shown, in white; yours (or a hover) is in the accent colour.
+  const avg = value === null && hover === null && average ? nearestHalf(average.halfStars) : null;
+  const shown = hover ?? value ?? avg ?? 0;
 
   async function rate(half: number) {
     const next = half === value ? null : half;
@@ -38,7 +40,7 @@ export function StarRating({ kind, id, initial, className, compact = false }: { 
           <span key={star} className={cn("relative inline-flex items-center justify-center", compact ? "size-5" : "size-7")}>
             <Star className={cn(compact ? "size-4" : "size-6", "text-white/25")} />
             <span className="pointer-events-none absolute inset-0 flex items-center justify-center overflow-hidden" style={{ width: shown >= star * 2 ? "100%" : shown === star * 2 - 1 ? "50%" : "0%" }}>
-              <Star className={cn("absolute shrink-0 fill-primary text-primary", compact ? "left-0.5 size-4" : "left-0.5 size-6")} />
+              <Star className={cn("absolute shrink-0", avg !== null ? "fill-white text-white" : "fill-primary text-primary", compact ? "left-0.5 size-4" : "left-0.5 size-6")} />
             </span>
             {[star * 2 - 1, star * 2].map((half) => (
               <button
@@ -58,8 +60,8 @@ export function StarRating({ kind, id, initial, className, compact = false }: { 
           </span>
         ))}
       </div>
-      <span className="min-w-8 text-xs text-muted-foreground tabular-nums" aria-live="polite">
-        {shown ? starsText(shown) : "Rate"}
+      <span className="min-w-8 text-xs text-muted-foreground tabular-nums" aria-live="polite" title={avg !== null && average ? `Average of ${average.count} ${average.count === 1 ? "rating" : "ratings"} on this server` : undefined}>
+        {avg !== null && average ? `${starsText(avg)} avg (${average.count})` : shown ? starsText(shown) : "Rate"}
       </span>
     </div>
   );

@@ -9,7 +9,7 @@ import { requireServerMember } from "@/lib/auth/guards";
 import { libraryActor, libraryVisible } from "@/lib/content/library-access";
 import { isAllowed } from "@/lib/content/access";
 import { formatRuntime } from "@/lib/format";
-import { ratingsOf } from "@/lib/ratings/service";
+import { averageOf, ratingsOf } from "@/lib/ratings/service";
 import { StarRating } from "@/components/ratings/star-rating";
 import { countryFromLocale, displayCertification } from "@/lib/content/ratings";
 import { TitleResyncButton } from "@/components/admin/title-resync-button";
@@ -119,6 +119,7 @@ export default async function ShowDetailPage({
   // The community's scenes for the whole show (one set covers every episode; asked once, then kept; see lib/ddd).
   const ddd = await loadDddForShow(db, serverId, show);
   const episodeRatings = await ratingsOf(db, viewer.id, "episode", ordered.map((e) => e.id));
+  const episodeAverages = await averageOf(db, "episode", ordered.map((e) => e.id));
   const rows: EpisodeRowData[] = ordered.map((ep) => {
     const files = filesByEpisode.get(ep.id) ?? [];
     const state = stateByEpisode.get(ep.id);
@@ -136,6 +137,7 @@ export default async function ShowDetailPage({
         inProgress && state.durationSeconds ? state.positionSeconds / state.durationSeconds : 0,
       watched: state?.finished ?? false,
       myRating: episodeRatings.get(ep.id) ?? null,
+      average: episodeAverages.get(ep.id) ?? null,
       chapters: chaptersFromRows(files),
       guide: mergeGuideLines(guideFromCues(cuesFromRows(files)), episodeLines(ddd, seasonNumberById.get(ep.seasonId) ?? -1, ep.number)),
       dddUrl: ddd.pending ? `/api/ddd/episode/${ep.id}` : undefined,
@@ -165,6 +167,7 @@ export default async function ShowDetailPage({
   const filterPrefs = normalizePrefs(viewer.contentFilter);
   const totalEpisodes = allEpisodes.length;
   const mine = (await ratingsOf(db, viewer.id, "title", [show.id])).get(show.id) ?? null;
+  const average = (await averageOf(db, "title", [show.id])).get(show.id) ?? null;
   const cast = await loadTitleCast(db, show.id);
   const crew = await loadTitleCrew(db, show.id);
 
@@ -173,7 +176,7 @@ export default async function ShowDetailPage({
       <DetailHero
         kind="show"
         title={show.name}
-        myRating={<StarRating kind="title" id={show.id} initial={mine} />}
+        myRating={<StarRating kind="title" id={show.id} initial={mine} average={average} />}
         backdropUrl={show.backdropUrl}
         posterUrl={show.posterUrl}
         externalRatings={{ imdbRating: show.imdbRating, rottenTomatoesScore: show.rottenTomatoesScore }}

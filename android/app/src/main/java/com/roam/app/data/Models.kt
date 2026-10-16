@@ -85,6 +85,9 @@ data class GenresResponse(val genres: List<Genre> = emptyList())
 data class ClaimResult(val status: String = "")
 
 @Serializable
+data class AverageRating(val halfStars: Double, val count: Int)
+
+@Serializable
 data class MoreInCollection(val id: String, val name: String, val items: List<ApiItem> = emptyList())
 
 @Serializable
@@ -153,6 +156,7 @@ data class Episode(
     val inProgress: Boolean = false,
     val playPath: String? = null,
     val myRating: Int? = null,
+    val averageRating: AverageRating? = null,
 )
 
 @Serializable
@@ -234,6 +238,8 @@ data class Title(
     val moreInCollections: List<MoreInCollection> = emptyList(),
     /** This profile's own rating in half stars (1 to 10), or null. */
     val myRating: Int? = null,
+    /** What everyone on the server gave it, on average. */
+    val averageRating: AverageRating? = null,
 )
 
 @Serializable

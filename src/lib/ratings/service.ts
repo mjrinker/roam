@@ -1,5 +1,5 @@
 /** A profile's own star ratings: checks the caller may see the thing (the same gate as playing or marking it), then keeps the rating. */
-import { and, eq, inArray } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
 import { db } from "@/lib/db/client";
 import { libraries, musicAlbums, ratings } from "@/lib/db/schema";
 import { getCurrentServerMember } from "@/lib/auth/guards";
@@ -35,6 +35,23 @@ export async function setRating(args: { kind: RatingKind; id: string; halfStars:
       .onConflictDoUpdate({ target: [ratings.viewerId, ratings.ownerKind, ratings.ownerId], set: { halfStars: args.halfStars, updatedAt: new Date() } });
   }
   return { ok: true };
+}
+
+export interface AverageRating {
+  /** The mean of everyone's ratings, in half stars (1 to 10), not rounded. */
+  halfStars: number;
+  count: number;
+}
+
+/** What everyone on the server who rated each thing gave it, on average (only things somebody rated are in the map). */
+export async function averageOf(ex: Db, kind: RatingKind, ids: string[]): Promise<Map<string, AverageRating>> {
+  if (ids.length === 0) return new Map();
+  const rows = await ex
+    .select({ id: ratings.ownerId, avg: sql<number>`avg(${ratings.halfStars})::float`, n: sql<number>`count(*)::int` })
+    .from(ratings)
+    .where(and(eq(ratings.ownerKind, kind), inArray(ratings.ownerId, ids)))
+    .groupBy(ratings.ownerId);
+  return new Map(rows.map((r) => [r.id, { halfStars: r.avg, count: r.n }]));
 }
 
 /** This profile's ratings of the given things, by id. */

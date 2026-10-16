@@ -121,6 +121,21 @@ describe("PUT /api/ratings", () => {
     expect(body.episodes.filter((e) => e.id !== w.episode.id).every((e) => e.myRating === null)).toBe(true);
   });
 
+  it("gives the average of everyone's ratings, whoever rated, and null when nobody has", async () => {
+    const w = await world();
+    const second = await makeAccount(db, `ravg${++n}`);
+    await joinServer(db, w.server.id, second.accountId);
+    const ask = async (id: string) => (await (await v1Title(new Request("https://roam.example/x"), { params: Promise.resolve({ ...w.sid, id }) } as never)).json()) as { averageRating: { halfStars: number; count: number } | null };
+    await as(w.member);
+    expect((await ask(w.film.id)).averageRating).toBeNull();
+    await rate({ kind: "title", id: w.film.id, halfStars: 7 });
+    await as(second);
+    await rate({ kind: "title", id: w.film.id, halfStars: 10 });
+    expect((await ask(w.film.id)).averageRating).toEqual({ halfStars: 8.5, count: 2 });
+    await rate({ kind: "title", id: w.film.id, halfStars: null });
+    expect((await ask(w.film.id)).averageRating).toEqual({ halfStars: 7, count: 1 });
+  });
+
   it("shows up as myRating in the title API", async () => {
     const w = await world();
     await as(w.member);
