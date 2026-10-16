@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { Artwork as Image } from "@/components/ui/artwork";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { ArrowDown, ArrowUp, Film, GripVertical, Headphones, Loader2, Play, Tv, X } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
@@ -22,6 +23,15 @@ export function itemHref(serverId: string, playlistId: string, item: ItemRow): s
   if (item.titleKind === "show") return `/s/${serverId}/show/${item.titleId}`;
   if (item.titleKind === "audiobook") return `/s/${serverId}/book/${item.titleId}${queue}`;
   return `/s/${serverId}/watch/title/${item.titleId}${queue}`;
+}
+
+/** Where clicking an item's row goes: its details page (a show, a book and anything without a details page of its own open as they always did). */
+export function detailsHref(serverId: string, playlistId: string, item: ItemRow): string {
+  if (item.episodeId) return item.showId ? `/s/${serverId}/show/${item.showId}` : itemHref(serverId, playlistId, item);
+  if (item.titleKind === "movie") return `/s/${serverId}/title/${item.titleId}`;
+  if (item.titleKind === "audiobook") return `/s/${serverId}/book/${item.titleId}`;
+  if (item.titleKind === "show") return `/s/${serverId}/show/${item.titleId}`;
+  return itemHref(serverId, playlistId, item);
 }
 
 function displayName(item: ItemRow): string {
@@ -45,6 +55,7 @@ export function PlaylistItems({
   initialCursor: string | null;
   canEdit: boolean;
 }) {
+  const router = useRouter();
   const [items, setItems] = useState(initialItems);
   const [cursor, setCursor] = useState(initialCursor);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -103,6 +114,7 @@ export function PlaylistItems({
           const kind = kindOf(item);
           const Icon = kind === "audiobook" ? Headphones : kind === "movie" ? Film : Tv;
           const href = itemHref(serverId, playlistId, item);
+          const details = detailsHref(serverId, playlistId, item);
           const disabled = !item.playable;
           return (
             <li
@@ -128,7 +140,13 @@ export function PlaylistItems({
                 setDragFrom(null);
                 setDragOver(null);
               }}
+              // Clicking the row (not one of its buttons or links) opens the details page; the play button is what plays.
+              onClick={(e) => {
+                if (disabled || (e.target as HTMLElement).closest("a, button")) return;
+                router.push(details);
+              }}
               className={cn(
+                !disabled && "cursor-pointer",
                 "group/item flex items-center gap-3 rounded-xl p-2 transition-colors hover:bg-white/[0.05]",
                 disabled && "opacity-60",
                 dragFrom === index && "opacity-40",
@@ -150,7 +168,7 @@ export function PlaylistItems({
                 {disabled ? (
                   <span className="truncate text-sm font-medium">{displayName(item)}</span>
                 ) : (
-                  <Link href={href} className="truncate text-sm font-medium hover:text-primary">
+                  <Link href={details} className="truncate text-sm font-medium hover:text-primary">
                     {displayName(item)}
                   </Link>
                 )}
@@ -160,7 +178,13 @@ export function PlaylistItems({
                   {disabled ? " · nothing playable yet" : ""}
                 </span>
               </div>
-              {item.sortLabel && <span className="shrink-0 rounded-md bg-white/[0.07] px-2 py-0.5 text-xs font-medium text-foreground/80 tabular-nums" title="What this playlist is ordered by">{item.sortLabel}</span>}
+              {(item.sortLabels ?? (item.sortLabel ? [item.sortLabel] : [])).length > 0 && (
+                <div className="flex min-w-0 shrink flex-wrap items-center justify-end gap-1" title="What this playlist is ordered by">
+                  {(item.sortLabels ?? [item.sortLabel as string]).map((label) => (
+                    <span key={label} className="shrink-0 rounded-md bg-white/[0.07] px-2 py-0.5 text-xs font-medium text-foreground/80 tabular-nums">{label}</span>
+                  ))}
+                </div>
+              )}
               <div className="flex shrink-0 items-center gap-0.5">
                 {!disabled && kind !== "show" && (
                   <Link

@@ -30,7 +30,7 @@ const date = (d: Date) => d.toLocaleDateString("en-US", { month: "short", day: "
 const resolution = (h: number) => (h >= 2160 ? "4K" : h >= 1080 ? "1080p" : h >= 720 ? "720p" : `${h}p`);
 
 /** The words for one item under one sort, or null when it has no such value (or the viewer may not see it). */
-export function formatSortLabel(sort: SmartRules["sort"], v: SortValues, viewerIsOwner: boolean): string | null {
+export function formatSortLabel(sort: SmartRules["sorts"][number], v: SortValues, viewerIsOwner: boolean): string | null {
   switch (sort) {
     case "longest":
     case "shortest":
@@ -64,17 +64,31 @@ export function formatSortLabel(sort: SmartRules["sort"], v: SortValues, viewerI
   }
 }
 
+/** The words for each of the orders, leaving out any with nothing to say, and any said twice (a highest and a lowest rating say the same thing). */
+function labelsOf(sorts: SmartRules["sorts"], values: SortValues, isOwner: boolean): string[] {
+  const out: string[] = [];
+  for (const sort of sorts) {
+    const label = formatSortLabel(sort, values, isOwner);
+    if (label && !out.includes(label)) out.push(label);
+  }
+  return out;
+}
+
 const num = (v: unknown): number | null => (v === null || v === undefined ? null : Number(v));
 const when = (v: unknown): Date | null => (v ? new Date(v as string) : null);
 
-/** The sort value of the given items of a smart playlist, keyed `t:<titleId>` / `e:<episodeId>` (empty for an ordinary one or a sort with nothing to show). */
-export async function smartSortLabels(ex: Executor, args: { playlistId: string; viewerId?: string; lib: LibraryActor; viewer: AccessProfile; items: { titleId: string | null; episodeId: string | null }[] }): Promise<Map<string, string>> {
-  const out = new Map<string, string>();
+/** How many of the playlist's orders are shown on an item (the first ones). */
+export const SHOWN_SORTS = 3;
+
+/** The sort values of the given items of a smart playlist (those of its first three orders that have something to show), keyed `t:<titleId>` / `e:<episodeId>` (empty for an ordinary one). */
+export async function smartSortLabels(ex: Executor, args: { playlistId: string; viewerId?: string; lib: LibraryActor; viewer: AccessProfile; items: { titleId: string | null; episodeId: string | null }[] }): Promise<Map<string, string[]>> {
+  const out = new Map<string, string[]>();
   const [pl] = await ex.select({ rules: playlists.smartRules, owner: playlists.ownerViewerId }).from(playlists).where(eq(playlists.id, args.playlistId));
   if (!pl?.rules) return out;
   const parsed = smartRulesSchema.safeParse(pl.rules);
-  if (!parsed.success || parsed.data.sort === "title" || parsed.data.sort === "titleDesc" || parsed.data.sort === "random") return out;
-  const sort = parsed.data.sort;
+  if (!parsed.success) return out;
+  const sorts = parsed.data.sorts.slice(0, SHOWN_SORTS).filter((s) => s !== "title" && s !== "titleDesc" && s !== "random");
+  if (sorts.length === 0) return out;
   const isOwner = !!args.viewerId && args.viewerId === pl.owner;
   const owner = pl.owner ?? "00000000-0000-0000-0000-000000000000";
   const country = args.viewer.locale.split("-")[1]?.toUpperCase() ?? "US";
@@ -108,7 +122,7 @@ export async function smartSortLabels(ex: Executor, args: { playlistId: string; 
       .innerJoin(libraries, eq(libraries.id, titles.libraryId))
       .where(and(inArray(titles.id, titleIds), libraryVisible(ex, args.lib), contentFilter(args.viewer, titles.ratingAges)));
     for (const r of rows) {
-      const label = formatSortLabel(sort, {
+      const values: SortValues = {
         runtime: r.kind === "show" ? null : num(r.runtime),
         mine: num(r.mine),
         year: r.year,
@@ -120,8 +134,9 @@ export async function smartSortLabels(ex: Executor, args: { playlistId: string; 
         average: r.average === null ? null : { halfStars: Number(r.average), count: r.averageCount },
         certification: certificationOf(r.certs),
         height: num(r.height),
-      }, isOwner);
-      if (label) out.set(`t:${r.id}`, label);
+      };
+      const labels = labelsOf(sorts, values, isOwner);
+      if (labels.length) out.set(`t:${r.id}`, labels);
     }
   }
 
@@ -151,7 +166,7 @@ export async function smartSortLabels(ex: Executor, args: { playlistId: string; 
       .innerJoin(libraries, eq(libraries.id, titles.libraryId))
       .where(and(inArray(episodes.id, episodeIds), libraryVisible(ex, args.lib), contentFilter(args.viewer, titles.ratingAges)));
     for (const r of rows) {
-      const label = formatSortLabel(sort, {
+      const values: SortValues = {
         runtime: num(r.runtime),
         mine: num(r.mine),
         year: r.year,
@@ -163,8 +178,9 @@ export async function smartSortLabels(ex: Executor, args: { playlistId: string; 
         average: r.average === null ? null : { halfStars: Number(r.average), count: r.averageCount },
         certification: certificationOf(r.certs),
         height: num(r.height),
-      }, isOwner);
-      if (label) out.set(`e:${r.id}`, label);
+      };
+      const labels = labelsOf(sorts, values, isOwner);
+      if (labels.length) out.set(`e:${r.id}`, labels);
     }
   }
   return out;

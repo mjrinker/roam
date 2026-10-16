@@ -5,6 +5,9 @@ import { starsText } from "@/lib/ratings/stars";
 /** The most a smart playlist may hold. */
 export const SMART_MAX_LIMIT = 200;
 
+/** The most orders a smart playlist can combine. */
+export const SMART_MAX_SORTS = 5;
+
 /** A library a smart playlist can draw from (as the form lists them). */
 export interface SmartLibrary {
   id: string;
@@ -33,7 +36,7 @@ export const holdsOnlyShows = (r: SmartRules, libs?: readonly SmartLibrary[]): b
   return nouns.length === 1 && nouns[0] === "shows";
 };
 
-export const SORT_WORDS: Record<SmartRules["sort"], string> = {
+export const SORT_WORDS: Record<SmartRules["sorts"][number], string> = {
   title: "A to Z",
   titleDesc: "Z to A",
   newest: "newest release first",
@@ -54,6 +57,44 @@ export const SORT_WORDS: Record<SmartRules["sort"], string> = {
   quality: "highest picture quality first",
   random: "in a random order",
 };
+
+/** Each order in a couple of words (for a list of the orders chosen). */
+export const SORT_SHORT: Record<SmartRules["sorts"][number], string> = {
+  title: "A to Z",
+  titleDesc: "Z to A",
+  newest: "Newest",
+  oldest: "Oldest",
+  added: "Recently added",
+  addedOldest: "Longest in library",
+  rating: "My highest rated",
+  ratingLowest: "My lowest rated",
+  longest: "Longest",
+  shortest: "Shortest",
+  watchedRecently: "Watched recently",
+  watchedLongAgo: "Watched long ago",
+  genre: "Genre",
+  imdb: "IMDb",
+  rottenTomatoes: "Rotten Tomatoes",
+  average: "Server rating",
+  contentRating: "Content rating",
+  quality: "Quality",
+  random: "Random",
+};
+
+/** An order that says the opposite of another (choosing one drops the other, since the second could never break a tie). */
+export const SORT_OPPOSITE: Partial<Record<SmartRules["sorts"][number], SmartRules["sorts"][number]>> = {
+  title: "titleDesc", titleDesc: "title", newest: "oldest", oldest: "newest", added: "addedOldest", addedOldest: "added",
+  rating: "ratingLowest", ratingLowest: "rating", longest: "shortest", shortest: "longest", watchedRecently: "watchedLongAgo", watchedLongAgo: "watchedRecently",
+};
+
+/** The orders after choosing or un-choosing one: a new one goes after the others (before a random one, which always ends the list), and it replaces its opposite. */
+export function toggleSort(sorts: SmartRules["sorts"], sort: SmartRules["sorts"][number], max: number): SmartRules["sorts"] {
+  if (sorts.includes(sort)) return sorts.length === 1 ? sorts : sorts.filter((s) => s !== sort);
+  const without = sorts.filter((s) => s !== SORT_OPPOSITE[sort]);
+  if (without.length >= max) return sorts;
+  if (sort !== "random" && without.includes("random")) return [...without.filter((s) => s !== "random"), sort, "random"];
+  return [...without, sort];
+}
 
 export const WATCHED_WORDS: Record<SmartRules["watched"], string> = { any: "Watched or not", unwatched: "Not watched yet", inProgress: "Partly watched", watched: "Already watched" };
 
@@ -104,7 +145,7 @@ export function describeRules(r: SmartRules, libs?: readonly SmartLibrary[]): st
   if (r.minHeight !== null) parts.push(`${HEIGHT_WORDS[r.minHeight] ?? `${r.minHeight}p`} or better`);
   if (r.watchedWithinDays !== null) parts.push(`watched in the last ${r.watchedWithinDays === 1 ? "day" : `${r.watchedWithinDays} days`}`);
   if (r.notWatchedWithinDays !== null) parts.push(`not watched in the last ${r.notWatchedWithinDays === 1 ? "day" : `${r.notWatchedWithinDays} days`}`);
-  return `${parts.join(", ")}; ${SORT_WORDS[r.sort]}, up to ${r.limit}.`;
+  return `${parts.join(", ")}; ${r.sorts.map((s, i) => (i === 0 ? SORT_WORDS[s] : `then ${SORT_WORDS[s]}`)).join(", ")}, up to ${r.limit}.`;
 }
 
 // ── The form: which conditions have been added ──

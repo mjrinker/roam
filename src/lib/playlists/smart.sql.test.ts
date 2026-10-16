@@ -192,6 +192,26 @@ describe("what the rules select", () => {
     expect(await order("title")).toEqual(["Alpha", "Bravo", "Charlie", "Delta"]);
   });
 
+  it("orders by several things at once: each only breaks ties in the one before, and a random one ends the list", async () => {
+    const w = await world();
+    await w.movie("Old long", { year: 1990, runtimeSeconds: 150 * 60 });
+    await w.movie("Old short", { year: 1990, runtimeSeconds: 80 * 60 });
+    await w.movie("New short", { year: 2020, runtimeSeconds: 90 * 60 });
+    await w.movie("New long", { year: 2020, runtimeSeconds: 130 * 60 });
+    expect(await w.names(rules({ sorts: ["newest", "longest"] }))).toEqual(["New long", "New short", "Old long", "Old short"]);
+    expect(await w.names(rules({ sorts: ["longest", "newest"] }))).toEqual(["Old long", "New long", "New short", "Old short"]);
+    expect(await w.names(rules({ sorts: ["oldest", "shortest"] }))).toEqual(["Old short", "Old long", "New short", "New long"]);
+    expect(await w.names(rules({ sorts: ["newest"] }))).toEqual(await w.names(rules({ sort: "newest" }))); // the same as one order
+    // a random one last: the earlier orders still group the result, and only ties among them are shuffled
+    const seen = new Set<string>();
+    for (let i = 0; i < 12; i++) {
+      const names = await w.names(rules({ sorts: ["newest", "random"] }));
+      expect(new Set(names.slice(0, 2))).toEqual(new Set(["New long", "New short"]));
+      seen.add(names.join());
+    }
+    expect(seen.size).toBeGreaterThan(1);
+  });
+
   it("orders across kinds the same way, and a show is last watched when any of its episodes was", async () => {
     const w = await world();
     const long = await w.movie("Long film", { runtimeSeconds: 150 * 60 });
@@ -340,12 +360,12 @@ describe("what the rules select", () => {
 
   it("reads rules saved before libraries were chosen by name as the same thing", async () => {
     const parsed = smartRulesSchema.parse({ media: "episodes", libraryId: "123e4567-e89b-42d3-a456-426614174000", sort: "added" });
-    expect(parsed).toMatchObject({ kinds: ["shows"], showsAs: "episodes", libraryIds: ["123e4567-e89b-42d3-a456-426614174000"], sort: "added" });
+    expect(parsed).toMatchObject({ kinds: ["shows"], showsAs: "episodes", libraryIds: ["123e4567-e89b-42d3-a456-426614174000"], sorts: ["added"] });
     expect(smartRulesSchema.parse({ media: "songs" })).toMatchObject({ kinds: ["music", "audio"], libraryIds: [] });
     expect(smartRulesSchema.safeParse({ media: "nonsense" }).success).toBe(false);
     expect(smartRulesSchema.safeParse({ libraryIds: ["nope"] }).success).toBe(false);
     expect(smartRulesSchema.safeParse({ libraryIds: Array(31).fill("123e4567-e89b-42d3-a456-426614174000") }).success).toBe(false);
-    expect(smartRulesSchema.parse({})).toMatchObject({ libraryIds: [], kinds: [], showsAs: "shows", sort: "title", limit: 50 });
+    expect(smartRulesSchema.parse({})).toMatchObject({ libraryIds: [], kinds: [], showsAs: "shows", sorts: ["title"], limit: 50 });
   });
 
   it("can pick at random, and refuses nonsense rules", async () => {
@@ -355,7 +375,7 @@ describe("what the rules select", () => {
     for (const bad of [{ media: "music" }, { media: "movies", limit: 0 }, { media: "movies", limit: 500 }, { media: "movies", minStars: 11 }, { media: "movies", sort: "nope" }, { media: "movies", extra: 1 }, { media: "movies", libraryId: "x" }, { media: "movies", genres: Array(11).fill("a") }]) {
       expect(smartRulesSchema.safeParse(bad).success, JSON.stringify(bad)).toBe(false);
     }
-    expect(smartRulesSchema.parse({ media: "movies" })).toMatchObject({ sort: "title", limit: 50, watched: "any", rated: "any" });
+    expect(smartRulesSchema.parse({ media: "movies" })).toMatchObject({ sorts: ["title"], limit: 50, watched: "any", rated: "any" });
   });
 });
 
@@ -402,6 +422,21 @@ describe("a smart playlist", () => {
     await db.update(titles).set({ genres: ["Comedy"] }).where(eq(titles.id, a.id));
     await refreshSmartPlaylist(db, smart.id, { force: true });
     expect((await w.items(smart.id)).map((i) => i.name)).toEqual(["C"]);
+  });
+
+  it("shows the values of up to the first three orders on each item, in order, and leaves out those with nothing to show", async () => {
+    const w = await playlistWorld();
+    const a = await w.movie("Alpha", { runtimeSeconds: 100 * 60, year: 1999, imdbRating: 7.5 });
+    await w.rate(a.id, 9);
+    const labels = async (sorts: string[], viewerId = w.viewerId) => {
+      const p = await w.make(rules({ sorts }), sorts.join());
+      return (await listVisibleItems(db, { playlistId: p.id, lib: w.actor, viewer: adult, viewerId })).items.map((i) => [i.sortLabels, i.sortLabel]);
+    };
+    expect(await labels(["newest", "longest", "rating"])).toEqual([[["1999", "1h 40m", "★ 4.5"], "1999 · 1h 40m · ★ 4.5"]]);
+    expect(await labels(["newest", "longest", "rating", "imdb"])).toEqual([[["1999", "1h 40m", "★ 4.5"], "1999 · 1h 40m · ★ 4.5"]]); // only the first three
+    expect(await labels(["title", "imdb"])).toEqual([[["IMDb 7.5"], "IMDb 7.5"]]); // a name has no value to show
+    expect(await labels(["title", "random"])).toEqual([[[], null]]);
+    expect((await labels(["rating", "ratingLowest", "newest"]))[0][0]).toEqual(["★ 4.5", "1999"]); // said once
   });
 
   it("shows each item the value it is ordered by, and keeps the owner's private values to the owner", async () => {

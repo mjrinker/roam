@@ -68,6 +68,8 @@ export interface PlaylistItemView {
   /** False for a show entry with nothing playable (shown disabled, skipped by Play all). */
   playable: boolean;
   /** On a smart playlist, the value it is ordered by ("1h 40m", "★ 4.5"), so the order can be seen. */
+  /** On a smart playlist, the value(s) it is ordered by, most important first (at most three), and the same joined for places that show one line. */
+  sortLabels?: string[];
   sortLabel?: string | null;
 }
 
@@ -147,7 +149,11 @@ export async function listVisibleItems(
   }));
   // On a smart playlist, say what each is ordered by.
   const labels = await smartSortLabels(ex, { playlistId: args.playlistId, viewerId: args.viewerId, lib: args.lib, viewer: args.viewer, items });
-  for (const item of items) item.sortLabel = labels.get(item.titleId ? `t:${item.titleId}` : `e:${item.episodeId}`) ?? null;
+  for (const item of items) {
+    const own = labels.get(item.titleId ? `t:${item.titleId}` : `e:${item.episodeId}`) ?? [];
+    item.sortLabels = own;
+    item.sortLabel = own.length ? own.join(" · ") : null;
+  }
   const last = page[page.length - 1];
   return { items, nextCursor: rows.length > limit && last ? { position: last.position, id: last.id } : null };
 }

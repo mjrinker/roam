@@ -71,7 +71,7 @@ describe("smart playlists through the API", () => {
     const list = await json(await v1Playlist(send("GET"), ctx({ ...w.sid, playlistId: id })));
     expect(list.items.map((i: { name: string }) => i.name)).toEqual(["Funny"]);
     const detail = await json(await getOne(send("GET"), ctx({ id })));
-    expect(detail).toMatchObject({ smart: true, smartRules: { kinds: ["movies"], libraryIds: [], genres: ["Comedy"], sort: "title", limit: 50 } });
+    expect(detail).toMatchObject({ smart: true, smartRules: { kinds: ["movies"], libraryIds: [], genres: ["Comedy"], sorts: ["title"], limit: 50 } });
     expect(detail.can.editItems).toBe(false);
     expect((await addItemRoute(send("POST", { titleId: a.id }), ctx({ id }))).status).toBe(403);
   });

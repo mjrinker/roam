@@ -9,10 +9,10 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { DropdownMenu, DropdownMenuCheckboxItem, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import type { SmartRules } from "@/lib/playlists/smart";
-import { activeConditions, AGE_CHOICES, CLEARED, CONDITIONS, HEIGHT_WORDS, holdsOnlyShows, nounsOf, SMART_MAX_LIMIT, SORT_WORDS, WATCHED_WORDS, type Condition, type SmartLibrary } from "@/lib/playlists/smart-words";
+import { activeConditions, AGE_CHOICES, CLEARED, CONDITIONS, HEIGHT_WORDS, holdsOnlyShows, nounsOf, SMART_MAX_LIMIT, SMART_MAX_SORTS, SORT_SHORT, SORT_WORDS, toggleSort, WATCHED_WORDS, type Condition, type SmartLibrary } from "@/lib/playlists/smart-words";
 import { starsText } from "@/lib/ratings/stars";
 
-const DEFAULT: SmartRules = { libraryIds: [], kinds: [], showsAs: "shows", genres: [], minStars: null, maxStars: null, rated: "any", watched: "any", yearFrom: null, yearTo: null, addedWithinDays: null, minMinutes: null, maxMinutes: null, titleContains: null, maxAge: null, minImdb: null, minRottenTomatoes: null, minAverage: null, person: null, minHeight: null, watchedWithinDays: null, notWatchedWithinDays: null, sort: "title", limit: 50 };
+const DEFAULT: SmartRules = { libraryIds: [], kinds: [], showsAs: "shows", genres: [], minStars: null, maxStars: null, rated: "any", watched: "any", yearFrom: null, yearTo: null, addedWithinDays: null, minMinutes: null, maxMinutes: null, titleContains: null, maxAge: null, minImdb: null, minRottenTomatoes: null, minAverage: null, person: null, minHeight: null, watchedWithinDays: null, notWatchedWithinDays: null, sorts: ["title"], limit: 50 };
 const SELECT = "h-9 w-full min-w-0 rounded-lg bg-white/[0.06] px-2 text-sm ring-1 ring-white/[0.1] focus:outline-none focus:ring-2 focus:ring-primary";
 const STAR_CHOICES = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
 const num = (v: string): number | null => (v.trim() === "" || Number.isNaN(Number(v)) ? null : Math.trunc(Number(v)));
@@ -89,6 +89,33 @@ function LibraryPicker({ libraries, value, onChange }: { libraries: SmartLibrary
   );
 }
 
+/** The orders, as a menu: the numbers show which comes first (the next only breaks ties in the one before), and the first three show on each item. */
+function SortPicker({ value, onChange }: { value: SmartRules["sorts"]; onChange: (sorts: SmartRules["sorts"]) => void }) {
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger render={<button type="button" aria-label="Order" className="flex h-9 w-full min-w-0 cursor-pointer items-center justify-between gap-2 rounded-lg bg-white/[0.06] px-3 text-left text-sm ring-1 ring-white/[0.1] focus:outline-none focus-visible:ring-2 focus-visible:ring-primary" />}>
+        <span className="truncate">{value.map((s) => SORT_SHORT[s]).join(", then ")}</span>
+        <ChevronDown className="size-4 shrink-0 text-muted-foreground" />
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start" className="max-h-80 min-w-64 overflow-y-auto">
+        <p className="px-2 py-1.5 text-xs text-muted-foreground">Choose in order of importance: the next one only breaks ties. Up to {SMART_MAX_SORTS}; the first 3 show on each item.</p>
+        {SMART_SORT_KEYS.map((k) => {
+          const place = value.indexOf(k) + 1;
+          return (
+            <DropdownMenuItem key={k} closeOnClick={false} onClick={() => onChange(toggleSort(value, k, SMART_MAX_SORTS))}>
+              <span aria-hidden className={`flex size-5 shrink-0 items-center justify-center rounded-full text-xs font-semibold tabular-nums ${place ? "bg-primary text-primary-foreground" : "ring-1 ring-white/20"}`}>{place || ""}</span>
+              <span className="truncate">{SORT_WORDS[k]}</span>
+              {place > 0 && <span className="sr-only"> (number {place})</span>}
+            </DropdownMenuItem>
+          );
+        })}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
+const SMART_SORT_KEYS = Object.keys(SORT_WORDS) as SmartRules["sorts"];
+
 /** Make a smart playlist (or change one's rules): say what it holds, then add the conditions you want with the + button. */
 export function SmartPlaylistDialog({ serverId, playlistId, initialName = "", initialRules, genres, libraries, open, onOpenChange }: { serverId: string; playlistId?: string; initialName?: string; initialRules?: SmartRules | null; genres: string[]; libraries: SmartLibrary[]; open: boolean; onOpenChange: (open: boolean) => void }) {
   const router = useRouter();
@@ -149,9 +176,7 @@ export function SmartPlaylistDialog({ serverId, playlistId, initialName = "", in
               <LibraryPicker libraries={libraries} value={rules.libraryIds} onChange={(ids) => set({ libraryIds: ids, kinds: [] })} />
             </Setting>
             <Setting label="Order">
-              <select aria-label="Order" className={SELECT} value={rules.sort} onChange={(e) => set({ sort: e.target.value as SmartRules["sort"] })}>
-                {Object.entries(SORT_WORDS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
-              </select>
+              <SortPicker value={rules.sorts} onChange={(sorts) => set({ sorts })} />
             </Setting>
             <Setting label="Up to">
               <Input inputMode="numeric" value={rules.limit} onChange={(e) => set({ limit: Math.min(SMART_MAX_LIMIT, Math.max(1, num(e.target.value) ?? 50)) })} aria-label="How many" />

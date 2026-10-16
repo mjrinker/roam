@@ -1,6 +1,8 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
-import { PlaylistItems, itemHref } from "./playlist-items";
+import { PlaylistItems, detailsHref, itemHref } from "./playlist-items";
+
+vi.mock("next/navigation", () => ({ useRouter: () => ({ push: () => {} }) }));
 import type { ItemRow } from "./playlist-api";
 
 const row = (over: Partial<ItemRow>): ItemRow => ({
@@ -30,6 +32,19 @@ describe("itemHref", () => {
   });
 });
 
+describe("detailsHref (where clicking a row goes; the play button uses itemHref)", () => {
+  it("goes to the details page of a movie, of an episode's show, of a show and of a book", () => {
+    expect(detailsHref("s1", "p1", row({}))).toBe("/s/s1/title/title-1");
+    expect(detailsHref("s1", "p1", row({ titleId: null, episodeId: "ep-1", titleKind: null, showId: "show-1" }))).toBe("/s/s1/show/show-1");
+    expect(detailsHref("s1", "p1", row({ titleKind: "show" }))).toBe("/s/s1/show/title-1");
+    expect(detailsHref("s1", "p1", row({ titleKind: "audiobook" }))).toBe("/s/s1/book/title-1");
+  });
+  it("never carries the queue, which only playing does", () => {
+    expect(detailsHref("s1", "p1", row({}))).not.toContain("playlist=");
+    expect(itemHref("s1", "p1", row({}))).toContain("playlist=p1");
+  });
+});
+
 describe("PlaylistItems", () => {
   const render = (items: ItemRow[], canEdit: boolean, cursor: string | null = null) =>
     renderToStaticMarkup(
@@ -51,7 +66,15 @@ describe("PlaylistItems", () => {
     expect(html).toContain("Heat");
     expect(html).toContain("Movie · 1995");
     expect(html).toContain("Lost — S1 · E1 · Pilot");
-    expect(html).toContain('href="/s/s1/watch/title/title-1?playlist=p1&amp;item=item-1"');
+    expect(html).toContain('href="/s/s1/watch/title/title-1?playlist=p1&amp;item=item-1"'); // the play button
+    expect(html).toContain('href="/s/s1/title/title-1"'); // the name opens the details
+  });
+
+  it("shows each of the values it is ordered by, in order", () => {
+    const html = render([row({ sortLabels: ["1995", "1h 40m", "IMDb 8.5"] })], false);
+    expect(html.indexOf("1995")).toBeLessThan(html.indexOf("1h 40m"));
+    expect(html.indexOf("1h 40m")).toBeLessThan(html.indexOf("IMDb 8.5"));
+    expect(render([row({})], false)).not.toContain("What this playlist is ordered by");
   });
 
   it("disables a show with nothing playable instead of linking it", () => {

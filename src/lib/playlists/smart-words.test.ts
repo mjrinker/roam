@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { smartRulesSchema } from "./smart";
-import { activeConditions, CLEARED, CONDITIONS, describeRules, SORT_WORDS } from "./smart-words";
+import { activeConditions, CLEARED, CONDITIONS, describeRules, SORT_SHORT, SORT_WORDS, toggleSort } from "./smart-words";
 
 const words = (o: Record<string, unknown>, libs?: { id: string; name: string; kind: string }[]) => describeRules(smartRulesSchema.parse({ media: "movies", ...o }), libs);
 
@@ -64,6 +64,34 @@ describe("the newer conditions in words", () => {
   });
   it("read as nothing when the text is blank", () => {
     expect(smartRulesSchema.parse({ titleContains: "   ", person: "" })).toMatchObject({ titleContains: null, person: null });
+  });
+});
+
+describe("several orders", () => {
+  it("reads a single saved order as a list of one, keeps the order given, and drops repeats", () => {
+    expect(smartRulesSchema.parse({ sort: "newest" })).toMatchObject({ sorts: ["newest"] });
+    expect(smartRulesSchema.parse({})).toMatchObject({ sorts: ["title"] });
+    expect(smartRulesSchema.parse({ sorts: ["imdb", "newest", "imdb", "longest"] }).sorts).toEqual(["imdb", "newest", "longest"]);
+  });
+  it("refuses none, too many, and an unknown one", () => {
+    expect(smartRulesSchema.safeParse({ sorts: [] }).success).toBe(false);
+    expect(smartRulesSchema.safeParse({ sorts: ["title", "titleDesc", "newest", "oldest", "added", "addedOldest"] }).success).toBe(false);
+    expect(smartRulesSchema.safeParse({ sorts: ["nope"] }).success).toBe(false);
+  });
+  it("says them in order in words", () => {
+    expect(words({ sorts: ["newest", "rating", "title"] })).toContain("newest release first, then my highest rated first, then A to Z, up to 50.");
+  });
+  it("toggles: a new one goes last, choosing again takes it away, the opposite is replaced, the last one stays, random stays last, and there is a limit", () => {
+    expect(toggleSort(["title"], "newest", 5)).toEqual(["title", "newest"]);
+    expect(toggleSort(["title", "newest"], "title", 5)).toEqual(["newest"]);
+    expect(toggleSort(["newest"], "newest", 5)).toEqual(["newest"]);
+    expect(toggleSort(["rating", "newest"], "ratingLowest", 5)).toEqual(["newest", "ratingLowest"]);
+    expect(toggleSort(["newest", "random"], "longest", 5)).toEqual(["newest", "longest", "random"]);
+    expect(toggleSort(["newest"], "random", 5)).toEqual(["newest", "random"]);
+    expect(toggleSort(["a", "b", "c", "d", "e"] as never, "random", 5)).toEqual(["a", "b", "c", "d", "e"]);
+  });
+  it("has a short name for every order", () => {
+    expect(Object.keys(SORT_SHORT)).toEqual(Object.keys(SORT_WORDS));
   });
 });
 

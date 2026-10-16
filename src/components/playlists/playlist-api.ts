@@ -40,7 +40,8 @@ export interface ItemRow {
   showName: string | null;
   showId: string | null;
   playable: boolean;
-  /** On a smart playlist, the value it is ordered by. */
+  /** On a smart playlist, the values it is ordered by (up to three), most important first. */
+  sortLabels?: string[];
   sortLabel?: string | null;
 }
 

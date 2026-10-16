@@ -13,7 +13,7 @@ import { countryFromLocale } from "@/lib/content/ratings";
 import { libraryVisible, type LibraryActor } from "@/lib/content/library-access";
 import { SONG_LIBRARY_KINDS } from "@/lib/libraries/profile";
 import type { Executor } from "./executor";
-import { SMART_MAX_LIMIT } from "./smart-words";
+import { SMART_MAX_LIMIT, SMART_MAX_SORTS } from "./smart-words";
 import { POSITION_GAP } from "./position";
 
 /** The kinds of library a smart playlist can draw from. */
@@ -45,8 +45,15 @@ const halfStars = z.number().int().min(1).max(10);
 
 /** Rules saved before libraries were chosen by name said what kind of thing they held (`media`); that is read as the equivalent. */
 function fromLegacy(input: unknown): unknown {
-  if (!input || typeof input !== "object" || !("media" in input)) return input;
-  const { media, libraryId, ...rest } = input as Record<string, unknown>;
+  if (!input || typeof input !== "object") return input;
+  let rules = input as Record<string, unknown>;
+  // Rules saved with one order (`sort`) read as a list of one.
+  if ("sort" in rules) {
+    const { sort, ...rest } = rules;
+    rules = "sorts" in rest ? rest : { ...rest, sorts: [sort] };
+  }
+  if (!("media" in rules)) return rules;
+  const { media, libraryId, ...rest } = rules;
   const kind = media === "movies" ? ["movies"] : media === "shows" || media === "episodes" ? ["shows"] : media === "songs" ? ["music", "audio"] : media === "audiobooks" ? ["audiobooks"] : ["?"];
   return { ...rest, kinds: kind, showsAs: media === "episodes" ? "episodes" : "shows", libraryIds: typeof libraryId === "string" ? [libraryId] : [] };
 }
@@ -88,7 +95,8 @@ const smartRulesObject = z
     /** This profile watched it in the last N days / has not in the last N days (never watched counts as not). */
     watchedWithinDays: z.number().int().min(1).max(3650).nullable().default(null),
     notWatchedWithinDays: z.number().int().min(1).max(3650).nullable().default(null),
-    sort: z.enum(SMART_SORTS).default("title"),
+    /** The order, most important first: the next one only breaks ties in the one before. A random order ends the list. */
+    sorts: z.array(z.enum(SMART_SORTS)).min(1).max(SMART_MAX_SORTS).default(["title"]).transform((list) => [...new Set(list)]),
     limit: z.number().int().min(1).max(SMART_MAX_LIMIT).default(50),
   })
   .strict();
@@ -248,48 +256,58 @@ interface SortKeys {
   tie: SQL[];
 }
 
-/** The ORDER BY for a sort, with what is missing always last. */
-function orderingFor(sort: SmartRules["sort"], k: SortKeys): SQL[] {
+/** What one sort orders by (what is missing is always last). */
+function primaryOrdering(sort: SmartRules["sorts"][number], k: SortKeys): SQL {
   switch (sort) {
     case "random":
-      return [sql`random()`];
+      return sql`random()`;
     case "titleDesc":
-      return [sql`${k.name} DESC`, ...k.tie];
+      return sql`${k.name} DESC`;
     case "newest":
-      return [sql`${k.year} DESC NULLS LAST`, k.name, ...k.tie];
+      return sql`${k.year} DESC NULLS LAST`;
     case "oldest":
-      return [sql`${k.year} ASC NULLS LAST`, k.name, ...k.tie];
+      return sql`${k.year} ASC NULLS LAST`;
     case "added":
-      return [sql`${k.added} DESC`, k.name, ...k.tie];
+      return sql`${k.added} DESC`;
     case "addedOldest":
-      return [sql`${k.added} ASC`, k.name, ...k.tie];
+      return sql`${k.added} ASC`;
     case "rating":
-      return [sql`${k.mine} DESC NULLS LAST`, k.name, ...k.tie];
+      return sql`${k.mine} DESC NULLS LAST`;
     case "ratingLowest":
-      return [sql`${k.mine} ASC NULLS LAST`, k.name, ...k.tie];
+      return sql`${k.mine} ASC NULLS LAST`;
     case "longest":
-      return [sql`${k.runtime} DESC NULLS LAST`, k.name, ...k.tie];
+      return sql`${k.runtime} DESC NULLS LAST`;
     case "shortest":
-      return [sql`${k.runtime} ASC NULLS LAST`, k.name, ...k.tie];
+      return sql`${k.runtime} ASC NULLS LAST`;
     case "watchedRecently":
-      return [sql`${k.watchedAt} DESC NULLS LAST`, k.name, ...k.tie];
+      return sql`${k.watchedAt} DESC NULLS LAST`;
     case "watchedLongAgo":
-      return [sql`${k.watchedAt} ASC NULLS LAST`, k.name, ...k.tie];
+      return sql`${k.watchedAt} ASC NULLS LAST`;
     case "genre":
-      return [sql`${k.genre} ASC NULLS LAST`, k.name, ...k.tie];
+      return sql`${k.genre} ASC NULLS LAST`;
     case "imdb":
-      return [sql`${k.imdb} DESC NULLS LAST`, k.name, ...k.tie];
+      return sql`${k.imdb} DESC NULLS LAST`;
     case "rottenTomatoes":
-      return [sql`${k.rottenTomatoes} DESC NULLS LAST`, k.name, ...k.tie];
+      return sql`${k.rottenTomatoes} DESC NULLS LAST`;
     case "average":
-      return [sql`${k.average} DESC NULLS LAST`, k.name, ...k.tie];
+      return sql`${k.average} DESC NULLS LAST`;
     case "contentRating":
-      return [sql`${k.age} ASC NULLS LAST`, k.name, ...k.tie];
+      return sql`${k.age} ASC NULLS LAST`;
     case "quality":
-      return [sql`${k.quality} DESC NULLS LAST`, k.name, ...k.tie];
+      return sql`${k.quality} DESC NULLS LAST`;
     default:
-      return [k.name, ...k.tie];
+      return k.name;
   }
+}
+
+/** The ORDER BY for the orders chosen, most important first, ending by name (and a show's episodes in their order). A random order ends the list. */
+function orderingFor(sorts: SmartRules["sorts"], k: SortKeys): SQL[] {
+  const out: SQL[] = [];
+  for (const sort of sorts) {
+    out.push(primaryOrdering(sort, k));
+    if (sort === "random") return out;
+  }
+  return [...out, k.name, ...k.tie];
 }
 
 /** Which kinds of thing the rules hold, from the libraries they name (or the kinds, or everything). */
@@ -310,52 +328,62 @@ export async function groupsOf(ex: Executor, rules: SmartRules, actor: LibraryAc
 }
 
 /** Puts entries from the different kinds of thing in the order asked for (each kind was already cut to the limit in that order). */
-function arrange(entries: Entry[], sort: SmartRules["sort"]): Entry[] {
+function arrange(entries: Entry[], sorts: SmartRules["sorts"]): Entry[] {
   const byName = (a: Entry, b: Entry) => a.name.localeCompare(b.name);
-  if (sort === "random") return [...entries].sort(() => Math.random() - 0.5);
   /** Compares two values that may be missing; missing is always last, whichever way the rest goes. */
   const by = <T>(x: T | null, y: T | null, cmp: (p: T, q: T) => number): number => (x === null || y === null ? (x === y ? 0 : x === null ? 1 : -1) : cmp(x, y));
   const num = (p: number, q: number) => p - q;
   const time = (p: Date, q: Date) => p.getTime() - q.getTime();
-  return [...entries].sort((a, b) => {
+  const compare = (sort: SmartRules["sorts"][number], a: Entry, b: Entry): number => {
     switch (sort) {
       case "titleDesc":
         return byName(b, a);
       case "newest":
-        return by(a.year, b.year, (p, q) => q - p) || byName(a, b);
+        return by(a.year, b.year, (p, q) => q - p);
       case "oldest":
-        return by(a.year, b.year, num) || byName(a, b);
+        return by(a.year, b.year, num);
       case "added":
-        return time(b.added, a.added) || byName(a, b);
+        return time(b.added, a.added);
       case "addedOldest":
-        return time(a.added, b.added) || byName(a, b);
+        return time(a.added, b.added);
       case "rating":
-        return by(a.mine, b.mine, (p, q) => q - p) || byName(a, b);
+        return by(a.mine, b.mine, (p, q) => q - p);
       case "ratingLowest":
-        return by(a.mine, b.mine, num) || byName(a, b);
+        return by(a.mine, b.mine, num);
       case "longest":
-        return by(a.runtime, b.runtime, (p, q) => q - p) || byName(a, b);
+        return by(a.runtime, b.runtime, (p, q) => q - p);
       case "shortest":
-        return by(a.runtime, b.runtime, num) || byName(a, b);
+        return by(a.runtime, b.runtime, num);
       case "watchedRecently":
-        return by(a.watchedAt, b.watchedAt, (p, q) => time(q, p)) || byName(a, b);
+        return by(a.watchedAt, b.watchedAt, (p, q) => time(q, p));
       case "watchedLongAgo":
-        return by(a.watchedAt, b.watchedAt, time) || byName(a, b);
+        return by(a.watchedAt, b.watchedAt, time);
       case "genre":
-        return by(a.genre, b.genre, (p, q) => p.localeCompare(q)) || byName(a, b);
+        return by(a.genre, b.genre, (p, q) => p.localeCompare(q));
       case "imdb":
-        return by(a.imdb, b.imdb, (p, q) => q - p) || byName(a, b);
+        return by(a.imdb, b.imdb, (p, q) => q - p);
       case "rottenTomatoes":
-        return by(a.rottenTomatoes, b.rottenTomatoes, (p, q) => q - p) || byName(a, b);
+        return by(a.rottenTomatoes, b.rottenTomatoes, (p, q) => q - p);
       case "average":
-        return by(a.average, b.average, (p, q) => q - p) || byName(a, b);
+        return by(a.average, b.average, (p, q) => q - p);
       case "contentRating":
-        return by(a.age, b.age, num) || byName(a, b);
+        return by(a.age, b.age, num);
       case "quality":
-        return by(a.quality, b.quality, (p, q) => q - p) || byName(a, b);
+        return by(a.quality, b.quality, (p, q) => q - p);
       default:
         return byName(a, b);
     }
+  };
+  // A random order ends the list: whatever the orders before it leave tied is put in a random order, and nothing after it could matter.
+  const random = sorts.includes("random");
+  const chosen = random ? sorts.slice(0, sorts.indexOf("random")) : sorts;
+  const luck = new Map(entries.map((e) => [e, Math.random()]));
+  return [...entries].sort((a, b) => {
+    for (const sort of chosen) {
+      const r = compare(sort, a, b);
+      if (r !== 0) return r;
+    }
+    return random ? (luck.get(a) ?? 0) - (luck.get(b) ?? 0) : byName(a, b);
   });
 }
 
@@ -393,7 +421,7 @@ async function episodesEntries(ex: Executor, rules: SmartRules, a: { actor: Libr
         ...conditions
       )
     )
-    .orderBy(...orderingFor(rules.sort, { name: sql`lower(${titles.name})`, year: sql`${titles.year}`, added: sql`${titles.addedAt}`, mine, runtime, watchedAt, genre, imdb: subject.imdb, rottenTomatoes: subject.rottenTomatoes, average: averageOfSubject(subject), age: effectiveAge(subject.ratingAges, countryFromLocale(a.viewer.locale)), quality: heightOf(subject), tie: [sql`${seasons.number}`, sql`${episodes.number}`] }))
+    .orderBy(...orderingFor(rules.sorts, { name: sql`lower(${titles.name})`, year: sql`${titles.year}`, added: sql`${titles.addedAt}`, mine, runtime, watchedAt, genre, imdb: subject.imdb, rottenTomatoes: subject.rottenTomatoes, average: averageOfSubject(subject), age: effectiveAge(subject.ratingAges, countryFromLocale(a.viewer.locale)), quality: heightOf(subject), tie: [sql`${seasons.number}`, sql`${episodes.number}`] }))
     .limit(rules.limit);
   return rows.map((r) => ({ target: { episodeId: r.id }, name: `${r.show} S${pad(r.season)}E${pad(r.number)}`, year: r.year, added: r.added, mine: r.mine ?? null, runtime: r.runtime === null ? null : Number(r.runtime), watchedAt: r.watchedAt ? new Date(r.watchedAt) : null, genre: r.genre ?? null, imdb: num(r.imdb), rottenTomatoes: num(r.rottenTomatoes), average: num(r.average), age: num(r.age), quality: num(r.quality) }));
 }
@@ -436,7 +464,7 @@ async function titleEntries(ex: Executor, rules: SmartRules, group: "movies" | "
         ...conditions
       )
     )
-    .orderBy(...orderingFor(rules.sort, { name: sql`lower(${titles.name})`, year: sql`${titles.year}`, added: sql`${titles.addedAt}`, mine, runtime, watchedAt, genre, imdb: subject.imdb, rottenTomatoes: subject.rottenTomatoes, average: averageOfSubject(subject), age: effectiveAge(subject.ratingAges, countryFromLocale(a.viewer.locale)), quality: heightOf(subject), tie: [] }))
+    .orderBy(...orderingFor(rules.sorts, { name: sql`lower(${titles.name})`, year: sql`${titles.year}`, added: sql`${titles.addedAt}`, mine, runtime, watchedAt, genre, imdb: subject.imdb, rottenTomatoes: subject.rottenTomatoes, average: averageOfSubject(subject), age: effectiveAge(subject.ratingAges, countryFromLocale(a.viewer.locale)), quality: heightOf(subject), tie: [] }))
     .limit(rules.limit);
   return rows.map((r) => ({ target: { titleId: r.id }, name: r.name, year: r.year, added: r.added, mine: r.mine ?? null, runtime: r.runtime === null ? null : Number(r.runtime), watchedAt: r.watchedAt ? new Date(r.watchedAt) : null, genre: r.genre ?? null, imdb: num(r.imdb), rottenTomatoes: num(r.rottenTomatoes), average: num(r.average), age: num(r.age), quality: num(r.quality) }));
 }
@@ -450,7 +478,7 @@ export async function evaluateRules(ex: Executor, args: { rules: SmartRules; act
   const a = { actor, viewer, viewerId, since, sinceWatch: { watched: days(rules.watchedWithinDays), notWatched: days(rules.notWatchedWithinDays) } };
   const entries: Entry[] = [];
   for (const group of await groupsOf(ex, rules, actor)) entries.push(...(group === "episodes" ? await episodesEntries(ex, rules, a) : await titleEntries(ex, rules, group, a)));
-  return arrange(entries, rules.sort).slice(0, rules.limit).map((e) => e.target);
+  return arrange(entries, rules.sorts).slice(0, rules.limit).map((e) => e.target);
 }
 
 /**
@@ -465,7 +493,7 @@ export async function refreshSmartPlaylist(ex: Executor, playlistId: string, opt
     const parsed = smartRulesSchema.safeParse(pl.smartRules);
     if (!parsed.success || !pl.ownerViewerId) return null; // no owner left to evaluate for: it stays as it was
     const rules = parsed.data;
-    const fresh = pl.smartRefreshedAt && now.getTime() - pl.smartRefreshedAt.getTime() < (rules.sort === "random" ? Infinity : SMART_STALE_MS);
+    const fresh = pl.smartRefreshedAt && now.getTime() - pl.smartRefreshedAt.getTime() < (rules.sorts.includes("random") ? Infinity : SMART_STALE_MS);
     if (fresh && !opts.force) return null;
 
     const [owner] = await tx.select().from(viewers).where(eq(viewers.id, pl.ownerViewerId));
