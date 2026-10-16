@@ -2,6 +2,7 @@ import { db } from "@/lib/db/client";
 import { servers } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
 import { continueWatching, recentlyAdded, tvLibraries, upNext } from "@/lib/tv/data";
+import { recommendations } from "@/lib/recommend/service";
 import { tvPlaylists } from "@/lib/tv/playlists";
 import { unreadCount } from "@/lib/ownership/notify";
 import { tvBrowseStyle } from "@/lib/libraries/profile";
@@ -15,9 +16,10 @@ export async function GET(_request: Request, ctx: RouteContext<"/api/v1/servers/
   if (!a.ok) return a.response;
   const { scope, serverId, who } = a.access;
   const [server] = await db.select({ name: servers.name }).from(servers).where(eq(servers.id, serverId)).limit(1);
-  const [libs, cont, next, recent, lists, unread] = await Promise.all([tvLibraries(db, scope), continueWatching(db, scope), upNext(db, scope), recentlyAdded(db, scope), tvPlaylists(db, scope), unreadCount(db, who.accountId)]);
+  const [libs, cont, next, recent, lists, unread, recs] = await Promise.all([tvLibraries(db, scope), continueWatching(db, scope), upNext(db, scope), recentlyAdded(db, scope), tvPlaylists(db, scope), unreadCount(db, who.accountId), recommendations(db, { actor: scope.actor, viewer: scope.viewer, viewerId: scope.viewerId })]);
   const watching: ApiItem[] = cont.watching.map((c) => ({ type: c.kind === "episode" ? "episode" : "movie", id: c.id, name: c.name, subtitle: c.meta, posterUrl: c.posterUrl, square: false, progress: c.progress }));
   const deck: ApiItem[] = next.map((c) => ({ type: "episode", id: c.id, name: c.name, subtitle: c.meta, posterUrl: c.posterUrl, square: false }));
+  const asItem = (r: { id: string; kind: "movie" | "show"; name: string; year: number | null; posterUrl: string | null }): ApiItem => ({ type: r.kind, id: r.id, name: r.name, subtitle: r.year ? String(r.year) : null, posterUrl: r.posterUrl, square: false });
   const listening: ApiItem[] = cont.listening.map((c) => ({ type: "audiobook", id: c.id, name: c.name, subtitle: c.meta, posterUrl: c.posterUrl, square: true, progress: c.progress }));
   const added: ApiItem[] = recent.flatMap((r) => {
     const ref = refFromHref(r.href);
@@ -29,6 +31,8 @@ export async function GET(_request: Request, ctx: RouteContext<"/api/v1/servers/
     unsupportedLibraries: libs.unsupported,
     continueWatching: watching,
     upNext: deck,
+    recommended: recs.forYou.map(asItem),
+    becauseYouLiked: recs.because.map((b) => ({ because: b.title, items: b.items.map(asItem) })),
     continueListening: listening,
     recentlyAdded: added,
     hasPlaylists: lists.length > 0,

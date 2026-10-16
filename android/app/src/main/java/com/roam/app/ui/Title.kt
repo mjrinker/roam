@@ -127,6 +127,14 @@ fun TitleContent(serverId: String, t: Title, nav: Nav, onSeason: (Int) -> Unit, 
             item { Text("Cast", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onBackground) }
             item { Text(t.cast.joinToString("   ") { c -> if (c.character != null) "${c.name} (${c.character})" else c.name }, color = MaterialTheme.colorScheme.onSurfaceVariant) }
         }
+        if (t.similar.isNotEmpty()) item(key = "similar") {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("More like this", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onBackground)
+                androidx.compose.foundation.lazy.LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.testTag("similar")) {
+                    items(t.similar.size, key = { t.similar[it].id }) { i -> PosterCard(t.similar[i], onClick = { nav.open(routeFor(serverId, t.similar[i])) }) }
+                }
+            }
+        }
         for (c in t.moreInCollections) {
             item(key = "more-${c.id}") {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {

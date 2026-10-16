@@ -256,6 +256,7 @@ def root(ctx):
         return
     add_folder(ctx, "Continue watching", build_url(action="home", section="continueWatching"))
     add_folder(ctx, "Up next", build_url(action="home", section="upNext"))
+    add_folder(ctx, "Recommended for you", build_url(action="home", section="recommended"))
     add_folder(ctx, "Recently added", build_url(action="home", section="recentlyAdded"))
     try:
         libs = ctx.api.get(sp(ctx, "/libraries")).get("libraries", [])

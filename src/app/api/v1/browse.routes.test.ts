@@ -17,7 +17,7 @@ vi.mock("next/headers", () => ({
 vi.mock("@/lib/supabase/server", () => ({ createSupabaseServerClient: async () => ({ auth: { getUser: async () => ({ data: { user: null } }) } }) }));
 
 import { eq } from "drizzle-orm";
-import { libraryMembers, mediaFiles, viewers, watchState } from "@/lib/db/schema";
+import { libraryMembers, mediaFiles, titles, viewers, watchState } from "@/lib/db/schema";
 import { joinServer, makeAccount, makeLibrary, makeServer, makeShow, makeTitle, type TestDb } from "@/lib/playlists/test-db";
 import { createDeviceToken, setTokenProfile } from "@/lib/auth/device-token";
 import { saveSettings } from "@/lib/ownership/owners";
@@ -150,6 +150,20 @@ describe("listing", () => {
     const body = await json(await home(req(), ctx(w.sid)));
     expect(body.upNext).toEqual([expect.objectContaining({ type: "episode", id: w.episodes[1].id, name: "The Show", subtitle: expect.stringContaining("E2") })]);
     expect(body.continueWatching).toEqual([]);
+  });
+
+  it("recommends nothing until something has been rated, then titles like the ones rated highly, and says which it was like", async () => {
+    const w = await world();
+    const { ratings } = await import("@/lib/db/schema");
+    await db.update(titles).set({ genres: ["Drama"] }).where(eq(titles.id, w.film.id));
+    const like = await makeTitle(db, w.movies.id, { kind: "movie", name: "Another Drama", year: 2003, genres: ["Drama"] });
+    await db.insert(mediaFiles).values([w.film.id, like.id].map((ownerId) => ({ ownerKind: "title" as const, ownerId, partIndex: 0, boxFileId: `rec${++n}${ownerId}`, filename: "f.mp4", sizeBytes: 1, container: "mp4", probeStatus: "ok" as const, durationSeconds: 100 })));
+    expect((await json(await home(req(), ctx(w.sid)))).recommended).toEqual([]);
+    await db.insert(ratings).values({ viewerId: w.member.viewer.id, ownerKind: "title", ownerId: w.film.id, halfStars: 10 });
+    const body = await json(await home(req(), ctx(w.sid)));
+    expect(body.recommended).toEqual([expect.objectContaining({ type: "movie", id: like.id, name: "Another Drama" })]);
+    const t = await json(await detail(req(), ctx({ ...w.sid, id: w.film.id })));
+    expect(t.similar).toEqual([expect.objectContaining({ id: like.id })]);
   });
 
   it("searches, and finds nothing for an empty query", async () => {

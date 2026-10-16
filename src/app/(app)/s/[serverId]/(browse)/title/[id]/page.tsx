@@ -40,6 +40,8 @@ import { isFileTreeLibraryKind } from "@/lib/libraries/profile";
 import { averageOf, ratingsOf } from "@/lib/ratings/service";
 import { StarRating } from "@/components/ratings/star-rating";
 import { moreInCollections } from "@/lib/collections/queries";
+import { similarTitles } from "@/lib/recommend/service";
+import { TitleShelf } from "@/components/library/similar-row";
 import { MediaRow } from "@/components/library/media-row";
 import { PosterCard } from "@/components/library/poster-card";
 import { AddToCollectionMenu } from "@/components/collections/collection-admin";
@@ -98,6 +100,8 @@ export default async function TitleDetailPage({
   const mine = (await ratingsOf(db, viewer.id, "title", [title.id])).get(title.id) ?? null;
   const average = (await averageOf(db, "title", [title.id])).get(title.id) ?? null;
   const inCollections = await moreInCollections(db, { actor: lib, viewer, titleId: title.id });
+  // Like it, but not what the collection rows above already offer.
+  const similar = isGeneric ? [] : await similarTitles(db, { actor: lib, viewer, titleId: title.id, exclude: inCollections.flatMap((c) => c.items.map((i) => i.id)) });
   const extras = await loadTitleExtras(db, title.id);
   const cast = await loadTitleCast(db, title.id);
   const crew = await loadTitleCrew(db, title.id);
@@ -145,6 +149,7 @@ export default async function TitleDetailPage({
             </MediaRow>
           ))}
           <ChaptersList serverId={serverId} ownerKind="title" ownerId={title.id} chapters={chaptersFromRows(segments)} />
+          <TitleShelf serverId={serverId} title="More like this" items={similar} />
           <ParentalGuide lines={guideLines} prefs={filterPrefs} imdbId={title.imdbId} reports={ddd.reports} />
           <CastRow serverId={serverId} cast={cast} />
           <CrewRow serverId={serverId} crew={crew} />

@@ -106,6 +106,8 @@ export interface HomeData {
   continueWatching: Poster[];
   /** The next episode of each show being watched. */
   upNext?: Poster[];
+  /** Titles like the ones the profile rated highly. */
+  recommended?: Poster[];
   continueListening?: Poster[];
   recentlyAdded?: Poster[];
   /** Whether this profile has any playlists to show. */
@@ -126,20 +128,21 @@ export function homePage(d: HomeData): string {
     ? `<h2>Continue watching</h2><div class="row">${d.continueWatching.map((c, i) => card(c, i === 0)).join("")}</div>`
     : "";
   const next = d.upNext?.length ? `<h2>Up next</h2><div class="row">${d.upNext.map((c, i) => card(c, i === 0 && !cont)).join("")}</div>` : "";
+  const picks = d.recommended?.length ? `<h2>Recommended for you</h2><div class="row">${d.recommended.map((c, i) => card(c, i === 0 && !cont && !next)).join("")}</div>` : "";
   const listening = d.continueListening?.length
-    ? `<h2>Continue listening</h2><div class="row">${d.continueListening.map((c, i) => card(c, i === 0 && !cont && !next)).join("")}</div>`
+    ? `<h2>Continue listening</h2><div class="row">${d.continueListening.map((c, i) => card(c, i === 0 && !cont && !next && !picks)).join("")}</div>`
     : "";
   const recent = d.recentlyAdded?.length
-    ? `<h2>Recently added</h2><div class="row">${d.recentlyAdded.map((c, i) => card(c, i === 0 && !cont && !next && !listening)).join("")}</div>`
+    ? `<h2>Recently added</h2><div class="row">${d.recentlyAdded.map((c, i) => card(c, i === 0 && !cont && !next && !picks && !listening)).join("")}</div>`
     : "";
-  const first = !cont && !next && !listening && !recent;
+  const first = !cont && !next && !picks && !listening && !recent;
   const libs = d.libraries.length
     ? `<h2>Libraries</h2><div class="row">${d.libraries.map((l, i) => `<a class="tile" data-f${first && i === 0 ? " data-autofocus" : ""} href="${esc(d.base)}/library/${esc(l.id)}">${esc(l.name)}<small>${esc(l.kind)}</small></a>`).join("")}</div>`
     : `<p class="sub">Nothing to show here yet.</p>`;
   const more = d.unsupported > 0 ? `<p class="note">${d.unsupported} more ${d.unsupported === 1 ? "library isn't" : "libraries aren't"} available on TV yet.</p>` : "";
   return tvDocument({
     title: d.serverName,
-    body: `<div class="page"${d.screensaver ? ` data-saver="${esc(safeUrl(d.screensaver.href) ?? "")}" data-saver-after="${Math.max(1, Math.floor(d.screensaver.afterSeconds))}"` : ""}>${top(esc(d.profileName))}<h1>${esc(d.serverName)}</h1>${cont}${next}${listening}${recent}${libs}${more}<div class="row" style="margin-top:2rem">${actionRow([`<a class="btn" data-f href="${esc(d.base)}/search">Search</a>`, ...(d.hasPlaylists ? [`<a class="btn" data-f href="${esc(d.base)}/playlists">Playlists</a>`] : []), ...(d.unread ? [`<a class="btn" data-f href="${esc(d.base)}/notifications">Notifications (${d.unread})</a>`] : []), ...(d.hasSettings ? [`<a class="btn" data-f href="${esc(d.base)}/settings">Settings</a>`] : []), `<a class="btn" data-f href="/tv/profiles">Switch profile</a>`, postButton("/tv/signout", "Sign out")])}</div></div>`,
+    body: `<div class="page"${d.screensaver ? ` data-saver="${esc(safeUrl(d.screensaver.href) ?? "")}" data-saver-after="${Math.max(1, Math.floor(d.screensaver.afterSeconds))}"` : ""}>${top(esc(d.profileName))}<h1>${esc(d.serverName)}</h1>${cont}${next}${picks}${listening}${recent}${libs}${more}<div class="row" style="margin-top:2rem">${actionRow([`<a class="btn" data-f href="${esc(d.base)}/search">Search</a>`, ...(d.hasPlaylists ? [`<a class="btn" data-f href="${esc(d.base)}/playlists">Playlists</a>`] : []), ...(d.unread ? [`<a class="btn" data-f href="${esc(d.base)}/notifications">Notifications (${d.unread})</a>`] : []), ...(d.hasSettings ? [`<a class="btn" data-f href="${esc(d.base)}/settings">Settings</a>`] : []), `<a class="btn" data-f href="/tv/profiles">Switch profile</a>`, postButton("/tv/signout", "Sign out")])}</div></div>`,
   });
 }
 

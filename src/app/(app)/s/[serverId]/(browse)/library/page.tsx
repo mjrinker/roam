@@ -17,6 +17,8 @@ import { PosterCard, type PosterCardData } from "@/components/library/poster-car
 import { CONTINUE_LISTENING_MIN_SECONDS } from "@/lib/player/timeline";
 import { contentFilter } from "@/lib/content/access";
 import { onDeck } from "@/lib/watch/on-deck";
+import { recommendations } from "@/lib/recommend/service";
+import { TitleShelf } from "@/components/library/similar-row";
 
 const CONTINUE_WATCHING_LIMIT = 16;
 const RECENTLY_ADDED_LIMIT = 20;
@@ -180,6 +182,8 @@ export default async function LibraryHomePage({
     secondaryLabel: `S${d.season} · E${d.number}${d.name ? ` · ${d.name}` : ""}`,
     progressFraction: 0,
   }));
+  // Titles like the ones this profile rated highly (nothing until it has rated or finished something).
+  const recs = await recommendations(db, { actor: lib, viewer, viewerId: viewer.id });
   const continueListening: PosterCardData[] = [];
   for (const w of inProgress) {
     if (w.ownerKind !== "title" || !w.durationSeconds || w.positionSeconds < CONTINUE_LISTENING_MIN_SECONDS) continue;
@@ -272,6 +276,11 @@ export default async function LibraryHomePage({
             ))}
           </MediaRow>
         )}
+
+        <TitleShelf serverId={serverId} title="Recommended for you" items={recs.forYou} />
+        {recs.because.map((b) => (
+          <TitleShelf key={b.title.id} serverId={serverId} title={`Because you liked ${b.title.name}`} items={b.items} />
+        ))}
 
         {recentByLibrary
           .filter((r) => r.items.length > 0)

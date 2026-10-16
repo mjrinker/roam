@@ -1,4 +1,5 @@
 import { db } from "@/lib/db/client";
+import { similarTitles } from "@/lib/recommend/service";
 import { averageOf, ratingsOf } from "@/lib/ratings/service";
 import { collectionsOfTitle, moreInCollections } from "@/lib/collections/queries";
 import { countryFromLocale, displayCertification } from "@/lib/content/ratings";
@@ -38,6 +39,8 @@ export async function GET(request: Request, ctx: RouteContext<"/api/v1/servers/[
   const myRating = (await ratingsOf(db, scope.viewerId, "title", [id])).get(id) ?? null;
   /** What everyone on the server gave it, on average: `{ halfStars, count }`, or null when nobody has rated it. */
   const averageRating = (await averageOf(db, "title", [id])).get(id) ?? null;
+  /** Titles like this one, as list items (films for a film, shows for a show). */
+  const similarItems = async () => (await similarTitles(db, { actor: scope.actor, viewer: scope.viewer, titleId: id })).map((r) => ({ type: r.kind, id: r.id, name: r.name, subtitle: r.year ? String(r.year) : null, posterUrl: r.posterUrl, square: false }));
 
   if (found.kind === "show") {
     const requested = Number(new URL(request.url).searchParams.get("season"));
@@ -65,6 +68,7 @@ export async function GET(request: Request, ctx: RouteContext<"/api/v1/servers/[
       season: show.currentSeason,
       episodes: show.episodes.map((e) => ({ type: "episode", id: e.id, number: e.number, name: e.name, watched: e.watched, inProgress: e.inProgress, playPath: playPath("episode", e.id), myRating: episodeRatings.get(e.id) ?? null, averageRating: episodeAverages.get(e.id) ?? null })),
       continueEpisodeId: next?.id ?? null,
+      similar: await similarItems(),
       ownership: show.currentSeasonId ? await ownership(a.access, id, "shows") : null,
     });
   }
@@ -121,6 +125,7 @@ export async function GET(request: Request, ctx: RouteContext<"/api/v1/servers/[
     cast: extras.cast,
     ownership: await ownership(a.access, id, movie.libraryKind),
     collections: await collectionsOfTitle(db, { actor: scope.actor, viewer: scope.viewer, titleId: id }),
+    similar: await similarItems(),
     moreInCollections: (await moreInCollections(db, { actor: scope.actor, viewer: scope.viewer, titleId: id })).map((c) => ({
       id: c.id,
       name: c.name,

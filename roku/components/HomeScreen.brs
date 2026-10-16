@@ -31,6 +31,7 @@ sub onHome(event as Object)
   root = CreateObject("roSGNode", "ContentNode")
   addRow(root, "Continue watching", h.continueWatching)
   addRow(root, "Up next", h.upNext)
+  addRow(root, "Recommended for you", h.recommended)
   addRow(root, "Recently added", h.recentlyAdded)
   libs = root.createChild("ContentNode")
   libs.title = "Libraries"

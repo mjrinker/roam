@@ -326,4 +326,16 @@ class TitleScreenTest {
         rule.waitForIdle()
         rule.onNodeWithText("2").assertIsDisplayed()
     }
+
+    @Test fun titlesLikeThisOneAreOfferedAndOpen() {
+        val nav = FakeNav()
+        val api = object : RoamApi by Unsupported {
+            override suspend fun title(serverId: String, id: String, season: Int?) = movie().copy(similar = listOf(com.roam.app.data.ApiItem("movie", "m9", "Similar Film", "1999")))
+        }
+        rule.setContent { Shown(testGraph(api)) { TitleScreen("S", "m1", nav) } }
+        rule.waitForIdle()
+        rule.onNodeWithText("More like this").performScrollTo().assertIsDisplayed()
+        rule.onNodeWithTag("card-m9").performScrollTo().performClick()
+        assertEquals(listOf(Routes.title("S", "m9")), nav.routes)
+    }
 }

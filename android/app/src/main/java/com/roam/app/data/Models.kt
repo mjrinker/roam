@@ -66,6 +66,8 @@ data class Home(
     val libraries: List<Library> = emptyList(),
     val continueWatching: List<ApiItem> = emptyList(),
     val upNext: List<ApiItem> = emptyList(),
+    val recommended: List<ApiItem> = emptyList(),
+    val becauseYouLiked: List<BecauseRow> = emptyList(),
     val continueListening: List<ApiItem> = emptyList(),
     val recentlyAdded: List<ApiItem> = emptyList(),
     val hasPlaylists: Boolean = false,
@@ -83,6 +85,12 @@ data class GenresResponse(val genres: List<Genre> = emptyList())
 
 @Serializable
 data class ClaimResult(val status: String = "")
+
+@Serializable
+data class BecauseRow(val because: BecauseTitle, val items: List<ApiItem> = emptyList())
+
+@Serializable
+data class BecauseTitle(val id: String, val name: String)
 
 @Serializable
 data class AverageRating(val halfStars: Double, val count: Int)
@@ -240,6 +248,7 @@ data class Title(
     val myRating: Int? = null,
     /** What everyone on the server gave it, on average. */
     val averageRating: AverageRating? = null,
+    val similar: List<ApiItem> = emptyList(),
 )
 
 @Serializable

@@ -3,6 +3,7 @@ import { asUuid, notFoundPage, tvAccess } from "@/lib/tv/context";
 import { showDetail } from "@/lib/tv/data";
 import { html } from "@/lib/tv/http";
 import { ownershipSections, ratingSection } from "@/lib/tv/sections";
+import { similarTitles } from "@/lib/recommend/service";
 import { averageOf, ratingsOf } from "@/lib/ratings/service";
 import { detailPage } from "@/tv/render";
 import { starsText } from "@/lib/ratings/stars";
@@ -25,7 +26,8 @@ export async function GET(request: Request, ctx: RouteContext<"/tv/s/[serverId]/
   const rateEpisodes = show.episodes.length
     ? [{ heading: "Rate or mark an episode", lines: show.episodes.map((e) => ({ text: `${e.number}. ${e.name ?? `Episode ${e.number}`}`, sub: episodeMine.has(e.id) ? `Your rating: ${starsText(episodeMine.get(e.id) as number)}` : "Not rated", href: `${access.base}/episode/${e.id}` })) }]
     : [];
-  const sections = [ratingSection({ base: access.base, kind: "title", id, back: `${here}${show.currentSeason ? `?season=${show.currentSeason}` : ""}`, mine, average: (await averageOf(db, "title", [id])).get(id) ?? null }), ...rateEpisodes, ...(await ownershipSections(db, { serverId, base: access.base, who: access.who, viewerId: access.scope.viewerId, libraryKind: "shows", titleId: id, seasonId: show.currentSeasonId, back: `${here}${show.currentSeason ? `?season=${show.currentSeason}` : ""}` }))];
+  const similar = await similarTitles(db, { actor: access.scope.actor, viewer: access.scope.viewer, titleId: id, limit: 8 });
+  const sections = [ratingSection({ base: access.base, kind: "title", id, back: `${here}${show.currentSeason ? `?season=${show.currentSeason}` : ""}`, mine, average: (await averageOf(db, "title", [id])).get(id) ?? null }), ...rateEpisodes, ...(similar.length ? [{ heading: "More like this", lines: similar.map((i) => ({ text: i.name, sub: i.year ? String(i.year) : null, href: `${access.base}/show/${i.id}` })) }] : []), ...(await ownershipSections(db, { serverId, base: access.base, who: access.who, viewerId: access.scope.viewerId, libraryKind: "shows", titleId: id, seasonId: show.currentSeasonId, back: `${here}${show.currentSeason ? `?season=${show.currentSeason}` : ""}` }))];
   return html(
     detailPage({
       sections,

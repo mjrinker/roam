@@ -9,6 +9,8 @@ import { requireServerMember } from "@/lib/auth/guards";
 import { libraryActor, libraryVisible } from "@/lib/content/library-access";
 import { isAllowed } from "@/lib/content/access";
 import { formatRuntime } from "@/lib/format";
+import { similarTitles } from "@/lib/recommend/service";
+import { TitleShelf } from "@/components/library/similar-row";
 import { averageOf, ratingsOf } from "@/lib/ratings/service";
 import { StarRating } from "@/components/ratings/star-rating";
 import { countryFromLocale, displayCertification } from "@/lib/content/ratings";
@@ -168,6 +170,7 @@ export default async function ShowDetailPage({
   const totalEpisodes = allEpisodes.length;
   const mine = (await ratingsOf(db, viewer.id, "title", [show.id])).get(show.id) ?? null;
   const average = (await averageOf(db, "title", [show.id])).get(show.id) ?? null;
+  const similar = await similarTitles(db, { actor: libraryActor({ profile, role }, serverId), viewer, titleId: show.id });
   const cast = await loadTitleCast(db, show.id);
   const crew = await loadTitleCrew(db, show.id);
 
@@ -230,6 +233,7 @@ export default async function ShowDetailPage({
         <OwnershipSection serverId={serverId} titleId={show.id} libraryKind="shows" accountId={profile.id} viewerId={viewer.id} isAdmin={role === "admin"} limited={viewer.role === "limited"} />
         <CastRow serverId={serverId} cast={cast} />
         <CrewRow serverId={serverId} crew={crew} />
+        <TitleShelf serverId={serverId} title="More like this" items={similar} />
       </div>
     </div>
   );
