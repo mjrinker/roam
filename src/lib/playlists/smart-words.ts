@@ -35,10 +35,18 @@ export const holdsOnlyShows = (r: SmartRules, libs?: readonly SmartLibrary[]): b
 
 export const SORT_WORDS: Record<SmartRules["sort"], string> = {
   title: "A to Z",
+  titleDesc: "Z to A",
   newest: "newest release first",
   oldest: "oldest release first",
   added: "recently added first",
+  addedOldest: "longest in the library first",
   rating: "my highest rated first",
+  ratingLowest: "my lowest rated first",
+  longest: "longest first",
+  shortest: "shortest first",
+  watchedRecently: "most recently watched first",
+  watchedLongAgo: "watched longest ago first",
+  genre: "by genre, A to Z",
   random: "in a random order",
 };
 

@@ -166,6 +166,50 @@ describe("what the rules select", () => {
     expect(await w.names(rules({ media: "audiobooks" }))).toEqual(["A Book"]);
   });
 
+  it("orders by duration, rating, when it was added, when it was last watched, genre or name, with what has none always last", async () => {
+    const w = await world();
+    const a = await w.movie("Alpha", { runtimeSeconds: 100 * 60, genres: ["Western", "Drama"], addedAt: new Date("2024-03-01") });
+    const b = await w.movie("Bravo", { runtimeSeconds: 80 * 60, genres: ["Action"], addedAt: new Date("2025-03-01") });
+    const c = await w.movie("Charlie", { runtimeSeconds: 120 * 60, genres: [], addedAt: new Date("2023-03-01") });
+    await w.movie("Delta", { genres: ["Comedy"], addedAt: new Date("2022-03-01") }); // no runtime anywhere
+    await w.rate(a.id, 6);
+    await w.rate(b.id, 9);
+    await db.insert(watchState).values([
+      { viewerId: w.viewerId, ownerKind: "title", ownerId: a.id, positionSeconds: 1, durationSeconds: 10, finished: false, updatedAt: new Date("2026-01-01") },
+      { viewerId: w.viewerId, ownerKind: "title", ownerId: c.id, positionSeconds: 1, durationSeconds: 10, finished: false, updatedAt: new Date("2026-06-01") },
+    ]);
+    const order = async (sort: string) => w.names(rules({ sort }));
+    expect(await order("longest")).toEqual(["Charlie", "Alpha", "Bravo", "Delta"]);
+    expect(await order("shortest")).toEqual(["Bravo", "Alpha", "Charlie", "Delta"]);
+    expect(await order("rating")).toEqual(["Bravo", "Alpha", "Charlie", "Delta"]);
+    expect(await order("ratingLowest")).toEqual(["Alpha", "Bravo", "Charlie", "Delta"]);
+    expect(await order("added")).toEqual(["Bravo", "Alpha", "Charlie", "Delta"]);
+    expect(await order("addedOldest")).toEqual(["Delta", "Charlie", "Alpha", "Bravo"]);
+    expect(await order("watchedRecently")).toEqual(["Charlie", "Alpha", "Bravo", "Delta"]);
+    expect(await order("watchedLongAgo")).toEqual(["Alpha", "Charlie", "Bravo", "Delta"]);
+    expect(await order("genre")).toEqual(["Bravo", "Delta", "Alpha", "Charlie"]); // Action, Comedy, Drama, then none
+    expect(await order("titleDesc")).toEqual(["Delta", "Charlie", "Bravo", "Alpha"]);
+    expect(await order("title")).toEqual(["Alpha", "Bravo", "Charlie", "Delta"]);
+  });
+
+  it("orders across kinds the same way, and a show is last watched when any of its episodes was", async () => {
+    const w = await world();
+    const long = await w.movie("Long film", { runtimeSeconds: 150 * 60 });
+    const shows = await makeLibrary(db, w.server.id, "shows", "everyone");
+    const show = await makeShow(db, shows.id, 2, { name: "A show" });
+    for (const e of show.episodes) await db.insert(mediaFiles).values({ ownerKind: "episode", ownerId: e.id, boxFileId: `sm${++n}`, filename: "e.mp4", durationSeconds: 45 * 60 });
+    await db.insert(watchState).values([
+      { viewerId: w.viewerId, ownerKind: "episode", ownerId: show.episodes[1].id, positionSeconds: 1, durationSeconds: 10, finished: false, updatedAt: new Date("2026-05-01") },
+      { viewerId: w.viewerId, ownerKind: "title", ownerId: long.id, positionSeconds: 1, durationSeconds: 10, finished: false, updatedAt: new Date("2026-02-01") },
+    ]);
+    expect(await w.names(chosen({ sort: "watchedRecently" }))).toEqual(["A show", "Long film"]);
+    expect(await w.names(chosen({ sort: "watchedLongAgo" }))).toEqual(["Long film", "A show"]);
+    const eps = await w.run(chosen({ libraryIds: [shows.id], showsAs: "episodes", sort: "longest" }));
+    expect(eps).toEqual(show.episodes.map((e) => e.id)); // equal lengths stay in their order
+    const both = await w.run(chosen({ libraryIds: [shows.id, (await db.select().from(titles).where(eq(titles.id, long.id)))[0].libraryId], showsAs: "episodes", sort: "longest" }));
+    expect(both[0]).toBe(long.id);
+  });
+
   it("draws from the libraries chosen by name, across kinds, and from every library when none is chosen", async () => {
     const w = await world();
     const kids = await makeLibrary(db, w.server.id, "movies", "everyone");

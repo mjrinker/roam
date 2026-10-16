@@ -4,7 +4,7 @@
  * (so playing, queueing, sharing and the apps all work as for any playlist), brought up to date whenever the playlist is opened after a while.
  * Nobody edits the items of a smart playlist by hand; change the rules instead.
  */
-import { and, asc, desc, eq, inArray, isNotNull, sql, type SQL } from "drizzle-orm";
+import { and, eq, inArray, isNotNull, sql, type SQL } from "drizzle-orm";
 import { z } from "zod";
 import type { LibraryKind } from "@/lib/db/schema";
 import { episodes, libraries, playlistItems, playlists, seasons, serverMembers, titles, viewers } from "@/lib/db/schema";
@@ -18,7 +18,22 @@ import { POSITION_GAP } from "./position";
 /** The kinds of library a smart playlist can draw from. */
 export const SMART_LIBRARY_KINDS = ["movies", "shows", "music", "audio", "audiobooks"] as const satisfies readonly LibraryKind[];
 export type SmartGroup = "movies" | "shows" | "episodes" | "songs" | "audiobooks";
-export const SMART_SORTS = ["title", "newest", "oldest", "added", "rating", "random"] as const;
+export const SMART_SORTS = [
+  "title",
+  "titleDesc",
+  "newest",
+  "oldest",
+  "added",
+  "addedOldest",
+  "rating",
+  "ratingLowest",
+  "longest",
+  "shortest",
+  "watchedRecently",
+  "watchedLongAgo",
+  "genre",
+  "random",
+] as const;
 
 const halfStars = z.number().int().min(1).max(10);
 
@@ -122,6 +137,59 @@ interface Entry {
   year: number | null;
   added: Date;
   mine: number | null;
+  /** How long it runs, in seconds (shows have none). */
+  runtime: number | null;
+  /** When this profile last watched any of it. */
+  watchedAt: Date | null;
+  /** Its first genre, A to Z. */
+  genre: string | null;
+}
+
+/** The values a group's query can order by. */
+interface SortKeys {
+  name: SQL;
+  year: SQL;
+  added: SQL;
+  mine: SQL;
+  runtime: SQL;
+  watchedAt: SQL;
+  genre: SQL;
+  /** What breaks a tie, in order (a show's episodes keep their order). */
+  tie: SQL[];
+}
+
+/** The ORDER BY for a sort, with what is missing always last. */
+function orderingFor(sort: SmartRules["sort"], k: SortKeys): SQL[] {
+  switch (sort) {
+    case "random":
+      return [sql`random()`];
+    case "titleDesc":
+      return [sql`${k.name} DESC`, ...k.tie];
+    case "newest":
+      return [sql`${k.year} DESC NULLS LAST`, k.name, ...k.tie];
+    case "oldest":
+      return [sql`${k.year} ASC NULLS LAST`, k.name, ...k.tie];
+    case "added":
+      return [sql`${k.added} DESC`, k.name, ...k.tie];
+    case "addedOldest":
+      return [sql`${k.added} ASC`, k.name, ...k.tie];
+    case "rating":
+      return [sql`${k.mine} DESC NULLS LAST`, k.name, ...k.tie];
+    case "ratingLowest":
+      return [sql`${k.mine} ASC NULLS LAST`, k.name, ...k.tie];
+    case "longest":
+      return [sql`${k.runtime} DESC NULLS LAST`, k.name, ...k.tie];
+    case "shortest":
+      return [sql`${k.runtime} ASC NULLS LAST`, k.name, ...k.tie];
+    case "watchedRecently":
+      return [sql`${k.watchedAt} DESC NULLS LAST`, k.name, ...k.tie];
+    case "watchedLongAgo":
+      return [sql`${k.watchedAt} ASC NULLS LAST`, k.name, ...k.tie];
+    case "genre":
+      return [sql`${k.genre} ASC NULLS LAST`, k.name, ...k.tie];
+    default:
+      return [k.name, ...k.tie];
+  }
 }
 
 /** Which kinds of thing the rules hold, from the libraries they name (or the kinds, or everything). */
@@ -144,14 +212,40 @@ export async function groupsOf(ex: Executor, rules: SmartRules, actor: LibraryAc
 /** Puts entries from the different kinds of thing in the order asked for (each kind was already cut to the limit in that order). */
 function arrange(entries: Entry[], sort: SmartRules["sort"]): Entry[] {
   const byName = (a: Entry, b: Entry) => a.name.localeCompare(b.name);
-  const sorted = [...entries];
-  if (sort === "random") return sorted.sort(() => Math.random() - 0.5);
-  return sorted.sort((a, b) => {
-    if (sort === "added") return b.added.getTime() - a.added.getTime() || byName(a, b);
-    if (sort === "rating") return (b.mine ?? -1) - (a.mine ?? -1) || byName(a, b);
-    if (sort === "newest") return (b.year ?? -Infinity) - (a.year ?? -Infinity) || byName(a, b);
-    if (sort === "oldest") return (a.year ?? Infinity) - (b.year ?? Infinity) || byName(a, b);
-    return byName(a, b);
+  if (sort === "random") return [...entries].sort(() => Math.random() - 0.5);
+  /** Compares two values that may be missing; missing is always last, whichever way the rest goes. */
+  const by = <T>(x: T | null, y: T | null, cmp: (p: T, q: T) => number): number => (x === null || y === null ? (x === y ? 0 : x === null ? 1 : -1) : cmp(x, y));
+  const num = (p: number, q: number) => p - q;
+  const time = (p: Date, q: Date) => p.getTime() - q.getTime();
+  return [...entries].sort((a, b) => {
+    switch (sort) {
+      case "titleDesc":
+        return byName(b, a);
+      case "newest":
+        return by(a.year, b.year, (p, q) => q - p) || byName(a, b);
+      case "oldest":
+        return by(a.year, b.year, num) || byName(a, b);
+      case "added":
+        return time(b.added, a.added) || byName(a, b);
+      case "addedOldest":
+        return time(a.added, b.added) || byName(a, b);
+      case "rating":
+        return by(a.mine, b.mine, (p, q) => q - p) || byName(a, b);
+      case "ratingLowest":
+        return by(a.mine, b.mine, num) || byName(a, b);
+      case "longest":
+        return by(a.runtime, b.runtime, (p, q) => q - p) || byName(a, b);
+      case "shortest":
+        return by(a.runtime, b.runtime, num) || byName(a, b);
+      case "watchedRecently":
+        return by(a.watchedAt, b.watchedAt, (p, q) => time(q, p)) || byName(a, b);
+      case "watchedLongAgo":
+        return by(a.watchedAt, b.watchedAt, time) || byName(a, b);
+      case "genre":
+        return by(a.genre, b.genre, (p, q) => p.localeCompare(q)) || byName(a, b);
+      default:
+        return byName(a, b);
+    }
   });
 }
 
@@ -161,8 +255,11 @@ async function episodesEntries(ex: Executor, rules: SmartRules, a: { actor: Libr
   const id = sql`${episodes.id}`;
   const { mine, conditions } = ratingConditions(rules, a.viewerId, "episode", id);
   const watched = simpleWatched(rules, a.viewerId, "episode", id);
+  const runtime = runtimeOf("episode", sql`${episodes.runtimeSeconds}`, id);
+  const watchedAt = sql`(SELECT max(w.updated_at) FROM watch_state w WHERE w.viewer_id = ${a.viewerId} AND w.owner_kind = 'episode' AND w.owner_id = ${id})`;
+  const genre = sql`(SELECT min(g.value) FROM jsonb_array_elements_text(${titles.genres}) AS g(value))`;
   const rows = await ex
-    .select({ id: episodes.id, show: titles.name, year: titles.year, added: titles.addedAt, season: seasons.number, number: episodes.number, mine: sql<number | null>`${mine}` })
+    .select({ id: episodes.id, show: titles.name, year: titles.year, added: titles.addedAt, season: seasons.number, number: episodes.number, mine: sql<number | null>`${mine}`, runtime: sql<number | null>`${runtime}`, watchedAt: sql<Date | null>`${watchedAt}`, genre: sql<string | null>`${genre}` })
     .from(episodes)
     .innerJoin(seasons, eq(seasons.id, episodes.seasonId))
     .innerJoin(titles, eq(titles.id, seasons.titleId))
@@ -179,31 +276,26 @@ async function episodesEntries(ex: Executor, rules: SmartRules, a: { actor: Libr
         rules.yearTo !== null ? sql`${titles.year} <= ${rules.yearTo}` : undefined,
         a.since ? sql`${titles.addedAt} >= ${a.since}` : undefined,
         watched ?? undefined,
-        ...durationConditions(rules, runtimeOf("episode", sql`${episodes.runtimeSeconds}`, id)),
+        ...durationConditions(rules, runtime),
         ...conditions
       )
     )
-    .orderBy(
-      ...(rules.sort === "random"
-        ? [sql`random()`]
-        : rules.sort === "added"
-          ? [desc(titles.addedAt), asc(titles.name), asc(seasons.number), asc(episodes.number)]
-          : rules.sort === "rating"
-            ? [sql`${mine} DESC NULLS LAST`, asc(titles.name), asc(seasons.number), asc(episodes.number)]
-            : rules.sort === "newest"
-              ? [sql`${titles.year} DESC NULLS LAST`, asc(titles.name), asc(seasons.number), asc(episodes.number)]
-              : rules.sort === "oldest"
-                ? [sql`${titles.year} ASC NULLS LAST`, asc(titles.name), asc(seasons.number), asc(episodes.number)]
-                : [sql`lower(${titles.name})`, asc(seasons.number), asc(episodes.number)])
-    )
+    .orderBy(...orderingFor(rules.sort, { name: sql`lower(${titles.name})`, year: sql`${titles.year}`, added: sql`${titles.addedAt}`, mine, runtime, watchedAt, genre, tie: [sql`${seasons.number}`, sql`${episodes.number}`] }))
     .limit(rules.limit);
-  return rows.map((r) => ({ target: { episodeId: r.id }, name: `${r.show} S${pad(r.season)}E${pad(r.number)}`, year: r.year, added: r.added, mine: r.mine ?? null }));
+  return rows.map((r) => ({ target: { episodeId: r.id }, name: `${r.show} S${pad(r.season)}E${pad(r.number)}`, year: r.year, added: r.added, mine: r.mine ?? null, runtime: r.runtime === null ? null : Number(r.runtime), watchedAt: r.watchedAt ? new Date(r.watchedAt) : null, genre: r.genre ?? null }));
 }
 
 async function titleEntries(ex: Executor, rules: SmartRules, group: "movies" | "shows" | "songs" | "audiobooks", a: { actor: LibraryActor; viewer: AccessProfile; viewerId: string; since: Date | null }): Promise<Entry[]> {
   const id = sql`${titles.id}`;
   const { mine, conditions } = ratingConditions(rules, a.viewerId, "title", id);
   const watched = group === "shows" ? showWatched(rules, a.viewerId, id) : simpleWatched(rules, a.viewerId, "title", id);
+  // A show has no length of its own; the last time it was watched is the last time any of its episodes was.
+  const runtime = group === "shows" ? sql`NULL::float` : runtimeOf("title", sql`${titles.runtimeSeconds}`, id);
+  const watchedAt =
+    group === "shows"
+      ? sql`(SELECT max(w.updated_at) FROM watch_state w JOIN episodes e ON e.id = w.owner_id JOIN seasons sn ON sn.id = e.season_id WHERE w.viewer_id = ${a.viewerId} AND w.owner_kind = 'episode' AND sn.title_id = ${id})`
+      : sql`(SELECT max(w.updated_at) FROM watch_state w WHERE w.viewer_id = ${a.viewerId} AND w.owner_kind = 'title' AND w.owner_id = ${id})`;
+  const genre = sql`(SELECT min(g.value) FROM jsonb_array_elements_text(${titles.genres}) AS g(value))`;
   const kindCondition =
     group === "movies"
       ? and(eq(titles.kind, "movie"), FILE_OF_TITLE(id))
@@ -211,7 +303,7 @@ async function titleEntries(ex: Executor, rules: SmartRules, group: "movies" | "
         ? and(eq(titles.kind, "show"), PLAYABLE_SHOW(id))
         : and(eq(titles.kind, "audiobook"), group === "songs" ? inArray(libraries.kind, [...SONG_LIBRARY_KINDS]) : eq(libraries.kind, "audiobooks"), FILE_OF_TITLE(id));
   const rows = await ex
-    .select({ id: titles.id, name: titles.name, year: titles.year, added: titles.addedAt, mine: sql<number | null>`${mine}` })
+    .select({ id: titles.id, name: titles.name, year: titles.year, added: titles.addedAt, mine: sql<number | null>`${mine}`, runtime: sql<number | null>`${runtime}`, watchedAt: sql<Date | null>`${watchedAt}`, genre: sql<string | null>`${genre}` })
     .from(titles)
     .innerJoin(libraries, eq(libraries.id, titles.libraryId))
     .where(
@@ -225,25 +317,13 @@ async function titleEntries(ex: Executor, rules: SmartRules, group: "movies" | "
         rules.yearTo !== null ? sql`${titles.year} <= ${rules.yearTo}` : undefined,
         a.since ? sql`${titles.addedAt} >= ${a.since}` : undefined,
         watched ?? undefined,
-        ...(group === "shows" ? [] : durationConditions(rules, runtimeOf("title", sql`${titles.runtimeSeconds}`, id))),
+        ...(group === "shows" ? [] : durationConditions(rules, runtime)),
         ...conditions
       )
     )
-    .orderBy(
-      ...(rules.sort === "random"
-        ? [sql`random()`]
-        : rules.sort === "added"
-          ? [desc(titles.addedAt), asc(titles.name)]
-          : rules.sort === "rating"
-            ? [sql`${mine} DESC NULLS LAST`, sql`lower(${titles.name})`]
-            : rules.sort === "newest"
-              ? [sql`${titles.year} DESC NULLS LAST`, sql`lower(${titles.name})`]
-              : rules.sort === "oldest"
-                ? [sql`${titles.year} ASC NULLS LAST`, sql`lower(${titles.name})`]
-                : [sql`lower(${titles.name})`])
-    )
+    .orderBy(...orderingFor(rules.sort, { name: sql`lower(${titles.name})`, year: sql`${titles.year}`, added: sql`${titles.addedAt}`, mine, runtime, watchedAt, genre, tie: [] }))
     .limit(rules.limit);
-  return rows.map((r) => ({ target: { titleId: r.id }, name: r.name, year: r.year, added: r.added, mine: r.mine ?? null }));
+  return rows.map((r) => ({ target: { titleId: r.id }, name: r.name, year: r.year, added: r.added, mine: r.mine ?? null, runtime: r.runtime === null ? null : Number(r.runtime), watchedAt: r.watchedAt ? new Date(r.watchedAt) : null, genre: r.genre ?? null }));
 }
 
 /** What the rules select for this profile, in order. */

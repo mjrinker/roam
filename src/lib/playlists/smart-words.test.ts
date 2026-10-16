@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { smartRulesSchema } from "./smart";
-import { activeConditions, CLEARED, CONDITIONS, describeRules } from "./smart-words";
+import { activeConditions, CLEARED, CONDITIONS, describeRules, SORT_WORDS } from "./smart-words";
 
 const words = (o: Record<string, unknown>, libs?: { id: string; name: string; kind: string }[]) => describeRules(smartRulesSchema.parse({ media: "movies", ...o }), libs);
 
@@ -51,6 +51,17 @@ describe("the conditions of the form", () => {
       const after = { ...full, ...CLEARED[key] };
       expect(activeConditions(after)).toEqual(activeConditions(full).filter((k) => k !== key));
     }
+  });
+});
+
+describe("sorts in words", () => {
+  it("has words for every sort, in the order the form lists them", () => {
+    const sorts = Object.keys(SORT_WORDS);
+    expect(sorts).toEqual(["title", "titleDesc", "newest", "oldest", "added", "addedOldest", "rating", "ratingLowest", "longest", "shortest", "watchedRecently", "watchedLongAgo", "genre", "random"]);
+    expect(sorts.every((k) => SORT_WORDS[k as keyof typeof SORT_WORDS].length > 0)).toBe(true);
+    expect(sorts.every((k) => smartRulesSchema.safeParse({ sort: k }).success)).toBe(true);
+    expect(words({ sort: "longest" })).toContain("longest first");
+    expect(words({ sort: "watchedLongAgo" })).toContain("watched longest ago first");
   });
 });
 
