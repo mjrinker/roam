@@ -24,6 +24,7 @@ import {
 import type { AudiobookManifest, AudiobookSegmentUrl } from "@/lib/player/types";
 import { shouldContinueQueue, type BookQueue } from "@/components/audio/queue-handoff";
 import { nextIndex, previousStep, type ListQueue } from "@/lib/music/list-queue";
+import { clampCrossfade, fadeGains, readStoredCrossfade, shouldHandOver, shouldPrepareNext, storeCrossfade, volumeIsAdjustable } from "@/lib/music/crossfade";
 import { localAudioFor, offlineAudioManifest, openLocalFiles, type LocalFiles } from "@/lib/offline/local-playback";
 import { queueProgress } from "@/lib/offline/sync";
 
@@ -32,6 +33,12 @@ import { queueProgress } from "@/lib/offline/sync";
 // player's two-element swap) is deliberate: iOS only lets an element that
 // has already been unlocked by a tap keep playing in the background, so
 // moving to the next part means swapping `src` on the same element.
+//
+// The one exception is a list of songs: a second, standby element gets the next
+// song ready while the current one plays, and takes over the moment it ends
+// (gapless) or a few seconds before (crossfade), then the two swap roles. Without
+// that, every song change waited on a fetch. If the standby is missing or fails,
+// songs are loaded one at a time as before.
 
 export const SKIP_BACK_SECONDS = 15;
 export const SKIP_FORWARD_SECONDS = 30;
@@ -39,6 +46,28 @@ export const SKIP_FORWARD_SECONDS = 30;
 const URL_MIN_REMAINING_MS = 30_000; // don't trust a URL with less than this left
 const PRELOAD_NEXT_URL_SECONDS = 30; // mint the next part's URL this early
 const PROGRESS_SAVE_INTERVAL_MS = 15_000;
+/** A tenth of a second of silence (8-bit mono WAV), for unlocking the standby element (see unlockStandby). */
+function silentWav(): string {
+  const samples = 800;
+  const rate = 8000;
+  const bytes = new Uint8Array(44 + samples).fill(128);
+  const view = new DataView(bytes.buffer);
+  const text = (at: number, value: string) => [...value].forEach((c, i) => view.setUint8(at + i, c.charCodeAt(0)));
+  text(0, "RIFF");
+  view.setUint32(4, 36 + samples, true);
+  text(8, "WAVE");
+  text(12, "fmt ");
+  view.setUint32(16, 16, true);
+  view.setUint16(20, 1, true);
+  view.setUint16(22, 1, true);
+  view.setUint32(24, rate, true);
+  view.setUint32(28, rate, true);
+  view.setUint16(32, 1, true);
+  view.setUint16(34, 8, true);
+  text(36, "data");
+  view.setUint32(40, samples, true);
+  return `data:audio/wav;base64,${btoa(String.fromCharCode(...bytes))}`;
+}
 const POSITION_STATE_INTERVAL_MS = 5_000;
 const MAX_RECOVERY_ATTEMPTS = 3;
 // Per profile, so two people on one device don't share a speed.
@@ -66,6 +95,8 @@ export interface AudioPlayerState {
   chapterIndex: number;
   /** Where the playing song is in the list it was started from (an album), or null when it wasn't started from one. */
   listPosition: { index: number; length: number } | null;
+  /** Seconds the end of one song overlaps the start of the next in a list (0 is off; kept on this device). */
+  crossfade: number;
 }
 
 export interface AudioPlayerActions {
@@ -87,6 +118,8 @@ export interface AudioPlayerActions {
   /** Next / previous song in the list being played (previous restarts a song heard for a few seconds). */
   next(): void;
   previous(): void;
+  /** How long songs in a list overlap (0 to 12 seconds; 0 plays them back to back). Remembered on this device. */
+  setCrossfade(seconds: number): void;
   /** Stops playback and unloads the book. */
   close(): void;
 }
@@ -118,7 +151,12 @@ interface CachedUrl {
 /** Hooks the element's event listeners call; not part of the public API. */
 interface EngineInternals {
   attach(el: MediaEl | null): void;
+  /** The second element that gets the next song ready (optional: without it songs load one at a time). */
+  attachStandby(el: MediaEl | null): void;
   audio(): MediaEl | null;
+  standbyAudio(): MediaEl | null;
+  prepareNext(): Promise<void>;
+  handover(fadeSeconds: number): boolean;
   saveProgress(): void;
   openSegment(index: number, localTime: number, play: boolean, forceFresh?: boolean): Promise<void>;
   getUrl(index: number): Promise<string>;
@@ -154,12 +192,27 @@ interface Engine {
   localFiles: LocalFiles | null;
   /** Lets go of the place this book holds when the server limits playing at once (see lib/ownership/client). */
   releaseHold: (() => void) | null;
+  /** The next song of the list, fetched and loaded on the standby element, ready to take over. */
+  next: PreparedSong | null;
+  /** The song being fetched for `next`, so it is not fetched twice. */
+  preparing: string | null;
+  /** Seconds of overlap between songs of a list. */
+  crossfade: number;
+  /** A crossfade under way: the element fading out, and what to let go of when it is done. */
+  fade: { timer: ReturnType<typeof setInterval>; from: MediaEl; to: MediaEl; oldLocal: LocalFiles | null } | null;
+}
+
+interface PreparedSong {
+  titleId: string;
+  manifest: AudiobookManifest;
+  local: LocalFiles | null;
 }
 
 /** Exported for tests; the provider below is the only real caller. */
 export function createPlayer(
   setState: Dispatch<SetStateAction<AudioPlayerState>>,
-  initialRate = 1
+  initialRate = 1,
+  initialCrossfade = 0
 ): { actions: AudioPlayerActions; internals: EngineInternals } {
   const e: Engine = {
     book: null,
@@ -179,12 +232,50 @@ export function createPlayer(
     list: null,
     localFiles: null,
     releaseHold: null,
+    next: null,
+    preparing: null,
+    crossfade: initialCrossfade,
+    fade: null,
   };
 
   const patch = (p: Partial<AudioPlayerState>) => setState((s) => ({ ...s, ...p }));
   // The <audio> element is handed over by the provider's callback ref (attach).
   let audioEl: MediaEl | null = null;
+  let standbyEl: MediaEl | null = null;
   const audio = () => audioEl;
+  const standby = () => standbyEl;
+  let volumeWorks: boolean | null = null;
+  let standbyUnlocked = false;
+
+  /**
+   * iPhones only let an element start playing from code once it has been started by a tap. The standby never is, so on the first tap of a
+   * session it is "played" silently for an instant (called from the tap itself, before anything is awaited).
+   */
+  function unlockStandby() {
+    const el = standbyEl;
+    if (standbyUnlocked || !el || typeof el.play !== "function") return;
+    standbyUnlocked = true;
+    try {
+      el.muted = true;
+      el.src = silentWav();
+      const started = el.play();
+      void Promise.resolve(started)
+        .then(() => {
+          el.pause();
+        })
+        .catch(() => {})
+        .finally(() => {
+          el.muted = false;
+          if (el.src.startsWith("data:")) {
+            el.removeAttribute("src");
+            el.load();
+          }
+        });
+    } catch {
+      standbyUnlocked = false;
+    }
+  }
+  const canFade = (el: MediaEl) => (volumeWorks ??= volumeIsAdjustable(el));
 
   function applyRate(el: MediaEl) {
     el.playbackRate = e.rate;
@@ -258,6 +349,168 @@ export function createPlayer(
     return fresh.url;
   }
 
+  /**
+   * The manifest of a book or song, with its downloaded copy opened when it has one (that plays from this device; the server is still asked
+   * when it can be, with no connection what was saved is enough). Throws with a message fit to show.
+   */
+  async function fetchManifest(titleId: string): Promise<{ manifest: AudiobookManifest; local: LocalFiles | null }> {
+    const downloaded = await localAudioFor(titleId).catch(() => null);
+    const res = await fetch(`/api/audiobooks/${titleId}/manifest`).catch(() => null);
+    if (res && res.ok) {
+      const manifest = (await res.json()) as AudiobookManifest;
+      let local: LocalFiles | null = null;
+      if (downloaded && downloaded.files.length === manifest.segments.length) {
+        local = await openLocalFiles(downloaded).catch(() => null);
+        if (local) {
+          const expiresAt = new Date(Date.now() + 7 * 24 * 3600_000).toISOString();
+          manifest.urls = local.urls.map((url, index) => ({ index, url, expiresAt }));
+        }
+      }
+      return { manifest, local };
+    }
+    if (downloaded && (!res || res.status >= 500 || res.status === 401)) {
+      const local = await openLocalFiles(downloaded).catch(() => null);
+      const offline = local ? await offlineAudioManifest(downloaded, local) : null;
+      if (!local || !offline) throw new Error("This download can't be opened. Remove it and download it again.");
+      return { manifest: offline, local };
+    }
+    const body = res ? await res.json().catch(() => ({})) : {};
+    throw new Error(typeof body.error === "string" ? body.error : res ? "Couldn't load this audiobook." : "You're offline, and this isn't downloaded.");
+  }
+
+  /** Holds a place for this book when the server limits how many can play at once (letting go of the last one's). */
+  function takeHold(titleId: string, heartbeat: boolean | undefined) {
+    e.releaseHold?.();
+    e.releaseHold = heartbeat
+      ? holdPlace("title", titleId, () => !!audio()?.paused, (lost) => {
+          audio()?.pause();
+          patch({ status: "error", error: lost.error, buffering: false });
+        })
+      : null;
+  }
+
+  // ── Gapless and crossfade (songs of a list) ──
+
+  /** Ends a crossfade at once: the song going out stops, the one coming in is at full volume. */
+  function finishFade() {
+    const f = e.fade;
+    if (!f) return;
+    clearInterval(f.timer);
+    e.fade = null;
+    f.from.pause();
+    f.from.volume = 1;
+    f.to.volume = 1;
+    f.from.removeAttribute("src");
+    f.from.load();
+    f.oldLocal?.release();
+  }
+
+  /** Drops the song that was being got ready (the list changed, or something else was asked for). */
+  function discardNext() {
+    const n = e.next;
+    e.next = null;
+    e.preparing = null;
+    if (!n) return;
+    n.local?.release();
+    const el = standbyEl;
+    if (el && !e.fade) {
+      el.removeAttribute("src");
+      el.load();
+    }
+  }
+
+  /** Fetches the next song of the list and loads it on the standby element, so it can start the moment it is wanted. Quietly gives up on any trouble: the normal load path then does it. */
+  async function prepareNext() {
+    const q = e.list;
+    const el = standbyEl;
+    if (!q || !el || !e.book || e.fade) return;
+    const index = nextIndex(q);
+    if (index === null) return;
+    const titleId = q.ids[index];
+    if (e.next?.titleId === titleId || e.preparing === titleId) return;
+    if (e.next) discardNext();
+    e.preparing = titleId;
+    try {
+      const { manifest, local } = await fetchManifest(titleId);
+      // Still the next song of the same list? (It may have moved on, or been closed, while this was fetched.)
+      // (A song that holds a place on a server that limits playing at once is left to the normal path: asking for it now would take the place early.)
+      if (e.list !== q || nextIndex(q) !== index || e.preparing !== titleId || !e.book || manifest.segments.length !== 1 || !manifest.urls[0] || manifest.heartbeat) {
+        local?.release();
+        return; // e.preparing stays set, so this song is not fetched again every quarter second
+      }
+      el.volume = 1;
+      el.src = manifest.urls[0].url;
+      el.preload = "auto";
+      applyRate(el);
+      el.load();
+      e.next = { titleId, manifest, local };
+      e.preparing = null;
+    } catch {
+      // the normal path will load it when it is wanted (e.preparing stays set, so it is not tried again and again)
+    }
+  }
+
+  /**
+   * Starts the prepared next song on the standby element and swaps the two (the old one fades out over `fadeSeconds`, or stops at once
+   * when that is 0 or the device can't change volume). False when nothing suitable is ready, and nothing has changed.
+   */
+  function handover(fadeSeconds: number): boolean {
+    const q = e.list;
+    const n = e.next;
+    const to = standbyEl;
+    const from = audioEl;
+    if (!q || !n || !to || !from || !e.book) return false;
+    const index = nextIndex(q);
+    if (index === null || q.ids[index] !== n.titleId) {
+      discardNext();
+      return false;
+    }
+    finishFade(); // an earlier hand-over still fading out is over now
+    saveProgress();
+    ++e.token; // anything still loading is superseded
+    e.next = null;
+    const { urls, resumeSeconds, ...book } = n.manifest;
+    void resumeSeconds;
+    const oldLocal = e.localFiles;
+    e.localFiles = n.local;
+    q.index = index;
+    e.book = book;
+    takeHold(n.titleId, n.manifest.heartbeat);
+    e.hasPlayed = false;
+    e.recoveries = 0;
+    e.urls = new Map(urls.map((u) => [u.index, { url: u.url, expiresAtMs: Date.parse(u.expiresAt) }]));
+    e.segmentIndex = 0;
+    e.position = 0;
+    e.playRequested = true;
+    audioEl = to;
+    standbyEl = from;
+    applyRate(to);
+    to.currentTime = 0;
+    const fading = fadeSeconds > 0 && canFade(to);
+    if (fading) {
+      to.volume = 0;
+      const startedAt = Date.now();
+      const timer = setInterval(() => {
+        const gains = fadeGains((Date.now() - startedAt) / (fadeSeconds * 1000));
+        from.volume = gains.out;
+        to.volume = gains.in;
+        if (Date.now() - startedAt >= fadeSeconds * 1000) finishFade();
+      }, 50);
+      e.fade = { timer, from, to, oldLocal };
+    } else {
+      to.volume = 1;
+      from.pause();
+      from.removeAttribute("src");
+      from.load();
+      oldLocal?.release();
+    }
+    announcePlay();
+    patch({ book, status: "playing", error: null, buffering: false, position: 0, chapterIndex: chapterIndexFor(book, 0), listPosition: { index, length: q.ids.length } });
+    to.play().catch(() => patch({ status: "paused" }));
+    updatePositionState();
+    return true;
+  }
+
   /** Points the element at a part and, once it can seek, jumps to `localTime` (and plays if asked). */
   async function openSegment(index: number, localTime: number, play: boolean, forceFresh = false) {
     const el = audio();
@@ -303,6 +556,7 @@ export function createPlayer(
 
   function pause() {
     e.playRequested = false;
+    finishFade(); // pausing in the middle of a crossfade stops the song going out
     audio()?.pause();
   }
 
@@ -310,6 +564,7 @@ export function createPlayer(
     const el = audio();
     const book = e.book;
     if (!el || !book) return;
+    finishFade();
 
     const { segment, index, localTime } = findSegmentAt(book.segments, book.durationSeconds, globalSeconds);
     const target = segment.startSeconds + localTime;
@@ -339,6 +594,7 @@ export function createPlayer(
     const el = audio();
     const book = e.book;
     if (!el || !book) return;
+    unlockStandby();
     e.playRequested = true;
     announcePlay();
 
@@ -404,6 +660,7 @@ export function createPlayer(
 
   const actions: AudioPlayerActions = {
     async load(titleId, opts = {}) {
+      if (opts.autoplay) unlockStandby();
       // A list queue belongs to the songs in it: starting anything outside it drops it.
       if (e.list && e.list.ids[e.list.index] !== titleId) {
         e.list = null;
@@ -427,40 +684,18 @@ export function createPlayer(
 
       saveProgress();
       const token = ++e.token;
+      finishFade();
+      discardNext();
       audio()?.pause();
       clearSleep();
       if (opts.autoplay) announcePlay();
       patch({ status: "loading", error: null, buffering: true });
 
       try {
-        // A downloaded copy plays from this device. The server is still asked when it can be (where the listener left off, the speed);
-        // with no connection, what was saved is enough.
-        const downloaded = await localAudioFor(titleId).catch(() => null);
-        const res = await fetch(`/api/audiobooks/${titleId}/manifest`).catch(() => null);
-        if (e.token !== token) return { ok: true }; // a newer load took over while this one was fetching
-        let manifest: AudiobookManifest;
-        let local: LocalFiles | null = null;
-        if (res && res.ok) {
-          manifest = (await res.json()) as AudiobookManifest;
-          if (downloaded && downloaded.files.length === manifest.segments.length) {
-            local = await openLocalFiles(downloaded).catch(() => null);
-            if (local) {
-              const expiresAt = new Date(Date.now() + 7 * 24 * 3600_000).toISOString();
-              manifest.urls = local.urls.map((url, index) => ({ index, url, expiresAt }));
-            }
-          }
-        } else if (downloaded && (!res || res.status >= 500 || res.status === 401)) {
-          local = await openLocalFiles(downloaded).catch(() => null);
-          const offline = local ? await offlineAudioManifest(downloaded, local) : null;
-          if (!local || !offline) throw new Error("This download can't be opened. Remove it and download it again.");
-          manifest = offline;
-        } else {
-          const body = res ? await res.json().catch(() => ({})) : {};
-          throw new Error(typeof body.error === "string" ? body.error : res ? "Couldn't load this audiobook." : "You're offline, and this isn't downloaded.");
-        }
+        const { manifest, local } = await fetchManifest(titleId);
         if (e.token !== token) {
           local?.release();
-          return { ok: true };
+          return { ok: true }; // a newer load took over while this one was fetching
         }
         e.localFiles?.release();
         e.localFiles = local;
@@ -474,13 +709,7 @@ export function createPlayer(
         }
 
         e.book = book;
-        e.releaseHold?.();
-        e.releaseHold = manifest.heartbeat
-          ? holdPlace("title", titleId, () => !!audio()?.paused, (lost) => {
-              audio()?.pause();
-              patch({ status: "error", error: lost.error, buffering: false });
-            })
-          : null;
+        takeHold(titleId, manifest.heartbeat);
         e.hasPlayed = false;
         e.recoveries = 0;
         e.urls = new Map(urls.map((u) => [u.index, { url: u.url, expiresAtMs: Date.parse(u.expiresAt) }]));
@@ -504,6 +733,7 @@ export function createPlayer(
     },
 
     async playList(titleIds, startIndex = 0) {
+      unlockStandby();
       const index = Math.min(Math.max(startIndex, 0), titleIds.length - 1);
       if (titleIds.length === 0 || index < 0) return { ok: false, error: "Nothing to play." };
       e.list = { ids: [...titleIds], index };
@@ -513,7 +743,10 @@ export function createPlayer(
     next() {
       const q = e.list;
       const index = q ? nextIndex(q) : null;
-      if (q && index !== null) goTo(q, index, 1);
+      if (!q || index === null) return;
+      // The next song is already loaded and waiting: start it at once.
+      if (e.next && e.next.titleId === q.ids[index] && handover(0)) return;
+      goTo(q, index, 1);
     },
     previous() {
       const q = e.list;
@@ -542,6 +775,7 @@ export function createPlayer(
       e.rate = clampRate(rate);
       const el = audio();
       if (el) applyRate(el);
+      if (standbyEl) applyRate(standbyEl);
       patch({ rate: e.rate });
       updatePositionState();
       // Not saved anywhere: a speed picked while listening lasts until the player is closed (a library's own starting speed is an admin setting).
@@ -549,8 +783,16 @@ export function createPlayer(
 
     setSleep,
 
+    setCrossfade(seconds) {
+      e.crossfade = clampCrossfade(seconds);
+      storeCrossfade(e.crossfade);
+      patch({ crossfade: e.crossfade });
+    },
+
     close() {
       saveProgress();
+      finishFade();
+      discardNext();
       e.queue = null;
       e.list = null;
       e.token++;
@@ -579,7 +821,13 @@ export function createPlayer(
       attach: (el) => {
         audioEl = el;
       },
+      attachStandby: (el) => {
+        standbyEl = el;
+      },
       audio,
+      standbyAudio: standby,
+      prepareNext,
+      handover,
       saveProgress,
       openSegment,
       getUrl,
@@ -595,6 +843,8 @@ export function createPlayer(
 
 export function AudioPlayerProvider({ children }: { children: ReactNode }) {
   const startRate = 1;
+  // The crossfade chosen on this device (the server render has no storage, and nothing it draws depends on it).
+  const [startCrossfade] = useState(() => (typeof window === "undefined" ? 0 : readStoredCrossfade()));
 
   const [state, setState] = useState<AudioPlayerState>({
     book: null,
@@ -607,9 +857,10 @@ export function AudioPlayerProvider({ children }: { children: ReactNode }) {
     sleepMinutesLeft: null,
     chapterIndex: -1,
     listPosition: null,
+    crossfade: startCrossfade,
   });
 
-  const [{ actions, internals }] = useState(() => createPlayer(setState, startRate));
+  const [{ actions, internals }] = useState(() => createPlayer(setState, startRate, startCrossfade));
   const router = useRouter();
   // createPlayer lives outside React, so the end-of-book hand-off reaches the router through this ref.
   const queueEnded = useRef<(queue: BookQueue) => void>(() => {});
@@ -629,16 +880,21 @@ export function AudioPlayerProvider({ children }: { children: ReactNode }) {
     };
   }, [router]);
   const attachAudio = useCallback((node: MediaEl | null) => internals.attach(node), [internals]);
+  const attachStandby = useCallback((node: MediaEl | null) => internals.attachStandby(node), [internals]);
 
-  // Element events and page lifecycle.
+  // Element events and page lifecycle. Both elements are listened to; only what the one playing now says counts (the other is
+  // getting the next song ready, or fading out the last).
   useEffect(() => {
-    const node = internals.audio();
-    if (!node) return;
-    const el: MediaEl = node;
+    const first = internals.audio();
+    if (!first) return;
+    const elements = [first, internals.standbyAudio()].filter((x): x is MediaEl => x !== null);
     const { e } = internals;
     const patch = (p: Partial<AudioPlayerState>) => setState((s) => ({ ...s, ...p }));
+    const active = (ev: Event) => ev.target === internals.audio();
 
-    function onTimeUpdate() {
+    function onTimeUpdate(ev: Event) {
+      if (!active(ev)) return;
+      const el = internals.audio() as MediaEl;
       const book = e.book;
       const segment = book?.segments[e.segmentIndex];
       if (!book || !segment) return;
@@ -672,28 +928,42 @@ export function AudioPlayerProvider({ children }: { children: ReactNode }) {
         void internals.getUrl(next).catch(() => {});
       }
 
+      // A list of songs: get the next one ready on the other element, and with crossfade on, hand over to it before this one ends.
+      if (e.list && book.segments.length === 1) {
+        const remaining = segment.durationSeconds - el.currentTime;
+        if (shouldPrepareNext(remaining)) void internals.prepareNext();
+        if (e.next && !e.fade && !el.paused && shouldHandOver({ crossfade: e.crossfade, songSeconds: segment.durationSeconds, remainingSeconds: remaining })) {
+          internals.handover(remaining);
+        }
+      }
+
       const now = Date.now();
       if (now - e.lastSaveAt >= PROGRESS_SAVE_INTERVAL_MS) internals.saveProgress();
       if (now - e.lastPositionStateAt >= POSITION_STATE_INTERVAL_MS) internals.updatePositionState();
     }
 
-    function onPlay() {
+    function onPlay(ev: Event) {
+      if (!active(ev)) return;
       e.hasPlayed = true;
       patch({ status: "playing", error: null });
     }
-    function onPlaying() {
+    function onPlaying(ev: Event) {
+      if (!active(ev)) return;
       e.recoveries = 0;
       patch({ buffering: false, status: "playing" });
     }
-    function onPause() {
-      if (el.ended) return;
+    function onPause(ev: Event) {
+      if (!active(ev)) return;
+      if ((ev.target as MediaEl).ended) return;
       patch({ status: "paused" });
       internals.saveProgress();
     }
-    function onWaiting() {
+    function onWaiting(ev: Event) {
+      if (!active(ev)) return;
       patch({ buffering: true });
     }
-    function onEnded() {
+    function onEnded(ev: Event) {
+      if (!active(ev)) return;
       const book = e.book;
       if (!book) return;
       const next = e.segmentIndex + 1;
@@ -704,7 +974,7 @@ export function AudioPlayerProvider({ children }: { children: ReactNode }) {
         e.playRequested = false;
         patch({ status: "finished", position: book.durationSeconds, buffering: false });
         internals.saveProgress();
-        // Playing an album (or any list of songs): on to the next one.
+        // Playing an album (or any list of songs): on to the next one (straight away when it is already loaded).
         if (e.list && nextIndex(e.list) !== null) {
           actions.next();
           return;
@@ -715,7 +985,9 @@ export function AudioPlayerProvider({ children }: { children: ReactNode }) {
         if (queue && queue.titleId === book.titleId) queueEnded.current(queue);
       }
     }
-    function onError() {
+    function onError(ev: Event) {
+      if (!active(ev)) return;
+      const el = ev.target as MediaEl;
       if (!e.book || !el.src) return;
       // Usually an expired URL: reopen this part with a fresh one at the same spot.
       if (e.recoveries < MAX_RECOVERY_ATTEMPTS) {
@@ -726,7 +998,7 @@ export function AudioPlayerProvider({ children }: { children: ReactNode }) {
       }
     }
 
-    const listeners: [string, () => void][] = [
+    const listeners: [string, (ev: Event) => void][] = [
       ["timeupdate", onTimeUpdate],
       ["play", onPlay],
       ["playing", onPlaying],
@@ -735,7 +1007,7 @@ export function AudioPlayerProvider({ children }: { children: ReactNode }) {
       ["ended", onEnded],
       ["error", onError],
     ];
-    for (const [name, fn] of listeners) el.addEventListener(name, fn);
+    for (const el of elements) for (const [name, fn] of listeners) el.addEventListener(name, fn);
 
     const onVisibility = () => {
       if (document.visibilityState === "hidden") internals.saveProgress();
@@ -745,11 +1017,11 @@ export function AudioPlayerProvider({ children }: { children: ReactNode }) {
     window.addEventListener("pagehide", onPageHide);
 
     return () => {
-      for (const [name, fn] of listeners) el.removeEventListener(name, fn);
+      for (const el of elements) for (const [name, fn] of listeners) el.removeEventListener(name, fn);
       document.removeEventListener("visibilitychange", onVisibility);
       window.removeEventListener("pagehide", onPageHide);
       internals.saveProgress();
-      el.pause();
+      for (const el of elements) el.pause();
       if (e.sleepTimeout) clearTimeout(e.sleepTimeout);
     };
   }, [internals, actions]); // both are stable for the life of the provider
@@ -804,6 +1076,8 @@ export function AudioPlayerProvider({ children }: { children: ReactNode }) {
           preload="auto"
           className="hidden"
         />
+        {/* The standby: gets the next song of a list ready, then takes over (see the note at the top). */}
+        <audio ref={attachStandby} preload="auto" className="hidden" />
       </StateContext.Provider>
     </ActionsContext.Provider>
   );

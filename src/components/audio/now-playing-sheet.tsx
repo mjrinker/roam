@@ -9,6 +9,7 @@ import { formatClock, PLAYBACK_RATES } from "@/lib/player/timeline";
 import { formatSpeed } from "@/lib/player/speed";
 import { SpeedDialog } from "@/components/player/speed-menu";
 import { LyricsPanel } from "@/components/audio/lyrics-panel";
+import { CrossfadeSetting } from "@/components/audio/crossfade-setting";
 import { Slider } from "@/components/ui/slider";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import {
@@ -175,6 +176,8 @@ export function NowPlayingSheet({
           </div>
           {customSpeed && <SpeedDialog open onOpenChange={setCustomSpeed} current={p.rate} onPick={p.setRate} />}
         </section>
+
+        {p.listPosition && <CrossfadeSetting value={p.crossfade} onChange={p.setCrossfade} />}
 
         <section className="flex flex-col gap-2">
           <h3 className="text-xs font-semibold tracking-wide text-muted-foreground uppercase">

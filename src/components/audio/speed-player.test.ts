@@ -13,7 +13,7 @@ let state: AudioPlayerState;
 const audioEl = () => ({ src: "", currentTime: 0, playbackRate: 1, defaultPlaybackRate: 1, preservesPitch: true, paused: true, ended: false, addEventListener: vi.fn(), removeEventListener: vi.fn(), pause: vi.fn(), play: vi.fn(async () => undefined), load: vi.fn(), removeAttribute: vi.fn() });
 
 function newPlayer() {
-  state = { book: null, status: "idle", error: null, buffering: false, position: 0, rate: 1, sleep: null, sleepMinutesLeft: null, chapterIndex: -1, listPosition: null };
+  state = { book: null, status: "idle", error: null, buffering: false, position: 0, rate: 1, sleep: null, sleepMinutesLeft: null, chapterIndex: -1, listPosition: null, crossfade: 0 };
   const { actions, internals } = createPlayer((u) => (state = typeof u === "function" ? u(state) : u));
   const el = audioEl();
   internals.attach(el as never);
