@@ -618,7 +618,7 @@ export function AudioPlayerProvider({ children }: { children: ReactNode }) {
       if (!shouldContinueQueue(window.location.search, queue)) return;
       void (async () => {
         try {
-          const res = await fetch(`/api/playlists/${queue.playlistId}/next?after=${queue.itemId}`);
+          const res = await fetch(`/api/playlists/${queue.playlistId}/next?after=${queue.itemId}${queue.shuffle ? `&shuffle=${queue.shuffle}` : ""}`);
           if (!res.ok) return;
           const body = (await res.json()) as { next: { href: string } | null };
           if (body.next?.href) router.push(body.next.href);

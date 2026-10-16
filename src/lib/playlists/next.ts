@@ -5,6 +5,7 @@
  * Items the viewer can't see, and show entries with nothing playable, are
  * skipped. The "next item" is a single SQL query — never a loop over skipped rows.
  */
+import { createHash } from "node:crypto";
 import { and, asc, eq, exists, gt, inArray, isNull, ne, or, sql } from "drizzle-orm";
 import { PLAYABLE_TITLE_KINDS } from "@/lib/libraries/profile";
 import { alias } from "drizzle-orm/pg-core";
@@ -29,8 +30,14 @@ export interface NextTarget {
   replay: boolean;
 }
 
-function queueQuery(playlistId: string, itemId: string, replay: boolean) {
-  return `?playlist=${playlistId}&item=${itemId}${replay ? "&replay=1" : ""}`;
+/** A shuffle is named by a short seed in the address; the same seed always gives the same order. */
+export const SHUFFLE_SEED = /^[A-Za-z0-9]{6,32}$/;
+export const validShuffle = (seed: unknown): seed is string => typeof seed === "string" && SHUFFLE_SEED.test(seed);
+/** Where an item stands in a shuffle (the same as md5 in the database, so the order can be walked with a query). */
+const shuffleKey = (seed: string, itemId: string) => createHash("md5").update(seed + itemId).digest("hex");
+
+function queueQuery(playlistId: string, itemId: string, replay: boolean, shuffle?: string) {
+  return `?playlist=${playlistId}&item=${itemId}${replay ? "&replay=1" : ""}${shuffle ? `&shuffle=${shuffle}` : ""}`;
 }
 
 /** The show's episodes that have a media file, with this viewer's progress on each. */
@@ -79,7 +86,7 @@ export async function candidateEpisodes(ex: Executor, args: { showId: string; vi
  */
 export async function nextAfter(
   ex: Executor,
-  args: { playlistId: string; viewerId: string; afterItemId?: string; currentEpisodeId?: string; replay?: boolean }
+  args: { playlistId: string; viewerId: string; afterItemId?: string; currentEpisodeId?: string; replay?: boolean; shuffle?: string }
 ): Promise<Result<NextTarget | null>> {
   const ctx = await loadContext(ex, args);
   if (!ctx) return NOT_FOUND;
@@ -87,6 +94,7 @@ export async function nextAfter(
   const serverId = playlist.serverId;
   const base = `/s/${serverId}`;
   const replayIn = args.replay === true;
+  const shuffle = validShuffle(args.shuffle) ? args.shuffle : undefined;
 
   const after = args.afterItemId
     ? await findVisibleItem(ex, { playlistId: playlist.id, itemId: args.afterItemId, lib: ctx.lib, viewer: access })
@@ -97,7 +105,7 @@ export async function nextAfter(
     itemId,
     kind: "episode",
     id: episodeId,
-    href: `${base}/watch/episode/${episodeId}${queueQuery(playlist.id, itemId, replay)}`,
+    href: `${base}/watch/episode/${episodeId}${queueQuery(playlist.id, itemId, replay, shuffle)}`,
     replay,
   });
 
@@ -117,6 +125,9 @@ export async function nextAfter(
 
   // 2) The next playable item the viewer can see, in one query.
   const hasCandidates = hasCandidateEpisodes(ex, titles.id);
+  // In order by position, or (shuffled) in the order the seed gives.
+  const shuffled = sql`md5(${shuffle ?? ""} || ${playlistItems.id}::text)`;
+  const afterKey = shuffle && after ? shuffleKey(shuffle, after.id) : null;
   const [next] = await ex
     .select({
       id: playlistItems.id,
@@ -137,16 +148,18 @@ export async function nextAfter(
         or(isNull(titles.kind), inArray(titles.kind, [...PLAYABLE_TITLE_KINDS])),
         contentFilter(access, sql`coalesce(${titles.ratingAges}, ${showTitles.ratingAges})`),
         after
-          ? or(
-              gt(playlistItems.position, after.position),
-              and(eq(playlistItems.position, after.position), gt(playlistItems.id, after.id))
-            )
+          ? shuffle
+            ? or(sql`${shuffled} > ${afterKey}`, and(sql`${shuffled} = ${afterKey}`, gt(playlistItems.id, after.id)))
+            : or(
+                gt(playlistItems.position, after.position),
+                and(eq(playlistItems.position, after.position), gt(playlistItems.id, after.id))
+              )
           : undefined,
         // A show entry with nothing playable is skipped; everything else is one stop.
         or(sql`${playlistItems.episodeId} IS NOT NULL`, ne(titles.kind, "show"), hasCandidates)
       )
     )
-    .orderBy(asc(playlistItems.position), asc(playlistItems.id))
+    .orderBy(...(shuffle ? [asc(shuffled), asc(playlistItems.id)] : [asc(playlistItems.position), asc(playlistItems.id)]))
     .limit(1);
   if (!next) return ok(null);
 
@@ -156,7 +169,7 @@ export async function nextAfter(
       itemId: next.id,
       kind: "audiobook",
       id: next.titleId,
-      href: `${base}/book/${next.titleId}${queueQuery(playlist.id, next.id, false)}`,
+      href: `${base}/book/${next.titleId}${queueQuery(playlist.id, next.id, false, shuffle)}`,
       replay: false,
     });
   }
@@ -169,7 +182,7 @@ export async function nextAfter(
       itemId: next.id,
       kind: "movie",
       id: next.titleId,
-      href: `${base}/watch/title/${next.titleId}${queueQuery(playlist.id, next.id, false)}`,
+      href: `${base}/watch/title/${next.titleId}${queueQuery(playlist.id, next.id, false, shuffle)}`,
       replay: false,
     });
   }
@@ -190,7 +203,7 @@ export type QueueNext =
  */
 export async function queueNext(
   ex: Executor,
-  args: { playlistId: string; itemId: string; viewerId: string; titleId?: string; episodeId?: string; replay?: boolean }
+  args: { playlistId: string; itemId: string; viewerId: string; titleId?: string; episodeId?: string; replay?: boolean; shuffle?: string }
 ): Promise<QueueNext> {
   const ctx = await loadContext(ex, { playlistId: args.playlistId, viewerId: args.viewerId });
   if (!ctx) return { valid: false };
@@ -232,6 +245,7 @@ export async function queueNext(
     afterItemId: args.itemId,
     currentEpisodeId: item.titleKind === "show" ? args.episodeId : undefined,
     replay: args.replay,
+    shuffle: args.shuffle,
   });
   if (!next.ok || !next.value) return { valid: true, next: null };
   return { valid: true, next: { href: next.value.href, label: "Next in playlist" } };

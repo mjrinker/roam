@@ -160,6 +160,7 @@ export function PlaylistItems({
                   {disabled ? " · nothing playable yet" : ""}
                 </span>
               </div>
+              {item.sortLabel && <span className="shrink-0 rounded-md bg-white/[0.07] px-2 py-0.5 text-xs font-medium text-foreground/80 tabular-nums" title="What this playlist is ordered by">{item.sortLabel}</span>}
               <div className="flex shrink-0 items-center gap-0.5">
                 {!disabled && kind !== "show" && (
                   <Link

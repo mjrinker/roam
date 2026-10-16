@@ -42,7 +42,7 @@ export async function GET(request: Request, ctx: RouteContext<"/tv/s/[serverId]/
   const queue = parseQueueContext(new URL(request.url).searchParams);
   if (queue) {
     const q = await tvQueueNext(db, access.scope, queue, params.kind === "title" ? { titleId: id } : { episodeId: id });
-    if (q.valid) data = { ...data, back: `${access.base}/playlist/${queue.playlistId}`, next: q.next ? targetHref(access.base, q.next, queue.playlistId) : null };
+    if (q.valid) data = { ...data, back: `${access.base}/playlist/${queue.playlistId}`, next: q.next ? targetHref(access.base, q.next, queue.playlistId, queue.shuffle) : null };
   }
   // ?json=1: the player of a newer browser asks for the next episode's details so it can carry on without loading a page.
   if (new URL(request.url).searchParams.get("json") === "1") return json({ ...watchConfig(data), title: data.title, subtitle: data.subtitle, upNextSeconds: UP_NEXT_SECONDS });

@@ -140,7 +140,7 @@ function genreCondition(genres: string[], column: SQL): SQL | null {
 }
 
 /** How long something runs, in seconds: its stated runtime, else what its files add up to (a copy saved in several resolutions counts once). */
-const runtimeOf = (kind: "title" | "episode", runtime: SQL, id: SQL) =>
+export const runtimeOf = (kind: "title" | "episode", runtime: SQL, id: SQL) =>
   sql`COALESCE(${runtime}, (SELECT sum(m.duration_seconds)::float / greatest(1, count(DISTINCT coalesce(m.version_label, ''))) FROM media_files m WHERE m.owner_kind = ${kind} AND m.owner_id = ${id}))`;
 
 function durationConditions(rules: SmartRules, runtime: SQL): SQL[] {
@@ -154,7 +154,7 @@ const FILE_OF_TITLE = (id: SQL) => sql`EXISTS (SELECT 1 FROM media_files m WHERE
 const PLAYABLE_SHOW = (id: SQL) => sql`EXISTS (SELECT 1 FROM seasons sn JOIN episodes e ON e.season_id = sn.id JOIN media_files m ON m.owner_kind = 'episode' AND m.owner_id = e.id WHERE sn.title_id = ${id})`;
 
 /** The conditions and sort values that read the same for a title and for an episode (through its show). */
-interface Subject {
+export interface Subject {
   /** The kind and id the profile's ratings and the files hang from. */
   kind: "title" | "episode";
   id: SQL;
@@ -175,12 +175,12 @@ interface Subject {
 
 const effectiveAge = (ratingAges: SQL, country: string) => sql`COALESCE((${ratingAges}->>${country})::int, (${ratingAges}->>'US')::int, (${ratingAges}->>'ANY')::int)`;
 
-const heightOf = (t: Subject) =>
+export const heightOf = (t: Subject) =>
   t.isShow
     ? sql`(SELECT max(m.height) FROM media_files m JOIN episodes e ON m.owner_kind = 'episode' AND m.owner_id = e.id JOIN seasons sn ON sn.id = e.season_id WHERE sn.title_id = ${t.id})`
     : sql`(SELECT max(m.height) FROM media_files m WHERE m.owner_kind = ${t.kind} AND m.owner_id = ${t.id})`;
 
-const averageOfSubject = (t: Subject) => sql`(SELECT avg(r.half_stars)::float FROM ratings r WHERE r.owner_kind = ${t.kind} AND r.owner_id = ${t.id})`;
+export const averageOfSubject = (t: Subject) => sql`(SELECT avg(r.half_stars)::float FROM ratings r WHERE r.owner_kind = ${t.kind} AND r.owner_id = ${t.id})`;
 
 /** The conditions that are about the thing itself rather than the profile's history. */
 function subjectConditions(rules: SmartRules, t: Subject, viewer: AccessProfile, since: { watched: Date | null; notWatched: Date | null }): SQL[] {

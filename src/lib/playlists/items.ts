@@ -5,6 +5,7 @@
  * and counts never reveal them. Episode items are rated by their show.
  */
 import { refreshSmartIfStale } from "./smart";
+import { smartSortLabels } from "./smart-labels";
 import { and, asc, count, eq, exists, gt, inArray, isNull, or, sql, type SQL, type SQLWrapper } from "drizzle-orm";
 import { PLAYABLE_TITLE_KINDS } from "@/lib/libraries/profile";
 import { alias } from "drizzle-orm/pg-core";
@@ -66,6 +67,8 @@ export interface PlaylistItemView {
   showId: string | null;
   /** False for a show entry with nothing playable (shown disabled, skipped by Play all). */
   playable: boolean;
+  /** On a smart playlist, the value it is ordered by ("1h 40m", "★ 4.5"), so the order can be seen. */
+  sortLabel?: string | null;
 }
 
 export interface ItemCursor {
@@ -82,7 +85,7 @@ export interface ItemsPage {
 /** One page of the items this viewer may see, in playlist order. `limit` is the page size (capped at 200). */
 export async function listVisibleItems(
   ex: Executor,
-  args: { playlistId: string; lib: LibraryActor; viewer: AccessProfile; limit?: number; after?: ItemCursor | null }
+  args: { playlistId: string; lib: LibraryActor; viewer: AccessProfile; limit?: number; after?: ItemCursor | null; /** Who is looking (the owner also sees the values that are theirs alone). */ viewerId?: string }
 ): Promise<ItemsPage> {
   const limit = Math.min(Math.max(args.limit ?? 50, 1), 200);
   await refreshSmartIfStale(ex, [args.playlistId]);
@@ -142,6 +145,9 @@ export async function listVisibleItems(
     showId: r.showId,
     playable: Boolean(r.playable),
   }));
+  // On a smart playlist, say what each is ordered by.
+  const labels = await smartSortLabels(ex, { playlistId: args.playlistId, viewerId: args.viewerId, lib: args.lib, viewer: args.viewer, items });
+  for (const item of items) item.sortLabel = labels.get(item.titleId ? `t:${item.titleId}` : `e:${item.episodeId}`) ?? null;
   const last = page[page.length - 1];
   return { items, nextCursor: rows.length > limit && last ? { position: last.position, id: last.id } : null };
 }

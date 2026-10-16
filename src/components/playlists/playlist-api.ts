@@ -40,6 +40,8 @@ export interface ItemRow {
   showName: string | null;
   showId: string | null;
   playable: boolean;
+  /** On a smart playlist, the value it is ordered by. */
+  sortLabel?: string | null;
 }
 
 export interface MemberRow {

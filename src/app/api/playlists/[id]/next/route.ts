@@ -1,11 +1,11 @@
 import { db } from "@/lib/db/client";
-import { nextAfter } from "@/lib/playlists/next";
+import { nextAfter, validShuffle } from "@/lib/playlists/next";
 import { badRequest, isUuid, notFound, requireActor, respond } from "@/lib/playlists/http";
 
 /**
  * What plays after `?after=<itemId>` in this playlist's queue — or the first playable
  * item when `after` is omitted ("Play all") — optionally with the episode just watched
- * and replay mode. Returns { next: null } when the queue is over or empty.
+ * and replay mode. `shuffle=<seed>` walks the playlist in a random order instead (the same seed, the same order). Returns { next: null } when the queue is over or empty.
  */
 export async function GET(request: Request, ctx: RouteContext<"/api/playlists/[id]/next">) {
   const { id } = await ctx.params;
@@ -22,6 +22,7 @@ export async function GET(request: Request, ctx: RouteContext<"/api/playlists/[i
     afterItemId: after ?? undefined,
     currentEpisodeId: episode,
     replay: url.searchParams.get("replay") === "1",
+    shuffle: validShuffle(url.searchParams.get("shuffle")) ? (url.searchParams.get("shuffle") as string) : undefined,
   });
   return respond(result, (next) => ({ next }));
 }

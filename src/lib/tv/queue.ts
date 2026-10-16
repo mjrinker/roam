@@ -1,5 +1,5 @@
 /** A TV playing through a playlist ("Play all"): the same queue rules the web uses, with TV addresses. */
-import { nextAfter, queueNext, type NextTarget } from "@/lib/playlists/next";
+import { nextAfter, queueNext, validShuffle, type NextTarget } from "@/lib/playlists/next";
 import type { Executor } from "@/lib/playlists/executor";
 import { getPlaylistDetail } from "@/lib/playlists/service";
 import type { TvScope } from "@/lib/tv/data";
@@ -9,6 +9,8 @@ export interface QueueContext {
   itemId: string;
   /** A show entry replaying because every episode was already watched. */
   replay: boolean;
+  /** The seed of a shuffled queue (the same seed, the same order). */
+  shuffle?: string;
 }
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -17,12 +19,12 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 export function parseQueueContext(query: URLSearchParams): QueueContext | null {
   const playlistId = query.get("playlist");
   const itemId = query.get("item");
-  return playlistId && itemId && UUID.test(playlistId) && UUID.test(itemId) ? { playlistId, itemId, replay: query.get("replay") === "1" } : null;
+  return playlistId && itemId && UUID.test(playlistId) && UUID.test(itemId) ? { playlistId, itemId, replay: query.get("replay") === "1", ...(validShuffle(query.get("shuffle")) ? { shuffle: query.get("shuffle") as string } : {}) } : null;
 }
 
 /** Where a queue target plays on the TV, carrying the queue along so the one after it can be found. */
-export function targetHref(base: string, target: NextTarget, playlistId: string): string {
-  const q = `?playlist=${playlistId}&item=${target.itemId}${target.replay ? "&replay=1" : ""}`;
+export function targetHref(base: string, target: NextTarget, playlistId: string, shuffle?: string): string {
+  const q = `?playlist=${playlistId}&item=${target.itemId}${target.replay ? "&replay=1" : ""}${shuffle ? `&shuffle=${shuffle}` : ""}`;
   if (target.kind === "audiobook") return `${base}/listen/${target.id}${q}`;
   return `${base}/watch/${target.kind === "episode" ? "episode" : "title"}/${target.id}${q}`;
 }
@@ -41,16 +43,16 @@ export type TvQueueNext = { valid: false } | { valid: true; next: NextTarget | n
  */
 export async function tvQueueNext(ex: Executor, scope: TvScope, ctx: QueueContext, current: { titleId?: string; episodeId?: string }): Promise<TvQueueNext> {
   if (!(await onThisServer(ex, scope, ctx.playlistId))) return { valid: false };
-  const check = await queueNext(ex, { playlistId: ctx.playlistId, itemId: ctx.itemId, viewerId: scope.viewerId, ...current, replay: ctx.replay });
+  const check = await queueNext(ex, { playlistId: ctx.playlistId, itemId: ctx.itemId, viewerId: scope.viewerId, ...current, replay: ctx.replay, shuffle: ctx.shuffle });
   if (!check.valid) return { valid: false };
   if (!check.next) return { valid: true, next: null };
-  const next = await nextAfter(ex, { playlistId: ctx.playlistId, viewerId: scope.viewerId, afterItemId: ctx.itemId, currentEpisodeId: current.episodeId, replay: ctx.replay });
+  const next = await nextAfter(ex, { playlistId: ctx.playlistId, viewerId: scope.viewerId, afterItemId: ctx.itemId, currentEpisodeId: current.episodeId, replay: ctx.replay, shuffle: ctx.shuffle });
   return { valid: true, next: next.ok ? next.value : null };
 }
 
 /** What "Play all" starts with: the first thing the profile can play in the playlist, or null when there isn't anything. */
-export async function tvQueueStart(ex: Executor, scope: TvScope, playlistId: string): Promise<NextTarget | null> {
+export async function tvQueueStart(ex: Executor, scope: TvScope, playlistId: string, shuffle?: string): Promise<NextTarget | null> {
   if (!(await onThisServer(ex, scope, playlistId))) return null;
-  const first = await nextAfter(ex, { playlistId, viewerId: scope.viewerId });
+  const first = await nextAfter(ex, { playlistId, viewerId: scope.viewerId, shuffle });
   return first.ok ? first.value : null;
 }

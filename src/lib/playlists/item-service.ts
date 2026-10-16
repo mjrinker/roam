@@ -30,6 +30,7 @@ export async function listItems(
       playlistId: ctx.playlist.id,
       lib: ctx.lib,
       viewer: ctx.access,
+      viewerId: ctx.viewer.id,
       limit: args.limit,
       after: args.after,
     })

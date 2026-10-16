@@ -20,7 +20,7 @@ export async function GET(request: Request, ctx: RouteContext<"/tv/s/[serverId]/
   const here = `${access.base}/playlist/${id}`;
   // What this profile may do to it: change its items, rename it, delete it (sharing stays on the web).
   const caps = after ? null : await tvPlaylistCaps(db, access.scope, id);
-  const play = after || !(await tvQueueStart(db, access.scope, id)) ? [] : [{ href: `${here}/play`, name: "Play all", note: "One after another" }];
+  const play = after || !(await tvQueueStart(db, access.scope, id)) ? [] : [{ href: `${here}/play`, name: "Play all", note: "One after another" }, { href: `${here}/play?shuffle=1`, name: "Shuffle", note: "In a random order" }];
   const manage = [
     ...(caps?.can.editItems ? [{ href: `${here}/arrange`, name: "Arrange", note: "Order and remove" }] : []),
     ...(caps?.can.rename ? [{ href: `${access.base}/playlists/name?playlist=${id}&name=${encodeURIComponent(result.playlist.name)}&back=${encodeURIComponent(here)}`, name: "Rename" }] : []),

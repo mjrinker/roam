@@ -20,7 +20,7 @@ import { DownloadButton } from "@/components/offline/download-button";
 import { libraryHasDoneState } from "@/lib/libraries/profile";
 import { BookChapters, BookPlayButton, BookQueueAutoStart } from "@/components/audio/book-controls";
 import { isUuid } from "@/lib/playlists/http";
-import { queueNext } from "@/lib/playlists/next";
+import { queueNext, validShuffle } from "@/lib/playlists/next";
 import { Breadcrumbs } from "@/components/shell/breadcrumbs";
 import { BookCredits } from "@/components/library/audiobook-views";
 import { libraryKindUsesExternalMetadata } from "@/lib/libraries/profile";
@@ -74,9 +74,10 @@ export default async function BookDetailPage({ params, searchParams }: PageProps
   // Opened from a playlist queue (?playlist=&item=)? Only trust it if it checks out; otherwise behave normally.
   const playlistParam = typeof query.playlist === "string" ? query.playlist : null;
   const itemParam = typeof query.item === "string" ? query.item : null;
+  const shuffleParam = validShuffle(query.shuffle) ? query.shuffle : undefined;
   const queue =
     ready && playlistParam && itemParam && isUuid(playlistParam) && isUuid(itemParam)
-      ? await queueNext(db, { playlistId: playlistParam, itemId: itemParam, viewerId: viewer.id, titleId: book.id })
+      ? await queueNext(db, { playlistId: playlistParam, itemId: itemParam, viewerId: viewer.id, titleId: book.id, shuffle: shuffleParam })
       : null;
 
   const authors = book.authors?.length ? book.authors : book.folderAuthor ? [book.folderAuthor] : [];
@@ -91,7 +92,7 @@ export default async function BookDetailPage({ params, searchParams }: PageProps
   return (
     <div className="pb-12">
       {queue?.valid && playlistParam && itemParam && (
-        <BookQueueAutoStart titleId={book.id} playlistId={playlistParam} itemId={itemParam} finished={!!state?.finished} />
+        <BookQueueAutoStart titleId={book.id} playlistId={playlistParam} itemId={itemParam} shuffle={shuffleParam} finished={!!state?.finished} />
       )}
       <section className="relative isolate -mt-16 overflow-hidden pt-16">
         {book.posterUrl && (

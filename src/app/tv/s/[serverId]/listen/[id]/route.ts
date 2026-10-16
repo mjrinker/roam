@@ -26,7 +26,7 @@ export async function GET(request: Request, ctx: RouteContext<"/tv/s/[serverId]/
   if (inPlaylist) {
     const q = await tvQueueNext(db, access.scope, inPlaylist, { titleId: id });
     if (q.valid) {
-      nextHref = q.next ? targetHref(access.base, q.next, inPlaylist.playlistId) : null;
+      nextHref = q.next ? targetHref(access.base, q.next, inPlaylist.playlistId, inPlaylist.shuffle) : null;
       backHref = `${access.base}/playlist/${inPlaylist.playlistId}`;
       queue = null;
     }

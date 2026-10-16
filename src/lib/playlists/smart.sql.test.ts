@@ -404,6 +404,30 @@ describe("a smart playlist", () => {
     expect((await w.items(smart.id)).map((i) => i.name)).toEqual(["C"]);
   });
 
+  it("shows each item the value it is ordered by, and keeps the owner's private values to the owner", async () => {
+    const w = await playlistWorld();
+    const a = await w.movie("Alpha", { runtimeSeconds: 100 * 60, year: 1999 });
+    await w.movie("Bravo", { runtimeSeconds: 45 * 60, year: 2005 });
+    await w.rate(a.id, 9);
+    const other = await makeAccount(db, `slab${++n}`);
+    await joinServer(db, w.server.id, other.accountId);
+    const as = (sort: string) => w.make(rules({ sort }), sort);
+    const labels = async (id: string, viewerId?: string) => (await listVisibleItems(db, { playlistId: id, lib: w.actor, viewer: adult, viewerId })).items.map((i) => [i.name, i.sortLabel]);
+    const longest = await as("longest");
+    expect(await labels(longest.id, w.viewerId)).toEqual([["Alpha", "1h 40m"], ["Bravo", "45m"]]);
+    const oldest = await as("oldest");
+    expect(await labels(oldest.id, other.viewer.id)).toEqual([["Alpha", "1999"], ["Bravo", "2005"]]);
+    const best = await as("rating");
+    expect(await labels(best.id, w.viewerId)).toEqual([["Alpha", "★ 4.5"], ["Bravo", null]]);
+    expect(await labels(best.id, other.viewer.id)).toEqual([["Alpha", null], ["Bravo", null]]); // somebody else's ratings are not shown
+    const byName = await as("title");
+    expect((await labels(byName.id, w.viewerId)).every(([, label]) => label === null)).toBe(true);
+    const plain = await createPlaylist(db, { serverId: w.server.id, viewerId: w.viewerId, name: "Plain" });
+    if (!plain.ok) throw new Error("x");
+    await db.insert(playlistItems).values({ playlistId: plain.value.id, titleId: a.id, position: 1024 });
+    expect(await labels(plain.value.id, w.viewerId)).toEqual([["Alpha", null]]);
+  });
+
   it("is refreshed for its owner, whoever opens it, and the opener still only sees what they may see", async () => {
     const w = await playlistWorld();
     await w.movie("Kids", { ratingAges: { US: 0 } });

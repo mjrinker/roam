@@ -9,7 +9,7 @@ import { libraryActor, libraryVisible, type LibraryActor } from "@/lib/content/l
 import { isAllowed } from "@/lib/content/access";
 import { isUuid } from "@/lib/playlists/http";
 import { isPhotoLibraryKind } from "@/lib/libraries/profile";
-import { queueNext } from "@/lib/playlists/next";
+import { queueNext, validShuffle } from "@/lib/playlists/next";
 import { WatchSession } from "@/components/player/watch-session";
 import { encodeSkipParam, parseSkipParam } from "@/lib/content-filter/timeline";
 
@@ -139,6 +139,8 @@ export default async function WatchPage({
   let nextLabel = loaded.nextLabel;
   const playlistId = typeof query.playlist === "string" ? query.playlist : null;
   const itemId = typeof query.item === "string" ? query.item : null;
+  const shuffle = validShuffle(query.shuffle) ? query.shuffle : undefined;
+  let backHref = loaded.backHref;
   if (playlistId && itemId && isUuid(playlistId) && isUuid(itemId)) {
     const queue = await queueNext(db, {
       playlistId,
@@ -147,10 +149,13 @@ export default async function WatchPage({
       titleId: ownerKind === "title" ? ownerId : undefined,
       episodeId: ownerKind === "episode" ? ownerId : undefined,
       replay: query.replay === "1",
+      shuffle,
     });
     if (queue.valid) {
       nextHref = queue.next?.href;
       nextLabel = queue.next?.label;
+      // Opened from a playlist: Back goes to the playlist, not to the details of this one item.
+      backHref = `/s/${serverId}/playlists/${playlistId}`;
     }
   }
 
@@ -164,7 +169,7 @@ export default async function WatchPage({
   nextHref = withSkip(nextHref);
 
   // Coming back to the full player from the bar must keep the playlist it was opened from (else "next" would change).
-  const queueParts = playlistId && itemId && isUuid(playlistId) && isUuid(itemId) ? [`playlist=${playlistId}`, `item=${itemId}`, ...(query.replay === "1" ? ["replay=1"] : [])] : [];
+  const queueParts = playlistId && itemId && isUuid(playlistId) && isUuid(itemId) ? [`playlist=${playlistId}`, `item=${itemId}`, ...(query.replay === "1" ? ["replay=1"] : []), ...(shuffle ? [`shuffle=${shuffle}`] : [])] : [];
   const queueQuery = [...queueParts, ...(extraSkip ? [`skip=${extraSkip}`] : [])].join("&");
   // The player itself lives in the server layout (see VideoSessionProvider), so a video can carry on in a floating bar when the viewer
   // browses away; this page just asks for it to fill the screen.
@@ -174,7 +179,7 @@ export default async function WatchPage({
       ownerId={ownerId}
       title={loaded.displayTitle}
       subtitle={loaded.subtitle}
-      backHref={loaded.backHref}
+      backHref={backHref}
       nextHref={nextHref}
       nextLabel={nextLabel}
       watchHref={`/s/${serverId}/watch/${ownerKind}/${ownerId}${queueQuery ? `?${queueQuery}` : ""}`}

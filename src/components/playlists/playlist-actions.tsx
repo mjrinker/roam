@@ -3,7 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Copy, LogOut, Pencil, Play, Share2, Trash2 } from "lucide-react";
+import { Copy, LogOut, Pencil, Play, Share2, Shuffle, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/playlists/confirm-dialog";
@@ -49,6 +49,7 @@ export function PlaylistActions({
   const [leaving, setLeaving] = useState(false);
   const [copying, setCopying] = useState(false);
   const [sharing, setSharing] = useState(false);
+  const [shuffling, setShuffling] = useState(false);
   const listHref = `/s/${serverId}/playlists`;
 
   async function copy() {
@@ -61,6 +62,21 @@ export function PlaylistActions({
     }
     toast.success(`Copied ${res.data.itemsCopied} item${res.data.itemsCopied === 1 ? "" : "s"} to "${res.data.name}".`);
     router.push(`${listHref}/${res.data.id}`);
+  }
+
+  // Starts at a random item, in a random order that is the same all the way through (the seed rides along in each address).
+  async function shuffle() {
+    setShuffling(true);
+    const seed = Array.from(crypto.getRandomValues(new Uint8Array(8)), (b) => b.toString(16).padStart(2, "0")).join("");
+    try {
+      const res = await fetch(`/api/playlists/${playlistId}/next?shuffle=${seed}`);
+      const body = res.ok ? ((await res.json()) as { next: { href: string } | null }) : null;
+      if (body?.next?.href) router.push(body.next.href);
+      else toast.error("Nothing here is playable yet.");
+    } catch {
+      toast.error("Couldn't start the shuffle.");
+    }
+    setShuffling(false);
   }
 
   // Play all and one more button; the rest go under More. Sharing comes first because it is what a playlist's owner reaches for.
@@ -126,6 +142,9 @@ export function PlaylistActions({
             <Play className="size-5" fill="currentColor" /> Play all
           </Button>
         )}
+        <Button variant="secondary" className="h-12 gap-2 rounded-xl px-5 text-base font-semibold" disabled={!playHref || shuffling} onClick={() => void shuffle()} title="Play in a random order">
+          <Shuffle className="size-5" /> {shuffling ? "Shuffling…" : "Shuffle"}
+        </Button>
         {extra[0]?.node}
         <MoreMenu>{extra.slice(1).map((x) => x.node)}</MoreMenu>
       </div>

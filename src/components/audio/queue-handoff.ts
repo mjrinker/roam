@@ -2,6 +2,8 @@
 export interface BookQueue {
   playlistId: string;
   itemId: string;
+  /** The seed of a shuffled queue, so what follows is in the same random order. */
+  shuffle?: string;
 }
 
 /**

@@ -113,11 +113,13 @@ export function BookQueueAutoStart({
   titleId,
   playlistId,
   itemId,
+  shuffle,
   finished,
 }: {
   titleId: string;
   playlistId: string;
   itemId: string;
+  shuffle?: string;
   finished: boolean;
 }) {
   const actions = useAudioActions();
@@ -125,7 +127,7 @@ export function BookQueueAutoStart({
   useEffect(() => {
     if (!actions || started.current) return;
     started.current = true;
-    void actions.load(titleId, { autoplay: true, startAt: finished ? 0 : undefined, queue: { playlistId, itemId } });
-  }, [actions, titleId, playlistId, itemId, finished]);
+    void actions.load(titleId, { autoplay: true, startAt: finished ? 0 : undefined, queue: { playlistId, itemId, ...(shuffle ? { shuffle } : {}) } });
+  }, [actions, titleId, playlistId, itemId, shuffle, finished]);
   return null;
 }

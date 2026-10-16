@@ -12,7 +12,7 @@ export interface ApiPlaylistItem extends ApiItem {
 /** A playlist entry as the API shows it, or null for what apps can't open (photos, eBooks, entries with nothing behind them). */
 export function playlistApiItem(item: PlaylistItemView): ApiPlaylistItem | null {
   const label = playlistItemLabel(item);
-  const base = { entryId: item.id, name: label.name, subtitle: label.meta, posterUrl: item.posterUrl, playable: item.playable };
+  const base = { entryId: item.id, name: label.name, subtitle: label.meta, sortLabel: item.sortLabel ?? null, posterUrl: item.posterUrl, playable: item.playable };
   if (item.episodeId) return { ...base, type: "episode", id: item.episodeId, square: false };
   if (!item.titleId || item.titleKind === "photo" || item.titleKind === "ebook" || !item.titleKind) return null;
   return { ...base, type: item.titleKind, id: item.titleId, square: item.titleKind === "audiobook" };

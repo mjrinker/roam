@@ -36,7 +36,7 @@ export const playlistCursorParam = (c: ItemCursor): string => `${c.position}~${c
 export async function tvPlaylist(ex: Executor, scope: TvScope, playlistId: string, after: ItemCursor | null) {
   const detail = await getPlaylistDetail(ex, { playlistId, viewerId: scope.viewerId });
   if (!detail.ok || detail.value.serverId !== scope.actor.serverId) return null;
-  const page = await listVisibleItems(ex, { playlistId, lib: scope.actor, viewer: scope.viewer, limit: TV_PLAYLIST_PAGE, after });
+  const page = await listVisibleItems(ex, { playlistId, lib: scope.actor, viewer: scope.viewer, viewerId: scope.viewerId, limit: TV_PLAYLIST_PAGE, after });
   return { playlist: { id: detail.value.id, name: detail.value.name, description: detail.value.description, itemCount: detail.value.itemCount, ownerName: detail.value.owner?.name ?? null }, ...page };
 }
 
@@ -57,5 +57,6 @@ export function playlistItemHref(item: Pick<PlaylistItemView, "id" | "episodeId"
 /** The name and small print a card shows for an item. */
 export function playlistItemLabel(item: PlaylistItemView): { name: string; meta: string | null } {
   if (item.episodeId) return { name: item.showName ?? item.name ?? "Episode", meta: `S${item.seasonNumber ?? "?"} · E${item.episodeNumber ?? "?"}${item.name ? ` · ${item.name}` : ""}` };
-  return { name: item.name ?? "Untitled", meta: item.year ? String(item.year) : null };
+  const meta = [item.year ? String(item.year) : null, item.sortLabel].filter(Boolean).join(" · ");
+  return { name: item.name ?? "Untitled", meta: meta || null };
 }
