@@ -48,10 +48,12 @@ vi.mock("@/lib/auth/guards", async () => {
 vi.mock("@/lib/supabase/server", () => ({ createSupabaseServerClient: async () => ({ auth: { signOut: async () => void h.signedOut++ } }) }));
 
 import { profiles, viewers } from "@/lib/db/schema";
-import { joinServer, makeAccount, makeLibrary, makeServer, makeTitle, type TestDb } from "@/lib/playlists/test-db";
+import { joinServer, makeAccount, makeLibrary, makeServer, makeShow, makeTitle, type TestDb } from "@/lib/playlists/test-db";
 
 
 import { GET as titlePage } from "./s/[serverId]/title/[id]/route";
+import { GET as showPage } from "./s/[serverId]/show/[id]/route";
+import { GET as episodePage } from "./s/[serverId]/episode/[id]/route";
 import { GET as rateGet, POST as ratePost } from "./s/[serverId]/rate/route";
 import { ratingsOf } from "@/lib/ratings/service";
 
@@ -108,5 +110,46 @@ describe("rating on a TV", () => {
     expect((await ratePost(post({ kind: "title", id: w.film.id, stars: "3" }, { origin: "https://evil.example" }), ctx(w.sid))).status).toBe(404);
     expect((await ratingsOf(db, w.member.viewer.id, "title", [w.film.id])).size).toBe(0);
     expect((await rateGet(new Request("https://roam.example/x"), ctx(w.sid))).status).toBe(302);
+  });
+});
+
+describe("rating an episode on a TV", () => {
+  async function showWorld() {
+    const w = await world();
+    const shows = await makeLibrary(db, w.server.id, "shows", "everyone");
+    const { show, episodes } = await makeShow(db, shows.id, 2, { name: "The Show" });
+    return { ...w, show, episodes };
+  }
+  const get = (page: (r: Request, c: never) => Promise<Response>, sid: Record<string, string>, id: string) => page(new Request("https://roam.example/x"), ctx({ ...sid, id }));
+
+  it("lists the episodes on the show's page with what you gave each, each opening its own page", async () => {
+    const w = await showWorld();
+    await ratePost(post({ kind: "episode", id: w.episodes[0].id, stars: "4" }), ctx(w.sid));
+    const page = await text(await get(showPage, w.sid, w.show.id));
+    expect(page).toContain("Rate or mark an episode");
+    expect(page).toContain("Your rating: 4");
+    expect(page).toContain("Not rated");
+    expect(page).toContain(`/tv/s/${w.server.id}/episode/${w.episodes[0].id}`);
+  });
+
+  it("has a page for an episode to play it, mark it watched and rate it", async () => {
+    const w = await showWorld();
+    const e = w.episodes[1];
+    const page = await text(await get(episodePage, w.sid, e.id));
+    expect(page).toContain("Ep 2");
+    expect(page).toContain("The Show");
+    expect(page).toContain(`/tv/s/${w.server.id}/watch/episode/${e.id}`);
+    expect(page).toContain("Mark as watched");
+    expect(page).toContain("Your rating");
+    expect(page).toContain(`/tv/s/${w.server.id}/show/${w.show.id}?season=1`);
+    await ratePost(post({ kind: "episode", id: e.id, stars: "2", back: `/tv/s/${w.server.id}/episode/${e.id}` }), ctx(w.sid));
+    expect(await text(await get(episodePage, w.sid, e.id))).toContain("Your rating: 2 stars");
+  });
+
+  it("is not found for an episode on another server, or a bad id", async () => {
+    const other = await showWorld();
+    const w = await showWorld();
+    expect((await get(episodePage, w.sid, other.episodes[0].id)).status).toBe(404);
+    expect((await get(episodePage, w.sid, "nope")).status).toBe(404);
   });
 });

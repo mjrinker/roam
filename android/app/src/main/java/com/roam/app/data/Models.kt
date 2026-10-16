@@ -152,6 +152,7 @@ data class Episode(
     val watched: Boolean = false,
     val inProgress: Boolean = false,
     val playPath: String? = null,
+    val myRating: Int? = null,
 )
 
 @Serializable

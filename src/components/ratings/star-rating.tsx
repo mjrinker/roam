@@ -10,7 +10,7 @@ import { starsText } from "@/lib/ratings/stars";
  * Your own rating of a title, an episode or an album, in half stars: click the left or right half of a star; clicking the rating you gave
  * clears it. (Only you see it.) Each half is a button, so it works from the keyboard too.
  */
-export function StarRating({ kind, id, initial, className }: { kind: "title" | "episode" | "album"; id: string; initial: number | null; className?: string }) {
+export function StarRating({ kind, id, initial, className, compact = false }: { kind: "title" | "episode" | "album"; id: string; initial: number | null; className?: string; compact?: boolean }) {
   const [value, setValue] = useState<number | null>(initial);
   const [hover, setHover] = useState<number | null>(null);
   const [busy, setBusy] = useState(false);
@@ -35,10 +35,10 @@ export function StarRating({ kind, id, initial, className }: { kind: "title" | "
     <div className={cn("flex items-center gap-2", className)}>
       <div role="radiogroup" aria-label="Your rating" className="flex" onMouseLeave={() => setHover(null)}>
         {[1, 2, 3, 4, 5].map((star) => (
-          <span key={star} className="relative inline-flex size-7 items-center justify-center">
-            <Star className="size-6 text-white/25" />
+          <span key={star} className={cn("relative inline-flex items-center justify-center", compact ? "size-5" : "size-7")}>
+            <Star className={cn(compact ? "size-4" : "size-6", "text-white/25")} />
             <span className="pointer-events-none absolute inset-0 flex items-center justify-center overflow-hidden" style={{ width: shown >= star * 2 ? "100%" : shown === star * 2 - 1 ? "50%" : "0%" }}>
-              <Star className="absolute left-0.5 size-6 shrink-0 fill-primary text-primary" />
+              <Star className={cn("absolute shrink-0 fill-primary text-primary", compact ? "left-0.5 size-4" : "left-0.5 size-6")} />
             </span>
             {[star * 2 - 1, star * 2].map((half) => (
               <button

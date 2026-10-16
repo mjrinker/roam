@@ -296,4 +296,21 @@ class TitleScreenTest {
         rule.onNodeWithText("Roam can't be reached.").assertIsDisplayed()
         rule.onNodeWithText("Rate").assertIsDisplayed()
     }
+
+    @Test fun eachEpisodeCanBeRatedOnItsOwn() {
+        val calls = mutableListOf<String>()
+        val show = Title(type = "show", id = "s1", name = "The Show", seasons = listOf(1), season = 1, episodes = listOf(Episode("e1", 1, "Pilot", myRating = 6), Episode("e2", 2, "Two")))
+        val api = object : RoamApi by Unsupported {
+            override suspend fun title(serverId: String, id: String, season: Int?) = show
+            override suspend fun rate(kind: String, id: String, halfStars: Int?) { calls += "$kind $id $halfStars" }
+        }
+        rule.setContent { Shown(testGraph(api)) { TitleScreen("S", "s1", FakeNav()) } }
+        rule.waitForIdle()
+        rule.onNodeWithTag("my-rating-value-e1").performScrollTo().assertIsDisplayed()
+        rule.onNodeWithTag("star-e2-4").performScrollTo().performClick()
+        rule.waitForIdle()
+        rule.onNodeWithTag("star-e1-3").performScrollTo().performClick() // the star already given (three) clears it
+        rule.waitForIdle()
+        assertEquals(listOf("episode e2 8", "episode e1 null"), calls)
+    }
 }

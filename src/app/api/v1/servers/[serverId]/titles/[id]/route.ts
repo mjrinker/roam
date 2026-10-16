@@ -40,6 +40,7 @@ export async function GET(request: Request, ctx: RouteContext<"/api/v1/servers/[
   if (found.kind === "show") {
     const requested = Number(new URL(request.url).searchParams.get("season"));
     const show = await showDetail(db, scope, id, Number.isInteger(requested) ? requested : undefined);
+    const episodeRatings = show ? await ratingsOf(db, scope.viewerId, "episode", show.episodes.map((e) => e.id)) : new Map<string, number>();
     if (!show) return apiNotFound();
     const t = show.title;
     const next = show.episodes.find((e) => e.inProgress) ?? show.episodes.find((e) => !e.watched) ?? show.episodes[0] ?? null;
@@ -58,7 +59,7 @@ export async function GET(request: Request, ctx: RouteContext<"/api/v1/servers/[
       watched: show.showWatched,
       seasons: show.seasons,
       season: show.currentSeason,
-      episodes: show.episodes.map((e) => ({ type: "episode", id: e.id, number: e.number, name: e.name, watched: e.watched, inProgress: e.inProgress, playPath: playPath("episode", e.id) })),
+      episodes: show.episodes.map((e) => ({ type: "episode", id: e.id, number: e.number, name: e.name, watched: e.watched, inProgress: e.inProgress, playPath: playPath("episode", e.id), myRating: episodeRatings.get(e.id) ?? null })),
       continueEpisodeId: next?.id ?? null,
       ownership: show.currentSeasonId ? await ownership(a.access, id, "shows") : null,
     });

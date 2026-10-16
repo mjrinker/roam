@@ -112,6 +112,15 @@ describe("PUT /api/ratings", () => {
     expect((await ratingsOf(db, second.id, "title", [w.film.id])).get(w.film.id)).toBe(2);
   });
 
+  it("shows each episode's own rating in the show answer", async () => {
+    const w = await world();
+    await as(w.member);
+    await rate({ kind: "episode", id: w.episode.id, halfStars: 9 });
+    const body = (await (await v1Title(new Request("https://roam.example/x"), { params: Promise.resolve({ ...w.sid, id: w.show.id }) } as never)).json()) as { episodes: { id: string; myRating: number | null }[] };
+    expect(body.episodes.find((e) => e.id === w.episode.id)?.myRating).toBe(9);
+    expect(body.episodes.filter((e) => e.id !== w.episode.id).every((e) => e.myRating === null)).toBe(true);
+  });
+
   it("shows up as myRating in the title API", async () => {
     const w = await world();
     await as(w.member);

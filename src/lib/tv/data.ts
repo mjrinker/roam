@@ -121,6 +121,21 @@ export async function continueWatching(ex: Db, scope: TvScope, limit = 12): Prom
   return { watching, listening };
 }
 
+/** One episode with its show, for its own page; null when this profile can't see it. */
+export async function episodeDetail(ex: Db, scope: TvScope, episodeId: string) {
+  const [e] = await ex
+    .select({ id: episodes.id, number: episodes.number, name: episodes.name, overview: episodes.overview, stillUrl: episodes.stillUrl, season: seasons.number, showId: titles.id, showName: titles.name, showPosterUrl: titles.posterUrl, showBackdropUrl: titles.backdropUrl })
+    .from(episodes)
+    .innerJoin(seasons, eq(episodes.seasonId, seasons.id))
+    .innerJoin(titles, eq(seasons.titleId, titles.id))
+    .innerJoin(libraries, eq(titles.libraryId, libraries.id))
+    .where(and(eq(episodes.id, episodeId), eq(libraries.kind, "shows"), libraryVisible(ex, scope.actor), contentFilter(scope.viewer, titles.ratingAges)))
+    .limit(1);
+  if (!e) return null;
+  const [state] = await stateFor(ex, scope.viewerId, "episode", [e.id]);
+  return { ...e, watched: state?.finished ?? false };
+}
+
 /** "Up next" for the TV and the API: the next episode of each show being watched (see lib/watch/on-deck). */
 export async function upNext(ex: Db, scope: TvScope, limit = 12): Promise<ContinueItem[]> {
   const items = await onDeck(ex, { actor: scope.actor, viewer: scope.viewer, viewerId: scope.viewerId, limit });

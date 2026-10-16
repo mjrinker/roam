@@ -118,6 +118,7 @@ export default async function ShowDetailPage({
 
   // The community's scenes for the whole show (one set covers every episode; asked once, then kept; see lib/ddd).
   const ddd = await loadDddForShow(db, serverId, show);
+  const episodeRatings = await ratingsOf(db, viewer.id, "episode", ordered.map((e) => e.id));
   const rows: EpisodeRowData[] = ordered.map((ep) => {
     const files = filesByEpisode.get(ep.id) ?? [];
     const state = stateByEpisode.get(ep.id);
@@ -134,6 +135,7 @@ export default async function ShowDetailPage({
       progressFraction:
         inProgress && state.durationSeconds ? state.positionSeconds / state.durationSeconds : 0,
       watched: state?.finished ?? false,
+      myRating: episodeRatings.get(ep.id) ?? null,
       chapters: chaptersFromRows(files),
       guide: mergeGuideLines(guideFromCues(cuesFromRows(files)), episodeLines(ddd, seasonNumberById.get(ep.seasonId) ?? -1, ep.number)),
       dddUrl: ddd.pending ? `/api/ddd/episode/${ep.id}` : undefined,
