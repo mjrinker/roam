@@ -203,8 +203,8 @@ function subjectConditions(rules: SmartRules, t: Subject, viewer: AccessProfile,
         OR EXISTS (SELECT 1 FROM titles pt WHERE pt.id = ${t.titleId} AND (strpos(lower(coalesce(pt.authors::text, '')), ${q}) > 0 OR strpos(lower(coalesce(pt.narrators::text, '')), ${q}) > 0)))`
     );
   }
-  if (since.watched) out.push(sql`${t.watchedAt} >= ${since.watched}`);
-  if (since.notWatched) out.push(sql`(${t.watchedAt} IS NULL OR ${t.watchedAt} < ${since.notWatched})`);
+  if (since.watched) out.push(sql`${t.watchedAt} >= ${since.watched.toISOString()}::timestamptz`);
+  if (since.notWatched) out.push(sql`(${t.watchedAt} IS NULL OR ${t.watchedAt} < ${since.notWatched.toISOString()}::timestamptz)`);
   return out;
 }
 
@@ -386,7 +386,7 @@ async function episodesEntries(ex: Executor, rules: SmartRules, a: { actor: Libr
         genreCondition(rules.genres, sql`${titles.genres}`) ?? undefined,
         rules.yearFrom !== null ? sql`${titles.year} >= ${rules.yearFrom}` : undefined,
         rules.yearTo !== null ? sql`${titles.year} <= ${rules.yearTo}` : undefined,
-        a.since ? sql`${titles.addedAt} >= ${a.since}` : undefined,
+        a.since ? sql`${titles.addedAt} >= ${a.since.toISOString()}::timestamptz` : undefined,
         watched ?? undefined,
         ...durationConditions(rules, runtime),
         ...subjectConditions(rules, subject, a.viewer, a.sinceWatch),
@@ -429,7 +429,7 @@ async function titleEntries(ex: Executor, rules: SmartRules, group: "movies" | "
         genreCondition(rules.genres, sql`${titles.genres}`) ?? undefined,
         rules.yearFrom !== null ? sql`${titles.year} >= ${rules.yearFrom}` : undefined,
         rules.yearTo !== null ? sql`${titles.year} <= ${rules.yearTo}` : undefined,
-        a.since ? sql`${titles.addedAt} >= ${a.since}` : undefined,
+        a.since ? sql`${titles.addedAt} >= ${a.since.toISOString()}::timestamptz` : undefined,
         watched ?? undefined,
         ...(group === "shows" ? [] : durationConditions(rules, runtime)),
         ...subjectConditions(rules, subject, a.viewer, a.sinceWatch),

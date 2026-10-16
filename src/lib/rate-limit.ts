@@ -47,5 +47,5 @@ export async function checkRateLimit(
 /** Deletes rate-limit rows older than a day — piggybacked on the daily cron run. */
 export async function cleanupOldRateLimitBuckets() {
   const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1000);
-  await db.delete(rateLimitBuckets).where(sql`${rateLimitBuckets.windowStart} < ${cutoff}`);
+  await db.delete(rateLimitBuckets).where(sql`${rateLimitBuckets.windowStart} < ${cutoff.toISOString()}::timestamptz`);
 }

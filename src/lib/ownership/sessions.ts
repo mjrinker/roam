@@ -77,8 +77,8 @@ export async function beat(ex: Db, unit: PlayUnit, viewer: { viewerId: string; a
         accountId: viewer.accountId,
         lastSeenAt: now,
         // Staying paused keeps the time it was first paused; playing clears it. A different title starts over.
-        pausedAt: paused ? sql`case when ${playbackSessions.titleId} = ${unit.titleId} and ${playbackSessions.pausedAt} is not null then ${playbackSessions.pausedAt} else ${now} end` : null,
-        startedAt: sql`case when ${playbackSessions.titleId} = ${unit.titleId} and coalesce(${playbackSessions.seasonId}, ${playbackSessions.titleId}) = coalesce(${unit.seasonId}::uuid, ${unit.titleId}::uuid) then ${playbackSessions.startedAt} else ${now} end`,
+        pausedAt: paused ? sql`case when ${playbackSessions.titleId} = ${unit.titleId} and ${playbackSessions.pausedAt} is not null then ${playbackSessions.pausedAt} else ${now.toISOString()}::timestamptz end` : null,
+        startedAt: sql`case when ${playbackSessions.titleId} = ${unit.titleId} and coalesce(${playbackSessions.seasonId}, ${playbackSessions.titleId}) = coalesce(${unit.seasonId}::uuid, ${unit.titleId}::uuid) then ${playbackSessions.startedAt} else ${now.toISOString()}::timestamptz end`,
       },
     });
   if (moved) await announceFreed(ex, { titleId: moved.titleId, seasonId: moved.seasonId }, now);
