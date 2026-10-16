@@ -186,6 +186,17 @@ class HttpRoamApiTest {
         assertTrue(req.getHeader("Content-Type")!!.startsWith("application/json"))
     }
 
+    @Test fun ratesAndClearsARating() = runBlocking {
+        reply("""{"ok":true}""")
+        api.rate("title", "m1", 7)
+        val put = server.takeRequest()
+        assertEquals("PUT /api/ratings", "${put.method} ${put.path}")
+        assertEquals("""{"kind":"title","id":"m1","halfStars":7}""", put.body.readUtf8())
+        reply("""{"ok":true}""")
+        api.rate("title", "m1", null)
+        assertEquals("""{"kind":"title","id":"m1","halfStars":null}""", server.takeRequest().body.readUtf8())
+    }
+
     @Test fun readsAMovieWithItsExtras() = runBlocking {
         reply(
             """{"type":"movie","id":"m","name":"The Film","year":2001,"runtimeSeconds":5400,"genres":["Drama"],"resume":{"positionSeconds":1800,"durationSeconds":5400},

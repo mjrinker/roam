@@ -263,4 +263,37 @@ class TitleScreenTest {
         rule.onNodeWithTag("card-m2").performScrollTo().performClick()
         assertEquals(listOf(Routes.title("S", "m2")), nav.routes)
     }
+
+    // ── your own rating ──
+    @Test fun starsShowTheRatingAndGiveClearOrChangeIt() {
+        val calls = mutableListOf<String>()
+        val api = object : RoamApi by Unsupported {
+            override suspend fun title(serverId: String, id: String, season: Int?) = movie().copy(myRating = 7)
+            override suspend fun rate(kind: String, id: String, halfStars: Int?) { calls += "$kind $id $halfStars" }
+        }
+        rule.setContent { Shown(testGraph(api)) { TitleScreen("S", "m1", FakeNav()) } }
+        rule.waitForIdle()
+        rule.onNodeWithTag("my-rating-value").assertIsDisplayed()
+        rule.onNodeWithText("3.5").assertIsDisplayed() // three and a half stars from the web
+        rule.onNodeWithTag("star-5").performClick()
+        rule.waitForIdle()
+        rule.onNodeWithText("5").assertIsDisplayed()
+        rule.onNodeWithTag("star-5").performClick() // the same star again clears it
+        rule.waitForIdle()
+        rule.onNodeWithText("Rate").assertIsDisplayed()
+        assertEquals(listOf("title m1 10", "title m1 null"), calls)
+    }
+
+    @Test fun aRatingThatCouldNotBeSavedGoesBackAndSaysSo() {
+        val api = object : RoamApi by Unsupported {
+            override suspend fun title(serverId: String, id: String, season: Int?) = movie()
+            override suspend fun rate(kind: String, id: String, halfStars: Int?) { throw com.roam.app.data.ApiException(0, "x", "network") }
+        }
+        rule.setContent { Shown(testGraph(api)) { TitleScreen("S", "m1", FakeNav()) } }
+        rule.waitForIdle()
+        rule.onNodeWithTag("star-3").performClick()
+        rule.waitForIdle()
+        rule.onNodeWithText("Roam can't be reached.").assertIsDisplayed()
+        rule.onNodeWithText("Rate").assertIsDisplayed()
+    }
 }

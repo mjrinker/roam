@@ -414,6 +414,13 @@
       "when": 1792107700852,
       "tag": "0058_group_collections",
       "breakpoints": true
+    },
+    {
+      "idx": 59,
+      "version": "7",
+      "when": 1792111691398,
+      "tag": "0059_ratings",
+      "breakpoints": true
     }
   ]
 }

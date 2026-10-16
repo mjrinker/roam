@@ -5,6 +5,7 @@ import { loadMovieExtras } from "@/lib/title-extras";
 import { EXTRA_LABELS } from "@/lib/extras/categories";
 import { formatClock } from "@/tv/client/clock";
 import { formatRuntime } from "@/lib/format";
+import { starsText } from "@/lib/ratings/stars";
 import { ownershipView } from "@/lib/ownership/view";
 import type { TvWho } from "@/lib/tv/context";
 import type { TvSection } from "@/tv/render";
@@ -70,4 +71,14 @@ export async function movieSections(ex: Db, ctx: { serverId: string; base: strin
   }
   if (m.cast.length > 0) out.push({ heading: "Cast", lines: m.cast.map((c) => ({ text: c.name, sub: c.character })) });
   return out;
+}
+
+/** "Your rating" on a TV page: the whole stars to give (a half-star rating made on the web shows as it is), and a button to clear it. */
+export function ratingSection(args: { base: string; kind: "title" | "episode" | "album"; id: string; back: string; mine: number | null }): TvSection {
+  const fields = (stars: number) => ({ kind: args.kind, id: args.id, stars: String(stars), back: args.back });
+  return {
+    heading: args.mine ? `Your rating: ${starsText(args.mine)} ${args.mine === 2 ? "star" : "stars"}` : "Your rating",
+    lines: [],
+    posts: [...[1, 2, 3, 4, 5].map((n) => ({ action: `${args.base}/rate`, label: `${"★".repeat(n)}`, fields: fields(n) })), ...(args.mine ? [{ action: `${args.base}/rate`, label: "Clear", fields: fields(0) }] : [])],
+  };
 }

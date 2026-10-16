@@ -231,6 +231,8 @@ data class Title(
     val series: SeriesRef? = null,
     val ownership: Ownership? = null,
     val moreInCollections: List<MoreInCollection> = emptyList(),
+    /** This profile's own rating in half stars (1 to 10), or null. */
+    val myRating: Int? = null,
 )
 
 @Serializable

@@ -37,6 +37,8 @@ import { normalizePrefs } from "@/lib/content-filter/categories";
 import { Breadcrumbs } from "@/components/shell/breadcrumbs";
 import { OwnershipSection } from "@/components/ownership/ownership-section";
 import { isFileTreeLibraryKind } from "@/lib/libraries/profile";
+import { ratingsOf } from "@/lib/ratings/service";
+import { StarRating } from "@/components/ratings/star-rating";
 import { moreInCollections } from "@/lib/collections/queries";
 import { MediaRow } from "@/components/library/media-row";
 import { PosterCard } from "@/components/library/poster-card";
@@ -93,6 +95,7 @@ export default async function TitleDetailPage({
     )
     .limit(1);
 
+  const mine = (await ratingsOf(db, viewer.id, "title", [title.id])).get(title.id) ?? null;
   const inCollections = await moreInCollections(db, { actor: lib, viewer, titleId: title.id });
   const extras = await loadTitleExtras(db, title.id);
   const cast = await loadTitleCast(db, title.id);
@@ -119,6 +122,7 @@ export default async function TitleDetailPage({
       backdropUrl={title.backdropUrl}
       posterUrl={title.posterUrl}
       externalRatings={{ imdbRating: title.imdbRating, rottenTomatoesScore: title.rottenTomatoesScore }}
+      myRating={<StarRating kind="title" id={title.id} initial={mine} />}
       genres={title.genres}
       overview={title.overview}
       breadcrumbs={

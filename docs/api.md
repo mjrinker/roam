@@ -54,6 +54,8 @@ All under `/api/v1/servers/{serverId}`. Lists are cut for the profile in use: li
 
 An **item** is `{ type, id, name, subtitle, posterUrl, square, progress? }` with `type` one of `movie`, `show`, `episode`, `audiobook`, `audio`, `album`, `artist`, `photo`, `clip`. `square` says whether the picture is a square cover or a tall poster. Open `movie`, `show` and `audiobook` with `…/titles/{id}`, `album` and `artist` with their own calls.
 
+Every title answer has `myRating`: the profile's own rating in half stars (1 to 10; 7 is three and a half stars) or null. Set it with `PUT /api/ratings` `{ kind: "title"|"episode"|"album", id, halfStars: 1-10 | null }`.
+
 **A movie** (`type: "movie"`) has `name, year, overview, posterUrl, backdropUrl, runtimeSeconds, genres, certification, imdbRating, rottenTomatoesScore, finished, resume ({ positionSeconds, durationSeconds } or null)`, `play.manifestPath`, `chapters`, `extras` (groups of `{ id, name, durationSeconds, playPath }`), `cast`, `ownership`, `collections` (`[{ id, name }]`, the collections it is in), `moreInCollections` (`[{ id, name, items }]`, the rest of each, as list items), and `guide` (parental guide lines and community reports). If `guide.fromCommunity` is true, show "Powered by DoesTheDogDie.com" with it, and say the reports are unverified: their terms require it.
 
 **A show** has `seasons` (numbers), `season` (the one whose `episodes` are listed; choose with `?season=N`), `episodes` (`id, number, name, watched, inProgress, playPath`), `continueEpisodeId`, `watched`, `ownership` (for the listed season).

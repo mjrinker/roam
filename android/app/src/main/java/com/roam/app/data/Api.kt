@@ -51,6 +51,8 @@ interface RoamApi {
     suspend fun giveUpOwnership(titleId: String, seasonId: String?)
     /** Marks a title, episode, season or show as watched (done) or not, for this profile. */
     suspend fun markDone(kind: String, id: String, done: Boolean)
+    /** Rates a title (half stars 1 to 10) or, with null, clears the rating. */
+    suspend fun rate(kind: String, id: String, halfStars: Int?)
     suspend fun registerPush(token: String)
     suspend fun unregisterPush()
     suspend fun playlist(serverId: String, id: String, after: String? = null): PlaylistPage
@@ -173,6 +175,14 @@ class HttpRoamApi(
         })
     }
 
+    override suspend fun rate(kind: String, id: String, halfStars: Int?) {
+        call("PUT", "/api/ratings", body = buildJsonObject {
+            put("kind", JsonPrimitive(kind))
+            put("id", JsonPrimitive(id))
+            put("halfStars", if (halfStars == null) kotlinx.serialization.json.JsonNull else JsonPrimitive(halfStars))
+        })
+    }
+
     override suspend fun registerPush(token: String) {
         call("PUT", "/api/v1/device/push", body = buildJsonObject { put("token", JsonPrimitive(token)) })
     }
@@ -271,6 +281,7 @@ object Unsupported : RoamApi {
     override suspend fun shareCopy(titleId: String, seasonId: String?, shared: Boolean) = nope()
     override suspend fun giveUpOwnership(titleId: String, seasonId: String?) = nope()
     override suspend fun markDone(kind: String, id: String, done: Boolean) = nope()
+    override suspend fun rate(kind: String, id: String, halfStars: Int?) = nope()
     override suspend fun registerPush(token: String) = nope()
     override suspend fun unregisterPush() = nope()
     override suspend fun playlists(serverId: String) = nope()

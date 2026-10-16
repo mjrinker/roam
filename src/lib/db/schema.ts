@@ -14,6 +14,7 @@ import {
   index,
   check,
   primaryKey,
+  smallint,
   foreignKey,
   customType,
   type AnyPgColumn,
@@ -949,6 +950,21 @@ export const titleOwners = pgTable(
     index("title_owners_title_idx").on(t.titleId),
   ]
 );
+
+// ── ratings ──────────────────────────────────────────────────────────────
+// A profile's own rating of a title (movie, show, book, song), an episode or a music album, in half stars: 1 to 10, so 7 is three and a half stars.
+// Only that profile sees it. No row = not rated.
+export const ratings = pgTable(
+  "ratings",
+  {
+    viewerId: uuid("viewer_id").notNull().references(() => viewers.id, { onDelete: "cascade" }),
+    ownerKind: text("owner_kind").$type<"title" | "episode" | "album">().notNull(),
+    ownerId: uuid("owner_id").notNull(),
+    halfStars: smallint("half_stars").notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [primaryKey({ columns: [t.viewerId, t.ownerKind, t.ownerId] }), index("ratings_owner_idx").on(t.ownerKind, t.ownerId)]
+).enableRLS();
 
 // ── track_lyrics ─────────────────────────────────────────────────────────
 // What LRCLIB (a free, open lyrics service) has for a song, looked up the first time someone asks and kept, including "nothing found" (asked

@@ -12,6 +12,7 @@ export function DetailHero({
   posterUrl,
   meta,
   externalRatings,
+  myRating,
   genres,
   overview,
   breadcrumbs,
@@ -24,6 +25,8 @@ export function DetailHero({
   posterUrl: string | null;
   meta: (string | null | undefined | false)[];
   externalRatings?: ExternalRatingsData;
+  /** The profile's own star rating, to change in place. */
+  myRating?: React.ReactNode;
   genres?: string[] | null;
   overview?: string | null;
   breadcrumbs?: React.ReactNode;
@@ -90,6 +93,7 @@ export function DetailHero({
           )}
 
           {externalRatings && <ExternalRatings {...externalRatings} />}
+          {myRating && <div className="flex justify-center md:justify-start">{myRating}</div>}
 
           {genres && genres.length > 0 && (
             <div className="flex flex-wrap justify-center gap-1.5 md:justify-start">

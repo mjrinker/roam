@@ -76,8 +76,9 @@ describe("activeFilterCount", () => {
         owners: new Set(),
         maxSeconds: null,
         audioNeedsFix: true,
+        mine: new Set(["4+"]),
       })
-    ).toBe(3);
+    ).toBe(4);
   });
 });
 
@@ -183,5 +184,24 @@ describe("the owner filter", () => {
   it("combines with the other filters", () => {
     const g = item("G", { genres: ["Drama"], ownerIds: [] });
     expect(applyFilters([g, nobody], { ...owners(NO_OWNER), genres: new Set(["Drama"]) })).toEqual([g]);
+  });
+});
+
+describe("my rating", () => {
+  const rated = (name: string, myRating: number | null) => ({ name, year: null, addedAtMs: 0, genres: [], runtimeSeconds: null, certification: null, ratingAge: null, imdbRating: null, rottenTomatoesScore: null, needsAudioFix: false, myRating });
+  const items = [rated("Four and a half", 9), rated("Three", 6), rated("Two and a half", 5), rated("None", null), rated("Five", 10)];
+  const names = (mine: string[]) => applyFilters(items, { ...EMPTY_FILTERS, mine: new Set(mine) }).map((i) => i.name);
+
+  it("filters by stars and up, rated at all, or not rated", () => {
+    expect(names(["4+"])).toEqual(["Four and a half", "Five"]);
+    expect(names(["3+"])).toEqual(["Four and a half", "Three", "Five"]);
+    expect(names(["rated"])).toHaveLength(4);
+    expect(names(["unrated"])).toEqual(["None"]);
+    expect(names(["4+", "unrated"])).toEqual(["Four and a half", "None", "Five"]); // choices are OR'd
+    expect(names([])).toHaveLength(5);
+  });
+  it("sorts best first, with what is not rated always last", () => {
+    expect(sortItems(items, "myRating", "desc").map((i) => i.name)).toEqual(["Five", "Four and a half", "Three", "Two and a half", "None"]);
+    expect(sortItems(items, "myRating", "asc").map((i) => i.name)).toEqual(["Two and a half", "Three", "Four and a half", "Five", "None"]);
   });
 });

@@ -2,7 +2,8 @@ import { db } from "@/lib/db/client";
 import { asUuid, notFoundPage, tvAccess } from "@/lib/tv/context";
 import { showDetail } from "@/lib/tv/data";
 import { html } from "@/lib/tv/http";
-import { ownershipSections } from "@/lib/tv/sections";
+import { ownershipSections, ratingSection } from "@/lib/tv/sections";
+import { ratingsOf } from "@/lib/ratings/service";
 import { detailPage } from "@/tv/render";
 
 export async function GET(request: Request, ctx: RouteContext<"/tv/s/[serverId]/show/[id]">) {
@@ -18,7 +19,8 @@ export async function GET(request: Request, ctx: RouteContext<"/tv/s/[serverId]/
   if (!show) return notFoundPage();
   const t = show.title;
   const here = `${access.base}/show/${id}`;
-  const sections = await ownershipSections(db, { serverId, base: access.base, who: access.who, viewerId: access.scope.viewerId, libraryKind: "shows", titleId: id, seasonId: show.currentSeasonId, back: `${here}${show.currentSeason ? `?season=${show.currentSeason}` : ""}` });
+  const mine = (await ratingsOf(db, access.scope.viewerId, "title", [id])).get(id) ?? null;
+  const sections = [ratingSection({ base: access.base, kind: "title", id, back: `${here}${show.currentSeason ? `?season=${show.currentSeason}` : ""}`, mine }), ...(await ownershipSections(db, { serverId, base: access.base, who: access.who, viewerId: access.scope.viewerId, libraryKind: "shows", titleId: id, seasonId: show.currentSeasonId, back: `${here}${show.currentSeason ? `?season=${show.currentSeason}` : ""}` }))];
   return html(
     detailPage({
       sections,

@@ -5,8 +5,9 @@ import { formatRemaining, formatRuntime } from "@/lib/format";
 import { asUuid, notFoundPage, tvAccess } from "@/lib/tv/context";
 import { movieDetail } from "@/lib/tv/data";
 import { html } from "@/lib/tv/http";
-import { movieSections, ownershipSections } from "@/lib/tv/sections";
+import { movieSections, ownershipSections, ratingSection } from "@/lib/tv/sections";
 import { detailPage } from "@/tv/render";
+import { ratingsOf } from "@/lib/ratings/service";
 import { moreInCollections } from "@/lib/collections/queries";
 
 export async function GET(request: Request, ctx: RouteContext<"/tv/s/[serverId]/title/[id]">) {
@@ -26,7 +27,9 @@ export async function GET(request: Request, ctx: RouteContext<"/tv/s/[serverId]/
   const remaining = movie.resume?.durationSeconds ? formatRemaining(movie.resume.durationSeconds, movie.resume.positionSeconds) : null;
   const here = `${access.base}/title/${id}`;
   const more = await moreInCollections(db, { actor: access.scope.actor, viewer: access.scope.viewer, titleId: id });
+  const mine = (await ratingsOf(db, access.scope.viewerId, "title", [id])).get(id) ?? null;
   const sections = [
+    ratingSection({ base: access.base, kind: "title", id, back: here, mine }),
     ...(await movieSections(db, { serverId, base: access.base, who: access.who, titleId: id, title: { imdbId: t.imdbId, tmdbId: t.tmdbId } })),
     ...more.map((c) => ({ heading: `More in ${c.name}`, lines: c.items.map((i) => ({ text: i.name, sub: i.year ? String(i.year) : null, href: `${access.base}/${i.kind === "show" ? "show" : "title"}/${i.id}` })) })),
     ...(await ownershipSections(db, { serverId, base: access.base, who: access.who, viewerId: access.scope.viewerId, libraryKind: movie.libraryKind, titleId: id, back: here })),

@@ -1,4 +1,5 @@
 import { db } from "@/lib/db/client";
+import { ratingsOf } from "@/lib/ratings/service";
 import { collectionsOfTitle, moreInCollections } from "@/lib/collections/queries";
 import { countryFromLocale, displayCertification } from "@/lib/content/ratings";
 import { bookDetail, movieDetail, showDetail, visibleTitleKind } from "@/lib/tv/data";
@@ -33,6 +34,8 @@ export async function GET(request: Request, ctx: RouteContext<"/api/v1/servers/[
   const found = await visibleTitleKind(db, scope, id);
   if (!found) return apiNotFound();
   const country = countryFromLocale(scope.viewer.locale);
+  /** This profile's own rating in half stars (1 to 10), or null. */
+  const myRating = (await ratingsOf(db, scope.viewerId, "title", [id])).get(id) ?? null;
 
   if (found.kind === "show") {
     const requested = Number(new URL(request.url).searchParams.get("season"));
@@ -41,6 +44,7 @@ export async function GET(request: Request, ctx: RouteContext<"/api/v1/servers/[
     const t = show.title;
     const next = show.episodes.find((e) => e.inProgress) ?? show.episodes.find((e) => !e.watched) ?? show.episodes[0] ?? null;
     return apiJson({
+    myRating,
       type: "show",
       id,
       name: t.name,
@@ -65,6 +69,7 @@ export async function GET(request: Request, ctx: RouteContext<"/api/v1/servers/[
     if (!book) return apiNotFound();
     const t = book.title;
     return apiJson({
+    myRating,
       type: "audiobook",
       id,
       name: t.name,
@@ -86,6 +91,7 @@ export async function GET(request: Request, ctx: RouteContext<"/api/v1/servers/[
   const t = movie.title;
   const extras = await loadMovieExtras(db, { serverId, titleId: id, title: { imdbId: t.imdbId, tmdbId: t.tmdbId }, filterPrefs: who.filterPrefs });
   return apiJson({
+    myRating,
     type: "movie",
     id,
     name: t.name,

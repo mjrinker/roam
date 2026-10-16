@@ -9,6 +9,8 @@ import { requireServerMember } from "@/lib/auth/guards";
 import { libraryActor, libraryVisible } from "@/lib/content/library-access";
 import { isAllowed } from "@/lib/content/access";
 import { formatRuntime } from "@/lib/format";
+import { ratingsOf } from "@/lib/ratings/service";
+import { StarRating } from "@/components/ratings/star-rating";
 import { countryFromLocale, displayCertification } from "@/lib/content/ratings";
 import { TitleResyncButton } from "@/components/admin/title-resync-button";
 import { TmdbMatchButton } from "@/components/admin/tmdb-match-button";
@@ -160,6 +162,7 @@ export default async function ShowDetailPage({
 
   const filterPrefs = normalizePrefs(viewer.contentFilter);
   const totalEpisodes = allEpisodes.length;
+  const mine = (await ratingsOf(db, viewer.id, "title", [show.id])).get(show.id) ?? null;
   const cast = await loadTitleCast(db, show.id);
   const crew = await loadTitleCrew(db, show.id);
 
@@ -168,6 +171,7 @@ export default async function ShowDetailPage({
       <DetailHero
         kind="show"
         title={show.name}
+        myRating={<StarRating kind="title" id={show.id} initial={mine} />}
         backdropUrl={show.backdropUrl}
         posterUrl={show.posterUrl}
         externalRatings={{ imdbRating: show.imdbRating, rottenTomatoesScore: show.rottenTomatoesScore }}

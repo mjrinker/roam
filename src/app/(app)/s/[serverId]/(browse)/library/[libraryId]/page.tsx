@@ -29,6 +29,7 @@ import { listMonths, listTimeline } from "@/lib/photos/timeline";
 import { favoriteWords } from "@/lib/photos/favorite-word";
 import { PhotoTimeline } from "@/components/photos/photo-timeline";
 import { decodeCursor, encodeCursor } from "@/lib/playlists/http";
+import { ratingsOf } from "@/lib/ratings/service";
 import { collectionIndex, listCollections } from "@/lib/collections/queries";
 import { CollectionGrid, CollectionViewTabs, parseLibraryView } from "@/components/collections/collection-views";
 import { NewCollectionButton } from "@/components/collections/collection-admin";
@@ -339,6 +340,7 @@ export default async function LibraryDetailPage({
   const country = countryFromLocale(viewer.locale);
 
   const ownership = await libraryOwnership(db, { serverId, libraryId, accountId: profile.id, isAdmin: role === "admin" && viewer.role !== "limited" });
+  const mineByTitle = await ratingsOf(db, viewer.id, "title", libraryTitles.map((t) => t.id));
   const items: LibraryBrowserItem[] = libraryTitles.map((t) => {
     const state = stateById.get(t.id);
     const stats = statsById.get(t.id);
@@ -361,6 +363,7 @@ export default async function LibraryDetailPage({
       rottenTomatoesScore: t.rottenTomatoesScore,
       needsAudioFix: audioFixIds.has(t.id),
       ownerIds: ownership ? (ownership.byTitle[t.id] ?? []) : undefined,
+      myRating: mineByTitle.get(t.id) ?? null,
       watched: t.kind === "show" ? watchedShows.has(t.id) : (state?.finished ?? false),
       progressFraction:
         state && !state.finished && state.durationSeconds

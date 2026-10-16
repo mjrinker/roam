@@ -19,6 +19,7 @@ import { BulkOwnerButton } from "@/components/ownership/bulk-owner-button";
 import {
   DEFAULT_DIRECTION,
   EMPTY_FILTERS,
+  MINE_CHOICES,
   NO_OWNER,
   UNRATED,
   activeFilterCount,
@@ -43,6 +44,7 @@ const SORT_LABELS: Record<SortKey, string> = {
   duration: "Duration",
   contentRating: "Content rating",
   imdb: "IMDb rating",
+  myRating: "My rating",
   rottenTomatoes: "Rotten Tomatoes",
 };
 
@@ -133,6 +135,8 @@ export function LibraryBrowser({
       certifications: certs.length > 0 && hasUnrated ? [...certs, UNRATED] : certs,
       duration: hi > lo ? { lo, hi, step } : null,
       hasAudioFix: isAdmin && items.some((i) => i.needsAudioFix),
+      // The filter and the sort only matter once something has been rated.
+      hasMine: items.some((i) => i.myRating != null),
     };
   }, [items, isAdmin]);
 
@@ -226,7 +230,7 @@ export function LibraryBrowser({
           </DropdownMenuTrigger>
           <DropdownMenuContent align="start" className="min-w-52">
             {(Object.keys(SORT_LABELS) as SortKey[])
-              .filter((k) => k !== "author" || hasAuthors)
+              .filter((k) => (k !== "author" || hasAuthors) && (k !== "myRating" || facets.hasMine))
               .map((k) => (
                 <DropdownMenuItem
                   key={k}
@@ -321,6 +325,18 @@ export function LibraryBrowser({
                 <Chip active={filters.owners.has(NO_OWNER)} onClick={() => setFilters((f) => ({ ...f, owners: toggled(f.owners, NO_OWNER) }))}>
                   No owner
                 </Chip>
+              </div>
+            </FilterGroup>
+          )}
+
+          {facets.hasMine && (
+            <FilterGroup label="My rating">
+              <div className="flex flex-wrap gap-1.5">
+                {MINE_CHOICES.map((c) => (
+                  <Chip key={c.value} active={filters.mine.has(c.value)} onClick={() => setFilters((f) => ({ ...f, mine: toggled(f.mine, c.value) }))}>
+                    {c.label}
+                  </Chip>
+                ))}
               </div>
             </FilterGroup>
           )}

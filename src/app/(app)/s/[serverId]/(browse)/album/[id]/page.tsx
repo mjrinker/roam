@@ -2,6 +2,8 @@ import { notFound } from "next/navigation";
 import Link from "next/link";
 import { Disc3 } from "lucide-react";
 import { Artwork as Image } from "@/components/ui/artwork";
+import { ratingsOf } from "@/lib/ratings/service";
+import { StarRating } from "@/components/ratings/star-rating";
 import { requireServerMember } from "@/lib/auth/guards";
 import { libraryActor } from "@/lib/content/library-access";
 import { db } from "@/lib/db/client";
@@ -63,6 +65,7 @@ export default async function AlbumPage({ params }: PageProps<"/s/[serverId]/alb
             </Link>
             {[album.year, `${album.trackCount} ${album.trackCount === 1 ? "song" : "songs"}`, runtime].filter(Boolean).map((part) => ` · ${part}`)}
           </p>
+          <StarRating kind="album" id={album.id} initial={(await ratingsOf(db, viewer.id, "album", [album.id])).get(album.id) ?? null} />
           <AlbumPlayButtons ids={tracks.map((t) => t.id)}>
             <MoreMenu>
               <DownloadAlbumButton serverId={serverId} songIds={tracks.map((t) => t.id)} albumName={album.name} />

@@ -6,7 +6,8 @@ export type SortKey =
   | "duration"
   | "contentRating"
   | "imdb"
-  | "rottenTomatoes";
+  | "rottenTomatoes"
+  | "myRating";
 export type SortDir = "asc" | "desc";
 
 export interface BrowseItem {
@@ -23,11 +24,20 @@ export interface BrowseItem {
   imdbRating: number | null;
   rottenTomatoesScore: number | null;
   needsAudioFix: boolean;
+  /** This profile's own rating in half stars (1 to 10); null when it has not rated this. */
+  myRating?: number | null;
   /** The accounts that own a copy (of any season, for a show); only set on servers that track ownership. */
   ownerIds?: string[];
 }
 
 export const UNRATED = "Unrated";
+/** The "My rating" filter choices: stars and up, any rating, or none yet. */
+export const MINE_CHOICES: { value: string; label: string }[] = [
+  { value: "4+", label: "4 stars and up" },
+  { value: "3+", label: "3 stars and up" },
+  { value: "rated", label: "Rated by me" },
+  { value: "unrated", label: "Not rated by me" },
+];
 /** The owner filter's "nobody owns it" choice (not an account id). */
 export const NO_OWNER = "none";
 
@@ -54,6 +64,8 @@ export interface BrowseFilters {
   audioNeedsFix: boolean;
   /** Account ids, and/or NO_OWNER: titles owned by any of them, or by nobody. */
   owners: ReadonlySet<string>;
+  /** Choices from MINE_CHOICES, OR'd: rated 4 stars or more, 3 or more, any rating, or not rated by this profile. */
+  mine: ReadonlySet<string>;
 }
 
 export const EMPTY_FILTERS: BrowseFilters = {
@@ -63,6 +75,7 @@ export const EMPTY_FILTERS: BrowseFilters = {
   maxSeconds: null,
   audioNeedsFix: false,
   owners: new Set(),
+  mine: new Set(),
 };
 
 export const DEFAULT_DIRECTION: Record<SortKey, SortDir> = {
@@ -74,6 +87,7 @@ export const DEFAULT_DIRECTION: Record<SortKey, SortDir> = {
   contentRating: "asc",
   imdb: "desc",
   rottenTomatoes: "desc",
+  myRating: "desc",
 };
 
 export function activeFilterCount(f: BrowseFilters): number {
@@ -82,7 +96,8 @@ export function activeFilterCount(f: BrowseFilters): number {
     (f.certifications.size > 0 ? 1 : 0) +
     (f.minSeconds !== null || f.maxSeconds !== null ? 1 : 0) +
     (f.audioNeedsFix ? 1 : 0) +
-    (f.owners.size > 0 ? 1 : 0)
+    (f.owners.size > 0 ? 1 : 0) +
+    (f.mine.size > 0 ? 1 : 0)
   );
 }
 
@@ -100,6 +115,11 @@ export function applyFilters<T extends BrowseItem>(items: readonly T[], f: Brows
     if (f.owners.size > 0) {
       const owned = i.ownerIds ?? [];
       if (owned.length === 0 ? !f.owners.has(NO_OWNER) : !owned.some((o) => f.owners.has(o))) return false;
+    }
+    if (f.mine.size > 0) {
+      const mine = i.myRating ?? null;
+      const ok = [...f.mine].some((c) => (c === "unrated" ? mine === null : c === "rated" ? mine !== null : mine !== null && mine >= Number(c.replace("+", "")) * 2));
+      if (!ok) return false;
     }
     return true;
   });
@@ -119,6 +139,8 @@ function numeric(item: BrowseItem, key: SortKey): number | null {
       return item.imdbRating;
     case "rottenTomatoes":
       return item.rottenTomatoesScore;
+    case "myRating":
+      return item.myRating ?? null;
     default:
       return null;
   }

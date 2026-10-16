@@ -81,6 +81,7 @@ fun TitleContent(serverId: String, t: Title, nav: Nav, onSeason: (Int) -> Unit, 
                 }
             }
         }
+        if (t.type == "movie" || t.type == "show" || t.type == "audiobook") item(key = "my-rating") { MyRating(t.id, t.myRating) }
         when (t.type) {
             "movie" -> movieActions(t, nav, mark)
             "show" -> showBody(serverId, t, nav, onSeason, mark)
@@ -221,5 +222,40 @@ private fun androidx.compose.foundation.lazy.LazyListScope.showBody(serverId: St
                 androidx.compose.material3.TextButton(onClick = { mark("episode", e.id, !e.watched) }, modifier = Modifier.testTag("mark-${e.id}")) { Text(if (e.watched) "Mark unwatched" else "Mark watched") }
             }
         }
+    }
+}
+
+/** Your own rating, in stars: press a star to give that many, the same star again to clear it. (A half-star rating made on the web shows as it is.) */
+@Composable
+fun MyRating(titleId: String, initial: Int?) {
+    val graph = LocalGraph.current
+    val scope = androidx.compose.runtime.rememberCoroutineScope()
+    var value by androidx.compose.runtime.remember(titleId) { androidx.compose.runtime.mutableStateOf(initial) }
+    var problem by androidx.compose.runtime.remember(titleId) { androidx.compose.runtime.mutableStateOf<String?>(null) }
+    Column(Modifier.testTag("my-rating")) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            for (star in 1..5) {
+                val filled = (value ?: 0) >= star * 2
+                androidx.compose.material3.TextButton(
+                    onClick = {
+                        val next = if (value == star * 2) null else star * 2
+                        val before = value
+                        value = next
+                        scope.launch {
+                            try {
+                                graph.api.rate("title", titleId, next)
+                                problem = null
+                            } catch (e: com.roam.app.data.ApiException) {
+                                value = before
+                                problem = if (e.status == 0) "Roam can't be reached." else e.message
+                            }
+                        }
+                    },
+                    modifier = Modifier.testTag("star-$star"),
+                ) { Text(if (filled) "★" else if ((value ?: 0) == star * 2 - 1) "⯨" else "☆", style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.primary) }
+            }
+            Text(value?.let { (it / 2.0).toString().removeSuffix(".0") } ?: "Rate", color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.testTag("my-rating-value"))
+        }
+        problem?.let { Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.testTag("rating-problem")) }
     }
 }
