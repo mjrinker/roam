@@ -1,6 +1,6 @@
 /** Smart playlists: what the rules select for the owner, and that the playlist keeps up with them. */
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { mediaFiles, playlistItems, playlists, ratings, titles, viewers, watchState } from "@/lib/db/schema";
 import type { AccessProfile } from "@/lib/content/access";
 import type { LibraryActor } from "@/lib/content/library-access";
@@ -102,6 +102,28 @@ describe("what the rules select", () => {
     expect(await w.names(rules({ watched: "inProgress" }))).toEqual(["Half"]);
     expect(await w.names(rules({ watched: "watched" }))).toEqual(["Seen"]);
     void fresh;
+  });
+
+  it("narrows by how long it runs, using its stated runtime or else its files, and ignores it for shows", async () => {
+    const w = await world();
+    await w.movie("Short", { runtimeSeconds: 40 * 60 });
+    await w.movie("Feature", { runtimeSeconds: 100 * 60 });
+    await w.movie("Epic", { runtimeSeconds: 170 * 60 });
+    const unknown = await w.movie("From files");
+    await db.update(mediaFiles).set({ durationSeconds: 95 * 60 }).where(eq(mediaFiles.ownerId, unknown.id));
+    expect(await w.names(rules({ minMinutes: 90, maxMinutes: 120 }))).toEqual(["Feature", "From files"]);
+    expect(await w.names(rules({ maxMinutes: 60 }))).toEqual(["Short"]);
+    expect(await w.names(rules({ minMinutes: 150 }))).toEqual(["Epic"]);
+    // a copy saved in two resolutions is one length, not two
+    await db.insert(mediaFiles).values({ ownerKind: "title", ownerId: unknown.id, boxFileId: `sm${++n}`, filename: "m720.mp4", versionLabel: "720p", durationSeconds: 95 * 60 });
+    await db.update(mediaFiles).set({ versionLabel: "1080p" }).where(and(eq(mediaFiles.filename, "m.mp4"), eq(mediaFiles.ownerId, unknown.id)));
+    expect(await w.names(rules({ minMinutes: 90, maxMinutes: 120 }))).toContain("From files");
+    const shows = await makeLibrary(db, w.server.id, "shows", "everyone");
+    const s = await makeShow(db, shows.id, 1, { name: "A Show" });
+    await db.insert(mediaFiles).values({ ownerKind: "episode", ownerId: s.episodes[0].id, boxFileId: `sm${++n}`, filename: "e.mp4", durationSeconds: 30 * 60 });
+    expect(await w.names(rules({ media: "shows", minMinutes: 500 }))).toEqual(["A Show"]);
+    expect(await w.run(rules({ media: "episodes", minMinutes: 20, maxMinutes: 40 }))).toEqual([s.episodes[0].id]);
+    expect(await w.run(rules({ media: "episodes", minMinutes: 60 }))).toEqual([]);
   });
 
   it("keeps to what the owner may see: the age limit and library sharing, and caps the length", async () => {

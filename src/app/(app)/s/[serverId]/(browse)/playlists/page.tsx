@@ -3,6 +3,8 @@ import { notFound } from "next/navigation";
 import { Globe, ListVideo, Lock, ShieldCheck, Sparkles } from "lucide-react";
 import { db } from "@/lib/db/client";
 import { requireServerMember } from "@/lib/auth/guards";
+import { libraryActor } from "@/lib/content/library-access";
+import { visibleGenres } from "@/lib/playlists/smart-genres";
 import { decodeCursor, encodeCursor } from "@/lib/playlists/http";
 import { listPlaylists, type ListScope } from "@/lib/playlists/service";
 import { Badge } from "@/components/ui/badge";
@@ -26,7 +28,8 @@ export default async function PlaylistsPage({
 }: PageProps<"/s/[serverId]/playlists">) {
   const { serverId } = await params;
   const query = await searchParams;
-  const { viewer, role } = await requireServerMember(serverId);
+  const { profile, viewer, role } = await requireServerMember(serverId);
+  const genres = await visibleGenres(db, libraryActor({ profile, role }, serverId), viewer);
 
   const scopeParam = typeof query.scope === "string" ? query.scope : "all";
   const scope = TABS.some((t) => t.scope === scopeParam) ? (scopeParam as ListScope) : "all";
@@ -47,13 +50,13 @@ export default async function PlaylistsPage({
     <div className="flex flex-col gap-6 px-4 py-8 sm:px-8">
       <Breadcrumbs serverId={serverId} trail={[{ label: "Playlists" }]} className="-mb-2" />
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex items-center gap-3">
+        <div className="flex min-w-0 items-center gap-3">
           <span className="flex size-10 items-center justify-center rounded-xl bg-white/[0.06] ring-1 ring-white/10">
             <ListVideo className="size-5 text-primary" />
           </span>
           <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">Playlists</h1>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           {role === "admin" && viewer.role !== "limited" && (
             <Link
               href={`/s/${serverId}/playlists/moderation`}
@@ -62,7 +65,7 @@ export default async function PlaylistsPage({
               <ShieldCheck className="size-4" /> Moderate
             </Link>
           )}
-          <NewSmartPlaylistButton serverId={serverId} />
+          <NewSmartPlaylistButton serverId={serverId} genres={genres} />
           <NewPlaylistButton serverId={serverId} />
         </div>
       </div>

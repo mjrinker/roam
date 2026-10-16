@@ -32,6 +32,9 @@ export const smartRulesSchema = z
     yearFrom: z.number().int().min(1800).max(2200).nullable().default(null),
     yearTo: z.number().int().min(1800).max(2200).nullable().default(null),
     addedWithinDays: z.number().int().min(1).max(3650).nullable().default(null),
+    /** How long it runs, in minutes (not for shows, which have no one length). */
+    minMinutes: z.number().int().min(1).max(10_000).nullable().default(null),
+    maxMinutes: z.number().int().min(1).max(10_000).nullable().default(null),
     libraryId: z.string().uuid().nullable().default(null),
     sort: z.enum(SMART_SORTS).default("title"),
     limit: z.number().int().min(1).max(SMART_MAX_LIMIT).default(50),
@@ -83,6 +86,17 @@ function genreCondition(genres: string[], column: SQL): SQL | null {
   return sql`(${sql.join(genres.map((g) => sql`${column} @> ${JSON.stringify([g])}::jsonb`), sql` OR `)})`;
 }
 
+/** How long something runs, in seconds: its stated runtime, else what its files add up to (a copy saved in several resolutions counts once). */
+const runtimeOf = (kind: "title" | "episode", runtime: SQL, id: SQL) =>
+  sql`COALESCE(${runtime}, (SELECT sum(m.duration_seconds)::float / greatest(1, count(DISTINCT coalesce(m.version_label, ''))) FROM media_files m WHERE m.owner_kind = ${kind} AND m.owner_id = ${id}))`;
+
+function durationConditions(rules: SmartRules, runtime: SQL): SQL[] {
+  const out: SQL[] = [];
+  if (rules.minMinutes !== null) out.push(sql`${runtime} >= ${rules.minMinutes * 60}`);
+  if (rules.maxMinutes !== null) out.push(sql`${runtime} <= ${rules.maxMinutes * 60}`);
+  return out;
+}
+
 const FILE_OF_TITLE = (id: SQL) => sql`EXISTS (SELECT 1 FROM media_files m WHERE m.owner_kind = 'title' AND m.owner_id = ${id})`;
 const PLAYABLE_SHOW = (id: SQL) => sql`EXISTS (SELECT 1 FROM seasons sn JOIN episodes e ON e.season_id = sn.id JOIN media_files m ON m.owner_kind = 'episode' AND m.owner_id = e.id WHERE sn.title_id = ${id})`;
 
@@ -114,6 +128,7 @@ export async function evaluateRules(ex: Executor, args: { rules: SmartRules; act
           rules.yearTo !== null ? sql`${showTitles.year} <= ${rules.yearTo}` : undefined,
           since ? sql`${showTitles.addedAt} >= ${since}` : undefined,
           watched ?? undefined,
+          ...durationConditions(rules, runtimeOf("episode", sql`${episodes.runtimeSeconds}`, id)),
           ...conditions
         )
       )
@@ -158,6 +173,7 @@ export async function evaluateRules(ex: Executor, args: { rules: SmartRules; act
         rules.yearTo !== null ? sql`${titles.year} <= ${rules.yearTo}` : undefined,
         since ? sql`${titles.addedAt} >= ${since}` : undefined,
         watched ?? undefined,
+        ...(rules.media === "shows" ? [] : durationConditions(rules, runtimeOf("title", sql`${titles.runtimeSeconds}`, id))),
         ...conditions
       )
     )

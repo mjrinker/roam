@@ -2,6 +2,8 @@ import { notFound } from "next/navigation";
 import { Globe, Lock } from "lucide-react";
 import { db } from "@/lib/db/client";
 import { requireServerMember } from "@/lib/auth/guards";
+import { libraryActor } from "@/lib/content/library-access";
+import { visibleGenres } from "@/lib/playlists/smart-genres";
 import { encodeCursor, isUuid } from "@/lib/playlists/http";
 import { listItems } from "@/lib/playlists/item-service";
 import { nextAfter } from "@/lib/playlists/next";
@@ -15,7 +17,7 @@ import { PlaylistItems } from "@/components/playlists/playlist-items";
 
 export default async function PlaylistPage({ params }: PageProps<"/s/[serverId]/playlists/[id]">) {
   const { serverId, id } = await params;
-  const { viewer } = await requireServerMember(serverId);
+  const { profile, viewer, role } = await requireServerMember(serverId);
   if (!isUuid(id)) notFound();
 
   const detail = await getPlaylistDetail(db, { playlistId: id, viewerId: viewer.id });
@@ -70,6 +72,7 @@ export default async function PlaylistPage({ params }: PageProps<"/s/[serverId]/
           rules={playlist.smartRules}
           words={playlist.smartRules ? describeRules(playlist.smartRules) : "It fills itself from rules its owner set."}
           canEdit={playlist.can.rename}
+          genres={playlist.can.rename ? await visibleGenres(db, libraryActor({ profile, role }, serverId), viewer) : []}
         />
       )}
 
