@@ -1,7 +1,7 @@
 /** Smart playlists: what the rules select for the owner, and that the playlist keeps up with them. */
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { and, eq } from "drizzle-orm";
-import { mediaFiles, playlistItems, playlists, ratings, titles, viewers, watchState } from "@/lib/db/schema";
+import { mediaFiles, musicAlbums, musicArtists, playlistItems, playlists, ratings, titleCast, titleCrew, titles, viewers, watchState } from "@/lib/db/schema";
 import type { AccessProfile } from "@/lib/content/access";
 import type { LibraryActor } from "@/lib/content/library-access";
 import { loadContext } from "./context";
@@ -208,6 +208,107 @@ describe("what the rules select", () => {
     expect(eps).toEqual(show.episodes.map((e) => e.id)); // equal lengths stay in their order
     const both = await w.run(chosen({ libraryIds: [shows.id, (await db.select().from(titles).where(eq(titles.id, long.id)))[0].libraryId], showsAs: "episodes", sort: "longest" }));
     expect(both[0]).toBe(long.id);
+  });
+
+  it("narrows by name, by a person (cast, director, artist, author), by content rating, by scores and by what everyone gave it", async () => {
+    const w = await world();
+    const alien = await w.movie("Alien", { imdbRating: 8.5, rottenTomatoesScore: 93, ratingAges: { US: 17 } });
+    const babe = await w.movie("Babe", { imdbRating: 6.8, rottenTomatoesScore: 97, ratingAges: { US: 0 } });
+    await w.movie("Cube", { imdbRating: 7.2, rottenTomatoesScore: 60 }); // no content rating
+    await db.insert(titleCast).values({ titleId: alien.id, personId: 1, name: "Sigourney Weaver", position: 0 });
+    await db.insert(titleCrew).values({ titleId: babe.id, personId: 2, name: "Chris Noonan", job: "Director", position: 0 });
+    expect(await w.names(rules({ titleContains: "LIE" }))).toEqual(["Alien"]); // any case, any part
+    expect(await w.names(rules({ person: "weaver" }))).toEqual(["Alien"]);
+    expect(await w.names(rules({ person: "noonan" }))).toEqual(["Babe"]);
+    expect(await w.names(rules({ person: "nobody here" }))).toEqual([]);
+    expect(await w.names(rules({ maxAge: 0 }))).toEqual(["Babe"]); // unrated Cube is left out
+    expect(await w.names(rules({ maxAge: 13 }))).toEqual(["Babe"]);
+    expect(await w.names(rules({ maxAge: 17 }))).toEqual(["Alien", "Babe"]);
+    expect(await w.names(rules({ minImdb: 7 }))).toEqual(["Alien", "Cube"]);
+    expect(await w.names(rules({ minRottenTomatoes: 90 }))).toEqual(["Alien", "Babe"]);
+    expect(await w.names(rules({ minImdb: 7, minRottenTomatoes: 90 }))).toEqual(["Alien"]);
+    const others = [await makeAccount(db, `savg${++n}`), await makeAccount(db, `savg${++n}`)];
+    for (const o of others) await joinServer(db, w.server.id, o.accountId);
+    await db.insert(ratings).values([
+      { viewerId: others[0].viewer.id, ownerKind: "title", ownerId: babe.id, halfStars: 10 },
+      { viewerId: others[1].viewer.id, ownerKind: "title", ownerId: babe.id, halfStars: 8 },
+      { viewerId: others[0].viewer.id, ownerKind: "title", ownerId: alien.id, halfStars: 4 },
+    ]);
+    expect(await w.names(rules({ minAverage: 9 }))).toEqual(["Babe"]);
+    expect(await w.names(rules({ minAverage: 4 }))).toEqual(["Alien", "Babe"]);
+    // a song's artist and an audiobook's author
+    const music = await makeLibrary(db, w.server.id, "music", "everyone");
+    const [artist] = await db.insert(musicArtists).values({ libraryId: music.id, name: "The Beatles", nameKey: `beatles${n}`, sortKey: "beatles" }).returning();
+    const [album] = await db.insert(musicAlbums).values({ libraryId: music.id, artistId: artist.id, name: "Abbey Road", nameKey: `abbey${n}` }).returning();
+    const song = await makeTitle(db, music.id, { kind: "audiobook", name: "Come Together", albumId: album.id });
+    await db.insert(mediaFiles).values({ ownerKind: "title", ownerId: song.id, boxFileId: `sm${++n}`, filename: "s.mp3" });
+    const books = await makeLibrary(db, w.server.id, "audiobooks", "everyone");
+    const book = await makeTitle(db, books.id, { kind: "audiobook", name: "Dune", authors: ["Frank Herbert"], narrators: ["Scott Brick"] });
+    await db.insert(mediaFiles).values({ ownerKind: "title", ownerId: book.id, boxFileId: `sm${++n}`, filename: "d.m4b" });
+    expect(await w.names(chosen({ person: "beatles" }))).toEqual(["Come Together"]);
+    expect(await w.names(chosen({ person: "herbert" }))).toEqual(["Dune"]);
+    expect(await w.names(chosen({ person: "brick" }))).toEqual(["Dune"]);
+  });
+
+  it("narrows by picture quality and by when the owner last watched it", async () => {
+    const w = await world();
+    const hd = await w.movie("In HD");
+    const uhd = await w.movie("In 4K");
+    const sd = await w.movie("In SD");
+    await db.update(mediaFiles).set({ height: 1080 }).where(eq(mediaFiles.ownerId, hd.id));
+    await db.update(mediaFiles).set({ height: 2160 }).where(eq(mediaFiles.ownerId, uhd.id));
+    await db.update(mediaFiles).set({ height: 480 }).where(eq(mediaFiles.ownerId, sd.id));
+    expect(await w.names(rules({ minHeight: 1080 }))).toEqual(["In 4K", "In HD"]);
+    expect(await w.names(rules({ minHeight: 2160 }))).toEqual(["In 4K"]);
+    const now = new Date("2026-06-15T12:00:00Z");
+    const day = (n: number) => new Date(now.getTime() - n * 86_400_000);
+    await db.insert(watchState).values([
+      { viewerId: w.viewerId, ownerKind: "title", ownerId: hd.id, positionSeconds: 1, durationSeconds: 10, finished: false, updatedAt: day(3) },
+      { viewerId: w.viewerId, ownerKind: "title", ownerId: sd.id, positionSeconds: 1, durationSeconds: 10, finished: false, updatedAt: day(90) },
+    ]);
+    const on = async (r: Record<string, unknown>) => (await evaluateRules(db, { rules: smartRulesSchema.parse({ media: "movies", ...r }), actor: w.actor, viewer: adult, viewerId: w.viewerId, now })).map((t) => ("titleId" in t ? t.titleId : t.episodeId));
+    expect(await on({ watchedWithinDays: 7 })).toEqual([hd.id]);
+    expect(new Set(await on({ notWatchedWithinDays: 7 }))).toEqual(new Set([uhd.id, sd.id])); // never watched counts as not
+    expect(await on({ watchedWithinDays: 120, notWatchedWithinDays: 7 })).toEqual([sd.id]);
+  });
+
+  it("orders by IMDb, Rotten Tomatoes, everyone's rating, content rating and picture quality, with what is missing last", async () => {
+    const w = await world();
+    const a = await w.movie("Alpha", { imdbRating: 6, rottenTomatoesScore: 90, ratingAges: { US: 17 } });
+    const b = await w.movie("Bravo", { imdbRating: 9, rottenTomatoesScore: 50, ratingAges: { US: 0 } });
+    const c = await w.movie("Charlie", { imdbRating: 7.5, rottenTomatoesScore: null, ratingAges: { US: 13 } });
+    await w.movie("Delta");
+    await db.update(mediaFiles).set({ height: 720 }).where(eq(mediaFiles.ownerId, a.id));
+    await db.update(mediaFiles).set({ height: 2160 }).where(eq(mediaFiles.ownerId, b.id));
+    const other = await makeAccount(db, `sord${++n}`);
+    await joinServer(db, w.server.id, other.accountId);
+    await db.insert(ratings).values([
+      { viewerId: other.viewer.id, ownerKind: "title", ownerId: a.id, halfStars: 10 },
+      { viewerId: other.viewer.id, ownerKind: "title", ownerId: c.id, halfStars: 6 },
+    ]);
+    const order = (sort: string) => w.names(rules({ sort }));
+    expect(await order("imdb")).toEqual(["Bravo", "Charlie", "Alpha", "Delta"]);
+    expect(await order("rottenTomatoes")).toEqual(["Alpha", "Bravo", "Charlie", "Delta"]);
+    expect(await order("average")).toEqual(["Alpha", "Charlie", "Bravo", "Delta"]);
+    expect(await order("contentRating")).toEqual(["Bravo", "Charlie", "Alpha", "Delta"]);
+    expect(await order("quality")).toEqual(["Bravo", "Alpha", "Charlie", "Delta"]);
+  });
+
+  it("applies the same conditions to episodes through their show", async () => {
+    const w = await world();
+    const shows = await makeLibrary(db, w.server.id, "shows", "everyone");
+    const good = await makeShow(db, shows.id, 2, { name: "Good show", imdbRating: 8.8, ratingAges: { US: 13 } });
+    const meh = await makeShow(db, shows.id, 1, { name: "Meh show", imdbRating: 5.1, ratingAges: { US: 13 } });
+    for (const e of [...good.episodes, ...meh.episodes]) await db.insert(mediaFiles).values({ ownerKind: "episode", ownerId: e.id, boxFileId: `sm${++n}`, filename: "e.mp4", height: 1080 });
+    await db.insert(titleCast).values({ titleId: good.show.id, personId: 9, name: "Some Actor", position: 0 });
+    const ids = (r: Record<string, unknown>) => w.run(chosen({ libraryIds: [shows.id], showsAs: "episodes", ...r }));
+    expect(await ids({ minImdb: 8 })).toEqual(good.episodes.map((e) => e.id));
+    expect(await ids({ person: "some actor" })).toEqual(good.episodes.map((e) => e.id));
+    expect(await ids({ titleContains: "meh" })).toEqual(meh.episodes.map((e) => e.id));
+    expect(await ids({ titleContains: "ep 2" })).toEqual([good.episodes[1].id]); // the episode's own name counts too
+    expect(await ids({ maxAge: 10 })).toEqual([]);
+    expect(await ids({ minHeight: 2160 })).toEqual([]);
+    expect((await ids({ sort: "imdb" })).slice(0, 2)).toEqual(good.episodes.map((e) => e.id));
   });
 
   it("draws from the libraries chosen by name, across kinds, and from every library when none is chosen", async () => {

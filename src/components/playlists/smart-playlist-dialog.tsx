@@ -9,10 +9,10 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { DropdownMenu, DropdownMenuCheckboxItem, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import type { SmartRules } from "@/lib/playlists/smart";
-import { activeConditions, CLEARED, CONDITIONS, holdsOnlyShows, nounsOf, SMART_MAX_LIMIT, SORT_WORDS, WATCHED_WORDS, type Condition, type SmartLibrary } from "@/lib/playlists/smart-words";
+import { activeConditions, AGE_CHOICES, CLEARED, CONDITIONS, HEIGHT_WORDS, holdsOnlyShows, nounsOf, SMART_MAX_LIMIT, SORT_WORDS, WATCHED_WORDS, type Condition, type SmartLibrary } from "@/lib/playlists/smart-words";
 import { starsText } from "@/lib/ratings/stars";
 
-const DEFAULT: SmartRules = { libraryIds: [], kinds: [], showsAs: "shows", genres: [], minStars: null, maxStars: null, rated: "any", watched: "any", yearFrom: null, yearTo: null, addedWithinDays: null, minMinutes: null, maxMinutes: null, sort: "title", limit: 50 };
+const DEFAULT: SmartRules = { libraryIds: [], kinds: [], showsAs: "shows", genres: [], minStars: null, maxStars: null, rated: "any", watched: "any", yearFrom: null, yearTo: null, addedWithinDays: null, minMinutes: null, maxMinutes: null, titleContains: null, maxAge: null, minImdb: null, minRottenTomatoes: null, minAverage: null, person: null, minHeight: null, watchedWithinDays: null, notWatchedWithinDays: null, sort: "title", limit: 50 };
 const SELECT = "h-9 w-full min-w-0 rounded-lg bg-white/[0.06] px-2 text-sm ring-1 ring-white/[0.1] focus:outline-none focus:ring-2 focus:ring-primary";
 const STAR_CHOICES = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
 const num = (v: string): number | null => (v.trim() === "" || Number.isNaN(Number(v)) ? null : Math.trunc(Number(v)));
@@ -104,6 +104,9 @@ export function SmartPlaylistDialog({ serverId, playlistId, initialName = "", in
   const add = (key: Condition) => {
     setShown((s) => [...s, key]);
     if (key === "watched") set({ watched: "unwatched" });
+    if (key === "age") set({ maxAge: 13 });
+    if (key === "quality") set({ minHeight: 1080 });
+    if (key === "lastWatched") set({ watchedWithinDays: 30 });
   };
   const remove = (key: Condition) => {
     setShown((s) => s.filter((k) => k !== key));
@@ -229,6 +232,80 @@ export function SmartPlaylistDialog({ serverId, playlistId, initialName = "", in
                     <Word>to</Word>
                     <Input inputMode="numeric" value={rules.maxMinutes ?? ""} onChange={(e) => set({ maxMinutes: num(e.target.value) })} placeholder="120" aria-label="Longest, in minutes" />
                     <Word>min</Word>
+                  </div>
+                </Row>
+              )}
+              {shown.includes("name") && (
+                <Row label="Name contains" onRemove={() => remove("name")}>
+                  <Input value={rules.titleContains ?? ""} maxLength={80} onChange={(e) => set({ titleContains: e.target.value || null })} placeholder="Part of the name" aria-label="Name contains" />
+                </Row>
+              )}
+              {shown.includes("person") && (
+                <Row label="Cast, director, artist or author" onRemove={() => remove("person")}>
+                  <Input value={rules.person ?? ""} maxLength={80} onChange={(e) => set({ person: e.target.value || null })} placeholder="A name, or part of one" aria-label="Cast, director, artist or author" />
+                </Row>
+              )}
+              {shown.includes("age") && (
+                <Row label="Content rating" onRemove={() => remove("age")}>
+                  <select aria-label="Content rating up to" className={SELECT} value={rules.maxAge ?? ""} onChange={(e) => set({ maxAge: num(e.target.value) })}>
+                    {AGE_CHOICES.map((c) => <option key={c.value} value={c.value}>{c.label}</option>)}
+                  </select>
+                  <Word>Titles with no rating are left out.</Word>
+                </Row>
+              )}
+              {shown.includes("scores") && (
+                <Row label="IMDb or Rotten Tomatoes score" onRemove={() => remove("scores")}>
+                  <div className="flex items-center gap-2">
+                    <Word>IMDb at least</Word>
+                    <Input inputMode="decimal" value={rules.minImdb ?? ""} onChange={(e) => set({ minImdb: e.target.value.trim() === "" || Number.isNaN(Number(e.target.value)) ? null : Math.min(10, Math.max(1, Number(e.target.value))) })} placeholder="7.5" aria-label="IMDb score at least" />
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Word>Rotten Tomatoes at least</Word>
+                    <Input inputMode="numeric" value={rules.minRottenTomatoes ?? ""} onChange={(e) => set({ minRottenTomatoes: num(e.target.value) === null ? null : Math.min(100, Math.max(1, num(e.target.value) as number)) })} placeholder="80" aria-label="Rotten Tomatoes score at least" />
+                    <Word>%</Word>
+                  </div>
+                </Row>
+              )}
+              {shown.includes("average") && (
+                <Row label="Rating on this server" onRemove={() => remove("average")}>
+                  <div className="flex items-center gap-2">
+                    <Word>Everyone&apos;s average at least</Word>
+                    <select aria-label="Server average at least" className={SELECT} value={rules.minAverage ?? ""} onChange={(e) => set({ minAverage: num(e.target.value) })}>
+                      <option value="">Any</option>
+                      {STAR_CHOICES.map((h) => <option key={h} value={h}>{starsText(h)} ★</option>)}
+                    </select>
+                  </div>
+                </Row>
+              )}
+              {shown.includes("quality") && (
+                <Row label="Picture quality" onRemove={() => remove("quality")}>
+                  <select aria-label="Picture quality at least" className={SELECT} value={rules.minHeight ?? ""} onChange={(e) => set({ minHeight: num(e.target.value) })}>
+                    {Object.entries(HEIGHT_WORDS).map(([h, label]) => <option key={h} value={h}>{label} or better</option>)}
+                  </select>
+                </Row>
+              )}
+              {shown.includes("lastWatched") && (
+                <Row label="When I last watched" onRemove={() => remove("lastWatched")}>
+                  <div className="flex items-center gap-2">
+                    <select
+                      aria-label="Watched or not"
+                      className={SELECT}
+                      value={rules.notWatchedWithinDays !== null ? "not" : "yes"}
+                      onChange={(e) => {
+                        const days = rules.notWatchedWithinDays ?? rules.watchedWithinDays ?? 30;
+                        set(e.target.value === "not" ? { notWatchedWithinDays: days, watchedWithinDays: null } : { watchedWithinDays: days, notWatchedWithinDays: null });
+                      }}
+                    >
+                      <option value="yes">Watched in the last</option>
+                      <option value="not">Not watched in the last</option>
+                    </select>
+                    <Input
+                      inputMode="numeric"
+                      value={rules.notWatchedWithinDays ?? rules.watchedWithinDays ?? ""}
+                      onChange={(e) => (rules.notWatchedWithinDays !== null ? set({ notWatchedWithinDays: num(e.target.value) }) : set({ watchedWithinDays: num(e.target.value) }))}
+                      aria-label="Days"
+                    />
+                    <Word>days</Word>
                   </div>
                 </Row>
               )}

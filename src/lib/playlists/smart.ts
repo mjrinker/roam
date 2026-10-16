@@ -9,6 +9,7 @@ import { z } from "zod";
 import type { LibraryKind } from "@/lib/db/schema";
 import { episodes, libraries, playlistItems, playlists, seasons, serverMembers, titles, viewers } from "@/lib/db/schema";
 import { contentFilter, type AccessProfile } from "@/lib/content/access";
+import { countryFromLocale } from "@/lib/content/ratings";
 import { libraryVisible, type LibraryActor } from "@/lib/content/library-access";
 import { SONG_LIBRARY_KINDS } from "@/lib/libraries/profile";
 import type { Executor } from "./executor";
@@ -32,6 +33,11 @@ export const SMART_SORTS = [
   "watchedRecently",
   "watchedLongAgo",
   "genre",
+  "imdb",
+  "rottenTomatoes",
+  "average",
+  "contentRating",
+  "quality",
   "random",
 ] as const;
 
@@ -66,6 +72,22 @@ const smartRulesObject = z
     /** How long it runs, in minutes (not for shows, which have no one length). */
     minMinutes: z.number().int().min(1).max(10_000).nullable().default(null),
     maxMinutes: z.number().int().min(1).max(10_000).nullable().default(null),
+    /** Part of the name (or, for an episode, of its show's or its own). */
+    titleContains: z.string().trim().max(80).nullable().default(null).transform((v) => (v ? v : null)),
+    /** The most a content rating may ask of the viewer, as an age (0 is for everyone); titles with no rating are left out. */
+    maxAge: z.number().int().min(0).max(21).nullable().default(null),
+    /** IMDb score (1 to 10) and Rotten Tomatoes score (1 to 100) at least. */
+    minImdb: z.number().min(1).max(10).nullable().default(null),
+    minRottenTomatoes: z.number().int().min(1).max(100).nullable().default(null),
+    /** What everyone on the server who rated it gave it, on average, in half stars: at least. */
+    minAverage: halfStars.nullable().default(null),
+    /** A name among its cast and crew (movies, shows), its artist (songs) or its authors and narrators (audiobooks). */
+    person: z.string().trim().max(80).nullable().default(null).transform((v) => (v ? v : null)),
+    /** The picture is at least this tall, in pixels (720, 1080, 2160...). */
+    minHeight: z.number().int().min(240).max(4320).nullable().default(null),
+    /** This profile watched it in the last N days / has not in the last N days (never watched counts as not). */
+    watchedWithinDays: z.number().int().min(1).max(3650).nullable().default(null),
+    notWatchedWithinDays: z.number().int().min(1).max(3650).nullable().default(null),
     sort: z.enum(SMART_SORTS).default("title"),
     limit: z.number().int().min(1).max(SMART_MAX_LIMIT).default(50),
   })
@@ -131,6 +153,61 @@ function durationConditions(rules: SmartRules, runtime: SQL): SQL[] {
 const FILE_OF_TITLE = (id: SQL) => sql`EXISTS (SELECT 1 FROM media_files m WHERE m.owner_kind = 'title' AND m.owner_id = ${id})`;
 const PLAYABLE_SHOW = (id: SQL) => sql`EXISTS (SELECT 1 FROM seasons sn JOIN episodes e ON e.season_id = sn.id JOIN media_files m ON m.owner_kind = 'episode' AND m.owner_id = e.id WHERE sn.title_id = ${id})`;
 
+/** The conditions and sort values that read the same for a title and for an episode (through its show). */
+interface Subject {
+  /** The kind and id the profile's ratings and the files hang from. */
+  kind: "title" | "episode";
+  id: SQL;
+  /** The title whose cast, crew, name, genres, scores and content rating count (an episode's show). */
+  titleId: SQL;
+  name: SQL;
+  /** A second name to search (an episode's own). */
+  otherName?: SQL;
+  ratingAges: SQL;
+  imdb: SQL;
+  rottenTomatoes: SQL;
+  watchedAt: SQL;
+  /** True for a show, whose files are those of its episodes. */
+  isShow?: boolean;
+  /** Songs and books also name their people on the title itself. */
+  titleIsMusic?: boolean;
+}
+
+const effectiveAge = (ratingAges: SQL, country: string) => sql`COALESCE((${ratingAges}->>${country})::int, (${ratingAges}->>'US')::int, (${ratingAges}->>'ANY')::int)`;
+
+const heightOf = (t: Subject) =>
+  t.isShow
+    ? sql`(SELECT max(m.height) FROM media_files m JOIN episodes e ON m.owner_kind = 'episode' AND m.owner_id = e.id JOIN seasons sn ON sn.id = e.season_id WHERE sn.title_id = ${t.id})`
+    : sql`(SELECT max(m.height) FROM media_files m WHERE m.owner_kind = ${t.kind} AND m.owner_id = ${t.id})`;
+
+const averageOfSubject = (t: Subject) => sql`(SELECT avg(r.half_stars)::float FROM ratings r WHERE r.owner_kind = ${t.kind} AND r.owner_id = ${t.id})`;
+
+/** The conditions that are about the thing itself rather than the profile's history. */
+function subjectConditions(rules: SmartRules, t: Subject, viewer: AccessProfile, since: { watched: Date | null; notWatched: Date | null }): SQL[] {
+  const out: SQL[] = [];
+  if (rules.titleContains) {
+    const q = rules.titleContains.toLowerCase();
+    out.push(t.otherName ? sql`(strpos(lower(${t.name}), ${q}) > 0 OR strpos(lower(${t.otherName}), ${q}) > 0)` : sql`strpos(lower(${t.name}), ${q}) > 0`);
+  }
+  if (rules.maxAge !== null) out.push(sql`${effectiveAge(t.ratingAges, countryFromLocale(viewer.locale))} <= ${rules.maxAge}`);
+  if (rules.minImdb !== null) out.push(sql`${t.imdb} >= ${rules.minImdb}`);
+  if (rules.minRottenTomatoes !== null) out.push(sql`${t.rottenTomatoes} >= ${rules.minRottenTomatoes}`);
+  if (rules.minAverage !== null) out.push(sql`${averageOfSubject(t)} >= ${rules.minAverage}`);
+  if (rules.minHeight !== null) out.push(sql`${heightOf(t)} >= ${rules.minHeight}`);
+  if (rules.person) {
+    const q = rules.person.toLowerCase();
+    out.push(
+      sql`(EXISTS (SELECT 1 FROM title_cast c WHERE c.title_id = ${t.titleId} AND strpos(lower(c.name), ${q}) > 0)
+        OR EXISTS (SELECT 1 FROM title_crew c WHERE c.title_id = ${t.titleId} AND strpos(lower(c.name), ${q}) > 0)
+        OR EXISTS (SELECT 1 FROM titles pt JOIN music_albums al ON al.id = pt.album_id JOIN music_artists ar ON ar.id = al.artist_id WHERE pt.id = ${t.titleId} AND strpos(lower(ar.name), ${q}) > 0)
+        OR EXISTS (SELECT 1 FROM titles pt WHERE pt.id = ${t.titleId} AND (strpos(lower(coalesce(pt.authors::text, '')), ${q}) > 0 OR strpos(lower(coalesce(pt.narrators::text, '')), ${q}) > 0)))`
+    );
+  }
+  if (since.watched) out.push(sql`${t.watchedAt} >= ${since.watched}`);
+  if (since.notWatched) out.push(sql`(${t.watchedAt} IS NULL OR ${t.watchedAt} < ${since.notWatched})`);
+  return out;
+}
+
 interface Entry {
   target: SmartTarget;
   name: string;
@@ -143,6 +220,14 @@ interface Entry {
   watchedAt: Date | null;
   /** Its first genre, A to Z. */
   genre: string | null;
+  imdb: number | null;
+  rottenTomatoes: number | null;
+  /** What everyone on the server gave it, on average, in half stars. */
+  average: number | null;
+  /** The age its content rating asks of the viewer. */
+  age: number | null;
+  /** The height of its picture, in pixels. */
+  quality: number | null;
 }
 
 /** The values a group's query can order by. */
@@ -154,6 +239,11 @@ interface SortKeys {
   runtime: SQL;
   watchedAt: SQL;
   genre: SQL;
+  imdb: SQL;
+  rottenTomatoes: SQL;
+  average: SQL;
+  age: SQL;
+  quality: SQL;
   /** What breaks a tie, in order (a show's episodes keep their order). */
   tie: SQL[];
 }
@@ -187,6 +277,16 @@ function orderingFor(sort: SmartRules["sort"], k: SortKeys): SQL[] {
       return [sql`${k.watchedAt} ASC NULLS LAST`, k.name, ...k.tie];
     case "genre":
       return [sql`${k.genre} ASC NULLS LAST`, k.name, ...k.tie];
+    case "imdb":
+      return [sql`${k.imdb} DESC NULLS LAST`, k.name, ...k.tie];
+    case "rottenTomatoes":
+      return [sql`${k.rottenTomatoes} DESC NULLS LAST`, k.name, ...k.tie];
+    case "average":
+      return [sql`${k.average} DESC NULLS LAST`, k.name, ...k.tie];
+    case "contentRating":
+      return [sql`${k.age} ASC NULLS LAST`, k.name, ...k.tie];
+    case "quality":
+      return [sql`${k.quality} DESC NULLS LAST`, k.name, ...k.tie];
     default:
       return [k.name, ...k.tie];
   }
@@ -243,23 +343,35 @@ function arrange(entries: Entry[], sort: SmartRules["sort"]): Entry[] {
         return by(a.watchedAt, b.watchedAt, time) || byName(a, b);
       case "genre":
         return by(a.genre, b.genre, (p, q) => p.localeCompare(q)) || byName(a, b);
+      case "imdb":
+        return by(a.imdb, b.imdb, (p, q) => q - p) || byName(a, b);
+      case "rottenTomatoes":
+        return by(a.rottenTomatoes, b.rottenTomatoes, (p, q) => q - p) || byName(a, b);
+      case "average":
+        return by(a.average, b.average, (p, q) => q - p) || byName(a, b);
+      case "contentRating":
+        return by(a.age, b.age, num) || byName(a, b);
+      case "quality":
+        return by(a.quality, b.quality, (p, q) => q - p) || byName(a, b);
       default:
         return byName(a, b);
     }
   });
 }
 
+const num = (v: unknown): number | null => (v === null || v === undefined ? null : Number(v));
 const pad = (n: number) => String(n).padStart(5, "0");
 
-async function episodesEntries(ex: Executor, rules: SmartRules, a: { actor: LibraryActor; viewer: AccessProfile; viewerId: string; since: Date | null }): Promise<Entry[]> {
+async function episodesEntries(ex: Executor, rules: SmartRules, a: { actor: LibraryActor; viewer: AccessProfile; viewerId: string; since: Date | null; sinceWatch: { watched: Date | null; notWatched: Date | null } }): Promise<Entry[]> {
   const id = sql`${episodes.id}`;
   const { mine, conditions } = ratingConditions(rules, a.viewerId, "episode", id);
   const watched = simpleWatched(rules, a.viewerId, "episode", id);
   const runtime = runtimeOf("episode", sql`${episodes.runtimeSeconds}`, id);
   const watchedAt = sql`(SELECT max(w.updated_at) FROM watch_state w WHERE w.viewer_id = ${a.viewerId} AND w.owner_kind = 'episode' AND w.owner_id = ${id})`;
   const genre = sql`(SELECT min(g.value) FROM jsonb_array_elements_text(${titles.genres}) AS g(value))`;
+  const subject: Subject = { kind: "episode", id, titleId: sql`${titles.id}`, name: sql`${titles.name}`, otherName: sql`coalesce(${episodes.name}, '')`, ratingAges: sql`${titles.ratingAges}`, imdb: sql`${titles.imdbRating}`, rottenTomatoes: sql`${titles.rottenTomatoesScore}`, watchedAt };
   const rows = await ex
-    .select({ id: episodes.id, show: titles.name, year: titles.year, added: titles.addedAt, season: seasons.number, number: episodes.number, mine: sql<number | null>`${mine}`, runtime: sql<number | null>`${runtime}`, watchedAt: sql<Date | null>`${watchedAt}`, genre: sql<string | null>`${genre}` })
+    .select({ id: episodes.id, show: titles.name, year: titles.year, added: titles.addedAt, season: seasons.number, number: episodes.number, mine: sql<number | null>`${mine}`, runtime: sql<number | null>`${runtime}`, watchedAt: sql<Date | null>`${watchedAt}`, genre: sql<string | null>`${genre}`, imdb: sql<number | null>`${subject.imdb}`, rottenTomatoes: sql<number | null>`${subject.rottenTomatoes}`, average: sql<number | null>`${averageOfSubject(subject)}`, age: sql<number | null>`${effectiveAge(subject.ratingAges, countryFromLocale(a.viewer.locale))}`, quality: sql<number | null>`${heightOf(subject)}` })
     .from(episodes)
     .innerJoin(seasons, eq(seasons.id, episodes.seasonId))
     .innerJoin(titles, eq(titles.id, seasons.titleId))
@@ -277,15 +389,16 @@ async function episodesEntries(ex: Executor, rules: SmartRules, a: { actor: Libr
         a.since ? sql`${titles.addedAt} >= ${a.since}` : undefined,
         watched ?? undefined,
         ...durationConditions(rules, runtime),
+        ...subjectConditions(rules, subject, a.viewer, a.sinceWatch),
         ...conditions
       )
     )
-    .orderBy(...orderingFor(rules.sort, { name: sql`lower(${titles.name})`, year: sql`${titles.year}`, added: sql`${titles.addedAt}`, mine, runtime, watchedAt, genre, tie: [sql`${seasons.number}`, sql`${episodes.number}`] }))
+    .orderBy(...orderingFor(rules.sort, { name: sql`lower(${titles.name})`, year: sql`${titles.year}`, added: sql`${titles.addedAt}`, mine, runtime, watchedAt, genre, imdb: subject.imdb, rottenTomatoes: subject.rottenTomatoes, average: averageOfSubject(subject), age: effectiveAge(subject.ratingAges, countryFromLocale(a.viewer.locale)), quality: heightOf(subject), tie: [sql`${seasons.number}`, sql`${episodes.number}`] }))
     .limit(rules.limit);
-  return rows.map((r) => ({ target: { episodeId: r.id }, name: `${r.show} S${pad(r.season)}E${pad(r.number)}`, year: r.year, added: r.added, mine: r.mine ?? null, runtime: r.runtime === null ? null : Number(r.runtime), watchedAt: r.watchedAt ? new Date(r.watchedAt) : null, genre: r.genre ?? null }));
+  return rows.map((r) => ({ target: { episodeId: r.id }, name: `${r.show} S${pad(r.season)}E${pad(r.number)}`, year: r.year, added: r.added, mine: r.mine ?? null, runtime: r.runtime === null ? null : Number(r.runtime), watchedAt: r.watchedAt ? new Date(r.watchedAt) : null, genre: r.genre ?? null, imdb: num(r.imdb), rottenTomatoes: num(r.rottenTomatoes), average: num(r.average), age: num(r.age), quality: num(r.quality) }));
 }
 
-async function titleEntries(ex: Executor, rules: SmartRules, group: "movies" | "shows" | "songs" | "audiobooks", a: { actor: LibraryActor; viewer: AccessProfile; viewerId: string; since: Date | null }): Promise<Entry[]> {
+async function titleEntries(ex: Executor, rules: SmartRules, group: "movies" | "shows" | "songs" | "audiobooks", a: { actor: LibraryActor; viewer: AccessProfile; viewerId: string; since: Date | null; sinceWatch: { watched: Date | null; notWatched: Date | null } }): Promise<Entry[]> {
   const id = sql`${titles.id}`;
   const { mine, conditions } = ratingConditions(rules, a.viewerId, "title", id);
   const watched = group === "shows" ? showWatched(rules, a.viewerId, id) : simpleWatched(rules, a.viewerId, "title", id);
@@ -296,6 +409,7 @@ async function titleEntries(ex: Executor, rules: SmartRules, group: "movies" | "
       ? sql`(SELECT max(w.updated_at) FROM watch_state w JOIN episodes e ON e.id = w.owner_id JOIN seasons sn ON sn.id = e.season_id WHERE w.viewer_id = ${a.viewerId} AND w.owner_kind = 'episode' AND sn.title_id = ${id})`
       : sql`(SELECT max(w.updated_at) FROM watch_state w WHERE w.viewer_id = ${a.viewerId} AND w.owner_kind = 'title' AND w.owner_id = ${id})`;
   const genre = sql`(SELECT min(g.value) FROM jsonb_array_elements_text(${titles.genres}) AS g(value))`;
+  const subject: Subject = { kind: "title", id, titleId: id, name: sql`${titles.name}`, ratingAges: sql`${titles.ratingAges}`, imdb: sql`${titles.imdbRating}`, rottenTomatoes: sql`${titles.rottenTomatoesScore}`, watchedAt, isShow: group === "shows" };
   const kindCondition =
     group === "movies"
       ? and(eq(titles.kind, "movie"), FILE_OF_TITLE(id))
@@ -303,7 +417,7 @@ async function titleEntries(ex: Executor, rules: SmartRules, group: "movies" | "
         ? and(eq(titles.kind, "show"), PLAYABLE_SHOW(id))
         : and(eq(titles.kind, "audiobook"), group === "songs" ? inArray(libraries.kind, [...SONG_LIBRARY_KINDS]) : eq(libraries.kind, "audiobooks"), FILE_OF_TITLE(id));
   const rows = await ex
-    .select({ id: titles.id, name: titles.name, year: titles.year, added: titles.addedAt, mine: sql<number | null>`${mine}`, runtime: sql<number | null>`${runtime}`, watchedAt: sql<Date | null>`${watchedAt}`, genre: sql<string | null>`${genre}` })
+    .select({ id: titles.id, name: titles.name, year: titles.year, added: titles.addedAt, mine: sql<number | null>`${mine}`, runtime: sql<number | null>`${runtime}`, watchedAt: sql<Date | null>`${watchedAt}`, genre: sql<string | null>`${genre}`, imdb: sql<number | null>`${subject.imdb}`, rottenTomatoes: sql<number | null>`${subject.rottenTomatoes}`, average: sql<number | null>`${averageOfSubject(subject)}`, age: sql<number | null>`${effectiveAge(subject.ratingAges, countryFromLocale(a.viewer.locale))}`, quality: sql<number | null>`${heightOf(subject)}` })
     .from(titles)
     .innerJoin(libraries, eq(libraries.id, titles.libraryId))
     .where(
@@ -318,19 +432,22 @@ async function titleEntries(ex: Executor, rules: SmartRules, group: "movies" | "
         a.since ? sql`${titles.addedAt} >= ${a.since}` : undefined,
         watched ?? undefined,
         ...(group === "shows" ? [] : durationConditions(rules, runtime)),
+        ...subjectConditions(rules, subject, a.viewer, a.sinceWatch),
         ...conditions
       )
     )
-    .orderBy(...orderingFor(rules.sort, { name: sql`lower(${titles.name})`, year: sql`${titles.year}`, added: sql`${titles.addedAt}`, mine, runtime, watchedAt, genre, tie: [] }))
+    .orderBy(...orderingFor(rules.sort, { name: sql`lower(${titles.name})`, year: sql`${titles.year}`, added: sql`${titles.addedAt}`, mine, runtime, watchedAt, genre, imdb: subject.imdb, rottenTomatoes: subject.rottenTomatoes, average: averageOfSubject(subject), age: effectiveAge(subject.ratingAges, countryFromLocale(a.viewer.locale)), quality: heightOf(subject), tie: [] }))
     .limit(rules.limit);
-  return rows.map((r) => ({ target: { titleId: r.id }, name: r.name, year: r.year, added: r.added, mine: r.mine ?? null, runtime: r.runtime === null ? null : Number(r.runtime), watchedAt: r.watchedAt ? new Date(r.watchedAt) : null, genre: r.genre ?? null }));
+  return rows.map((r) => ({ target: { titleId: r.id }, name: r.name, year: r.year, added: r.added, mine: r.mine ?? null, runtime: r.runtime === null ? null : Number(r.runtime), watchedAt: r.watchedAt ? new Date(r.watchedAt) : null, genre: r.genre ?? null, imdb: num(r.imdb), rottenTomatoes: num(r.rottenTomatoes), average: num(r.average), age: num(r.age), quality: num(r.quality) }));
 }
 
 /** What the rules select for this profile, in order. */
 export async function evaluateRules(ex: Executor, args: { rules: SmartRules; actor: LibraryActor; viewer: AccessProfile; viewerId: string; now?: Date }): Promise<SmartTarget[]> {
   const { rules, actor, viewer, viewerId } = args;
   const since = rules.addedWithinDays ? new Date((args.now ?? new Date()).getTime() - rules.addedWithinDays * 86_400_000) : null;
-  const a = { actor, viewer, viewerId, since };
+  const now = args.now ?? new Date();
+  const days = (n: number | null) => (n ? new Date(now.getTime() - n * 86_400_000) : null);
+  const a = { actor, viewer, viewerId, since, sinceWatch: { watched: days(rules.watchedWithinDays), notWatched: days(rules.notWatchedWithinDays) } };
   const entries: Entry[] = [];
   for (const group of await groupsOf(ex, rules, actor)) entries.push(...(group === "episodes" ? await episodesEntries(ex, rules, a) : await titleEntries(ex, rules, group, a)));
   return arrange(entries, rules.sort).slice(0, rules.limit).map((e) => e.target);

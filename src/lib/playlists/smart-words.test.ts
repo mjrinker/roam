@@ -42,11 +42,12 @@ describe("the conditions of the form", () => {
   it("start with none for plain rules, and show the ones the rules already use, in the order offered", () => {
     expect(activeConditions(rulesOf({}))).toEqual([]);
     expect(activeConditions(rulesOf({ maxMinutes: 100, genres: ["Drama"], watched: "unwatched", minStars: 8, yearTo: 1999, addedWithinDays: 7 }))).toEqual(["watched", "genres", "rating", "years", "added", "duration"]);
+    expect(activeConditions(rulesOf({ titleContains: "x", person: "y", maxAge: 0, minRottenTomatoes: 70, minAverage: 8, minHeight: 1080, notWatchedWithinDays: 30 }))).toEqual(["name", "person", "age", "scores", "average", "quality", "lastWatched"]);
     expect(activeConditions(rulesOf({ rated: "unrated" }))).toEqual(["rating"]);
   });
   it("offer every condition once, and taking one away clears exactly what it set", () => {
-    expect(CONDITIONS.map((c) => c.key)).toEqual(["watched", "genres", "rating", "years", "added", "duration"]);
-    const full = rulesOf({ watched: "watched", genres: ["A"], minStars: 2, maxStars: 9, rated: "rated", yearFrom: 1990, yearTo: 2000, addedWithinDays: 5, minMinutes: 10, maxMinutes: 20 });
+    expect(CONDITIONS.map((c) => c.key)).toEqual(["watched", "genres", "rating", "years", "added", "duration", "name", "person", "age", "scores", "average", "quality", "lastWatched"]);
+    const full = rulesOf({ watched: "watched", genres: ["A"], minStars: 2, maxStars: 9, rated: "rated", yearFrom: 1990, yearTo: 2000, addedWithinDays: 5, minMinutes: 10, maxMinutes: 20, titleContains: "t", person: "p", maxAge: 7, minImdb: 7, minRottenTomatoes: 80, minAverage: 6, minHeight: 720, watchedWithinDays: 9 });
     for (const { key } of CONDITIONS) {
       const after = { ...full, ...CLEARED[key] };
       expect(activeConditions(after)).toEqual(activeConditions(full).filter((k) => k !== key));
@@ -54,10 +55,22 @@ describe("the conditions of the form", () => {
   });
 });
 
+describe("the newer conditions in words", () => {
+  it("say each of them", () => {
+    expect(words({ titleContains: "king", person: "Weaver", maxAge: 13, minImdb: 7.5, minRottenTomatoes: 80, minAverage: 8, minHeight: 1080, watchedWithinDays: 14 })).toBe(
+      "All movies, with “king” in the name, with Weaver, rated for ages up to 13, IMDb 7.5 or more, Rotten Tomatoes 80% or more, rated 4 stars or more on this server, Full HD (1080p) or better, watched in the last 14 days; A to Z, up to 50."
+    );
+    expect(words({ maxAge: 0, notWatchedWithinDays: 1, minHeight: 2160 })).toContain("for everyone, 4K or better, not watched in the last day");
+  });
+  it("read as nothing when the text is blank", () => {
+    expect(smartRulesSchema.parse({ titleContains: "   ", person: "" })).toMatchObject({ titleContains: null, person: null });
+  });
+});
+
 describe("sorts in words", () => {
   it("has words for every sort, in the order the form lists them", () => {
     const sorts = Object.keys(SORT_WORDS);
-    expect(sorts).toEqual(["title", "titleDesc", "newest", "oldest", "added", "addedOldest", "rating", "ratingLowest", "longest", "shortest", "watchedRecently", "watchedLongAgo", "genre", "random"]);
+    expect(sorts).toEqual(["title", "titleDesc", "newest", "oldest", "added", "addedOldest", "rating", "ratingLowest", "longest", "shortest", "watchedRecently", "watchedLongAgo", "genre", "imdb", "rottenTomatoes", "average", "contentRating", "quality", "random"]);
     expect(sorts.every((k) => SORT_WORDS[k as keyof typeof SORT_WORDS].length > 0)).toBe(true);
     expect(sorts.every((k) => smartRulesSchema.safeParse({ sort: k }).success)).toBe(true);
     expect(words({ sort: "longest" })).toContain("longest first");
