@@ -2,10 +2,11 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { AccessProfile } from "@/lib/content/access";
 import type { LibraryActor } from "@/lib/content/library-access";
-import { episodes, mediaFiles, seasons, titles, watchState } from "@/lib/db/schema";
+import { mediaFiles, titles, watchState } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
 import { createTestDb, joinServer, makeAccount, makeLibrary, makeServer, makeShow, makeTitle, type TestDb } from "@/lib/playlists/test-db";
 import { assignOwners, saveSettings } from "@/lib/ownership/owners";
+import { syncSeriesCollections } from "@/lib/collections/sync";
 import { PAGE_SIZE, libraryGenres, libraryTitles, pageForLetter, type TvScope } from "./data";
 import { DEFAULT_OPTIONS, type LibraryOptions } from "./library-options";
 
@@ -168,4 +169,47 @@ describe("jumping to a letter", () => {
   });
 });
 
-void episodes; void seasons;
+
+describe("collections as single tiles", () => {
+  const series = (w: Awaited<ReturnType<typeof world>>, name: string, year: number, over: Partial<typeof titles.$inferInsert> = {}) =>
+    w.film(name, { year, collectionTmdbId: 5, collectionName: "Alien Collection", ...over });
+  const namesOf = async (w: Awaited<ReturnType<typeof world>>, group: boolean, o: Partial<LibraryOptions> = {}, page = 1, viewer = adult) => {
+    const r = await libraryTitles(db, w.scope(viewer), w.movies.id, page, opts(o), group);
+    return r!.items.map((i) => `${i.kind === "collection" ? "[]" : ""}${i.name}`);
+  };
+
+  it("puts the collection first and leaves its films out of the list, only when asked", async () => {
+    const w = await world();
+    await series(w, "Alien", 1979);
+    await series(w, "Aliens", 1986);
+    await w.film("Zodiac");
+    await syncSeriesCollections(db, w.movies.id);
+    expect(await namesOf(w, false)).toEqual(["Alien", "Aliens", "Zodiac"]);
+    expect(await namesOf(w, true)).toEqual(["[]Alien Collection", "Zodiac"]);
+  });
+
+  it("shows every film again when the list is filtered, and shows the films of a series that has too few for this profile", async () => {
+    const w = await world();
+    await series(w, "Alien", 1979, { genres: ["Horror"] });
+    await series(w, "Aliens", 1986, { genres: ["Horror"], ratingAges: { US: 17 } });
+    await syncSeriesCollections(db, w.movies.id);
+    expect(await namesOf(w, true, { genre: "Horror" })).toEqual(["Alien", "Aliens"]);
+    const kidView: AccessProfile = { locale: "en-US", maxAge: 21, allowUnrated: true };
+    expect(await namesOf(w, true, {}, 1, kidView)).toEqual(["[]Alien Collection"]);
+    await db.update(titles).set({ ratingAges: { US: 18 } }).where(eq(titles.name, "Aliens"));
+    const limited: AccessProfile = { locale: "en-US", maxAge: 12, allowUnrated: true };
+    expect(await namesOf(w, true, {}, 1, limited)).toEqual(["Alien"]); // one film is all this profile can see: no tile, the film itself
+  });
+
+  it("puts the tiles on the first page only, with the rest paging as before", async () => {
+    const w = await world();
+    await series(w, "Alien", 1979);
+    await series(w, "Aliens", 1986);
+    for (let i = 0; i < PAGE_SIZE + 3; i++) await w.film(`Film ${String(i).padStart(2, "0")}`);
+    await syncSeriesCollections(db, w.movies.id);
+    const first = await namesOf(w, true);
+    expect(first[0]).toBe("[]Alien Collection");
+    expect(first).toHaveLength(PAGE_SIZE + 1);
+    expect(await namesOf(w, true, {}, 2)).toEqual(["Film 24", "Film 25", "Film 26"]);
+  });
+});

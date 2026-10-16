@@ -35,6 +35,7 @@ export interface EditableProfile {
   visibleOnServer: boolean;
   contentFilter: ContentFilterPrefs;
   autoSkip: AutoSkipPrefs;
+  groupCollections: boolean;
   hasPin: boolean;
 }
 
@@ -78,6 +79,7 @@ export function ProfileEditorDialog({
   const [visibleOnServer, setVisibleOnServer] = useState(profile?.visibleOnServer ?? true);
   const [contentFilter, setContentFilter] = useState<ContentFilterPrefs>(profile?.contentFilter ?? {});
   const [autoSkip, setAutoSkip] = useState<AutoSkipPrefs>(profile?.autoSkip ?? {});
+  const [groupCollections, setGroupCollections] = useState(profile?.groupCollections ?? false);
   const [newPin, setNewPin] = useState("");
   const [currentPin, setCurrentPin] = useState("");
   const [busy, setBusy] = useState(false);
@@ -121,6 +123,7 @@ export function ProfileEditorDialog({
           visibleOnServer,
           contentFilter,
           autoSkip: normalizeAutoSkip(autoSkip),
+          groupCollections,
           ...(showRolePicker ? { role } : {}),
           ...(newPin.trim() ? { pin: newPin } : {}),
           ...(actor.hasPin ? { currentPin } : {}),
@@ -263,6 +266,14 @@ export function ProfileEditorDialog({
                   Allow titles with no rating on file
                 </label>
               )}
+
+              <label className="flex items-start gap-2 text-sm">
+                <input type="checkbox" checked={groupCollections} onChange={(e) => setGroupCollections(e.target.checked)} className="mt-0.5 size-4 rounded border-input" />
+                <span>
+                  Group collections in lists
+                  <span className="block text-xs text-muted-foreground">A film series (or a collection your admin made) shows as one tile in the Movies and TV Shows lists. Searching and filtering still show every title.</span>
+                </span>
+              </label>
 
               <fieldset className="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-1.5">
                 <legend className="text-sm font-medium">Skip automatically</legend>

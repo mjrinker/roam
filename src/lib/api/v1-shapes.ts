@@ -1,7 +1,7 @@
 /** The JSON shapes the /api/v1 browse routes answer with, built from what the TV pages already read (so sharing and age limits apply the same way). */
 import type { LibraryKind } from "@/lib/db/schema";
 
-export type ItemType = "movie" | "show" | "episode" | "audiobook" | "audio" | "album" | "artist" | "photo" | "clip";
+export type ItemType = "movie" | "show" | "episode" | "audiobook" | "audio" | "album" | "artist" | "photo" | "clip" | "collection";
 
 /** A thing in a list: enough to draw a card and to open or play it. */
 export interface ApiItem {

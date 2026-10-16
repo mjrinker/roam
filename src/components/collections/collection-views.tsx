@@ -26,6 +26,26 @@ export function CollectionViewTabs({ serverId, libraryId, active, titlesLabel }:
   );
 }
 
+/** One collection as a tile (in the Collections view, and in a list that groups them). */
+export function CollectionTile({ serverId, c }: { serverId: string; c: CollectionCard }) {
+  return (
+    <Link href={`/s/${serverId}/collection/${c.id}`} className="group/card block rounded-xl outline-none focus-visible:ring-2 focus-visible:ring-primary">
+      <span className="relative block aspect-[2/3] overflow-hidden rounded-xl bg-muted ring-1 ring-white/[0.08] transition duration-300 group-hover/card:-translate-y-1 group-hover/card:ring-white/25">
+        {c.posterUrl ? (
+          <Image src={c.posterUrl} alt="" fill sizes="(min-width: 1024px) 200px, 45vw" className="object-cover" />
+        ) : (
+          <span className="flex size-full items-center justify-center bg-gradient-to-br from-secondary via-muted to-background"><Layers className="size-8 text-muted-foreground/60" /></span>
+        )}
+        <span className="absolute right-2 bottom-2 rounded-md bg-black/70 px-2 py-0.5 text-xs font-medium backdrop-blur">{c.count}</span>
+      </span>
+      <span className="mt-2 block min-w-0">
+        <span className="line-clamp-2 block text-sm leading-snug font-medium">{c.name}</span>
+        <span className="block text-xs text-muted-foreground">{c.count === 1 ? "1 title" : `${c.count} titles`}{c.kind === "tmdb" ? " · series" : ""}</span>
+      </span>
+    </Link>
+  );
+}
+
 export function CollectionGrid({ serverId, collections }: { serverId: string; collections: CollectionCard[] }) {
   if (collections.length === 0) {
     return <p className="rounded-xl bg-white/[0.04] px-4 py-10 text-center text-sm text-muted-foreground ring-1 ring-white/[0.06]">No collections yet.</p>;
@@ -34,20 +54,7 @@ export function CollectionGrid({ serverId, collections }: { serverId: string; co
     <ul className="grid grid-cols-2 gap-x-4 gap-y-6 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6">
       {collections.map((c) => (
         <li key={c.id} className="min-w-0">
-          <Link href={`/s/${serverId}/collection/${c.id}`} className="group/card block rounded-xl outline-none focus-visible:ring-2 focus-visible:ring-primary">
-            <span className="relative block aspect-[2/3] overflow-hidden rounded-xl bg-muted ring-1 ring-white/[0.08] transition duration-300 group-hover/card:-translate-y-1 group-hover/card:ring-white/25">
-              {c.posterUrl ? (
-                <Image src={c.posterUrl} alt="" fill sizes="(min-width: 1024px) 200px, 45vw" className="object-cover" />
-              ) : (
-                <span className="flex size-full items-center justify-center bg-gradient-to-br from-secondary via-muted to-background"><Layers className="size-8 text-muted-foreground/60" /></span>
-              )}
-              <span className="absolute right-2 bottom-2 rounded-md bg-black/70 px-2 py-0.5 text-xs font-medium backdrop-blur">{c.count}</span>
-            </span>
-            <span className="mt-2 block min-w-0">
-              <span className="line-clamp-2 block text-sm leading-snug font-medium">{c.name}</span>
-              <span className="block text-xs text-muted-foreground">{c.count === 1 ? "1 title" : `${c.count} titles`}{c.kind === "tmdb" ? " · series" : ""}</span>
-            </span>
-          </Link>
+          <CollectionTile serverId={serverId} c={c} />
         </li>
       ))}
     </ul>

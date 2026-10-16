@@ -1,5 +1,8 @@
 "use client";
 
+import { CollectionTile } from "@/components/collections/collection-views";
+import { groupTiles } from "@/lib/collections/group";
+import type { CollectionIndex } from "@/lib/collections/queries";
 import { useCallback, useMemo, useState } from "react";
 import { ArrowDown, ArrowUp, ArrowUpDown, Check, Search, SlidersHorizontal, X } from "lucide-react";
 import { PosterCard, type PosterCardData } from "@/components/library/poster-card";
@@ -83,11 +86,14 @@ export function LibraryBrowser({
   serverId,
   isAdmin = false,
   ownership = null,
+  collections = null,
 }: {
   items: LibraryBrowserItem[];
   serverId: string;
   isAdmin?: boolean;
   /** Set on servers that track who owns what: the households for the Owner filter, and (for the admin) who can be made an owner. */
+  /** When the profile groups collections: the collections to show as single tiles (only while nothing is searched, filtered or selected). */
+  collections?: { group: boolean; index: CollectionIndex } | null;
   ownership?: { households: { id: string; name: string }[]; assignable: { id: string; name: string }[] } | null;
 }) {
   const [query, setQuery] = useState("");
@@ -171,6 +177,9 @@ export function LibraryBrowser({
   }, [visible, items, selected]);
   const resolveSelected = useCallback(async () => selectedIds, [selectedIds]);
 
+  // A collection takes the place of its first title; searching, filtering and selecting show every title instead.
+  const grouping = !!collections?.group && !query.trim() && filtersActive === 0 && !selecting;
+  const tiles = useMemo(() => (grouping && collections ? groupTiles(visible, collections.index) : visible.map((item) => ({ kind: "title" as const, item }))), [grouping, collections, visible]);
   const showRail = sort === "title" && visible.length > 30;
   const railKeys = useMemo(() => new Set(visible.map((i) => letterKey(i.name))), [visible]);
 
@@ -394,12 +403,18 @@ export function LibraryBrowser({
           </div>
         ) : (
           <div className={cn("grid min-w-0 flex-1 grid-cols-[repeat(auto-fill,minmax(9.25rem,1fr))] gap-x-4 gap-y-8 sm:grid-cols-[repeat(auto-fill,minmax(10.5rem,1fr))]", showRail && "pr-3")}>
-            {visible.map((t, index) => (
-              <div key={t.id} id={`card-${t.id}`} className="relative scroll-mt-24">
-                <PosterCard title={t} serverId={serverId} />
-                {selecting && <SelectOverlay name={t.name} checked={selected.has(t.id)} onToggle={(shift) => toggle(visible, index, shift)} />}
-              </div>
-            ))}
+            {tiles.map((tile, index) =>
+              tile.kind === "collection" ? (
+                <div key={`collection-${tile.card.id}`} id={`card-${tile.firstId}`} className="relative scroll-mt-24">
+                  <CollectionTile serverId={serverId} c={tile.card} />
+                </div>
+              ) : (
+                <div key={tile.item.id} id={`card-${tile.item.id}`} className="relative scroll-mt-24">
+                  <PosterCard title={tile.item} serverId={serverId} />
+                  {selecting && <SelectOverlay name={tile.item.name} checked={selected.has(tile.item.id)} onToggle={(shift) => toggle(visible, index, shift)} />}
+                </div>
+              )
+            )}
           </div>
         )}
 

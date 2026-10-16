@@ -509,6 +509,8 @@ export interface SettingsPageData {
   base: string;
   profileName: string;
   autoSkip: { key: string; label: string; on: boolean }[];
+  /** Whether lists show a collection as one tile. */
+  groupCollections: boolean;
   filters: { key: string; label: string; words: string }[];
   /** The button to land on after a change (so the same one can be pressed again). */
   focus: string | null;
@@ -517,15 +519,17 @@ export interface SettingsPageData {
 /** What this profile skips: each is a button that changes to its next choice; every press is a POST and the page comes back with the same button selected. */
 export function settingsPage(d: SettingsPageData): string {
   const action = `${d.base}/settings`;
-  const one = (kind: "auto" | "filter", key: string, label: string, value: string) =>
+  const one = (kind: "auto" | "filter" | "group", key: string, label: string, value: string) =>
     postButton(action, `${label}: ${value}`, { fields: { kind, key }, autofocus: d.focus === `${kind}:${key}`, className: "btn" });
   const start = d.focus === null;
+  const group = one("group", "collections", "Group collections in lists", d.groupCollections ? "On" : "Off");
   const auto = d.autoSkip.map((a) => one("auto", a.key, a.label, a.on ? "On" : "Off")).join("");
   const filters = d.filters.map((f) => one("filter", f.key, f.label, f.words)).join("");
   return tvDocument({
     title: "Settings",
     body:
       `<div class="page">${top(`<a data-f data-back${start ? " data-autofocus" : ""} href="${esc(d.base)}" class="btn" style="margin:0">Back</a>`)}<h1>Settings for ${esc(d.profileName)}</h1>` +
+      `<h2>Lists</h2><p class="sub">A film series, or a collection your admin made, shows as one tile in the Movies and TV Shows lists. Off by default.</p><div class="row">${group}</div>` +
       `<h2>Skip automatically</h2><p class="sub">Each of these is skipped by itself, once per play, when it starts. Off by default.</p><div class="row">${auto}</div>` +
       `<h2>What to skip</h2><p class="sub">Press a button to change it: Off, then Mild and up, Moderate and up, Strong only. Scenes in these categories are skipped or muted when a movie has them marked.</p><div class="row">${filters}</div></div>`,
   });

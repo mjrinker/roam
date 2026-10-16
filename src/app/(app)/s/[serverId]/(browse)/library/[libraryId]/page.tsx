@@ -29,7 +29,7 @@ import { listMonths, listTimeline } from "@/lib/photos/timeline";
 import { favoriteWords } from "@/lib/photos/favorite-word";
 import { PhotoTimeline } from "@/components/photos/photo-timeline";
 import { decodeCursor, encodeCursor } from "@/lib/playlists/http";
-import { listCollections } from "@/lib/collections/queries";
+import { collectionIndex, listCollections } from "@/lib/collections/queries";
 import { CollectionGrid, CollectionViewTabs, parseLibraryView } from "@/components/collections/collection-views";
 import { NewCollectionButton } from "@/components/collections/collection-admin";
 import {
@@ -376,6 +376,8 @@ export default async function LibraryDetailPage({
   const collectionCards = canCollect ? await listCollections(db, { actor: lib, viewer, libraryId }) : [];
   const isAdmin = role === "admin" && viewer.role !== "limited";
   const showTabs = canCollect && items.length > 0 && (collectionCards.length > 0 || isAdmin);
+  const groupCollections = canCollect && viewer.groupCollections && collectionCards.length > 0;
+  const groupIndex = groupCollections ? await collectionIndex(db, { actor: lib, viewer, libraryId }) : { cards: {}, byTitle: {} };
   const libraryView = showTabs ? parseLibraryView(typeof query.view === "string" ? query.view : null) : "titles";
   const bookView = library.kind === "audiobooks" ? parseAudiobookView(typeof query.view === "string" ? query.view : null) : null;
 
@@ -421,7 +423,7 @@ export default async function LibraryDetailPage({
       ) : bookView === "authors" ? (
         <AuthorGrid serverId={serverId} authors={groupAuthors(libraryTitles.filter((t) => t.kind === "audiobook"))} />
       ) : (
-        <LibraryBrowser items={items} serverId={serverId} isAdmin={role === "admin"} ownership={ownership} />
+        <LibraryBrowser items={items} serverId={serverId} isAdmin={role === "admin"} ownership={ownership} collections={groupCollections ? { group: true, index: groupIndex } : null} />
       )}
     </div>
   );

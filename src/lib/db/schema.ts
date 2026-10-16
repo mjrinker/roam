@@ -124,6 +124,8 @@ export const viewers = pgTable(
     // What this profile skips while watching: per category, the weakest strength it skips ("violence": "high"). Empty = nothing.
     contentFilter: jsonb("content_filter").$type<import("@/lib/content-filter/categories").ContentFilterPrefs>().notNull().default({}),
     // Which parts this profile skips without being asked ("intro": true): the Skip intro button pressed for it. Empty = none.
+    // Show a film series (or other collection) as one tile in the Movies and TV Shows lists instead of one tile per title.
+    groupCollections: boolean("group_collections").notNull().default(false),
     autoSkip: jsonb("auto_skip").$type<Partial<Record<"intro" | "recap" | "outro" | "preview", boolean>>>().notNull().default({}),
     // Whether this profile's name/avatar may be shown to OTHER accounts that
     // are members of the same server (not yet surfaced anywhere in the UI —

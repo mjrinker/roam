@@ -19,7 +19,7 @@ function parsePhotoCursor(raw: string | null): TimelineCursor | null | "bad" {
 
 /**
  * What is in a library, a page at a time, shaped by how it is browsed:
- *  - grid (movies, shows, audiobooks): `?page=1`; answers `{ items, hasMore }`. Optional: `sort=title|year|added`, `genre=Drama`, `unwatched=1`, `owner=<account id>|none`.
+ *  - grid (movies, shows, audiobooks): `?page=1`; answers `{ items, hasMore }`. Optional: `sort=title|year|added`, `genre=Drama`, `unwatched=1`, `owner=<account id>|none`, `group=1` (collections as single tiles, `type: "collection"`, open with `…/collections/{id}`).
  *  - folders (video and audio folders): `?path=Some/Folder&after=CURSOR`; answers `{ path, folders, items, next }`.
  *  - artists (music): `?after=CURSOR`; answers `{ items, next }` (artists; open one for its albums).
  *  - timeline (photos): `?view=favorites|albums&after=CURSOR` (and `path` for albums); answers `{ items, next }`.
@@ -39,9 +39,9 @@ export async function GET(request: Request, ctx: RouteContext<"/api/v1/servers/[
 
   if (library.style === "grid") {
     const page = Math.min(Math.max(1, Math.floor(Number(q.get("page"))) || 1), 10_000);
-    const result = await libraryTitles(db, scope, libraryId, page, parseLibraryOptions(q));
+    const result = await libraryTitles(db, scope, libraryId, page, parseLibraryOptions(q), q.get("group") === "1");
     if (!result) return apiNotFound();
-    const items: ApiItem[] = result.items.map((t) => ({ type: t.kind === "audiobook" ? "audiobook" : t.kind, id: t.id, name: t.name, subtitle: t.kind === "audiobook" ? (t.authors ?? []).join(", ") || null : t.year ? String(t.year) : null, posterUrl: t.posterUrl, square: t.kind === "audiobook" }));
+    const items: ApiItem[] = result.items.map((t) => ({ type: t.kind === "audiobook" ? "audiobook" : t.kind, id: t.id, name: t.name, subtitle: t.kind === "audiobook" || t.kind === "collection" ? (t.authors ?? []).join(", ") || null : t.year ? String(t.year) : null, posterUrl: t.posterUrl, square: t.kind === "audiobook" }));
     return apiJson({ ...base, page, hasMore: result.hasMore, items });
   }
   if (library.style === "folders") {

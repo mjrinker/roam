@@ -59,9 +59,9 @@ async function gridPage(access: Ok, here: string, url: URL, id: string, request:
     return redirectTo(request, `${here}${optionsQuery(options, { page: page > 1 ? page : null })}`);
   }
   const page = Math.min(Math.max(1, Math.floor(Number(url.searchParams.get("page"))) || 1), 10_000);
-  const result = await libraryTitles(db, access.scope, id, page, options);
+  const result = await libraryTitles(db, access.scope, id, page, options, access.who.groupCollections);
   if (!result) return notFoundPage();
-  const hrefOf = (t: { kind: string; id: string }) => `${access.base}/${t.kind === "movie" ? "title" : t.kind === "show" ? "show" : "book"}/${t.id}`;
+  const hrefOf = (t: { kind: string; id: string }) => `${access.base}/${t.kind === "movie" ? "title" : t.kind === "show" ? "show" : t.kind === "collection" ? "collection" : "book"}/${t.id}`;
   const households = result.ownershipOn ? ((await libraryOwnership(db, { serverId: access.serverId, libraryId: id, accountId: access.who.accountId, isAdmin: access.who.isAdmin })) ?? { households: [] }).households : [];
   const ownerWords = options.owner === "none" ? "No owner" : options.owner ? (households.find((h) => h.id === options.owner)?.name ?? "A household") : "Anyone";
   const to = (o: LibraryOptions, extra: Record<string, string | number | null> = {}) => `${here}${optionsQuery(o, extra)}`;
@@ -83,7 +83,7 @@ async function gridPage(access: Ok, here: string, url: URL, id: string, request:
       backHref: access.base,
       toolbar,
       letters: options.sort === "title" ? LETTERS.map((l) => ({ href: to(options, { letter: l }), label: l })) : undefined,
-      items: result.items.map((t) => ({ href: hrefOf(t), name: t.name, meta: t.kind === "audiobook" ? (t.authors ?? []).join(", ") || null : t.year ? String(t.year) : null, posterUrl: t.posterUrl, square: t.kind === "audiobook" })),
+      items: result.items.map((t) => ({ href: hrefOf(t), name: t.name, meta: t.kind === "audiobook" || t.kind === "collection" ? (t.authors ?? []).join(", ") || null : t.year ? String(t.year) : null, posterUrl: t.posterUrl, square: t.kind === "audiobook" })),
       prevHref: page > 1 ? to(options, { page: page - 1 }) : null,
       nextHref: result.hasMore ? to(options, { page: page + 1 }) : null,
     })

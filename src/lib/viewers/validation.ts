@@ -35,6 +35,7 @@ export const createViewerSchema = z.object({
   visibleOnServer: z.boolean().optional(),
   contentFilter: contentFilterSchema.optional(),
   autoSkip: autoSkipSchema.optional(),
+  groupCollections: z.boolean().optional(),
   // A PIN can be set at creation time; there's nothing to clear yet, so null is just ignored.
   pin: pinSchema.optional(),
 });
@@ -44,6 +45,7 @@ export const selfEditSchema = z
   .object({
     name: nameSchema.optional(),
     avatarKey: avatarKeySchema.optional(),
+    groupCollections: z.boolean().optional(),
   })
   .strict()
   .refine((v) => Object.keys(v).length > 0, "Nothing to change");
@@ -64,6 +66,7 @@ export const extendedEditSchema = z
     visibleOnServer: z.boolean().optional(),
     contentFilter: contentFilterSchema.optional(),
     autoSkip: autoSkipSchema.optional(),
+    groupCollections: z.boolean().optional(),
     pin: pinSchema.optional(),
     role: assignableRoleSchema.optional(),
     // Required whenever the ACTING profile itself has a PIN — see the PATCH route.

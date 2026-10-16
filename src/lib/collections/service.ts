@@ -48,6 +48,8 @@ export async function addToCollection(ex: Db, id: string, titleIds: string[]): P
   if (!c) return null;
   const valid = await ex.select({ id: titles.id }).from(titles).where(and(eq(titles.libraryId, c.libraryId), inArray(titles.id, titleIds), inArray(titles.kind, [...KINDS])));
   if (valid.length === 0) return 0;
+  // In the order they were asked for (the database may answer in any order).
+  valid.sort((x, y) => titleIds.indexOf(x.id) - titleIds.indexOf(y.id));
   const [{ top }] = await ex.select({ top: sql<number>`coalesce(max(${collectionItems.position}), -1)::int` }).from(collectionItems).where(eq(collectionItems.collectionId, id));
   const rows = await ex
     .insert(collectionItems)

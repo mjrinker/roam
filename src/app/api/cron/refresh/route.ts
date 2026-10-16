@@ -4,6 +4,7 @@ import { db } from "@/lib/db/client";
 import { purgeStale } from "@/lib/ownership/sessions";
 import { purgeDeviceTokens } from "@/lib/auth/device-token";
 import { runAndRecordTmdbRefresh } from "@/lib/tmdb/refresh-job";
+import { catchUpCollections } from "@/lib/collections/sync";
 
 export const maxDuration = 60;
 
@@ -23,5 +24,7 @@ export async function GET(request: Request) {
   const playersReleased = await purgeStale(db).catch(() => 0);
   // Device tokens signed out a month ago, or unused for half a year, are forgotten.
   const devicesForgotten = await purgeDeviceTokens(db).catch(() => 0);
-  return NextResponse.json({ ...refreshed, dddDeleted, playersReleased, devicesForgotten }, { headers: { "Cache-Control": "no-store" } });
+  // Which film series each movie is in (a batch a day is plenty once the first scan after the feature has done most of it).
+  const collectionsMore = await catchUpCollections(db, Date.now() + 25_000).catch(() => false);
+  return NextResponse.json({ ...refreshed, dddDeleted, playersReleased, devicesForgotten, collectionsMore }, { headers: { "Cache-Control": "no-store" } });
 }

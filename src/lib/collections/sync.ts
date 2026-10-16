@@ -6,11 +6,11 @@ import { and, eq, inArray, isNull, sql } from "drizzle-orm";
 import type { PgDatabase, PgQueryResultHKT } from "drizzle-orm/pg-core";
 import { titles, tmdbEntries } from "@/lib/db/schema";
 import { projectMovie } from "@/lib/tmdb/project";
-import { getMovieDetails, refreshEntry } from "@/lib/tmdb/cache";
 
 type Db = PgDatabase<PgQueryResultHKT, Record<string, unknown>>;
 
-const BATCH_SIZE = 20;
+// Only the deadline really limits a pass; a title whose TMDB id was just handled (an extended edition of the same film) costs nothing.
+const BATCH_SIZE = 150;
 
 /**
  * Reads which collection each matched movie of a library belongs to, a batch at a time, stopping at `deadline`. An entry already stored
@@ -24,9 +24,14 @@ export async function backfillCollections(ex: Db, libraryId: string, deadline: n
     .where(and(eq(titles.libraryId, libraryId), eq(titles.kind, "movie"), sql`${titles.tmdbId} IS NOT NULL`, inArray(titles.metadataStatus, ["matched", "manual"]), isNull(titles.collectionAttemptedAt)))
     .orderBy(sql`${titles.id} ASC`)
     .limit(BATCH_SIZE);
+  // Loaded when needed: the cache talks to the shared database connection, which a list that only wants syncSeriesCollections has no use for.
+  const { getMovieDetails, refreshEntry } = await import("@/lib/tmdb/cache");
+  const done = new Set<number>();
   for (const title of pending) {
     if (Date.now() > deadline) return true;
     const tmdbId = title.tmdbId as number;
+    if (done.has(tmdbId)) continue;
+    done.add(tmdbId);
     try {
       const [entry] = await ex
         .select({ has: sql<boolean>`${tmdbEntries.payload} ? 'belongs_to_collection'` })
@@ -65,3 +70,21 @@ export async function syncSeriesCollections(ex: Db, libraryId: string): Promise<
       AND NOT EXISTS (SELECT 1 FROM collection_items i WHERE i.collection_id = c.id)`);
 }
 
+
+/**
+ * The same, for every movie library on every server, for the daily job and for catching up after the feature arrives: libraries are taken
+ * one after another until `deadline`, and each one's collections are brought up to date. Returns true when there may be more to do.
+ */
+export async function catchUpCollections(ex: Db, deadline: number): Promise<boolean> {
+  const libs = await ex
+    .selectDistinct({ id: titles.libraryId })
+    .from(titles)
+    .where(and(eq(titles.kind, "movie"), sql`${titles.tmdbId} IS NOT NULL`, inArray(titles.metadataStatus, ["matched", "manual"]), isNull(titles.collectionAttemptedAt)));
+  let more = false;
+  for (const lib of libs) {
+    if (Date.now() > deadline) return true;
+    more = (await backfillCollections(ex, lib.id, deadline)) || more;
+    await syncSeriesCollections(ex, lib.id);
+  }
+  return more || Date.now() > deadline;
+}

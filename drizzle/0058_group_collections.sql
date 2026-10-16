@@ -1,0 +1,1 @@
+ALTER TABLE "viewers" ADD COLUMN "group_collections" boolean DEFAULT false NOT NULL;

@@ -29,9 +29,10 @@ export async function GET(request: Request, ctx: RouteContext<"/tv/s/[serverId]/
     settingsPage({
       base: access.base,
       profileName: row.name,
+      groupCollections: w.groupCollections,
       autoSkip: AUTO_SKIP_KINDS.map((k) => ({ key: k.key, label: k.label, on: w.autoSkip[k.key] === true })),
       filters: CATEGORY_ROWS.map((c) => ({ key: c.key, label: c.label, words: severityWords(w.filterPrefs[c.key]) })),
-      focus: focus && /^(auto|filter):[a-z]+$/.test(focus) ? focus : null,
+      focus: focus && /^(auto|filter|group):[a-z]+$/.test(focus) ? focus : null,
     })
   );
 }
@@ -57,6 +58,8 @@ export async function POST(request: Request, ctx: RouteContext<"/tv/s/[serverId]
     const next = toggleAutoSkip(w.autoSkip, key);
     if (!next) return notFoundPage();
     await db.update(viewers).set({ autoSkip: next }).where(eq(viewers.id, row.id));
+  } else if (kind === "group") {
+    await db.update(viewers).set({ groupCollections: !w.groupCollections }).where(eq(viewers.id, row.id));
   } else if (kind === "filter") {
     const next = cycleCategory(w.filterPrefs, key);
     if (!next) return notFoundPage();

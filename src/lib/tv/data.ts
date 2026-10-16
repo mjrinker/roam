@@ -15,6 +15,7 @@ import { GLOBALLY_LISTED_LIBRARY_KINDS, isPhotoLibraryKind, libraryRemembersProg
 import { getAlbum, getArtist } from "@/lib/music/browse";
 import { shuffled } from "@/lib/tv/shuffle";
 import { onDeck } from "@/lib/watch/on-deck";
+import { listCollections, SERIES_MIN } from "@/lib/collections/queries";
 import { DEFAULT_OPTIONS, type LibraryOptions, type LibrarySort } from "@/lib/tv/library-options";
 import { loadSettings } from "@/lib/ownership/owners";
 import { watchedShowIds } from "@/lib/watch/shows";
@@ -128,7 +129,8 @@ export async function upNext(ex: Db, scope: TvScope, limit = 12): Promise<Contin
 
 export interface ListedTitle {
   id: string;
-  kind: "movie" | "show" | "audiobook";
+  /** "collection" is a collection shown as one tile (only when the profile groups them). */
+  kind: "movie" | "show" | "audiobook" | "collection";
   name: string;
   year: number | null;
   posterUrl: string | null;
@@ -137,7 +139,7 @@ export interface ListedTitle {
 }
 
 /** The conditions a library list is narrowed by (on top of who may see what). */
-function libraryConditions(ex: Db, scope: TvScope, libraryId: string, o: LibraryOptions, ownershipOn: boolean, withGenre = true) {
+function libraryConditions(ex: Db, scope: TvScope, libraryId: string, o: LibraryOptions, ownershipOn: boolean, withGenre = true, grouped = false) {
   const conditions = [eq(titles.libraryId, libraryId), inArray(titles.kind, ["movie", "show", "audiobook"]), contentFilter(scope.viewer, titles.ratingAges)];
   if (withGenre && o.genre) conditions.push(sql`${titles.genres} @> ${JSON.stringify([o.genre])}::jsonb`);
   if (o.unwatched) {
@@ -152,6 +154,11 @@ function libraryConditions(ex: Db, scope: TvScope, libraryId: string, o: Library
   }
   if (ownershipOn && o.owner === "none") conditions.push(sql`NOT EXISTS (SELECT 1 FROM title_owners o WHERE o.title_id = ${titles.id})`);
   else if (ownershipOn && o.owner) conditions.push(sql`EXISTS (SELECT 1 FROM title_owners o WHERE o.title_id = ${titles.id} AND o.account_id = ${o.owner})`);
+  // A title that sits in a collection shown as a tile is left out of the list itself.
+  if (grouped) {
+    const seen = contentFilter(scope.viewer, sql`t2.rating_ages`) ?? sql`true`;
+    conditions.push(sql`NOT EXISTS (SELECT 1 FROM collection_items ci JOIN collections c ON c.id = ci.collection_id WHERE ci.title_id = ${titles.id} AND (SELECT count(*) FROM collection_items i2 JOIN titles t2 ON t2.id = i2.title_id WHERE i2.collection_id = c.id AND ${seen}) >= (CASE WHEN c.kind = 'tmdb' THEN ${SERIES_MIN} ELSE 1 END))`);
+  }
   void ex;
   return and(...conditions);
 }
@@ -160,21 +167,27 @@ const orderFor = (sort: LibrarySort) =>
   sort === "year" ? [sql`${titles.year} DESC NULLS LAST`, sql`lower(${titles.name})`, asc(titles.id)] : sort === "added" ? [desc(titles.addedAt), asc(titles.id)] : [sql`lower(${titles.name})`, asc(titles.id)];
 
 /** One page of a movies, TV shows or audiobooks library, sorted and narrowed as asked (by title, with nothing narrowed, by default). Null when the library isn't one this profile can open that way on TV. */
-export async function libraryTitles(ex: Db, scope: TvScope, libraryId: string, page: number, options: LibraryOptions = DEFAULT_OPTIONS) {
+export async function libraryTitles(ex: Db, scope: TvScope, libraryId: string, page: number, options: LibraryOptions = DEFAULT_OPTIONS, group = false) {
   const library = await tvLibrary(ex, scope, libraryId);
   if (!styleIs(library, "grid")) return null;
   const offset = (Math.max(1, Math.floor(page)) - 1) * PAGE_SIZE;
   const ownershipOn = (await loadSettings(ex, scope.actor.serverId)).enabled;
+  // Grouping applies to an unfiltered list of movies or shows: the collections come first (on the first page), then what is not in one.
+  const grouping = group && (library!.kind === "movies" || library!.kind === "shows") && !options.genre && !options.unwatched && !options.owner;
+  const tiles: ListedTitle[] =
+    grouping && page === 1
+      ? (await listCollections(ex, { actor: scope.actor, viewer: scope.viewer, libraryId })).map((c) => ({ id: c.id, kind: "collection" as const, name: c.name, year: null, posterUrl: c.posterUrl, authors: [`${c.count} ${c.count === 1 ? "title" : "titles"}`] }))
+      : [];
   const rows = await ex
     .select({ id: titles.id, kind: titles.kind, name: titles.name, year: titles.year, posterUrl: titles.posterUrl, authors: titles.authors })
     .from(titles)
-    .where(libraryConditions(ex, scope, libraryId, options, ownershipOn))
+    .where(libraryConditions(ex, scope, libraryId, options, ownershipOn, true, grouping))
     .orderBy(...orderFor(options.sort))
     .limit(PAGE_SIZE + 1)
     .offset(offset);
   return {
     library: library!,
-    items: rows.slice(0, PAGE_SIZE) as ListedTitle[],
+    items: [...tiles, ...(rows.slice(0, PAGE_SIZE) as ListedTitle[])],
     hasMore: rows.length > PAGE_SIZE,
     ownershipOn,
   };

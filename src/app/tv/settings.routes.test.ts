@@ -110,6 +110,7 @@ describe("what to skip", () => {
     expect(page).toContain("Credits (go to the next episode): Off");
     expect(page.match(/name="kind" value="filter"/g)).toHaveLength(11);
     expect(page.match(/name="kind" value="auto"/g)).toHaveLength(4);
+    expect(page).toContain("Group collections in lists: Off");
   });
 
   it("cycles a category through mild, moderate, strong and back to off, saving each, and comes back to the same button", async () => {
@@ -135,6 +136,15 @@ describe("what to skip", () => {
     expect(await text(await settingsGet(req("/x"), ctx(w.sid)))).toContain("Intros: On");
     await press(w, "auto", "intro");
     expect((await row(w.member.viewer.id)).autoSkip).toEqual({});
+  });
+
+  it("switches grouping of collections on and off", async () => {
+    const w = await world();
+    await press(w, "group", "collections");
+    expect((await row(w.member.viewer.id)).groupCollections).toBe(true);
+    expect(await text(await settingsGet(req("/x?f=group:collections"), ctx(w.sid)))).toContain("Group collections in lists: On");
+    await press(w, "group", "collections");
+    expect((await row(w.member.viewer.id)).groupCollections).toBe(false);
   });
 
   it("refuses nonsense, a request from another site, and a child's profile", async () => {

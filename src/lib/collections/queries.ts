@@ -98,3 +98,28 @@ export async function moreInCollections(ex: Db, args: { actor: LibraryActor; vie
   }
   return out;
 }
+
+export interface CollectionIndex {
+  /** The collections worth a tile for this profile, by id. */
+  cards: Record<string, CollectionCard>;
+  /** For each title that is in one, the collection it is shown under (a film series before a hand-made one). */
+  byTitle: Record<string, string>;
+}
+
+/** What a list needs to show collections as single tiles: which collections this profile sees, and which title belongs to which. */
+export async function collectionIndex(ex: Db, args: { actor: LibraryActor; viewer: AccessProfile; libraryId: string }): Promise<CollectionIndex> {
+  const cards = await listCollections(ex, args);
+  if (cards.length === 0) return { cards: {}, byTitle: {} };
+  const kinds = new Map(cards.map((c) => [c.id, c.kind]));
+  const rows = await ex
+    .select({ collectionId: collectionItems.collectionId, titleId: collectionItems.titleId })
+    .from(collectionItems)
+    .innerJoin(titles, and(eq(titles.id, collectionItems.titleId), contentFilter(args.viewer, titles.ratingAges)))
+    .where(sql`${collectionItems.collectionId} IN (${sql.join(cards.map((c) => sql`${c.id}`), sql`, `)})`);
+  const byTitle: Record<string, string> = {};
+  for (const r of rows) {
+    const have = byTitle[r.titleId];
+    if (!have || (kinds.get(have) !== "tmdb" && kinds.get(r.collectionId) === "tmdb")) byTitle[r.titleId] = r.collectionId;
+  }
+  return { cards: Object.fromEntries(cards.map((c) => [c.id, c])), byTitle };
+}
