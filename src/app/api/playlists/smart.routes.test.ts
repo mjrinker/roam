@@ -71,9 +71,25 @@ describe("smart playlists through the API", () => {
     const list = await json(await v1Playlist(send("GET"), ctx({ ...w.sid, playlistId: id })));
     expect(list.items.map((i: { name: string }) => i.name)).toEqual(["Funny"]);
     const detail = await json(await getOne(send("GET"), ctx({ id })));
-    expect(detail).toMatchObject({ smart: true, smartRules: { media: "movies", genres: ["Comedy"], sort: "title", limit: 50 } });
+    expect(detail).toMatchObject({ smart: true, smartRules: { kinds: ["movies"], libraryIds: [], genres: ["Comedy"], sort: "title", limit: 50 } });
     expect(detail.can.editItems).toBe(false);
     expect((await addItemRoute(send("POST", { titleId: a.id }), ctx({ id }))).status).toBe(403);
+  });
+
+  it("draw from the libraries named in their rules", async () => {
+    const w = await world();
+    const other = await makeLibrary(db, w.server.id, "movies", "everyone");
+    const a = await w.film("In the first library", ["Drama"]);
+    const b = await makeTitle(db, other.id, { kind: "movie", name: "In the second library" });
+    await db.insert(mediaFiles).values({ ownerKind: "title", ownerId: b.id, boxFileId: `sp${++n}`, filename: "b.mp4" });
+    await as(w.me);
+    const id = (await json(await createRoute(send("POST", { name: "Second only", smartRules: { libraryIds: [other.id] } }), ctx(w.sid)))).id as string;
+    const items = async () => (await json(await v1Playlist(send("GET"), ctx({ ...w.sid, playlistId: id })))).items.map((i: { name: string }) => i.name);
+    expect(await items()).toEqual(["In the second library"]);
+    expect((await patchOne(send("PATCH", { smartRules: { libraryIds: [w.lib.id, other.id] } }), ctx({ id }))).status).toBe(200);
+    expect(await items()).toEqual(["In the first library", "In the second library"]);
+    expect((await createRoute(send("POST", { name: "Bad", smartRules: { libraryIds: ["not-an-id"] } }), ctx(w.sid))).status).toBe(400);
+    void a;
   });
 
   it("change when their rules are changed, and can be refreshed on request", async () => {

@@ -3,7 +3,7 @@ import { Globe, Lock } from "lucide-react";
 import { db } from "@/lib/db/client";
 import { requireServerMember } from "@/lib/auth/guards";
 import { libraryActor } from "@/lib/content/library-access";
-import { visibleGenres } from "@/lib/playlists/smart-genres";
+import { visibleGenres, visibleSmartLibraries } from "@/lib/playlists/smart-genres";
 import { encodeCursor, isUuid } from "@/lib/playlists/http";
 import { listItems } from "@/lib/playlists/item-service";
 import { nextAfter } from "@/lib/playlists/next";
@@ -31,6 +31,8 @@ export default async function PlaylistPage({ params }: PageProps<"/s/[serverId]/
   ]);
   if (!firstPage.ok) notFound();
   const playHref = start.ok && start.value ? start.value.href : null;
+  const smartActor = libraryActor({ profile, role }, serverId);
+  const smartLibraries = playlist.smart ? await visibleSmartLibraries(db, smartActor) : [];
 
   return (
     <div className="flex flex-col gap-6 px-4 py-8 sm:px-8">
@@ -70,9 +72,10 @@ export default async function PlaylistPage({ params }: PageProps<"/s/[serverId]/
           playlistId={playlist.id}
           name={playlist.name}
           rules={playlist.smartRules}
-          words={playlist.smartRules ? describeRules(playlist.smartRules) : "It fills itself from rules its owner set."}
+          words={playlist.smartRules ? describeRules(playlist.smartRules, smartLibraries) : "It fills itself from rules its owner set."}
           canEdit={playlist.can.rename}
-          genres={playlist.can.rename ? await visibleGenres(db, libraryActor({ profile, role }, serverId), viewer) : []}
+          genres={playlist.can.rename ? await visibleGenres(db, smartActor, viewer) : []}
+          libraries={smartLibraries}
         />
       )}
 

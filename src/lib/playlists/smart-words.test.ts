@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { smartRulesSchema } from "./smart";
 import { activeConditions, CLEARED, CONDITIONS, describeRules } from "./smart-words";
 
-const words = (o: Record<string, unknown>) => describeRules(smartRulesSchema.parse({ media: "movies", ...o }));
+const words = (o: Record<string, unknown>, libs?: { id: string; name: string; kind: string }[]) => describeRules(smartRulesSchema.parse({ media: "movies", ...o }), libs);
 
 describe("describeRules", () => {
   it("says the plain case", () => {
@@ -51,5 +51,30 @@ describe("the conditions of the form", () => {
       const after = { ...full, ...CLEARED[key] };
       expect(activeConditions(after)).toEqual(activeConditions(full).filter((k) => k !== key));
     }
+  });
+});
+
+describe("libraries in words", () => {
+  const A = "123e4567-e89b-42d3-a456-426614174001";
+  const B = "123e4567-e89b-42d3-a456-426614174002";
+  const C = "123e4567-e89b-42d3-a456-426614174003";
+  const D = "123e4567-e89b-42d3-a456-426614174004";
+  const libs = [{ id: A, name: "Movies", kind: "movies" }, { id: B, name: "Kids' Movies", kind: "movies" }, { id: C, name: "TV", kind: "shows" }, { id: D, name: "Music", kind: "music" }];
+  const mine = (o: Record<string, unknown>) => describeRules(smartRulesSchema.parse(o), libs);
+
+  it("names the libraries, and calls the contents by what they are", () => {
+    expect(mine({ libraryIds: [A] })).toBe("All movies in Movies; A to Z, up to 50.");
+    expect(mine({ libraryIds: [A, B] })).toBe("All movies in Movies and Kids' Movies; A to Z, up to 50.");
+    expect(mine({ libraryIds: [A, B, C] })).toBe("All titles in Movies, Kids' Movies and TV; A to Z, up to 50.");
+    expect(mine({ libraryIds: [A, B, C, D] })).toContain("All titles in 4 libraries");
+    expect(mine({ libraryIds: [D] })).toContain("All songs in Music");
+    expect(mine({})).toBe("All titles; A to Z, up to 50.");
+  });
+  it("says episodes for a TV library held as episodes, and leaves duration out when only whole shows", () => {
+    expect(mine({ libraryIds: [C], showsAs: "episodes", minMinutes: 20 })).toBe("All episodes in TV, at least 20 min long; A to Z, up to 50.");
+    expect(mine({ libraryIds: [C], minMinutes: 20 })).toBe("All shows in TV; A to Z, up to 50.");
+  });
+  it("still reads a library it cannot see the name of", () => {
+    expect(describeRules(smartRulesSchema.parse({ libraryIds: [A] }))).toBe("All titles; A to Z, up to 50.");
   });
 });

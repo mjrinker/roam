@@ -6,6 +6,7 @@
  */
 import { and, asc, desc, eq, inArray, isNotNull, sql, type SQL } from "drizzle-orm";
 import { z } from "zod";
+import type { LibraryKind } from "@/lib/db/schema";
 import { episodes, libraries, playlistItems, playlists, seasons, serverMembers, titles, viewers } from "@/lib/db/schema";
 import { contentFilter, type AccessProfile } from "@/lib/content/access";
 import { libraryVisible, type LibraryActor } from "@/lib/content/library-access";
@@ -14,14 +15,29 @@ import type { Executor } from "./executor";
 import { SMART_MAX_LIMIT } from "./smart-words";
 import { POSITION_GAP } from "./position";
 
-export const SMART_MEDIA = ["movies", "shows", "episodes", "songs", "audiobooks"] as const;
+/** The kinds of library a smart playlist can draw from. */
+export const SMART_LIBRARY_KINDS = ["movies", "shows", "music", "audio", "audiobooks"] as const satisfies readonly LibraryKind[];
+export type SmartGroup = "movies" | "shows" | "episodes" | "songs" | "audiobooks";
 export const SMART_SORTS = ["title", "newest", "oldest", "added", "rating", "random"] as const;
 
 const halfStars = z.number().int().min(1).max(10);
 
-export const smartRulesSchema = z
+/** Rules saved before libraries were chosen by name said what kind of thing they held (`media`); that is read as the equivalent. */
+function fromLegacy(input: unknown): unknown {
+  if (!input || typeof input !== "object" || !("media" in input)) return input;
+  const { media, libraryId, ...rest } = input as Record<string, unknown>;
+  const kind = media === "movies" ? ["movies"] : media === "shows" || media === "episodes" ? ["shows"] : media === "songs" ? ["music", "audio"] : media === "audiobooks" ? ["audiobooks"] : ["?"];
+  return { ...rest, kinds: kind, showsAs: media === "episodes" ? "episodes" : "shows", libraryIds: typeof libraryId === "string" ? [libraryId] : [] };
+}
+
+const smartRulesObject = z
   .object({
-    media: z.enum(SMART_MEDIA),
+    /** The libraries to draw from; none means every library of the kinds below that the owner can see. */
+    libraryIds: z.array(z.string().uuid()).max(30).default([]),
+    /** With no libraries chosen, only these kinds of library (none means all kinds). Set by older rules; the form chooses libraries instead. */
+    kinds: z.array(z.enum(SMART_LIBRARY_KINDS)).max(5).default([]),
+    /** A TV library holds shows, or their episodes one by one. */
+    showsAs: z.enum(["shows", "episodes"]).default("shows"),
     /** Any of these genres (a show's genres for its episodes). */
     genres: z.array(z.string().trim().min(1).max(60)).max(10).default([]),
     /** My own rating, in half stars: at least / at most, and whether it must have one. */
@@ -35,12 +51,12 @@ export const smartRulesSchema = z
     /** How long it runs, in minutes (not for shows, which have no one length). */
     minMinutes: z.number().int().min(1).max(10_000).nullable().default(null),
     maxMinutes: z.number().int().min(1).max(10_000).nullable().default(null),
-    libraryId: z.string().uuid().nullable().default(null),
     sort: z.enum(SMART_SORTS).default("title"),
     limit: z.number().int().min(1).max(SMART_MAX_LIMIT).default(50),
   })
   .strict();
-export type SmartRules = z.infer<typeof smartRulesSchema>;
+export const smartRulesSchema = z.preprocess(fromLegacy, smartRulesObject);
+export type SmartRules = z.infer<typeof smartRulesObject>;
 
 /** A random order is kept as it is until asked to reshuffle; the rest are brought up to date this often. */
 export const SMART_STALE_MS = 10 * 60 * 1000;
@@ -100,80 +116,116 @@ function durationConditions(rules: SmartRules, runtime: SQL): SQL[] {
 const FILE_OF_TITLE = (id: SQL) => sql`EXISTS (SELECT 1 FROM media_files m WHERE m.owner_kind = 'title' AND m.owner_id = ${id})`;
 const PLAYABLE_SHOW = (id: SQL) => sql`EXISTS (SELECT 1 FROM seasons sn JOIN episodes e ON e.season_id = sn.id JOIN media_files m ON m.owner_kind = 'episode' AND m.owner_id = e.id WHERE sn.title_id = ${id})`;
 
-/** What the rules select for this profile, in order. */
-export async function evaluateRules(ex: Executor, args: { rules: SmartRules; actor: LibraryActor; viewer: AccessProfile; viewerId: string; now?: Date }): Promise<SmartTarget[]> {
-  const { rules, actor, viewer, viewerId } = args;
-  const since = rules.addedWithinDays ? new Date((args.now ?? new Date()).getTime() - rules.addedWithinDays * 86_400_000) : null;
+interface Entry {
+  target: SmartTarget;
+  name: string;
+  year: number | null;
+  added: Date;
+  mine: number | null;
+}
 
-  if (rules.media === "episodes") {
-    const id = sql`${episodes.id}`;
-    const { mine, conditions } = ratingConditions(rules, viewerId, "episode", id);
-    const watched = simpleWatched(rules, viewerId, "episode", id);
-    const showTitles = titles;
-    const rows = await ex
-      .select({ id: episodes.id })
-      .from(episodes)
-      .innerJoin(seasons, eq(seasons.id, episodes.seasonId))
-      .innerJoin(showTitles, eq(showTitles.id, seasons.titleId))
-      .innerJoin(libraries, eq(libraries.id, showTitles.libraryId))
-      .where(
-        and(
-          eq(showTitles.kind, "show"),
-          libraryVisible(ex, actor),
-          contentFilter(viewer, showTitles.ratingAges),
-          sql`EXISTS (SELECT 1 FROM media_files m WHERE m.owner_kind = 'episode' AND m.owner_id = ${episodes.id})`,
-          rules.libraryId ? eq(showTitles.libraryId, rules.libraryId) : undefined,
-          genreCondition(rules.genres, sql`${showTitles.genres}`) ?? undefined,
-          rules.yearFrom !== null ? sql`${showTitles.year} >= ${rules.yearFrom}` : undefined,
-          rules.yearTo !== null ? sql`${showTitles.year} <= ${rules.yearTo}` : undefined,
-          since ? sql`${showTitles.addedAt} >= ${since}` : undefined,
-          watched ?? undefined,
-          ...durationConditions(rules, runtimeOf("episode", sql`${episodes.runtimeSeconds}`, id)),
-          ...conditions
-        )
-      )
-      .orderBy(
-        ...(rules.sort === "random"
-          ? [sql`random()`]
-          : rules.sort === "added"
-            ? [desc(showTitles.addedAt), asc(showTitles.name), asc(seasons.number), asc(episodes.number)]
-            : rules.sort === "rating"
-              ? [sql`${mine} DESC NULLS LAST`, asc(showTitles.name), asc(seasons.number), asc(episodes.number)]
-              : rules.sort === "newest"
-                ? [sql`${showTitles.year} DESC NULLS LAST`, asc(showTitles.name), asc(seasons.number), asc(episodes.number)]
-                : rules.sort === "oldest"
-                  ? [sql`${showTitles.year} ASC NULLS LAST`, asc(showTitles.name), asc(seasons.number), asc(episodes.number)]
-                  : [sql`lower(${showTitles.name})`, asc(seasons.number), asc(episodes.number)])
-      )
-      .limit(rules.limit);
-    return rows.map((r) => ({ episodeId: r.id }));
+/** Which kinds of thing the rules hold, from the libraries they name (or the kinds, or everything). */
+export async function groupsOf(ex: Executor, rules: SmartRules, actor: LibraryActor): Promise<SmartGroup[]> {
+  let kinds: readonly LibraryKind[] = rules.kinds.length ? rules.kinds : SMART_LIBRARY_KINDS;
+  if (rules.libraryIds.length) {
+    const rows = await ex.select({ kind: libraries.kind }).from(libraries).where(and(inArray(libraries.id, rules.libraryIds), libraryVisible(ex, actor)));
+    kinds = rows.map((r) => r.kind);
   }
+  const groups = new Set<SmartGroup>();
+  for (const k of kinds) {
+    if (k === "movies") groups.add("movies");
+    else if (k === "shows") groups.add(rules.showsAs);
+    else if (k === "audiobooks") groups.add("audiobooks");
+    else if ((SONG_LIBRARY_KINDS as readonly string[]).includes(k)) groups.add("songs");
+  }
+  return [...groups];
+}
 
-  const id = sql`${titles.id}`;
-  const { mine, conditions } = ratingConditions(rules, viewerId, "title", id);
-  const watched = rules.media === "shows" ? showWatched(rules, viewerId, id) : simpleWatched(rules, viewerId, "title", id);
-  const kindCondition =
-    rules.media === "movies"
-      ? and(eq(titles.kind, "movie"), FILE_OF_TITLE(id))
-      : rules.media === "shows"
-        ? and(eq(titles.kind, "show"), PLAYABLE_SHOW(id))
-        : and(eq(titles.kind, "audiobook"), rules.media === "songs" ? inArray(libraries.kind, [...SONG_LIBRARY_KINDS]) : eq(libraries.kind, "audiobooks"), FILE_OF_TITLE(id));
+/** Puts entries from the different kinds of thing in the order asked for (each kind was already cut to the limit in that order). */
+function arrange(entries: Entry[], sort: SmartRules["sort"]): Entry[] {
+  const byName = (a: Entry, b: Entry) => a.name.localeCompare(b.name);
+  const sorted = [...entries];
+  if (sort === "random") return sorted.sort(() => Math.random() - 0.5);
+  return sorted.sort((a, b) => {
+    if (sort === "added") return b.added.getTime() - a.added.getTime() || byName(a, b);
+    if (sort === "rating") return (b.mine ?? -1) - (a.mine ?? -1) || byName(a, b);
+    if (sort === "newest") return (b.year ?? -Infinity) - (a.year ?? -Infinity) || byName(a, b);
+    if (sort === "oldest") return (a.year ?? Infinity) - (b.year ?? Infinity) || byName(a, b);
+    return byName(a, b);
+  });
+}
+
+const pad = (n: number) => String(n).padStart(5, "0");
+
+async function episodesEntries(ex: Executor, rules: SmartRules, a: { actor: LibraryActor; viewer: AccessProfile; viewerId: string; since: Date | null }): Promise<Entry[]> {
+  const id = sql`${episodes.id}`;
+  const { mine, conditions } = ratingConditions(rules, a.viewerId, "episode", id);
+  const watched = simpleWatched(rules, a.viewerId, "episode", id);
   const rows = await ex
-    .select({ id: titles.id })
+    .select({ id: episodes.id, show: titles.name, year: titles.year, added: titles.addedAt, season: seasons.number, number: episodes.number, mine: sql<number | null>`${mine}` })
+    .from(episodes)
+    .innerJoin(seasons, eq(seasons.id, episodes.seasonId))
+    .innerJoin(titles, eq(titles.id, seasons.titleId))
+    .innerJoin(libraries, eq(libraries.id, titles.libraryId))
+    .where(
+      and(
+        eq(titles.kind, "show"),
+        libraryVisible(ex, a.actor),
+        contentFilter(a.viewer, titles.ratingAges),
+        sql`EXISTS (SELECT 1 FROM media_files m WHERE m.owner_kind = 'episode' AND m.owner_id = ${episodes.id})`,
+        rules.libraryIds.length ? inArray(titles.libraryId, rules.libraryIds) : undefined,
+        genreCondition(rules.genres, sql`${titles.genres}`) ?? undefined,
+        rules.yearFrom !== null ? sql`${titles.year} >= ${rules.yearFrom}` : undefined,
+        rules.yearTo !== null ? sql`${titles.year} <= ${rules.yearTo}` : undefined,
+        a.since ? sql`${titles.addedAt} >= ${a.since}` : undefined,
+        watched ?? undefined,
+        ...durationConditions(rules, runtimeOf("episode", sql`${episodes.runtimeSeconds}`, id)),
+        ...conditions
+      )
+    )
+    .orderBy(
+      ...(rules.sort === "random"
+        ? [sql`random()`]
+        : rules.sort === "added"
+          ? [desc(titles.addedAt), asc(titles.name), asc(seasons.number), asc(episodes.number)]
+          : rules.sort === "rating"
+            ? [sql`${mine} DESC NULLS LAST`, asc(titles.name), asc(seasons.number), asc(episodes.number)]
+            : rules.sort === "newest"
+              ? [sql`${titles.year} DESC NULLS LAST`, asc(titles.name), asc(seasons.number), asc(episodes.number)]
+              : rules.sort === "oldest"
+                ? [sql`${titles.year} ASC NULLS LAST`, asc(titles.name), asc(seasons.number), asc(episodes.number)]
+                : [sql`lower(${titles.name})`, asc(seasons.number), asc(episodes.number)])
+    )
+    .limit(rules.limit);
+  return rows.map((r) => ({ target: { episodeId: r.id }, name: `${r.show} S${pad(r.season)}E${pad(r.number)}`, year: r.year, added: r.added, mine: r.mine ?? null }));
+}
+
+async function titleEntries(ex: Executor, rules: SmartRules, group: "movies" | "shows" | "songs" | "audiobooks", a: { actor: LibraryActor; viewer: AccessProfile; viewerId: string; since: Date | null }): Promise<Entry[]> {
+  const id = sql`${titles.id}`;
+  const { mine, conditions } = ratingConditions(rules, a.viewerId, "title", id);
+  const watched = group === "shows" ? showWatched(rules, a.viewerId, id) : simpleWatched(rules, a.viewerId, "title", id);
+  const kindCondition =
+    group === "movies"
+      ? and(eq(titles.kind, "movie"), FILE_OF_TITLE(id))
+      : group === "shows"
+        ? and(eq(titles.kind, "show"), PLAYABLE_SHOW(id))
+        : and(eq(titles.kind, "audiobook"), group === "songs" ? inArray(libraries.kind, [...SONG_LIBRARY_KINDS]) : eq(libraries.kind, "audiobooks"), FILE_OF_TITLE(id));
+  const rows = await ex
+    .select({ id: titles.id, name: titles.name, year: titles.year, added: titles.addedAt, mine: sql<number | null>`${mine}` })
     .from(titles)
     .innerJoin(libraries, eq(libraries.id, titles.libraryId))
     .where(
       and(
         kindCondition,
-        libraryVisible(ex, actor),
-        contentFilter(viewer, titles.ratingAges),
-        rules.libraryId ? eq(titles.libraryId, rules.libraryId) : undefined,
+        libraryVisible(ex, a.actor),
+        contentFilter(a.viewer, titles.ratingAges),
+        rules.libraryIds.length ? inArray(titles.libraryId, rules.libraryIds) : undefined,
         genreCondition(rules.genres, sql`${titles.genres}`) ?? undefined,
         rules.yearFrom !== null ? sql`${titles.year} >= ${rules.yearFrom}` : undefined,
         rules.yearTo !== null ? sql`${titles.year} <= ${rules.yearTo}` : undefined,
-        since ? sql`${titles.addedAt} >= ${since}` : undefined,
+        a.since ? sql`${titles.addedAt} >= ${a.since}` : undefined,
         watched ?? undefined,
-        ...(rules.media === "shows" ? [] : durationConditions(rules, runtimeOf("title", sql`${titles.runtimeSeconds}`, id))),
+        ...(group === "shows" ? [] : durationConditions(rules, runtimeOf("title", sql`${titles.runtimeSeconds}`, id))),
         ...conditions
       )
     )
@@ -191,7 +243,17 @@ export async function evaluateRules(ex: Executor, args: { rules: SmartRules; act
                 : [sql`lower(${titles.name})`])
     )
     .limit(rules.limit);
-  return rows.map((r) => ({ titleId: r.id }));
+  return rows.map((r) => ({ target: { titleId: r.id }, name: r.name, year: r.year, added: r.added, mine: r.mine ?? null }));
+}
+
+/** What the rules select for this profile, in order. */
+export async function evaluateRules(ex: Executor, args: { rules: SmartRules; actor: LibraryActor; viewer: AccessProfile; viewerId: string; now?: Date }): Promise<SmartTarget[]> {
+  const { rules, actor, viewer, viewerId } = args;
+  const since = rules.addedWithinDays ? new Date((args.now ?? new Date()).getTime() - rules.addedWithinDays * 86_400_000) : null;
+  const a = { actor, viewer, viewerId, since };
+  const entries: Entry[] = [];
+  for (const group of await groupsOf(ex, rules, actor)) entries.push(...(group === "episodes" ? await episodesEntries(ex, rules, a) : await titleEntries(ex, rules, group, a)));
+  return arrange(entries, rules.sort).slice(0, rules.limit).map((e) => e.target);
 }
 
 /**

@@ -5,12 +5,32 @@ import { starsText } from "@/lib/ratings/stars";
 /** The most a smart playlist may hold. */
 export const SMART_MAX_LIMIT = 200;
 
-export const MEDIA_WORDS: Record<SmartRules["media"], { label: string; noun: string }> = {
-  movies: { label: "Movies", noun: "movies" },
-  shows: { label: "TV shows", noun: "shows" },
-  episodes: { label: "TV episodes", noun: "episodes" },
-  songs: { label: "Songs", noun: "songs" },
-  audiobooks: { label: "Audiobooks", noun: "audiobooks" },
+/** A library a smart playlist can draw from (as the form lists them). */
+export interface SmartLibrary {
+  id: string;
+  name: string;
+  kind: string;
+}
+
+/** What each kind of library holds, in a word. */
+const NOUN_OF_KIND: Record<string, "movies" | "shows" | "songs" | "audiobooks"> = { movies: "movies", shows: "shows", music: "songs", audio: "songs", audiobooks: "audiobooks" };
+const ALL_KINDS = ["movies", "shows", "music", "audio", "audiobooks"];
+
+/** The kinds of thing the rules hold: from the libraries named (when they are known), else the kinds, else everything. */
+export function nounsOf(r: SmartRules, libs?: readonly SmartLibrary[]): string[] {
+  let kinds: string[] = r.kinds.length ? r.kinds : ALL_KINDS;
+  if (r.libraryIds.length) {
+    const chosen = (libs ?? []).filter((l) => r.libraryIds.includes(l.id)).map((l) => l.kind);
+    if (chosen.length === 0) return ["titles"]; // libraries we can't see the names of
+    kinds = chosen;
+  }
+  return [...new Set(kinds.map((k) => (k === "shows" && r.showsAs === "episodes" ? "episodes" : (NOUN_OF_KIND[k] ?? "titles"))))];
+}
+
+/** True when the rules hold only TV shows (which have no one length, so a duration means nothing). */
+export const holdsOnlyShows = (r: SmartRules, libs?: readonly SmartLibrary[]): boolean => {
+  const nouns = nounsOf(r, libs);
+  return nouns.length === 1 && nouns[0] === "shows";
 };
 
 export const SORT_WORDS: Record<SmartRules["sort"], string> = {
@@ -28,11 +48,15 @@ const minutes = (m: number) => (m >= 60 ? `${Math.floor(m / 60)} h${m % 60 ? ` $
 const stars = (half: number) => `${starsText(half)} ${half === 2 ? "star" : "stars"}`;
 
 /** "Unwatched comedy or drama movies, rated 4 stars and up, from 1990 to 1999, added in the last 30 days, my highest rated first, up to 50". */
-export function describeRules(r: SmartRules): string {
+export function describeRules(r: SmartRules, libs?: readonly SmartLibrary[]): string {
   const parts: string[] = [];
   const state = r.watched === "unwatched" ? "Unwatched" : r.watched === "inProgress" ? "Partly watched" : r.watched === "watched" ? "Watched" : "All";
   const genres = r.genres.length ? ` ${r.genres.join(" or ")}` : "";
-  parts.push(`${state}${genres} ${MEDIA_WORDS[r.media].noun}`.replace(/^All /, "All ").replace(/^Unwatched /, "Unwatched "));
+  const nouns = nounsOf(r, libs);
+  const noun = nouns.length === 1 ? nouns[0] : "titles";
+  const names = (libs ?? []).filter((l) => r.libraryIds.includes(l.id)).map((l) => l.name);
+  const where = r.libraryIds.length === 0 ? "" : names.length === 0 ? "" : names.length <= 3 ? ` in ${names.length === 1 ? names[0] : `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`}` : ` in ${names.length} libraries`;
+  parts.push(`${state}${genres} ${noun}${where}`);
   if (r.rated === "unrated") parts.push("that I haven't rated");
   else if (r.minStars !== null && r.maxStars !== null) parts.push(`rated ${stars(r.minStars)} to ${stars(r.maxStars)}`);
   else if (r.minStars !== null) parts.push(`rated ${stars(r.minStars)} and up`);
@@ -42,7 +66,7 @@ export function describeRules(r: SmartRules): string {
   else if (r.yearFrom !== null) parts.push(`from ${r.yearFrom} on`);
   else if (r.yearTo !== null) parts.push(`up to ${r.yearTo}`);
   if (r.addedWithinDays !== null) parts.push(`added in the last ${r.addedWithinDays === 1 ? "day" : `${r.addedWithinDays} days`}`);
-  if (r.media !== "shows") {
+  if (!holdsOnlyShows(r, libs)) {
     if (r.minMinutes !== null && r.maxMinutes !== null) parts.push(`${minutes(r.minMinutes)} to ${minutes(r.maxMinutes)} long`);
     else if (r.minMinutes !== null) parts.push(`at least ${minutes(r.minMinutes)} long`);
     else if (r.maxMinutes !== null) parts.push(`${minutes(r.maxMinutes)} or shorter`);

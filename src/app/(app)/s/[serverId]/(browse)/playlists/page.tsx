@@ -4,7 +4,7 @@ import { Globe, ListVideo, Lock, ShieldCheck, Sparkles } from "lucide-react";
 import { db } from "@/lib/db/client";
 import { requireServerMember } from "@/lib/auth/guards";
 import { libraryActor } from "@/lib/content/library-access";
-import { visibleGenres } from "@/lib/playlists/smart-genres";
+import { visibleGenres, visibleSmartLibraries } from "@/lib/playlists/smart-genres";
 import { decodeCursor, encodeCursor } from "@/lib/playlists/http";
 import { listPlaylists, type ListScope } from "@/lib/playlists/service";
 import { Badge } from "@/components/ui/badge";
@@ -29,7 +29,8 @@ export default async function PlaylistsPage({
   const { serverId } = await params;
   const query = await searchParams;
   const { profile, viewer, role } = await requireServerMember(serverId);
-  const genres = await visibleGenres(db, libraryActor({ profile, role }, serverId), viewer);
+  const smartActor = libraryActor({ profile, role }, serverId);
+  const [genres, smartLibraries] = await Promise.all([visibleGenres(db, smartActor, viewer), visibleSmartLibraries(db, smartActor)]);
 
   const scopeParam = typeof query.scope === "string" ? query.scope : "all";
   const scope = TABS.some((t) => t.scope === scopeParam) ? (scopeParam as ListScope) : "all";
@@ -65,7 +66,7 @@ export default async function PlaylistsPage({
               <ShieldCheck className="size-4" /> Moderate
             </Link>
           )}
-          <NewSmartPlaylistButton serverId={serverId} genres={genres} />
+          <NewSmartPlaylistButton serverId={serverId} genres={genres} libraries={smartLibraries} />
           <NewPlaylistButton serverId={serverId} />
         </div>
       </div>

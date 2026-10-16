@@ -23,7 +23,10 @@ afterAll(async () => {
 const adult: AccessProfile = { locale: "en-US", maxAge: null, allowUnrated: true };
 const kid: AccessProfile = { locale: "en-US", maxAge: 7, allowUnrated: false };
 let n = 0;
-const rules = (over: Partial<SmartRules> = {}): SmartRules => smartRulesSchema.parse({ media: "movies", ...over });
+/** Rules for movies unless told otherwise. (`media` and `libraryId` are how rules were saved before libraries were chosen by name; they are still read.) */
+const rules = (over: Record<string, unknown> = {}): SmartRules => smartRulesSchema.parse({ media: "movies", ...over });
+/** Rules in the current shape: libraries chosen by id. */
+const chosen = (over: Record<string, unknown> = {}): SmartRules => smartRulesSchema.parse(over);
 
 async function world() {
   const admin = await makeAccount(db, `sadmin${++n}`);
@@ -70,7 +73,7 @@ describe("what the rules select", () => {
     const other = await makeLibrary(db, w.server.id, "movies", "everyone");
     const elsewhere = await makeTitle(db, other.id, { kind: "movie", name: "Elsewhere" });
     await db.insert(mediaFiles).values({ ownerKind: "title", ownerId: elsewhere.id, boxFileId: `sm${++n}`, filename: "m.mp4" });
-    expect(await w.names(rules({ libraryId: other.id }))).toEqual(["Elsewhere"]);
+    expect(await w.names(rules({ libraryId: other.id }))).toEqual(["Elsewhere"]); // the old way of naming a library
   });
 
   it("uses the owner's own ratings: at least, at most, rated and not rated, and sorts by them", async () => {
@@ -163,6 +166,43 @@ describe("what the rules select", () => {
     expect(await w.names(rules({ media: "audiobooks" }))).toEqual(["A Book"]);
   });
 
+  it("draws from the libraries chosen by name, across kinds, and from every library when none is chosen", async () => {
+    const w = await world();
+    const kids = await makeLibrary(db, w.server.id, "movies", "everyone");
+    await w.movie("Grown-up film");
+    const kidsFilm = await makeTitle(db, kids.id, { kind: "movie", name: "Kids film", year: 2010 });
+    await db.insert(mediaFiles).values({ ownerKind: "title", ownerId: kidsFilm.id, boxFileId: `sm${++n}`, filename: "k.mp4" });
+    const music = await makeLibrary(db, w.server.id, "music", "everyone");
+    const song = await makeTitle(db, music.id, { kind: "audiobook", name: "Kids song", year: 2012 });
+    await db.insert(mediaFiles).values({ ownerKind: "title", ownerId: song.id, boxFileId: `sm${++n}`, filename: "s.mp3" });
+    const shows = await makeLibrary(db, w.server.id, "shows", "everyone");
+    const show = await makeShow(db, shows.id, 2, { name: "Kids show", year: 2014 });
+    for (const e of show.episodes) await db.insert(mediaFiles).values({ ownerKind: "episode", ownerId: e.id, boxFileId: `sm${++n}`, filename: "e.mp4" });
+    // one library
+    expect(await w.names(chosen({ libraryIds: [kids.id] }))).toEqual(["Kids film"]);
+    // several libraries of different kinds, mixed and put in order together
+    expect(await w.names(chosen({ libraryIds: [kids.id, music.id, shows.id], sort: "newest" }))).toEqual(["Kids show", "Kids song", "Kids film"]);
+    // a TV library can hold its episodes one by one
+    expect(await w.run(chosen({ libraryIds: [shows.id], showsAs: "episodes" }))).toEqual(show.episodes.map((e) => e.id));
+    // no library chosen: everything it can see, of every kind
+    expect(await w.names(chosen({ sort: "newest", limit: 10 }))).toEqual(["Kids show", "Kids song", "Kids film", "Grown-up film"]);
+    // the limit is for the whole playlist, not each kind
+    expect(await w.run(chosen({ limit: 2, sort: "newest" }))).toHaveLength(2);
+    // libraries the owner can't see give nothing
+    const hidden = await makeLibrary(db, w.server.id, "movies", "restricted");
+    expect(await w.run(chosen({ libraryIds: [hidden.id] }))).toEqual([]);
+  });
+
+  it("reads rules saved before libraries were chosen by name as the same thing", async () => {
+    const parsed = smartRulesSchema.parse({ media: "episodes", libraryId: "123e4567-e89b-42d3-a456-426614174000", sort: "added" });
+    expect(parsed).toMatchObject({ kinds: ["shows"], showsAs: "episodes", libraryIds: ["123e4567-e89b-42d3-a456-426614174000"], sort: "added" });
+    expect(smartRulesSchema.parse({ media: "songs" })).toMatchObject({ kinds: ["music", "audio"], libraryIds: [] });
+    expect(smartRulesSchema.safeParse({ media: "nonsense" }).success).toBe(false);
+    expect(smartRulesSchema.safeParse({ libraryIds: ["nope"] }).success).toBe(false);
+    expect(smartRulesSchema.safeParse({ libraryIds: Array(31).fill("123e4567-e89b-42d3-a456-426614174000") }).success).toBe(false);
+    expect(smartRulesSchema.parse({})).toMatchObject({ libraryIds: [], kinds: [], showsAs: "shows", sort: "title", limit: 50 });
+  });
+
   it("can pick at random, and refuses nonsense rules", async () => {
     const w = await world();
     for (let i = 0; i < 6; i++) await w.movie(`M${i}`);
@@ -198,7 +238,7 @@ describe("a smart playlist", () => {
     expect(added.ok).toBe(false);
     const detail = await getPlaylistDetail(db, { playlistId: smart.id, viewerId: w.viewerId });
     expect(detail.ok && detail.value.smart).toBe(true);
-    expect(detail.ok && detail.value.smartRules?.media).toBe("movies");
+    expect(detail.ok && detail.value.smartRules?.kinds).toEqual(["movies"]);
     expect(detail.ok && detail.value.can.editItems).toBe(false);
   });
 
