@@ -38,6 +38,8 @@ import { Breadcrumbs } from "@/components/shell/breadcrumbs";
 import { OwnershipSection } from "@/components/ownership/ownership-section";
 import { isFileTreeLibraryKind } from "@/lib/libraries/profile";
 import { averageOf, ratingsOf } from "@/lib/ratings/service";
+import { onWatchlist } from "@/lib/watchlist/queries";
+import { WatchlistButton } from "@/components/watchlist/watchlist-button";
 import { StarRating } from "@/components/ratings/star-rating";
 import { moreInCollections } from "@/lib/collections/queries";
 import { similarTitles } from "@/lib/recommend/service";
@@ -98,6 +100,7 @@ export default async function TitleDetailPage({
     .limit(1);
 
   const mine = (await ratingsOf(db, viewer.id, "title", [title.id])).get(title.id) ?? null;
+  const listed = (await onWatchlist(db, viewer.id, [title.id])).has(title.id);
   const average = (await averageOf(db, "title", [title.id])).get(title.id) ?? null;
   const inCollections = await moreInCollections(db, { actor: lib, viewer, titleId: title.id });
   // Like it, but not what the collection rows above already offer.
@@ -198,6 +201,7 @@ export default async function TitleDetailPage({
           </span>
         </div>
       )}
+      {title.kind === "movie" && <WatchlistButton titleId={title.id} initial={listed} />}
       <AddToPlaylistMenu serverId={serverId} target={{ titleId: title.id }} />
       {role === "admin" && viewer.role !== "limited" && !isGeneric && <AddToCollectionMenu libraryId={row.libraryId} titleId={title.id} />}
       <MoreMenu>

@@ -5,6 +5,7 @@ import { html } from "@/lib/tv/http";
 import { ownershipSections, ratingSection } from "@/lib/tv/sections";
 import { similarTitles } from "@/lib/recommend/service";
 import { averageOf, ratingsOf } from "@/lib/ratings/service";
+import { onWatchlist } from "@/lib/watchlist/queries";
 import { detailPage } from "@/tv/render";
 import { starsText } from "@/lib/ratings/stars";
 
@@ -22,6 +23,7 @@ export async function GET(request: Request, ctx: RouteContext<"/tv/s/[serverId]/
   const t = show.title;
   const here = `${access.base}/show/${id}`;
   const mine = (await ratingsOf(db, access.scope.viewerId, "title", [id])).get(id) ?? null;
+  const listed = (await onWatchlist(db, access.scope.viewerId, [id])).has(id);
   const episodeMine = await ratingsOf(db, access.scope.viewerId, "episode", show.episodes.map((e) => e.id));
   const rateEpisodes = show.episodes.length
     ? [{ heading: "Rate or mark an episode", lines: show.episodes.map((e) => ({ text: `${e.number}. ${e.name ?? `Episode ${e.number}`}`, sub: episodeMine.has(e.id) ? `Your rating: ${starsText(episodeMine.get(e.id) as number)}` : "Not rated", href: `${access.base}/episode/${e.id}` })) }]
@@ -36,11 +38,14 @@ export async function GET(request: Request, ctx: RouteContext<"/tv/s/[serverId]/
       overview: t.overview,
       posterUrl: t.posterUrl,
       backdropUrl: t.backdropUrl,
-      posts: show.episodes.length === 0 ? [] : [
+      posts: [
+        { action: `${access.base}/watchlist`, label: listed ? "Take off watch list" : "Add to watch list", fields: { id: id, on: listed ? "0" : "1", back: here } },
+        ...(show.episodes.length === 0 ? [] : [
         { action: `${access.base}/mark`, label: show.showWatched ? "Mark show as unwatched" : "Mark show as watched", fields: { kind: "show", id, done: show.showWatched ? "0" : "1", back: here } },
         ...(show.currentSeasonId && show.seasons.length > 1
           ? [{ action: `${access.base}/mark`, label: show.episodes.every((e) => e.watched) ? `Mark season ${show.currentSeason} as unwatched` : `Mark season ${show.currentSeason} as watched`, fields: { kind: "season", id: show.currentSeasonId, done: show.episodes.every((e) => e.watched) ? "0" : "1", back: `${here}?season=${show.currentSeason}` } }]
           : []),
+        ]),
       ],
       backHref: `${access.base}/library/${show.libraryId}`,
       actions: [...(show.episodes.length ? [{ href: `${access.base}/watch/episode/${(show.episodes.find((e) => e.inProgress) ?? show.episodes.find((e) => !e.watched) ?? show.episodes[0]).id}`, label: show.episodes.some((e) => e.inProgress) ? "Resume" : "Play", primary: true }] : []), { href: `${access.base}/add?title=${id}&back=${encodeURIComponent(`${access.base}/show/${id}`)}`, label: "Add to playlist" }],

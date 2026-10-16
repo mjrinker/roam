@@ -1,3 +1,4 @@
+import { listWatchlist } from "@/lib/watchlist/queries";
 import Link from "next/link";
 import { and, asc, desc, eq, exists, inArray, or } from "drizzle-orm";
 import { FolderPlus, Library } from "lucide-react";
@@ -183,6 +184,7 @@ export default async function LibraryHomePage({
     progressFraction: 0,
   }));
   // Titles like the ones this profile rated highly (nothing until it has rated or finished something).
+  const watchlist = await listWatchlist(db, { actor: lib, viewer, viewerId: viewer.id, serverId, limit: 20 });
   const recs = await recommendations(db, { actor: lib, viewer, viewerId: viewer.id });
   const continueListening: PosterCardData[] = [];
   for (const w of inProgress) {
@@ -276,6 +278,8 @@ export default async function LibraryHomePage({
             ))}
           </MediaRow>
         )}
+
+        <TitleShelf serverId={serverId} title="Your Watch List" items={watchlist.map((w) => ({ id: w.id, kind: w.kind, name: w.name, year: w.year, posterUrl: w.posterUrl }))} href={`/s/${serverId}/watchlist`} />
 
         <TitleShelf serverId={serverId} title="Recommended for you" items={recs.forYou} />
         {recs.because.map((b) => (

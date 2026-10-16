@@ -966,6 +966,18 @@ export const ratings = pgTable(
   (t) => [primaryKey({ columns: [t.viewerId, t.ownerKind, t.ownerId] }), index("ratings_owner_idx").on(t.ownerKind, t.ownerId)]
 ).enableRLS();
 
+// ── watchlist_items ──────────────────────────────────────────────────────
+// Movies, shows and audiobooks a profile means to get to. Private to the profile; a title drops off once the profile has finished it.
+export const watchlistItems = pgTable(
+  "watchlist_items",
+  {
+    viewerId: uuid("viewer_id").notNull().references(() => viewers.id, { onDelete: "cascade" }),
+    titleId: uuid("title_id").notNull().references(() => titles.id, { onDelete: "cascade" }),
+    addedAt: timestamp("added_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [primaryKey({ columns: [t.viewerId, t.titleId] }), index("watchlist_items_title_idx").on(t.titleId)]
+).enableRLS();
+
 // ── track_lyrics ─────────────────────────────────────────────────────────
 // What LRCLIB (a free, open lyrics service) has for a song, looked up the first time someone asks and kept, including "nothing found" (asked
 // again after a month). `synced` is the LRC text with a time on every line; `plain` is the words alone.

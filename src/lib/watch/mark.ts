@@ -5,6 +5,7 @@
 import { and, eq, inArray, sql } from "drizzle-orm";
 import type { PgDatabase, PgQueryResultHKT } from "drizzle-orm/pg-core";
 import { episodes, seasons, watchState } from "@/lib/db/schema";
+import { dropFinished } from "@/lib/watchlist/queries";
 
 type Db = PgDatabase<PgQueryResultHKT, Record<string, unknown>>;
 
@@ -44,6 +45,8 @@ export async function setDone(ex: Db, args: { viewerId: string; owners: Owner[];
           target: [watchState.viewerId, watchState.ownerKind, watchState.ownerId],
           set: { finished: true, positionSeconds: sql`coalesce(${watchState.durationSeconds}, ${watchState.positionSeconds})`, updatedAt: new Date() },
         });
+      // Finished things leave the watch list.
+      await dropFinished(ex, viewerId, { titleIds: chunk.filter((o) => o.ownerKind === "title").map((o) => o.ownerId), episodeIds: chunk.filter((o) => o.ownerKind === "episode").map((o) => o.ownerId) });
     } else {
       for (const kind of ["title", "episode"] as const) {
         const ids = chunk.filter((o) => o.ownerKind === kind).map((o) => o.ownerId);

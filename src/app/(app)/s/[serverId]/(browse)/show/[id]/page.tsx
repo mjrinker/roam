@@ -12,6 +12,8 @@ import { formatRuntime } from "@/lib/format";
 import { similarTitles } from "@/lib/recommend/service";
 import { TitleShelf } from "@/components/library/similar-row";
 import { averageOf, ratingsOf } from "@/lib/ratings/service";
+import { onWatchlist } from "@/lib/watchlist/queries";
+import { WatchlistButton } from "@/components/watchlist/watchlist-button";
 import { StarRating } from "@/components/ratings/star-rating";
 import { countryFromLocale, displayCertification } from "@/lib/content/ratings";
 import { TitleResyncButton } from "@/components/admin/title-resync-button";
@@ -169,6 +171,7 @@ export default async function ShowDetailPage({
   const filterPrefs = normalizePrefs(viewer.contentFilter);
   const totalEpisodes = allEpisodes.length;
   const mine = (await ratingsOf(db, viewer.id, "title", [show.id])).get(show.id) ?? null;
+  const listed = (await onWatchlist(db, viewer.id, [show.id])).has(show.id);
   const average = (await averageOf(db, "title", [show.id])).get(show.id) ?? null;
   const similar = await similarTitles(db, { actor: libraryActor({ profile, role }, serverId), viewer, titleId: show.id });
   const cast = await loadTitleCast(db, show.id);
@@ -213,6 +216,7 @@ export default async function ShowDetailPage({
             {nextLabel}
           </PlayChoicesButton>
         )}
+        <WatchlistButton titleId={show.id} initial={listed} />
         <AddToPlaylistMenu serverId={serverId} target={{ titleId: show.id }} />
         <MoreMenu>
           {rows.length > 0 && <MarkDoneButton kind="show" id={show.id} done={rows.some((r) => r.ready) && rows.filter((r) => r.ready).every((r) => r.watched)} media="watch" scope="show" />}

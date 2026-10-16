@@ -9,6 +9,7 @@ import { ownershipView } from "@/lib/ownership/view";
 import { apiJson, apiNotFound, asId } from "@/lib/api/v1";
 import { apiAccess, type ApiAccess } from "@/lib/api/access";
 import { playPath } from "@/lib/api/v1-shapes";
+import { onWatchlist } from "@/lib/watchlist/queries";
 
 /** Who owns it, from this profile's side (null when the server doesn't track ownership). Claiming and withdrawing are at /api/ownership/*. */
 async function ownership(access: ApiAccess, titleId: string, libraryKind: string) {
@@ -37,6 +38,7 @@ export async function GET(request: Request, ctx: RouteContext<"/api/v1/servers/[
   const country = countryFromLocale(scope.viewer.locale);
   /** This profile's own rating in half stars (1 to 10), or null. */
   const myRating = (await ratingsOf(db, scope.viewerId, "title", [id])).get(id) ?? null;
+  const inWatchlist = (await onWatchlist(db, scope.viewerId, [id])).has(id);
   /** What everyone on the server gave it, on average: `{ halfStars, count }`, or null when nobody has rated it. */
   const averageRating = (await averageOf(db, "title", [id])).get(id) ?? null;
   /** Titles like this one, as list items (films for a film, shows for a show). */
@@ -52,6 +54,7 @@ export async function GET(request: Request, ctx: RouteContext<"/api/v1/servers/[
     const next = show.episodes.find((e) => e.inProgress) ?? show.episodes.find((e) => !e.watched) ?? show.episodes[0] ?? null;
     return apiJson({
     myRating,
+    inWatchlist,
     averageRating,
       type: "show",
       id,
@@ -79,6 +82,7 @@ export async function GET(request: Request, ctx: RouteContext<"/api/v1/servers/[
     const t = book.title;
     return apiJson({
     myRating,
+    inWatchlist,
     averageRating,
       type: "audiobook",
       id,
@@ -102,6 +106,7 @@ export async function GET(request: Request, ctx: RouteContext<"/api/v1/servers/[
   const extras = await loadMovieExtras(db, { serverId, titleId: id, title: { imdbId: t.imdbId, tmdbId: t.tmdbId }, filterPrefs: who.filterPrefs });
   return apiJson({
     myRating,
+    inWatchlist,
     averageRating,
     type: "movie",
     id,

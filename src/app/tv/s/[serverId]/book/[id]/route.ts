@@ -5,6 +5,7 @@ import { bookDetail } from "@/lib/tv/data";
 import { formatClock } from "@/tv/client/clock";
 import { doneWords } from "@/lib/watch/words";
 import { ownershipSections } from "@/lib/tv/sections";
+import { onWatchlist } from "@/lib/watchlist/queries";
 import { detailPage } from "@/tv/render";
 
 export async function GET(request: Request, ctx: RouteContext<"/tv/s/[serverId]/book/[id]">) {
@@ -17,6 +18,7 @@ export async function GET(request: Request, ctx: RouteContext<"/tv/s/[serverId]/
   const book = await bookDetail(db, access.scope, id);
   if (!book) return notFoundPage();
   const t = book.title;
+  const listed = (await onWatchlist(db, access.scope.viewerId, [id])).has(id);
   const by = (t.authors ?? []).join(", ") || t.folderAuthor;
   const narrator = (t.narrators ?? []).join(", ");
   const meta = [by, narrator ? `Read by ${narrator}` : null, t.seriesName ? `${t.seriesName}${t.seriesPosition ? ` #${t.seriesPosition}` : ""}` : null].filter(Boolean).join(" · ");
@@ -30,7 +32,7 @@ export async function GET(request: Request, ctx: RouteContext<"/tv/s/[serverId]/
       posterUrl: t.posterUrl,
       square: true,
       backHref: `${access.base}/library/${book.libraryId}`,
-      posts: [{ action: `${access.base}/mark`, label: book.finished ? doneWords("listen").markUndone : doneWords("listen").markDone, fields: { kind: "title", id, done: book.finished ? "0" : "1", back: `${access.base}/book/${id}` } }],
+      posts: [{ action: `${access.base}/watchlist`, label: listed ? "Take off watch list" : "Add to watch list", fields: { id: id, on: listed ? "0" : "1", back: `${access.base}/book/${id}` } }, { action: `${access.base}/mark`, label: book.finished ? doneWords("listen").markUndone : doneWords("listen").markDone, fields: { kind: "title", id, done: book.finished ? "0" : "1", back: `${access.base}/book/${id}` } }],
       actions: [{ href: `${access.base}/listen/${id}`, label: book.resume ? `Resume from ${formatClock(book.resume.positionSeconds)}` : "Listen", primary: true }, { href: `${access.base}/add?title=${id}&back=${encodeURIComponent(`${access.base}/book/${id}`)}`, label: "Add to playlist" }],
     })
   );

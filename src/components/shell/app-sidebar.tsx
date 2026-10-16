@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { AudioLines, Clapperboard, CloudDownload, Images, Film, Headphones, House, BookOpen, ListVideo, Music, Settings, Tv, X } from "lucide-react";
+import { AudioLines, Clapperboard, CloudDownload, Images, Film, Headphones, House, BookOpen, ListVideo, Bookmark, Music, Settings, Tv, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { ServerSwitcher } from "@/components/nav/server-switcher";
 import { BrandLogo } from "@/components/shell/brand";
@@ -132,6 +132,14 @@ export function AppSidebar({
             onNavigate={close}
           >
             Playlists
+          </NavLink>
+          <NavLink
+            href={`/s/${serverId}/watchlist`}
+            icon={Bookmark}
+            active={pathname.startsWith(`/s/${serverId}/watchlist`)}
+            onNavigate={close}
+          >
+            Watch list
           </NavLink>
           <NavLink
             href={`/s/${serverId}/downloads`}

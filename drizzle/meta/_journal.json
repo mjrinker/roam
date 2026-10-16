@@ -428,6 +428,13 @@
       "when": 1792161263672,
       "tag": "0060_smart_playlists",
       "breakpoints": true
+    },
+    {
+      "idx": 61,
+      "version": "7",
+      "when": 1792185162959,
+      "tag": "0061_watchlist",
+      "breakpoints": true
     }
   ]
 }

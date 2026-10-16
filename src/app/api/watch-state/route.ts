@@ -5,6 +5,7 @@ import { db } from "@/lib/db/client";
 import { watchState } from "@/lib/db/schema";
 import { authorizeOwner } from "@/lib/auth/resolve-server";
 import { libraryRemembersProgress } from "@/lib/libraries/profile";
+import { dropFinished } from "@/lib/watchlist/queries";
 
 const patchSchema = z.object({
   ownerKind: z.enum(["title", "episode"]),
@@ -56,6 +57,9 @@ export async function PATCH(request: Request) {
         updatedAt: new Date(),
       },
     });
+
+  // Finishing a movie, audiobook or (the last episode of) a show takes it off the watch list.
+  if (finished) await dropFinished(db, auth.member.viewer.id, ownerKind === "title" ? { titleIds: [ownerId] } : { episodeIds: [ownerId] });
 
   return NextResponse.json({ ok: true });
 }

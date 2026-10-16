@@ -8,6 +8,7 @@ import { html } from "@/lib/tv/http";
 import { movieSections, ownershipSections, ratingSection } from "@/lib/tv/sections";
 import { detailPage } from "@/tv/render";
 import { averageOf, ratingsOf } from "@/lib/ratings/service";
+import { onWatchlist } from "@/lib/watchlist/queries";
 import { similarTitles } from "@/lib/recommend/service";
 import { moreInCollections } from "@/lib/collections/queries";
 
@@ -30,6 +31,7 @@ export async function GET(request: Request, ctx: RouteContext<"/tv/s/[serverId]/
   const more = await moreInCollections(db, { actor: access.scope.actor, viewer: access.scope.viewer, titleId: id });
   const similar = await similarTitles(db, { actor: access.scope.actor, viewer: access.scope.viewer, titleId: id, exclude: more.flatMap((c) => c.items.map((i) => i.id)), limit: 8 });
   const mine = (await ratingsOf(db, access.scope.viewerId, "title", [id])).get(id) ?? null;
+  const listed = (await onWatchlist(db, access.scope.viewerId, [id])).has(id);
   const sections = [
     ratingSection({ base: access.base, kind: "title", id, back: here, mine, average: (await averageOf(db, "title", [id])).get(id) ?? null }),
     ...(await movieSections(db, { serverId, base: access.base, who: access.who, titleId: id, title: { imdbId: t.imdbId, tmdbId: t.tmdbId } })),
@@ -47,8 +49,8 @@ export async function GET(request: Request, ctx: RouteContext<"/tv/s/[serverId]/
       backdropUrl: t.backdropUrl,
       backHref: library,
       posts: libraryHasDoneState(movie.libraryKind)
-        ? [{ action: `${access.base}/mark`, label: movie.finished ? doneWords("watch").markUndone : doneWords("watch").markDone, fields: { kind: "title", id, done: movie.finished ? "0" : "1", back: `${access.base}/title/${id}` } }]
-        : [],
+        ? [{ action: `${access.base}/watchlist`, label: listed ? "Take off watch list" : "Add to watch list", fields: { id: id, on: listed ? "0" : "1", back: here } }, { action: `${access.base}/mark`, label: movie.finished ? doneWords("watch").markUndone : doneWords("watch").markDone, fields: { kind: "title", id, done: movie.finished ? "0" : "1", back: `${access.base}/title/${id}` } }]
+        : [{ action: `${access.base}/watchlist`, label: listed ? "Take off watch list" : "Add to watch list", fields: { id: id, on: listed ? "0" : "1", back: here } }],
       actions: [{ href: watch, label: movie.resume ? `Resume${remaining ? ` (${remaining})` : ""}` : "Play", primary: true }, { href: `${access.base}/add?title=${id}&back=${encodeURIComponent(`${access.base}/title/${id}`)}`, label: "Add to playlist" }],
     })
   );
