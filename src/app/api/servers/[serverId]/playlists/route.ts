@@ -1,9 +1,10 @@
 import { z } from "zod";
 import { db } from "@/lib/db/client";
 import { badRequest, decodeCursor, encodeCursor, isUuid, limitParam, notFound, playlistDescription, playlistName, readJson, requireActor, respond, throttled } from "@/lib/playlists/http";
+import { smartRulesSchema } from "@/lib/playlists/smart";
 import { createPlaylist, listPlaylists, type ListScope } from "@/lib/playlists/service";
 
-const createSchema = z.object({ name: playlistName, description: playlistDescription.optional() });
+const createSchema = z.object({ name: playlistName, description: playlistDescription.optional(), /** Makes a smart playlist: one that fills itself from these rules. */ smartRules: smartRulesSchema.optional() });
 const cursorSchema = z.object({ updatedAt: z.string().datetime(), id: z.string().uuid() });
 const SCOPES: ListScope[] = ["all", "mine", "shared", "public"];
 

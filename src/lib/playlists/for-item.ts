@@ -83,6 +83,7 @@ async function editablePlaylistRows(
 
   const editable = mine.filter(
     (r) =>
+      !r.playlist.smartRules &&
       capabilities(
         {
           ownerViewerId: r.playlist.ownerViewerId,

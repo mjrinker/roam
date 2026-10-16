@@ -77,8 +77,10 @@ export async function loadContext(
     isServerAdmin: membership?.role === "admin",
   };
   const memberRole = member?.role ?? null;
-  const caps = capabilities(facts, actor, memberRole);
-  if (!caps.canView) return null;
+  const baseCaps = capabilities(facts, actor, memberRole);
+  if (!baseCaps.canView) return null;
+  // A smart playlist fills itself from its rules: nobody puts items in or takes them out by hand.
+  const caps = playlist.smartRules ? { ...baseCaps, canEditItems: false } : baseCaps;
 
   return {
     playlist,

@@ -4,6 +4,7 @@
  * IN SQL, so items a profile may not watch are simply absent: pages, cursors
  * and counts never reveal them. Episode items are rated by their show.
  */
+import { refreshSmartIfStale } from "./smart";
 import { and, asc, count, eq, exists, gt, inArray, isNull, or, sql, type SQL, type SQLWrapper } from "drizzle-orm";
 import { PLAYABLE_TITLE_KINDS } from "@/lib/libraries/profile";
 import { alias } from "drizzle-orm/pg-core";
@@ -84,6 +85,7 @@ export async function listVisibleItems(
   args: { playlistId: string; lib: LibraryActor; viewer: AccessProfile; limit?: number; after?: ItemCursor | null }
 ): Promise<ItemsPage> {
   const limit = Math.min(Math.max(args.limit ?? 50, 1), 200);
+  await refreshSmartIfStale(ex, [args.playlistId]);
   const rows = await ex
     .select({
       id: playlistItems.id,
@@ -151,6 +153,7 @@ export async function countVisibleItems(
 ): Promise<Map<string, number>> {
   const counts = new Map<string, number>(args.playlistIds.map((id) => [id, 0]));
   if (args.playlistIds.length === 0) return counts;
+  await refreshSmartIfStale(ex, args.playlistIds);
   const rows = await ex
     .select({ playlistId: playlistItems.playlistId, n: count() })
     .from(playlistItems)

@@ -1225,6 +1225,9 @@ export const playlists = pgTable(
     name: text("name").notNull(),
     description: text("description"),
     visibility: playlistVisibilityEnum("visibility").notNull().default("private"),
+    // A smart playlist fills itself from these rules (see lib/playlists/smart), for the owner; null for an ordinary playlist.
+    smartRules: jsonb("smart_rules").$type<Record<string, unknown>>(),
+    smartRefreshedAt: timestamp("smart_refreshed_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },

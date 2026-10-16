@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { Globe, ListVideo, Lock, ShieldCheck } from "lucide-react";
+import { Globe, ListVideo, Lock, ShieldCheck, Sparkles } from "lucide-react";
 import { db } from "@/lib/db/client";
 import { requireServerMember } from "@/lib/auth/guards";
 import { decodeCursor, encodeCursor } from "@/lib/playlists/http";
@@ -8,6 +8,7 @@ import { listPlaylists, type ListScope } from "@/lib/playlists/service";
 import { Badge } from "@/components/ui/badge";
 import { Breadcrumbs } from "@/components/shell/breadcrumbs";
 import { NewPlaylistButton } from "@/components/playlists/new-playlist-button";
+import { NewSmartPlaylistButton } from "@/components/playlists/smart-playlist-dialog";
 import { cn } from "@/lib/utils";
 import { z } from "zod";
 
@@ -61,6 +62,7 @@ export default async function PlaylistsPage({
               <ShieldCheck className="size-4" /> Moderate
             </Link>
           )}
+          <NewSmartPlaylistButton serverId={serverId} />
           <NewPlaylistButton serverId={serverId} />
         </div>
       </div>
@@ -99,7 +101,7 @@ export default async function PlaylistsPage({
                 className="flex h-full flex-col gap-2 rounded-2xl bg-white/[0.04] p-4 ring-1 ring-white/[0.08] transition hover:bg-white/[0.07]"
               >
                 <div className="flex items-start justify-between gap-2">
-                  <p className="min-w-0 truncate text-base font-medium">{p.name}</p>
+                  <p className="flex min-w-0 items-center gap-1.5 truncate text-base font-medium">{p.smart && <Sparkles className="size-3.5 shrink-0 text-primary" aria-label="Smart playlist" />}{p.name}</p>
                   {p.visibility === "server" ? (
                     <Globe className="mt-0.5 size-4 shrink-0 text-muted-foreground" aria-label="Visible to everyone on this server" />
                   ) : (

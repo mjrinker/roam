@@ -4,6 +4,7 @@
  * client), re-reads everything it needs, and runs mutations inside a transaction
  * that locks the playlist row first. Routes stay thin wrappers around these.
  */
+import { refreshSmartPlaylist, smartRulesSchema, type SmartRules } from "./smart";
 import { and, desc, eq, exists, inArray, lt, or, sql, type SQL } from "drizzle-orm";
 import { playlistMembers, playlists, serverMembers, viewers } from "@/lib/db/schema";
 import { loadContext, type PlaylistContext } from "./context";
@@ -32,7 +33,7 @@ export async function serverMembershipOf(ex: Executor, viewerId: string, serverI
 
 export async function createPlaylist(
   ex: Executor,
-  args: { serverId: string; viewerId: string; name: string; description?: string | null }
+  args: { serverId: string; viewerId: string; name: string; description?: string | null; smartRules?: SmartRules | null }
 ): Promise<Result<typeof playlists.$inferSelect>> {
   if (!(await serverMembershipOf(ex, args.viewerId, args.serverId))) return NOT_FOUND;
   const [row] = await ex
@@ -42,8 +43,11 @@ export async function createPlaylist(
       ownerViewerId: args.viewerId,
       name: args.name,
       description: args.description ?? null,
+      smartRules: args.smartRules ?? null,
     })
     .returning();
+  // A smart playlist starts with what its rules select now.
+  if (args.smartRules) await refreshSmartPlaylist(ex, row.id, { force: true });
   return ok(row);
 }
 
@@ -59,6 +63,8 @@ export interface PlaylistSummary {
   owner: PublicViewer | null;
   /** Items THIS viewer can see (post-filter); never a raw count. */
   itemCount: number;
+  /** True for a playlist that fills itself from rules. */
+  smart: boolean;
 }
 
 export type ListScope = "all" | "mine" | "shared" | "public";
@@ -179,6 +185,7 @@ export async function listPlaylists(
           )
         : null,
       itemCount: counts.get(r.playlist.id) ?? 0,
+      smart: Boolean(r.playlist.smartRules),
     });
   }
 
@@ -200,6 +207,9 @@ export interface PlaylistDetail {
   owner: PublicViewer | null;
   myRole: EffectiveRole;
   itemCount: number;
+  /** The rules of a smart playlist (only shown to someone who may rename it), else null. */
+  smartRules: SmartRules | null;
+  smart: boolean;
   can: {
     editItems: boolean;
     rename: boolean;
@@ -240,6 +250,8 @@ export async function getPlaylistDetail(
     owner: owner ? maskViewer(owner, ctx.viewer.accountId) : null,
     myRole: caps.role!,
     itemCount: counts.get(playlist.id) ?? 0,
+    smart: Boolean(playlist.smartRules),
+    smartRules: playlist.smartRules && caps.canRename ? (smartRulesSchema.safeParse(playlist.smartRules).data ?? null) : null,
     can: {
       editItems: caps.canEditItems,
       rename: caps.canRename,
@@ -258,7 +270,7 @@ export async function getPlaylistDetail(
 
 export async function patchPlaylist(
   ex: Executor,
-  args: { playlistId: string; viewerId: string; name?: string; description?: string | null; visibility?: PlaylistVisibility }
+  args: { playlistId: string; viewerId: string; name?: string; description?: string | null; visibility?: PlaylistVisibility; smartRules?: SmartRules }
 ): Promise<Result<typeof playlists.$inferSelect>> {
   return retryOnContention(
     () =>
@@ -266,7 +278,8 @@ export async function patchPlaylist(
         const ctx = await loadContext(tx, { ...args, lock: true });
         if (!ctx) return NOT_FOUND;
         const { caps, playlist } = ctx;
-        const changesText = args.name !== undefined || args.description !== undefined;
+        const changesText = args.name !== undefined || args.description !== undefined || args.smartRules !== undefined;
+        if (args.smartRules !== undefined && !playlist.smartRules) return fail(409, "Only a smart playlist has rules.");
         if (changesText && !caps.canRename) return fail(403, "You can't rename this playlist.");
         if (args.visibility !== undefined && args.visibility !== playlist.visibility && !caps.canSetVisibility(args.visibility)) {
           return fail(403, "You can't change who can see this playlist.");
@@ -277,10 +290,12 @@ export async function patchPlaylist(
             ...(args.name !== undefined ? { name: args.name } : {}),
             ...(args.description !== undefined ? { description: args.description } : {}),
             ...(args.visibility !== undefined ? { visibility: args.visibility } : {}),
+            ...(args.smartRules !== undefined ? { smartRules: args.smartRules, smartRefreshedAt: null } : {}),
             updatedAt: new Date(),
           })
           .where(eq(playlists.id, playlist.id))
           .returning();
+        if (args.smartRules !== undefined) await refreshSmartPlaylist(tx, playlist.id, { force: true });
         return ok(row);
       }),
     WRITE_RETRY_CODES

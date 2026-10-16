@@ -9,6 +9,8 @@ import { getPlaylistDetail } from "@/lib/playlists/service";
 import { Badge } from "@/components/ui/badge";
 import { Breadcrumbs } from "@/components/shell/breadcrumbs";
 import { PlaylistActions } from "@/components/playlists/playlist-actions";
+import { SmartPlaylistBar } from "@/components/playlists/smart-playlist-dialog";
+import { describeRules } from "@/lib/playlists/smart-words";
 import { PlaylistItems } from "@/components/playlists/playlist-items";
 
 export default async function PlaylistPage({ params }: PageProps<"/s/[serverId]/playlists/[id]">) {
@@ -59,6 +61,17 @@ export default async function PlaylistPage({ params }: PageProps<"/s/[serverId]/
           )}
         </div>
       </header>
+
+      {playlist.smart && (
+        <SmartPlaylistBar
+          serverId={serverId}
+          playlistId={playlist.id}
+          name={playlist.name}
+          rules={playlist.smartRules}
+          words={playlist.smartRules ? describeRules(playlist.smartRules) : "It fills itself from rules its owner set."}
+          canEdit={playlist.can.rename}
+        />
+      )}
 
       <PlaylistActions
         serverId={serverId}

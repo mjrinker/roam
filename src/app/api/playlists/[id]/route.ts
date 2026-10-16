@@ -1,10 +1,11 @@
 import { z } from "zod";
 import { db } from "@/lib/db/client";
 import { badRequest, isUuid, notFound, playlistDescription, playlistName, readJson, requireActor, respond } from "@/lib/playlists/http";
+import { smartRulesSchema } from "@/lib/playlists/smart";
 import { deletePlaylist, getPlaylistDetail, patchPlaylist } from "@/lib/playlists/service";
 
 const patchSchema = z
-  .object({ name: playlistName.optional(), description: playlistDescription.optional(), visibility: z.enum(["private", "server"]).optional() })
+  .object({ name: playlistName.optional(), description: playlistDescription.optional(), visibility: z.enum(["private", "server"]).optional(), smartRules: smartRulesSchema.optional() })
   .refine((v) => Object.keys(v).length > 0, "Nothing to change");
 
 export async function GET(_request: Request, ctx: RouteContext<"/api/playlists/[id]">) {

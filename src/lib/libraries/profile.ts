@@ -60,6 +60,9 @@ export function isMusicLibraryKind(kind: LibraryKind | null | undefined): boolea
   return kind === "music";
 }
 
+/** The kinds of library that hold songs (generic audio files and music). */
+export const SONG_LIBRARY_KINDS = ["audio", "music"] as const satisfies readonly LibraryKind[];
+
 /** Libraries of audio tracks (generic audio files and music): their songs can be grouped by artist, album and genre. */
 export function isSongLibraryKind(kind: LibraryKind | null | undefined): boolean {
   return kind === "audio" || kind === "music";
