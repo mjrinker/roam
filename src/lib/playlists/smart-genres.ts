@@ -1,4 +1,5 @@
 import { and, eq, inArray, sql } from "drizzle-orm";
+import { hasPlayableFile } from "@/lib/content/playable";
 import { libraries, titles } from "@/lib/db/schema";
 import { contentFilter, type AccessProfile } from "@/lib/content/access";
 import { libraryVisible, type LibraryActor } from "@/lib/content/library-access";
@@ -12,7 +13,7 @@ export async function visibleGenres(ex: Executor, actor: LibraryActor, viewer: A
     .from(titles)
     .innerJoin(libraries, eq(libraries.id, titles.libraryId))
     .innerJoin(sql`jsonb_array_elements_text(${titles.genres}) AS g(value)`, sql`true`)
-    .where(and(libraryVisible(ex, actor), contentFilter(viewer, titles.ratingAges), inArray(titles.kind, ["movie", "show", "audiobook"])))
+    .where(and(libraryVisible(ex, actor), contentFilter(viewer, titles.ratingAges), hasPlayableFile(titles.id, titles.kind), inArray(titles.kind, ["movie", "show", "audiobook"])))
     .orderBy(sql`g.value`)
     .limit(400);
   return rows.map((r) => r.name).filter((n) => n.trim().length > 0 && n.length <= 60);

@@ -2,10 +2,12 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { AccessProfile } from "@/lib/content/access";
 import { musicAlbums, musicArtists } from "@/lib/db/schema";
-import { createTestDb, joinServer, makeAccount, makeLibrary, makeServer, makeTitle, type TestDb } from "@/lib/playlists/test-db";
+import { createTestDb, joinServer, makeAccount, makeLibrary, makeServer, makeTitle, type TestDb, autoFiles } from "@/lib/playlists/test-db";
 import type { TvScope } from "./data";
 import { cleanQuery, SEARCH_MAX, tvSearch } from "./search";
 
+
+autoFiles();
 let db: TestDb;
 let close: () => Promise<void>;
 beforeAll(async () => {

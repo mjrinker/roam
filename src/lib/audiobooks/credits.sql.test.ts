@@ -12,8 +12,10 @@ vi.mock("@/lib/db/client", async () => {
 import "@/lib/db/client"; // loads the in-memory database mocked above
 import { libraries } from "@/lib/db/schema";
 import { loadContributor } from "./credits";
-import { joinServer, makeAccount, makeLibrary, makeServer, makeTitle, type TestDb } from "@/lib/playlists/test-db";
+import { joinServer, makeAccount, makeLibrary, makeServer, makeTitle, type TestDb, autoFiles } from "@/lib/playlists/test-db";
 
+
+autoFiles();
 let db: TestDb;
 beforeAll(() => {
   db = h.testDb.db;

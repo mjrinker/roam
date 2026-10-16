@@ -29,7 +29,7 @@ import { findAddableTarget, listVisibleItems } from "@/lib/playlists/items";
 import { nextAfter } from "@/lib/playlists/next";
 import { copyPlaylist } from "@/lib/playlists/service";
 import { resolveRemuxScope } from "@/lib/remux/remux-pass";
-import { addItem, joinServer, makeAccount, makeLibrary, makePlaylist, makeServer, makeTitle, type TestDb } from "@/lib/playlists/test-db";
+import { addItem, joinServer, makeAccount, makeLibrary, makePlaylist, makeServer, makeTitle, type TestDb, autoFiles } from "@/lib/playlists/test-db";
 import { authorizeOwner } from "@/lib/auth/resolve-server";
 import { GET as playRoute } from "../play/[ownerKind]/[ownerId]/route";
 import { GET as watchGet, PATCH as watchPatch } from "../watch-state/route";
@@ -38,6 +38,8 @@ import { GET as bookSegment } from "../audiobooks/[id]/segments/[index]/route";
 import { GET as artworkRoute } from "./[id]/artwork/route";
 import { GET as searchRoute } from "../search/route";
 
+
+autoFiles();
 let db: TestDb;
 beforeAll(() => {
   db = h.testDb.db;

@@ -4,12 +4,14 @@ import type { AccessProfile } from "@/lib/content/access";
 import type { LibraryActor } from "@/lib/content/library-access";
 import { mediaFiles, titles, watchState } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
-import { createTestDb, joinServer, makeAccount, makeLibrary, makeServer, makeShow, makeTitle, type TestDb } from "@/lib/playlists/test-db";
+import { createTestDb, joinServer, makeAccount, makeLibrary, makeServer, makeShow, makeTitle, type TestDb, autoFiles } from "@/lib/playlists/test-db";
 import { assignOwners, saveSettings } from "@/lib/ownership/owners";
 import { syncSeriesCollections } from "@/lib/collections/sync";
 import { PAGE_SIZE, libraryGenres, libraryTitles, pageForLetter, type TvScope } from "./data";
 import { DEFAULT_OPTIONS, type LibraryOptions } from "./library-options";
 
+
+autoFiles();
 let db: TestDb;
 let close: () => Promise<void>;
 beforeAll(async () => {
@@ -85,16 +87,17 @@ describe("unwatched only", () => {
 
     const done = await makeShow(db, w.shows.id, 2, { name: "Done Show" });
     const going = await makeShow(db, w.shows.id, 2, { name: "Going Show" });
-    const noFiles = await makeShow(db, w.shows.id, 1, { name: "No Files Show" });
+    const noFiles = await makeShow(db, w.shows.id, 1, { name: "No Files Show" }, { files: false });
     for (const [show, finishedCount] of [[done, 2], [going, 1]] as const) {
       for (const [i, ep] of show.episodes.entries()) {
+        await db.delete(mediaFiles).where(eq(mediaFiles.ownerId, ep.id));
         await db.insert(mediaFiles).values({ ownerKind: "episode", ownerId: ep.id, partIndex: 0, boxFileId: `uw${ep.id}`, filename: "e.mp4", sizeBytes: 1, container: "mp4", probeStatus: "ok", durationSeconds: 100 });
         if (i < finishedCount) await db.insert(watchState).values({ viewerId: w.member.viewer.id, ownerKind: "episode", ownerId: ep.id, positionSeconds: 100, durationSeconds: 100, finished: true });
       }
     }
     expect(noFiles.show.id).toBeTruthy();
     expect(await w.names({ unwatched: true }, w.shows.id)).toEqual(["Going Show"]);
-    expect(await w.names({}, w.shows.id)).toEqual(["Done Show", "Going Show", "No Files Show"]);
+    expect(await w.names({}, w.shows.id)).toEqual(["Done Show", "Going Show"]); // a show with nothing to play is not listed at all
   });
   it("is about this profile only", async () => {
     const w = await world();

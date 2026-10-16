@@ -41,7 +41,7 @@ vi.mock("@/lib/auth/guards", async () => {
 vi.mock("@/lib/supabase/server", () => ({ createSupabaseServerClient: async () => ({ auth: { signOut: async () => void h.signedOut++ } }) }));
 
 import { episodes, libraryMembers, profiles, seasons, viewers, watchState } from "@/lib/db/schema";
-import { joinServer, makeAccount, makeLibrary, makeServer, makeShow, makeTitle, type TestDb } from "@/lib/playlists/test-db";
+import { joinServer, makeAccount, makeLibrary, makeServer, makeShow, makeTitle, type TestDb, autoFiles } from "@/lib/playlists/test-db";
 import { VIEWER_COOKIE } from "@/lib/viewers/cookie";
 import { hashPin } from "@/lib/viewers/pin";
 import { GET as front } from "./route";
@@ -53,6 +53,8 @@ import { GET as title } from "./s/[serverId]/title/[id]/route";
 import { GET as show } from "./s/[serverId]/show/[id]/route";
 import { GET as watch } from "./s/[serverId]/watch/[kind]/[id]/route";
 
+
+autoFiles();
 let db: TestDb;
 beforeAll(() => {
   vi.stubEnv("TOKEN_ENCRYPTION_KEY", Buffer.alloc(32, 7).toString("base64"));

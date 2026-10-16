@@ -18,9 +18,10 @@ import {
   makeShow,
   makeTitle,
   makeViewer,
-  type TestDb,
-} from "./test-db";
+  type TestDb, autoFiles } from "./test-db";
 
+
+autoFiles();
 let db: TestDb;
 let close: () => Promise<void>;
 beforeAll(async () => {
@@ -384,7 +385,7 @@ describe("listVisibleItems playable flag and listEditablePlaylistsForItem", () =
   it("marks a show with nothing playable as not playable", async () => {
     const { owner, server, library } = await world();
     const p = await makePlaylist(db, { serverId: server.id, ownerViewerId: owner.viewer.id });
-    const { show: empty } = await makeShow(db, library.id, 1);
+    const { show: empty } = await makeShow(db, library.id, 1, {}, { files: false });
     const { show: playable, episodes: [ep] } = await makeShow(db, library.id, 1);
     await addEpisodeFile(db, ep.id);
     await seedItem(db, p.id, { titleId: empty.id }, 1024);

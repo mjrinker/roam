@@ -4,8 +4,10 @@ import { folderLink, folderPlayableIds, folderTrail, listFolder, normalizeFolder
 import { naturalSortKey } from "./sort-key";
 import { listAudioGroups, UNKNOWN_GROUP } from "./audio-groups";
 import type { LibraryActor } from "@/lib/content/library-access";
-import { createTestDb, joinServer, makeAccount, makeLibrary, makeServer, makeTitle, type TestDb } from "@/lib/playlists/test-db";
+import { createTestDb, joinServer, makeAccount, makeLibrary, makeServer, makeTitle, type TestDb, autoFiles } from "@/lib/playlists/test-db";
 
+
+autoFiles();
 let db: TestDb;
 let close: () => Promise<void>;
 beforeAll(async () => {

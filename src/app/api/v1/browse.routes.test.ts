@@ -16,9 +16,9 @@ vi.mock("next/headers", () => ({
 }));
 vi.mock("@/lib/supabase/server", () => ({ createSupabaseServerClient: async () => ({ auth: { getUser: async () => ({ data: { user: null } }) } }) }));
 
-import { eq } from "drizzle-orm";
+import { eq, inArray } from "drizzle-orm";
 import { libraryMembers, mediaFiles, titles, viewers, watchState } from "@/lib/db/schema";
-import { joinServer, makeAccount, makeLibrary, makeServer, makeShow, makeTitle, type TestDb } from "@/lib/playlists/test-db";
+import { joinServer, makeAccount, makeLibrary, makeServer, makeShow, makeTitle, type TestDb, autoFiles } from "@/lib/playlists/test-db";
 import { createDeviceToken, setTokenProfile } from "@/lib/auth/device-token";
 import { saveSettings } from "@/lib/ownership/owners";
 import { GET as servers } from "./servers/route";
@@ -28,6 +28,8 @@ import { GET as items } from "./servers/[serverId]/libraries/[libraryId]/items/r
 import { GET as detail } from "./servers/[serverId]/titles/[id]/route";
 import { GET as search } from "./servers/[serverId]/search/route";
 
+
+autoFiles();
 let db: TestDb;
 beforeAll(async () => {
   vi.stubEnv("TOKEN_ENCRYPTION_KEY", Buffer.alloc(32, 7).toString("base64"));
@@ -145,6 +147,7 @@ describe("listing", () => {
 
   it("offers the next episode of a show being watched as up next", async () => {
     const w = await world();
+    for (const e of w.episodes) await db.delete(mediaFiles).where(eq(mediaFiles.ownerId, e.id));
     for (const e of w.episodes) await db.insert(mediaFiles).values({ ownerKind: "episode", ownerId: e.id, partIndex: 0, boxFileId: `up${++n}`, filename: "e.mp4", sizeBytes: 1, container: "mp4", probeStatus: "ok", durationSeconds: 1000 });
     await db.insert(watchState).values({ viewerId: w.member.viewer.id, ownerKind: "episode", ownerId: w.episodes[0].id, positionSeconds: 1000, durationSeconds: 1000, finished: true });
     const body = await json(await home(req(), ctx(w.sid)));
@@ -157,6 +160,7 @@ describe("listing", () => {
     const { ratings } = await import("@/lib/db/schema");
     await db.update(titles).set({ genres: ["Drama"] }).where(eq(titles.id, w.film.id));
     const like = await makeTitle(db, w.movies.id, { kind: "movie", name: "Another Drama", year: 2003, genres: ["Drama"] });
+    await db.delete(mediaFiles).where(inArray(mediaFiles.ownerId, [w.film.id, like.id]));
     await db.insert(mediaFiles).values([w.film.id, like.id].map((ownerId) => ({ ownerKind: "title" as const, ownerId, partIndex: 0, boxFileId: `rec${++n}${ownerId}`, filename: "f.mp4", sizeBytes: 1, container: "mp4", probeStatus: "ok" as const, durationSeconds: 100 })));
     expect((await json(await home(req(), ctx(w.sid)))).recommended).toEqual([]);
     await db.insert(ratings).values({ viewerId: w.member.viewer.id, ownerKind: "title", ownerId: w.film.id, halfStars: 10 });
@@ -177,6 +181,7 @@ describe("listing", () => {
 describe("a title", () => {
   it("is a movie with where you left off, how to play it, chapters, a parental guide and extras", async () => {
     const w = await world();
+    await db.delete(mediaFiles).where(eq(mediaFiles.ownerId, w.film.id));
     await db.insert(mediaFiles).values({ ownerKind: "title", ownerId: w.film.id, partIndex: 0, boxFileId: `b${++n}`, filename: "f.mp4", sizeBytes: 1, container: "mp4", probeStatus: "ok", durationSeconds: 5400, chapters: [{ title: "One", startSeconds: 0 }, { title: "Two", startSeconds: 2000 }], contentCues: [{ startSeconds: 10, endSeconds: 30, category: "violence", severity: "high", channel: "both" }] });
     await db.update(viewers).set({ contentFilter: { violence: "medium" } }).where(eq(viewers.id, w.member.viewer.id));
     await db.insert(watchState).values({ viewerId: w.member.viewer.id, ownerKind: "title", ownerId: w.film.id, positionSeconds: 1800, durationSeconds: 5400 });

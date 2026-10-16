@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { hasPlayableFile } from "@/lib/content/playable";
 import { libraryOwnership } from "@/lib/ownership/view";
 import { and, asc, count, eq, inArray, isNotNull, max, ne, sum } from "drizzle-orm";
 import { describeVersions } from "@/lib/player/versions";
@@ -258,7 +259,7 @@ export default async function LibraryDetailPage({
   const libraryTitles = await db
     .select()
     .from(titles)
-    .where(and(eq(titles.libraryId, libraryId), contentFilter(viewer, titles.ratingAges)))
+    .where(and(eq(titles.libraryId, libraryId), contentFilter(viewer, titles.ratingAges), hasPlayableFile(titles.id, titles.kind)))
     .orderBy(asc(titles.name));
 
   // Per-profile watch progress and "still processing" flags — for titles that

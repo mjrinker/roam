@@ -4,9 +4,11 @@ import { eq } from "drizzle-orm";
 import { episodes, libraryMembers, seasons, watchState } from "@/lib/db/schema";
 import type { AccessProfile } from "@/lib/content/access";
 import type { LibraryActor } from "@/lib/content/library-access";
-import { createTestDb, joinServer, makeAccount, makeLibrary, makeServer, makeShow, makeTitle, type TestDb } from "@/lib/playlists/test-db";
+import { createTestDb, joinServer, makeAccount, makeLibrary, makeServer, makeShow, makeTitle, type TestDb, autoFiles } from "@/lib/playlists/test-db";
 import { PAGE_SIZE, continueWatching, libraryTitles, movieDetail, showDetail, tvLibraries, watchInfo, type TvScope } from "./data";
 
+
+autoFiles();
 let db: TestDb;
 let close: () => Promise<void>;
 beforeAll(async () => {

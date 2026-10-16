@@ -70,26 +70,38 @@ export async function makeLibrary(
   return library;
 }
 
+const fileDefaults = { on: false };
+/** Turns on (for the rest of this test file) giving every movie, book and episode made a file to play; a title with none is then `{ files: false }`. */
+export function autoFiles(on = true) {
+  fileDefaults.on = on;
+}
+
 export async function makeTitle(
   db: TestDb,
   libraryId: string,
-  over: Partial<typeof schema.titles.$inferInsert> = {}
+  over: Partial<typeof schema.titles.$inferInsert> = {},
+  /** `files` says whether the movie or book gets a file to play, as a scanned one does; unset follows `autoFiles` (off unless a test file turns it on). */
+  opts: { files?: boolean } = {}
 ) {
   const [title] = await db
     .insert(schema.titles)
     .values({ libraryId, kind: "movie", name: slug(), boxFolderId: slug(), ...over })
     .returning();
+  if ((opts.files ?? fileDefaults.on) && (title.kind === "movie" || title.kind === "audiobook")) {
+    await db.insert(schema.mediaFiles).values({ ownerKind: "title", ownerId: title.id, boxFileId: slug(), filename: `${slug()}.mp4` });
+  }
   return title;
 }
 
 /** A show with `episodeCount` episodes in season 1. */
-export async function makeShow(db: TestDb, libraryId: string, episodeCount = 2, over: Partial<typeof schema.titles.$inferInsert> = {}) {
-  const show = await makeTitle(db, libraryId, { kind: "show", ...over });
+export async function makeShow(db: TestDb, libraryId: string, episodeCount = 2, over: Partial<typeof schema.titles.$inferInsert> = {}, opts: { files?: boolean } = {}) {
+  const show = await makeTitle(db, libraryId, { kind: "show", ...over }, opts);
   const [season] = await db.insert(schema.seasons).values({ titleId: show.id, number: 1, boxFolderId: slug() }).returning();
   const eps = [];
   for (let n = 1; n <= episodeCount; n++) {
     const [ep] = await db.insert(schema.episodes).values({ seasonId: season.id, number: n, name: `Ep ${n}` }).returning();
     eps.push(ep);
+    if (opts.files ?? fileDefaults.on) await db.insert(schema.mediaFiles).values({ ownerKind: "episode", ownerId: ep.id, boxFileId: slug(), filename: `${slug()}.mp4` });
   }
   return { show, season, episodes: eps };
 }
@@ -129,7 +141,7 @@ export async function addItem(
 }
 
 export async function addEpisodeFile(db: TestDb, episodeId: string) {
-  await db.insert(schema.mediaFiles).values({ ownerKind: "episode", ownerId: episodeId, boxFileId: slug(), filename: `${slug()}.mp4` });
+  await db.insert(schema.mediaFiles).values({ ownerKind: "episode", ownerId: episodeId, boxFileId: slug(), filename: `${slug()}.mp4` }).onConflictDoNothing();
 }
 
 export async function setProgress(

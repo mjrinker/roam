@@ -24,11 +24,13 @@ vi.mock("@/lib/tmdb/cache", () => ({
   },
 }));
 
-import { joinServer, makeAccount, makeLibrary, makeServer, makeTitle, type TestDb } from "@/lib/playlists/test-db";
+import { joinServer, makeAccount, makeLibrary, makeServer, makeTitle, type TestDb, autoFiles } from "@/lib/playlists/test-db";
 import { backfillCollections, syncSeriesCollections } from "./sync";
 import { collectionsOfTitle, getCollection, listCollections } from "./queries";
 import { addToCollection, cleanName, createCollection, deleteCollection, removeFromCollection, renameCollection } from "./service";
 
+
+autoFiles();
 let db: TestDb;
 beforeAll(async () => {
   await import("@/lib/db/client");

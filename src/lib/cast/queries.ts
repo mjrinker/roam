@@ -1,4 +1,5 @@
 import { and, asc, eq, inArray, sql, type SQL } from "drizzle-orm";
+import { hasPlayableFile } from "@/lib/content/playable";
 import type { PgDatabase, PgQueryResultHKT } from "drizzle-orm/pg-core";
 import { contentFilter, type AccessProfile } from "@/lib/content/access";
 import { libraryVisible, type LibraryActor } from "@/lib/content/library-access";
@@ -67,7 +68,7 @@ export interface PersonPage {
 
 /** A person and their movies and shows on this server, or null when none of them is one this actor and viewer can see. */
 export async function loadPersonPage(ex: Db, actor: LibraryActor, viewer: AccessProfile, personId: number): Promise<PersonPage | null> {
-  const base = (visible: SQL | undefined) => and(inArray(titles.kind, ["movie", "show"]), libraryVisible(ex, actor), contentFilter(viewer, titles.ratingAges), visible);
+  const base = (visible: SQL | undefined) => and(inArray(titles.kind, ["movie", "show"]), libraryVisible(ex, actor), contentFilter(viewer, titles.ratingAges), hasPlayableFile(titles.id, titles.kind), visible);
   const title = { id: titles.id, kind: titles.kind, name: titles.name, year: titles.year, posterUrl: titles.posterUrl };
   const acting = await ex
     .select({ ...title, personName: tmdbCast.name, photoUrl: tmdbCast.photoUrl, character: tmdbCast.character })

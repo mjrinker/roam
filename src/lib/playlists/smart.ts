@@ -4,6 +4,7 @@
  * (so playing, queueing, sharing and the apps all work as for any playlist), brought up to date whenever the playlist is opened after a while.
  * Nobody edits the items of a smart playlist by hand; change the rules instead.
  */
+import { hasPlayableFile } from "@/lib/content/playable";
 import { and, eq, inArray, isNotNull, sql, type SQL } from "drizzle-orm";
 import { z } from "zod";
 import type { LibraryKind } from "@/lib/db/schema";
@@ -453,6 +454,7 @@ async function titleEntries(ex: Executor, rules: SmartRules, group: "movies" | "
         kindCondition,
         libraryVisible(ex, a.actor),
         contentFilter(a.viewer, titles.ratingAges),
+        hasPlayableFile(titles.id, titles.kind),
         rules.libraryIds.length ? inArray(titles.libraryId, rules.libraryIds) : undefined,
         genreCondition(rules.genres, sql`${titles.genres}`) ?? undefined,
         rules.yearFrom !== null ? sql`${titles.year} >= ${rules.yearFrom}` : undefined,

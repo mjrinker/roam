@@ -3,6 +3,7 @@
  * the series name, genre = the genres list). A group is named by its text, compared ignoring case and edge spaces; songs with none
  * fall into one "Unknown" group. Pure grouping first, then the query that feeds it.
  */
+import { hasPlayableFile } from "@/lib/content/playable";
 import { and, asc, eq, sql, type SQL } from "drizzle-orm";
 import type { PgDatabase, PgQueryResultHKT } from "drizzle-orm/pg-core";
 import { contentFilter, type AccessProfile } from "@/lib/content/access";
@@ -105,7 +106,7 @@ export async function listAudioGroups(
     .select({ id: titles.id, authors: titles.authors, seriesName: titles.seriesName, genres: titles.genres, posterUrl: titles.posterUrl })
     .from(titles)
     .innerJoin(libraries, eq(libraries.id, titles.libraryId))
-    .where(and(eq(titles.libraryId, args.libraryId), eq(titles.kind, "audiobook"), libraryVisible(ex, args.actor), contentFilter(args.viewer, titles.ratingAges)))
+    .where(and(eq(titles.libraryId, args.libraryId), eq(titles.kind, "audiobook"), libraryVisible(ex, args.actor), contentFilter(args.viewer, titles.ratingAges), hasPlayableFile(titles.id, titles.kind)))
     .orderBy(asc(titles.id))
     .limit(MAX_ROWS);
   const all = groupSongs(rows, args.kind);

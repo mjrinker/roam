@@ -4,12 +4,14 @@ import { eq, inArray } from "drizzle-orm";
 import { musicAlbums, musicArtists, titles, watchState } from "@/lib/db/schema";
 import type { AccessProfile } from "@/lib/content/access";
 import type { LibraryActor } from "@/lib/content/library-access";
-import { createTestDb, joinServer, makeAccount, makeLibrary, makeServer, makeTitle, type TestDb } from "@/lib/playlists/test-db";
+import { createTestDb, joinServer, makeAccount, makeLibrary, makeServer, makeTitle, type TestDb, autoFiles } from "@/lib/playlists/test-db";
 import { photoFavorites } from "@/lib/db/schema";
 import { artistSongs, randomPhotoId } from "./data";
 import { shuffled } from "./shuffle";
 import { bookDetail, gridCursorAt, recentlyAdded, continueWatching, folderLevel, listenInfo, parseFolderCursor, photoPage, photoView, tvLibrary, watchInfo, TV_FOLDER_PAGE, type TvScope } from "./data";
 
+
+autoFiles();
 let db: TestDb;
 let close: () => Promise<void>;
 beforeAll(async () => {

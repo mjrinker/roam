@@ -4,6 +4,7 @@
  * does not exist (the callers answer the same "not found"). Movies and TV shows only for now; other kinds of library are counted
  * so the home screen can say they are not on TV yet.
  */
+import { hasPlayableFile } from "@/lib/content/playable";
 import { and, asc, desc, eq, gt, inArray, sql } from "drizzle-orm";
 import type { PgDatabase, PgQueryResultHKT } from "drizzle-orm/pg-core";
 import { contentFilter, type AccessProfile } from "@/lib/content/access";
@@ -155,7 +156,7 @@ export interface ListedTitle {
 
 /** The conditions a library list is narrowed by (on top of who may see what). */
 function libraryConditions(ex: Db, scope: TvScope, libraryId: string, o: LibraryOptions, ownershipOn: boolean, withGenre = true, grouped = false) {
-  const conditions = [eq(titles.libraryId, libraryId), inArray(titles.kind, ["movie", "show", "audiobook"]), contentFilter(scope.viewer, titles.ratingAges)];
+  const conditions = [eq(titles.libraryId, libraryId), inArray(titles.kind, ["movie", "show", "audiobook"]), contentFilter(scope.viewer, titles.ratingAges), hasPlayableFile(titles.id, titles.kind)];
   if (withGenre && o.genre) conditions.push(sql`${titles.genres} @> ${JSON.stringify([o.genre])}::jsonb`);
   if (o.unwatched) {
     const v = scope.viewerId;
@@ -171,7 +172,7 @@ function libraryConditions(ex: Db, scope: TvScope, libraryId: string, o: Library
   else if (ownershipOn && o.owner) conditions.push(sql`EXISTS (SELECT 1 FROM title_owners o WHERE o.title_id = ${titles.id} AND o.account_id = ${o.owner})`);
   // A title that sits in a collection shown as a tile is left out of the list itself.
   if (grouped) {
-    const seen = contentFilter(scope.viewer, sql`t2.rating_ages`) ?? sql`true`;
+    const seen = and(contentFilter(scope.viewer, sql`t2.rating_ages`), hasPlayableFile(sql`t2.id`, sql`t2.kind`)) ?? sql`true`;
     conditions.push(sql`NOT EXISTS (SELECT 1 FROM collection_items ci JOIN collections c ON c.id = ci.collection_id WHERE ci.title_id = ${titles.id} AND (SELECT count(*) FROM collection_items i2 JOIN titles t2 ON t2.id = i2.title_id WHERE i2.collection_id = c.id AND ${seen}) >= (CASE WHEN c.kind = 'tmdb' THEN ${SERIES_MIN} ELSE 1 END))`);
   }
   void ex;
@@ -500,7 +501,7 @@ export async function recentlyAdded(ex: Db, scope: TvScope, limit = 12): Promise
     .select({ id: titles.id, kind: titles.kind, name: titles.name, year: titles.year, posterUrl: titles.posterUrl, authors: titles.authors, libraryKind: libraries.kind })
     .from(titles)
     .innerJoin(libraries, eq(titles.libraryId, libraries.id))
-    .where(and(inArray(libraries.kind, [...kinds]), inArray(titles.kind, ["movie", "show", "audiobook"]), libraryVisible(ex, scope.actor), contentFilter(scope.viewer, titles.ratingAges)))
+    .where(and(inArray(libraries.kind, [...kinds]), inArray(titles.kind, ["movie", "show", "audiobook"]), libraryVisible(ex, scope.actor), contentFilter(scope.viewer, titles.ratingAges), hasPlayableFile(titles.id, titles.kind)))
     .orderBy(desc(titles.addedAt), asc(titles.id))
     .limit(limit);
   return rows.map((r) => ({

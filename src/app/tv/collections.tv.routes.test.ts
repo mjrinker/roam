@@ -41,7 +41,7 @@ vi.mock("@/lib/auth/guards", async () => {
 vi.mock("@/lib/supabase/server", () => ({ createSupabaseServerClient: async () => ({ auth: { signOut: async () => void h.signedOut++ } }) }));
 
 import { profiles, viewers } from "@/lib/db/schema";
-import { joinServer, makeAccount, makeLibrary, makeServer, makeTitle, type TestDb } from "@/lib/playlists/test-db";
+import { joinServer, makeAccount, makeLibrary, makeServer, makeTitle, type TestDb, autoFiles } from "@/lib/playlists/test-db";
 
 
 import { GET as library } from "./s/[serverId]/library/[id]/route";
@@ -51,6 +51,8 @@ import { syncSeriesCollections } from "@/lib/collections/sync";
 import { collections } from "@/lib/db/schema";
 import { GET as titlePage } from "./s/[serverId]/title/[id]/route";
 
+
+autoFiles();
 let db: TestDb;
 beforeAll(() => { db = h.testDb.db; });
 beforeEach(() => { h.resolution = null; h.profile = null; h.jar.clear(); });

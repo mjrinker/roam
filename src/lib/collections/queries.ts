@@ -1,4 +1,5 @@
 /** Reading collections: only those in a library the profile can see, and only the titles its age limit allows. */
+import { hasPlayableFile } from "@/lib/content/playable";
 import { and, asc, eq, sql } from "drizzle-orm";
 import type { PgDatabase, PgQueryResultHKT } from "drizzle-orm/pg-core";
 import { collectionItems, collections, libraries, titles } from "@/lib/db/schema";
@@ -43,7 +44,7 @@ export async function listCollections(ex: Db, args: { actor: LibraryActor; viewe
     .from(collections)
     .innerJoin(libraries, eq(libraries.id, collections.libraryId))
     .innerJoin(collectionItems, eq(collectionItems.collectionId, collections.id))
-    .innerJoin(titles, and(eq(titles.id, collectionItems.titleId), contentFilter(args.viewer, titles.ratingAges)))
+    .innerJoin(titles, and(eq(titles.id, collectionItems.titleId), contentFilter(args.viewer, titles.ratingAges), hasPlayableFile(titles.id, titles.kind)))
     .where(and(eq(collections.libraryId, args.libraryId), libraryVisible(ex, args.actor)))
     .groupBy(collections.id)
     .having(sql`count(${titles.id}) >= (CASE WHEN ${collections.kind} = 'tmdb' THEN ${SERIES_MIN} ELSE 1 END)`)
@@ -63,7 +64,7 @@ export async function getCollection(ex: Db, args: { actor: LibraryActor; viewer:
   const items = await ex
     .select({ id: titles.id, kind: titles.kind, name: titles.name, year: titles.year, posterUrl: titles.posterUrl })
     .from(collectionItems)
-    .innerJoin(titles, and(eq(titles.id, collectionItems.titleId), contentFilter(args.viewer, titles.ratingAges)))
+    .innerJoin(titles, and(eq(titles.id, collectionItems.titleId), contentFilter(args.viewer, titles.ratingAges), hasPlayableFile(titles.id, titles.kind)))
     .where(eq(collectionItems.collectionId, c.id))
     .orderBy(...(c.kind === "tmdb" ? [sql`${titles.year} ASC NULLS LAST`, sql`lower(${titles.name})`] : [asc(collectionItems.position), asc(collectionItems.addedAt)]));
   if (items.length === 0) return null;
@@ -73,7 +74,7 @@ export async function getCollection(ex: Db, args: { actor: LibraryActor; viewer:
 /** The collections this profile can see that hold a title (for "Part of …" on its page). */
 export async function collectionsOfTitle(ex: Db, args: { actor: LibraryActor; viewer: AccessProfile; titleId: string }): Promise<{ id: string; name: string }[]> {
   const rows = await ex
-    .select({ id: collections.id, name: collections.name, kind: collections.kind, visible: sql<number>`(SELECT count(*) FROM collection_items i2 JOIN titles t2 ON t2.id = i2.title_id WHERE i2.collection_id = ${collections.id} AND ${contentFilter(args.viewer, sql`t2.rating_ages`) ?? sql`true`})::int` })
+    .select({ id: collections.id, name: collections.name, kind: collections.kind, visible: sql<number>`(SELECT count(*) FROM collection_items i2 JOIN titles t2 ON t2.id = i2.title_id WHERE i2.collection_id = ${collections.id} AND ${and(contentFilter(args.viewer, sql`t2.rating_ages`), hasPlayableFile(sql`t2.id`, sql`t2.kind`)) ?? sql`true`})::int` })
     .from(collectionItems)
     .innerJoin(collections, eq(collections.id, collectionItems.collectionId))
     .innerJoin(libraries, eq(libraries.id, collections.libraryId))
@@ -114,7 +115,7 @@ export async function collectionIndex(ex: Db, args: { actor: LibraryActor; viewe
   const rows = await ex
     .select({ collectionId: collectionItems.collectionId, titleId: collectionItems.titleId })
     .from(collectionItems)
-    .innerJoin(titles, and(eq(titles.id, collectionItems.titleId), contentFilter(args.viewer, titles.ratingAges)))
+    .innerJoin(titles, and(eq(titles.id, collectionItems.titleId), contentFilter(args.viewer, titles.ratingAges), hasPlayableFile(titles.id, titles.kind)))
     .where(sql`${collectionItems.collectionId} IN (${sql.join(cards.map((c) => sql`${c.id}`), sql`, `)})`);
   const byTitle: Record<string, string> = {};
   for (const r of rows) {

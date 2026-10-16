@@ -47,7 +47,7 @@ vi.mock("@/lib/auth/guards", async () => {
 vi.mock("@/lib/supabase/server", () => ({ createSupabaseServerClient: async () => ({ auth: { signOut: async () => void h.signedOut++ } }) }));
 
 import { episodes as episodesTable, musicAlbums, musicArtists, photoFavorites, profiles, seasons as seasonsTable, viewers, watchState } from "@/lib/db/schema";
-import { addMember, addEpisodeFile, addItem, joinServer, makeAccount, makeLibrary, makePlaylist, makeServer, makeShow, makeTitle, type TestDb } from "@/lib/playlists/test-db";
+import { addMember, addEpisodeFile, addItem, joinServer, makeAccount, makeLibrary, makePlaylist, makeServer, makeShow, makeTitle, type TestDb, autoFiles } from "@/lib/playlists/test-db";
 import { GET as home } from "./s/[serverId]/route";
 import { GET as library } from "./s/[serverId]/library/[id]/route";
 import { GET as book } from "./s/[serverId]/book/[id]/route";
@@ -68,6 +68,8 @@ import { GET as show } from "./s/[serverId]/show/[id]/route";
 import { GET as addGet, POST as addPost } from "./s/[serverId]/add/route";
 import { GET as playlistPlay } from "./s/[serverId]/playlist/[id]/play/route";
 
+
+autoFiles();
 let db: TestDb;
 beforeAll(() => {
   vi.stubEnv("TOKEN_ENCRYPTION_KEY", Buffer.alloc(32, 7).toString("base64"));

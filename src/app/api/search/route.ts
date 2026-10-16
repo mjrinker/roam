@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { hasPlayableFile } from "@/lib/content/playable";
 import { z } from "zod";
 import { asc, desc, eq, ilike, inArray, and, or, sql } from "drizzle-orm";
 import { db } from "@/lib/db/client";
@@ -67,7 +68,8 @@ export async function GET(request: Request) {
           ilike(titles.folderAuthor, `%${escaped}%`),
           sql`${titles.authors}::text ilike ${`%${escaped}%`}`
         ),
-        contentFilter(member.viewer, titles.ratingAges)
+        contentFilter(member.viewer, titles.ratingAges),
+        hasPlayableFile(titles.id, titles.kind)
       )
     )
     // Titles that START with the query first, then alphabetical.

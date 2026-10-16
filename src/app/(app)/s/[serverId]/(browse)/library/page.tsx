@@ -1,4 +1,5 @@
 import { listWatchlist } from "@/lib/watchlist/queries";
+import { hasPlayableFile } from "@/lib/content/playable";
 import Link from "next/link";
 import { and, asc, desc, eq, exists, inArray, or } from "drizzle-orm";
 import { FolderPlus, Library } from "lucide-react";
@@ -209,7 +210,7 @@ export default async function LibraryHomePage({
       items: await db
         .select()
         .from(titles)
-        .where(and(eq(titles.libraryId, library.id), contentFilter(viewer, titles.ratingAges)))
+        .where(and(eq(titles.libraryId, library.id), contentFilter(viewer, titles.ratingAges), hasPlayableFile(titles.id, titles.kind)))
         .orderBy(desc(titles.addedAt))
         .limit(RECENTLY_ADDED_LIMIT),
     }))

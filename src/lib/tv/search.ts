@@ -1,4 +1,5 @@
 /** Searching from a TV: the same rules as the web search box (sharing, age limit), over the libraries the TV can show, plus albums and artists. */
+import { hasPlayableFile } from "@/lib/content/playable";
 import { and, asc, desc, eq, ilike, inArray, or, sql } from "drizzle-orm";
 import type { PgDatabase, PgQueryResultHKT } from "drizzle-orm/pg-core";
 import { contentFilter } from "@/lib/content/access";
@@ -43,7 +44,8 @@ export async function tvSearch(ex: Db, scope: TvScope, rawQuery: string): Promis
         inArray(titles.kind, ["movie", "show", "audiobook"]),
         libraryVisible(ex, scope.actor),
         or(ilike(titles.name, pattern), ilike(titles.folderAuthor, pattern), sql`${titles.authors}::text ilike ${pattern}`),
-        contentFilter(scope.viewer, titles.ratingAges)
+        contentFilter(scope.viewer, titles.ratingAges),
+        hasPlayableFile(titles.id, titles.kind)
       )
     )
     .orderBy(desc(sql`${titles.name} ilike ${likeEscape(q) + "%"}`), asc(titles.name), asc(titles.id))

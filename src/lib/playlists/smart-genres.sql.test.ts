@@ -1,7 +1,9 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { createTestDb, joinServer, makeAccount, makeLibrary, makeServer, makeTitle, type TestDb } from "./test-db";
+import { createTestDb, joinServer, makeAccount, makeLibrary, makeServer, makeTitle, type TestDb, autoFiles } from "./test-db";
 import { visibleGenres, visibleSmartLibraries } from "./smart-genres";
 
+
+autoFiles();
 let db: TestDb;
 let close: () => Promise<void>;
 beforeAll(async () => {

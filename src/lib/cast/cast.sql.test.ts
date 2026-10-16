@@ -30,8 +30,10 @@ import { backfillCast } from "@/lib/content/cast-backfill";
 import { refreshEntry } from "@/lib/tmdb/cache";
 import { loadPersonPage, loadTitleCast, loadTitleCrew } from "./queries";
 import { loadPersonInfo, serverHasKeys } from "./person-info";
-import { joinServer, makeAccount, makeLibrary, makeServer, makeTitle, type TestDb } from "@/lib/playlists/test-db";
+import { joinServer, makeAccount, makeLibrary, makeServer, makeShow, makeTitle, type TestDb, autoFiles } from "@/lib/playlists/test-db";
 
+
+autoFiles();
 let db: TestDb;
 beforeAll(() => {
   db = h.testDb.db;
@@ -108,7 +110,7 @@ describe("a person's page", () => {
     const w = await world();
     const a = await w.movie("Older", { year: 1999 });
     const b = await w.movie("Newer", { year: 2015 });
-    const s = await makeTitle(db, w.lib.id, { kind: "show", name: "Series", year: 2008, tmdbId: ++tmdb, ratingAges: { ANY: 0 } });
+    const s = (await makeShow(db, w.lib.id, 1, { name: "Series", year: 2008, tmdbId: ++tmdb, ratingAges: { ANY: 0 } })).show;
     const other = await w.movie("Without Them");
     await cast(a, [77, "Pat Actor", "Young Pat"]);
     await cast(b, [77, "Pat Actor", "Old Pat"], [78, "Someone Else", null]);

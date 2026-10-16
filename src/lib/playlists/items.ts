@@ -12,6 +12,7 @@ import { alias } from "drizzle-orm/pg-core";
 import { contentFilter, type AccessProfile } from "@/lib/content/access";
 import { libraryVisible, type LibraryActor } from "@/lib/content/library-access";
 import { episodes, libraries, mediaFiles, playlistItems, seasons, titles } from "@/lib/db/schema";
+import { hasPlayableFile } from "@/lib/content/playable";
 import type { Executor } from "./executor";
 import { POSITION_GAP } from "./position";
 
@@ -106,7 +107,7 @@ export async function listVisibleItems(
       episodeName: episodes.name,
       showName: showTitles.name,
       showId: showTitles.id,
-      playable: sql<boolean>`(${playlistItems.episodeId} IS NOT NULL OR ${titles.kind} <> 'show' OR ${hasCandidateEpisodes(ex, titles.id)})`,
+      playable: sql<boolean>`(${playlistItems.episodeId} IS NOT NULL OR ${hasPlayableFile(titles.id, titles.kind)})`,
     })
     .from(playlistItems)
     .leftJoin(titles, eq(titles.id, playlistItems.titleId))

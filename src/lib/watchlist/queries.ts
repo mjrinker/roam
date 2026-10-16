@@ -1,4 +1,5 @@
 /** Reading a profile's watch list, and taking finished things off it. Pure queries (they take the database), so mark.ts and the pages can use them. */
+import { hasPlayableFile } from "@/lib/content/playable";
 import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import type { PgDatabase, PgQueryResultHKT } from "drizzle-orm/pg-core";
 import { libraries, titles, watchlistItems } from "@/lib/db/schema";
@@ -31,7 +32,7 @@ export async function listWatchlist(ex: Db, args: { actor: LibraryActor; viewer:
     .from(watchlistItems)
     .innerJoin(titles, eq(titles.id, watchlistItems.titleId))
     .innerJoin(libraries, eq(libraries.id, titles.libraryId))
-    .where(and(eq(watchlistItems.viewerId, args.viewerId), eq(libraries.serverId, args.serverId), libraryVisible(ex, args.actor), contentFilter(args.viewer, titles.ratingAges)))
+    .where(and(eq(watchlistItems.viewerId, args.viewerId), eq(libraries.serverId, args.serverId), libraryVisible(ex, args.actor), contentFilter(args.viewer, titles.ratingAges), hasPlayableFile(titles.id, titles.kind)))
     .orderBy(desc(watchlistItems.addedAt), sql`lower(${titles.name})`)
     .limit(args.limit ?? 500);
   return rows.filter((r): r is typeof r & { kind: WatchlistKind } => (WATCHLIST_KINDS as readonly string[]).includes(r.kind));

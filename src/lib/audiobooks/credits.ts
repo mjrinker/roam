@@ -2,6 +2,7 @@
  * Who is credited on audiobooks: authors and narrators (a full-cast recording lists many). They are plain names, not ids, so two
  * spellings that differ only in case or spacing are the same person. Used by the book page, the Authors view and a contributor's page.
  */
+import { hasPlayableFile } from "@/lib/content/playable";
 import { and, asc, eq, sql, type SQL, type SQLWrapper } from "drizzle-orm";
 import type { PgDatabase, PgQueryResultHKT } from "drizzle-orm/pg-core";
 import { contentFilter, type AccessProfile } from "@/lib/content/access";
@@ -100,7 +101,7 @@ export async function loadContributor(ex: Db, actor: LibraryActor, viewer: Acces
     })
     .from(titles)
     .innerJoin(libraries, eq(titles.libraryId, libraries.id))
-    .where(and(eq(titles.kind, "audiobook"), eq(libraries.kind, "audiobooks"), libraryVisible(ex, actor), contentFilter(viewer, titles.ratingAges), sql`(${inList(titles.authors, key)} or ${folderMatch} or ${inList(titles.narrators, key)})`))
+    .where(and(eq(titles.kind, "audiobook"), eq(libraries.kind, "audiobooks"), libraryVisible(ex, actor), contentFilter(viewer, titles.ratingAges), hasPlayableFile(titles.id, titles.kind), sql`(${inList(titles.authors, key)} or ${folderMatch} or ${inList(titles.narrators, key)})`))
     .orderBy(asc(titles.seriesName), asc(titles.seriesPosition), asc(titles.name), asc(titles.id));
   if (rows.length === 0) return null;
   const written: ContributorBook[] = [];

@@ -18,7 +18,7 @@ vi.mock("@/lib/supabase/server", () => ({ createSupabaseServerClient: async () =
 
 import { eq } from "drizzle-orm";
 import { watchState, watchlistItems } from "@/lib/db/schema";
-import { joinServer, makeAccount, makeLibrary, makeServer, makeShow, makeTitle, type TestDb } from "@/lib/playlists/test-db";
+import { joinServer, makeAccount, makeLibrary, makeServer, makeShow, makeTitle, type TestDb, autoFiles } from "@/lib/playlists/test-db";
 import { createDeviceToken, setTokenProfile } from "@/lib/auth/device-token";
 import { onWatchlist, listWatchlist, dropFinished } from "@/lib/watchlist/queries";
 import { libraryActor } from "@/lib/content/library-access";
@@ -29,6 +29,8 @@ import { GET as v1List } from "../v1/servers/[serverId]/watchlist/route";
 import { GET as v1Title } from "../v1/servers/[serverId]/titles/[id]/route";
 import { GET as v1Home } from "../v1/servers/[serverId]/home/route";
 
+
+autoFiles();
 let db: TestDb;
 beforeAll(async () => {
   vi.stubEnv("TOKEN_ENCRYPTION_KEY", Buffer.alloc(32, 7).toString("base64"));
