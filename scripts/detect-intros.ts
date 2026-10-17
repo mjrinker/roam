@@ -17,6 +17,7 @@ import { db } from "@/lib/db/client";
 import { ensureFfmpeg } from "@/lib/remux/tier1";
 import { createStorageForServer } from "@/lib/storage/server-storage";
 import { decodeAudio } from "@/lib/intro/extract";
+import { startRangeProxy } from "@/lib/intro/proxy";
 import { seasonsToDetect, saveDetected } from "@/lib/intro/queue";
 import { detectSeasonMarks, type Listen } from "@/lib/intro/season";
 
@@ -45,19 +46,12 @@ async function main() {
     console.log(`\n${s.showName} S${s.season} (${s.episodes.length} episodes)`);
     const provider = createStorageForServer(s.serverId);
     const byId = new Map(s.episodes.map((e) => [e.id, e]));
-    // A download address is good for a while; get one when an episode is first listened to and again for its second stretch if it has expired.
-    const urls = new Map<string, { url: string; expiresAt: number }>();
-    const urlFor = async (id: string) => {
-      const have = urls.get(id);
-      if (have && have.expiresAt - Date.now() > 60_000) return have.url;
-      const fresh = await provider.getStreamingUrl(byId.get(id)!.fileId);
-      urls.set(id, { url: fresh.url, expiresAt: fresh.expiresAt.getTime() });
-      return fresh.url;
-    };
+    // ffmpeg is pointed at a small server on this computer that fetches the file from storage (the bundled ffmpeg crashes on https addresses).
+    const proxy = await startRangeProxy(async (id) => (await provider.getStreamingUrl(byId.get(id)!.fileId)).url);
     let heard = 0;
     const listen: Listen = async (id, start, seconds) => {
       try {
-        const pcm = await decodeAudio(ffmpeg, await urlFor(id), start, seconds);
+        const pcm = await decodeAudio(ffmpeg, proxy.urlFor(id), start, seconds);
         if (pcm) heard++;
         return pcm;
       } catch (e) {
@@ -66,7 +60,12 @@ async function main() {
       }
     };
     const result = await detectSeasonMarks(s.episodes.map((e) => ({ id: e.id, durationSeconds: e.durationSeconds })), listen, { kinds, concurrency: Number(arg("--concurrency") ?? 3), references: Number(arg("--references") ?? 6) });
-    if (!result) continue;
+    await proxy.close();
+    // Nothing could be heard at all (a storage problem, not a season without an opening): keep nothing, so the season is tried again.
+    if (!result || heard === 0) {
+      console.log("  Could not listen to any episode; nothing was saved.");
+      continue;
+    }
     let withIntro = 0;
     let withOutro = 0;
     for (const e of s.episodes) {
