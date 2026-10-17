@@ -5,7 +5,7 @@
  * so the home screen can say they are not on TV yet.
  */
 import { hasPlayableFile } from "@/lib/content/playable";
-import { and, asc, desc, eq, gt, inArray, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gt, inArray, isNull, sql } from "drizzle-orm";
 import type { PgDatabase, PgQueryResultHKT } from "drizzle-orm/pg-core";
 import { contentFilter, type AccessProfile } from "@/lib/content/access";
 import { libraryVisible, type LibraryActor } from "@/lib/content/library-access";
@@ -523,7 +523,7 @@ export async function randomPhotoId(ex: Db, scope: TvScope): Promise<string | nu
   const [row] = await ex
     .select({ id: titles.id })
     .from(titles)
-    .where(and(inArray(titles.libraryId, ids), eq(titles.kind, "photo"), contentFilter(scope.viewer, titles.ratingAges)))
+    .where(and(inArray(titles.libraryId, ids), eq(titles.kind, "photo"), contentFilter(scope.viewer, titles.ratingAges), isNull(titles.duplicateOf)))
     .orderBy(sql`random()`)
     .limit(1);
   return row?.id ?? null;

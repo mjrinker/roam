@@ -61,7 +61,9 @@ function visibleItems(ex: Db, args: { actor: LibraryActor; viewer: AccessProfile
     eq(titles.libraryId, args.libraryId),
     inArray(libraries.kind, [...PHOTO_LIBRARY_KINDS]),
     libraryVisible(ex, args.actor),
-    contentFilter(args.viewer, titles.ratingAges)
+    contentFilter(args.viewer, titles.ratingAges),
+    // A copy an admin hid in favour of another photo (see lib/photos/dedupe) is left out of every listing.
+    isNull(titles.duplicateOf)
   );
 }
 

@@ -430,6 +430,12 @@ export const titles = pgTable(
     // so a photo is never fed to a video tag parser.
     metaAttemptedAt: timestamp("meta_attempted_at", { withTimezone: true }),
     metaAttempts: integer("meta_attempts").notNull().default(0),
+    // Photo libraries, finding duplicates (lib/photos/dedupe): a 64-bit fingerprint of how the picture looks (16 hex digits), when it was last
+    // tried (a failed try leaves the hash empty), and, for a copy an admin chose to hide, the photo that is kept instead. Hiding changes nothing
+    // in the storage; a hidden copy is only left out of the timeline and other listings, and can be restored.
+    photoHash: text("photo_hash"),
+    photoHashAt: timestamp("photo_hash_at", { withTimezone: true }),
+    duplicateOf: uuid("duplicate_of").references((): AnyPgColumn => titles.id, { onDelete: "set null" }),
     // Music libraries: which album a track is on, and where on it. Set by the scan from the folder layout
     // (Artist / Album / track) and the file name; null for every other kind of title.
     albumId: uuid("album_id").references((): AnyPgColumn => musicAlbums.id, { onDelete: "set null" }),

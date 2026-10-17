@@ -102,6 +102,11 @@ export default async function LibraryDetailPage({
             <PhotoIcon className="size-5 text-primary" />
           </span>
           <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">{library.name}</h1>
+          {role === "admin" && viewer.role !== "limited" && (
+            <Link href={`/s/${serverId}/library/${libraryId}/duplicates`} className="ml-auto rounded-full bg-white/[0.06] px-3 py-1.5 text-xs font-medium text-muted-foreground ring-1 ring-white/10 transition hover:bg-white/10 hover:text-foreground">
+              Find duplicates
+            </Link>
+          )}
         </div>
         <div className="flex flex-wrap items-center gap-3">
           <PhotoViewTabs serverId={serverId} libraryId={libraryId} active={photoView} favoritesLabel={words.plural} />
