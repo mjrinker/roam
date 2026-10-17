@@ -14,7 +14,7 @@ import { dddTarget, serverDddAccess } from "@/lib/ddd/lookup";
 import { dddFor } from "@/lib/ddd/service";
 import { dddCues } from "@/lib/ddd/transform";
 import { skipSegmentsFor } from "@/lib/skipdb/client";
-import { SKIP_KINDS, preferOwn, skipMarksFromRows } from "@/lib/skipdb/marks";
+import { SKIP_KINDS, detectedMarksFromRows, fillDetected, preferOwn, skipMarksFromRows } from "@/lib/skipdb/marks";
 import { normalizeAutoSkip } from "@/lib/skipdb/active";
 import { shouldUseVariant } from "@/lib/player/variant-selection";
 import { describeVersions, offeredRows, pickVersion, withoutUndecodableVideo } from "@/lib/player/versions";
@@ -191,7 +191,7 @@ export async function buildPlayManifest(
       const target = await dddTarget(db, ownerKind, ownerId);
       if (target) remote = await skipSegmentsFor({ imdbId: target.lookup.imdbId, ...(target.owner.kind === "episode" ? { season: target.owner.season, episode: target.owner.episode } : {}) }, cursor);
     }
-    skipSegments = preferOwn(own, remote);
+    skipSegments = fillDetected(preferOwn(own, remote), detectedMarksFromRows(segmentRows));
   }
 
   const [existingState] = await db

@@ -73,6 +73,17 @@ export function skipMarksFromRows(rows: readonly (MarkRow & { skipMarks?: readon
   return windows.length === 0 ? [] : liftSkipMarks(new Map(rows.map((r) => [r.id, r.skipMarks])), windows);
 }
 
+/** The times found from sound, on the film's clock (same shape as skipMarksFromRows, from the detected column). */
+export function detectedMarksFromRows(rows: readonly (MarkRow & { detectedSkipMarks?: readonly SkipSegment[] | null })[]): SkipSegment[] {
+  return skipMarksFromRows(rows.map((r) => ({ ...r, skipMarks: r.detectedSkipMarks })));
+}
+
+/** Times found from the episodes' own sound fill in the kinds that neither a hand mark nor SkipDB gave, one kind at a time. */
+export function fillDetected(known: readonly SkipSegment[], detected: readonly SkipSegment[]): SkipSegment[] {
+  const kinds = new Set(known.map((m) => m.kind));
+  return [...known, ...detected.filter((m) => !kinds.has(m.kind)).map((m) => ({ ...m, source: "detected" as const }))].sort((a, b) => a.startSeconds - b.startSeconds);
+}
+
 /** Hand-marked times win over SkipDB's, one kind at a time. */
 export function preferOwn(own: readonly SkipSegment[], fromSkipdb: readonly SkipSegment[]): SkipSegment[] {
   const kinds = new Set(own.map((m) => m.kind));

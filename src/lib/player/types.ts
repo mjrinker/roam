@@ -36,7 +36,7 @@ export interface PlayManifest {
   /** Scenes this viewer has chosen not to see or hear (see lib/content-filter), on the playback clock: skipped over, or played with the sound off. */
   skips?: { startSeconds: number; endSeconds: number; action: "skip" | "mute"; categories: string[] }[];
   /** Intro, recap, credits and preview times from SkipDB, on the playback clock, for the "Skip intro" style buttons. Absent when none are known. */
-  skipSegments?: { kind: "intro" | "recap" | "outro" | "preview"; startSeconds: number; endSeconds: number; source?: "own" }[];
+  skipSegments?: { kind: "intro" | "recap" | "outro" | "preview"; startSeconds: number; endSeconds: number; source?: "own" | "detected" }[];
   /** Which parts this profile skips without being asked (the skip button pressed for it). */
   autoSkip?: Partial<Record<"intro" | "recap" | "outro" | "preview", boolean>>;
   /** Whether this viewer may mark scenes while watching (a server's admin), so the player offers the marking panel. */

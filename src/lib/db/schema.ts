@@ -701,6 +701,9 @@ export const mediaFiles = pgTable(
     languageBuiltAt: timestamp("language_built_at", { withTimezone: true }),
     // Intro, recap, credits and preview times marked by hand in Roam (they win over SkipDB's for the same kind); times from this file's start.
     skipMarks: jsonb("skip_marks").$type<{ kind: "intro" | "recap" | "outro" | "preview"; startSeconds: number; endSeconds: number }[]>(),
+    // Intro and credits times found by comparing the sound of a season's episodes (scripts/detect-intros.ts); used only where neither a hand mark nor SkipDB has one.
+    detectedSkipMarks: jsonb("detected_skip_marks").$type<{ kind: "intro" | "recap" | "outro" | "preview"; startSeconds: number; endSeconds: number }[]>(),
+    skipDetectedAt: timestamp("skip_detected_at", { withTimezone: true }),
 
     container: text("container"),
     videoCodec: text("video_codec"),

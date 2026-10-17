@@ -10,8 +10,8 @@ export interface SkipSegment {
   kind: SkipKind;
   startSeconds: number;
   endSeconds: number;
-  /** Set on a time marked by hand in Roam (so SkipDB is not credited for it). */
-  source?: "own";
+  /** Set on a time marked by hand in Roam, or found from the episodes' own sound (so SkipDB is not credited for it). */
+  source?: "own" | "detected";
 }
 
 const DEFAULT_BASE = "https://api.skipdb.tv";

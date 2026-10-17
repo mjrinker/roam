@@ -20,14 +20,14 @@ export const NEXT_FALLBACK_SECONDS = 25;
 const LEAD_SECONDS = 0.5;
 const TAIL_SECONDS = 1.5;
 
-export function activeSkipButton(segments: readonly (SkipSegment & { source?: "own" })[] | undefined, time: number, durationSeconds: number, hasNext: boolean): SkipButtonState | null {
+export function activeSkipButton(segments: readonly (SkipSegment & { source?: "own" | "detected" })[] | undefined, time: number, durationSeconds: number, hasNext: boolean): SkipButtonState | null {
   for (const s of segments ?? []) {
     if (time < s.startSeconds - LEAD_SECONDS || time >= s.endSeconds - TAIL_SECONDS) continue;
     if (s.kind === "outro") {
       // Credits: the next episode if there is one, else just past the credits.
-      return hasNext ? { kind: "outro", action: "next", label: "Next episode", fromSkipdb: s.source !== "own" } : { kind: "outro", action: "seek", label: "Skip credits", toSeconds: Math.min(s.endSeconds, Math.max(0, durationSeconds - 0.5)), fromSkipdb: s.source !== "own" };
+      return hasNext ? { kind: "outro", action: "next", label: "Next episode", fromSkipdb: s.source === undefined } : { kind: "outro", action: "seek", label: "Skip credits", toSeconds: Math.min(s.endSeconds, Math.max(0, durationSeconds - 0.5)), fromSkipdb: s.source === undefined };
     }
-    return { kind: s.kind, action: "seek", label: LABEL[s.kind], toSeconds: s.endSeconds, fromSkipdb: s.source !== "own" };
+    return { kind: s.kind, action: "seek", label: LABEL[s.kind], toSeconds: s.endSeconds, fromSkipdb: s.source === undefined };
   }
   // No credits segment known, but there is a next episode and the end is near.
   const hasOutro = (segments ?? []).some((s) => s.kind === "outro");
