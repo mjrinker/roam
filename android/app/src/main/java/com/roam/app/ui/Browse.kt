@@ -78,6 +78,7 @@ fun AlbumScreen(serverId: String, id: String, nav: Nav) {
                     TextButton(onClick = { nav.open(Routes.artist(serverId, a.id)) }) { Text(a.name) }
                 }
             }
+            item { RadioButton(artistId = album.artist?.id, songId = null, nav = nav, tag = "radio") }
             items(album.tracks, key = { it.id }) { t ->
                 Row(
                     Modifier.fillMaxWidth().focusRing().clickable { nav.open(Routes.audio(t.id, t.name, remember = false)) }.padding(14.dp).testTag("track-${t.id}"),
@@ -98,6 +99,7 @@ fun ArtistScreen(serverId: String, id: String, nav: Nav) {
     LoadView(loader, nav) { artist ->
         Column(Modifier.fillMaxSize().testTag("artist").padding(if (graph.isTv) 48.dp else 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text(artist.name, style = MaterialTheme.typography.headlineMedium, color = MaterialTheme.colorScheme.onBackground)
+            RadioButton(artistId = artist.id, songId = null, nav = nav, tag = "radio")
             LazyVerticalGrid(columns = GridCells.Adaptive(if (graph.isTv) 170.dp else 120.dp), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
                 items(artist.albums, key = { it.id }) { a -> PosterCard(a, onClick = { nav.open(Routes.album(serverId, a.id)) }, width = if (graph.isTv) 170.dp else 120.dp) }
             }

@@ -61,6 +61,9 @@ fun RoamApp(navController: NavHostController = rememberNavController()) {
             }
             composable(Routes.PLAYLISTS) { e -> PlaylistsScreen(e.arguments!!.getString("sid")!!, nav) }
             composable(Routes.PLAYLIST) { e -> PlaylistScreen(e.arguments!!.getString("sid")!!, e.arguments!!.getString("id")!!, nav) }
+            composable(Routes.LABELS) { e -> LabelsScreen(e.arguments!!.getString("sid")!!, nav) }
+            composable(Routes.LABEL) { e -> LabelScreen(e.arguments!!.getString("sid")!!, e.arguments!!.getString("id")!!, nav) }
+            composable(Routes.WISHLIST) { e -> WishlistScreen(e.arguments!!.getString("sid")!!, nav) }
             composable(Routes.NOTIFICATIONS) { NotificationsScreen(nav) }
             composable(Routes.ACCOUNT) { AccountScreen(nav, onSwitchProfile = { nav.open(Routes.gate(force = true)) }) }
             composable(
@@ -83,8 +86,16 @@ fun RoamApp(navController: NavHostController = rememberNavController()) {
                     },
                 )
             }
-            composable(Routes.AUDIO, arguments = listOf(navArgument("name") { type = NavType.StringType; defaultValue = "" }, navArgument("remember") { type = NavType.BoolType; defaultValue = false })) { e ->
-                AudioScreen(e.arguments!!.getString("id")!!, e.arguments!!.getString("name").orEmpty(), e.arguments!!.getBoolean("remember"), nav)
+            composable(Routes.AUDIO, arguments = listOf(navArgument("name") { type = NavType.StringType; defaultValue = "" }, navArgument("remember") { type = NavType.BoolType; defaultValue = false }, navArgument("queue") { type = NavType.StringType; defaultValue = "" })) { e ->
+                val a = e.arguments!!
+                val queue = a.getString("queue").orEmpty().split(",").filter { it.isNotBlank() }
+                AudioScreen(
+                    a.getString("id")!!, a.getString("name").orEmpty(), a.getBoolean("remember"), nav, queue,
+                    onNext = { next, rest ->
+                        navController.popBackStack()
+                        navController.navigate(Routes.audio(next, a.getString("name").orEmpty(), false, rest))
+                    },
+                )
             }
         }
     }

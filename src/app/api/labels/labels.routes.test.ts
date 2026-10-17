@@ -18,13 +18,17 @@ vi.mock("@/lib/supabase/server", () => ({ createSupabaseServerClient: async () =
 
 import { eq } from "drizzle-orm";
 import { labelItems, labels } from "@/lib/db/schema";
-import { joinServer, makeAccount, makeLibrary, makeServer, makeShow, makeTitle, type TestDb } from "@/lib/playlists/test-db";
+import { joinServer, makeAccount, makeLibrary, makeServer, makeShow, makeTitle, type TestDb, autoFiles } from "@/lib/playlists/test-db";
+
+autoFiles();
 import { createDeviceToken, setTokenProfile } from "@/lib/auth/device-token";
 import { MAX_LABELS } from "@/lib/labels/names";
 import { GET, POST } from "./route";
 import { DELETE, PATCH } from "./[id]/route";
 import { PUT } from "./[id]/items/route";
 import { GET as v1Title } from "../v1/servers/[serverId]/titles/[id]/route";
+import { GET as v1Labels } from "../v1/servers/[serverId]/labels/route";
+import { GET as v1Label } from "../v1/servers/[serverId]/labels/[id]/route";
 
 let db: TestDb;
 beforeAll(async () => {
@@ -96,6 +100,25 @@ describe("making, renaming and deleting labels", () => {
     for (let i = 0; i < MAX_LABELS - 2; i++) await make(`Label ${i}`);
     expect((await list()).length).toBe(MAX_LABELS);
     expect((await POST(send("POST", { name: "One too many" }))).status).toBe(400);
+  });
+});
+
+describe("labels in the v1 API", () => {
+  it("lists the profile's labels with counts, and a label's titles as items, to that profile only", async () => {
+    const w = await world();
+    await as(w.me);
+    const a = await make("Weekend", w.film.id);
+    await put(a.id, w.show.id, true);
+    await make("Empty");
+    const lists = await json(await v1Labels(send("GET"), ctx(w.sid)));
+    expect(lists.labels.map((l: { name: string; count: number }) => [l.name, l.count])).toEqual([["Empty", 0], ["Weekend", 2]]);
+    const one = await json(await v1Label(send("GET"), ctx({ ...w.sid, id: a.id })));
+    expect(one.label).toEqual({ id: a.id, name: "Weekend" });
+    expect(one.items.map((i: { type: string; name: string }) => [i.type, i.name]).sort()).toEqual([["movie", "Film"], ["show", "Show"]]);
+    expect((await v1Label(send("GET"), ctx({ ...w.sid, id: "123e4567-e89b-42d3-a456-426614174000" }))).status).toBe(404);
+    await as(w.other);
+    expect((await json(await v1Labels(send("GET"), ctx(w.sid)))).labels).toEqual([]);
+    expect((await v1Label(send("GET"), ctx({ ...w.sid, id: a.id }))).status).toBe(404);
   });
 });
 

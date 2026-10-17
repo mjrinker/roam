@@ -71,6 +71,27 @@ interface RoamApi {
     suspend fun markNotificationsRead()
     suspend fun devices(): List<DeviceRow>
     suspend fun signOutDevice(id: String)
+    /** Puts a movie, show or audiobook on this profile's watch list, or takes it off. */
+    suspend fun setWatchlist(titleId: String, on: Boolean)
+    /** This profile's labels with how many titles on the server each has. */
+    suspend fun labels(serverId: String): List<LabelRow>
+    /** One label with the titles under it. */
+    suspend fun label(serverId: String, id: String): LabelPage
+    /** This profile's labels, each saying whether the title is under it. */
+    suspend fun labelsFor(titleId: String): List<LabelRow>
+    suspend fun setLabel(labelId: String, titleId: String, on: Boolean)
+    /** Makes a label (and puts the title under it, when given). */
+    suspend fun createLabel(name: String, titleId: String?): LabelRow
+    suspend fun wishlist(serverId: String): WishlistResponse
+    suspend fun searchWishes(serverId: String, kind: String, query: String): List<WishHit>
+    /** Adds a wish (or, if it is listed already, joins it). A movie already on the server is refused with an ApiException. */
+    suspend fun addWish(serverId: String, kind: String, title: String, year: Int?, creator: String?, tmdbId: Int?, posterUrl: String?, overview: String?, note: String?): WishAdded
+    suspend fun wantWish(id: String, on: Boolean)
+    /** claim, unclaim, got or reopen. */
+    suspend fun wishAction(id: String, action: String)
+    suspend fun removeWish(id: String)
+    /** A radio: songs like an artist, or like a song (which then starts it). */
+    suspend fun radio(artistId: String?, songId: String?): RadioResult
 }
 
 class HttpRoamApi(
@@ -242,6 +263,59 @@ class HttpRoamApi(
     override suspend fun signOutDevice(id: String) {
         call("DELETE", "/api/v1/devices/$id")
     }
+
+    override suspend fun setWatchlist(titleId: String, on: Boolean) {
+        call("PUT", "/api/watchlist", body = buildJsonObject {
+            put("titleId", JsonPrimitive(titleId))
+            put("on", JsonPrimitive(on))
+        })
+    }
+
+    override suspend fun labels(serverId: String): List<LabelRow> = get<LabelsResponse>("/api/v1/servers/$serverId/labels").labels
+    override suspend fun label(serverId: String, id: String): LabelPage = get("/api/v1/servers/$serverId/labels/$id")
+    override suspend fun labelsFor(titleId: String): List<LabelRow> = get<LabelsResponse>("/api/labels", mapOf("title" to titleId)).labels
+    override suspend fun setLabel(labelId: String, titleId: String, on: Boolean) {
+        call("PUT", "/api/labels/$labelId/items", body = buildJsonObject {
+            put("titleId", JsonPrimitive(titleId))
+            put("on", JsonPrimitive(on))
+        })
+    }
+
+    override suspend fun createLabel(name: String, titleId: String?): LabelRow = json.decodeFromString(call("POST", "/api/labels", body = buildJsonObject {
+        put("name", JsonPrimitive(name))
+        if (titleId != null) put("titleId", JsonPrimitive(titleId))
+    }))
+
+    override suspend fun wishlist(serverId: String): WishlistResponse = get("/api/servers/$serverId/wishlist")
+    override suspend fun searchWishes(serverId: String, kind: String, query: String): List<WishHit> =
+        get<WishSearchResponse>("/api/servers/$serverId/wishlist/search", mapOf("kind" to kind, "q" to query)).results
+
+    override suspend fun addWish(serverId: String, kind: String, title: String, year: Int?, creator: String?, tmdbId: Int?, posterUrl: String?, overview: String?, note: String?): WishAdded =
+        json.decodeFromString(call("POST", "/api/servers/$serverId/wishlist", body = buildJsonObject {
+            put("kind", JsonPrimitive(kind))
+            put("title", JsonPrimitive(title))
+            if (year != null) put("year", JsonPrimitive(year))
+            if (!creator.isNullOrBlank()) put("creator", JsonPrimitive(creator))
+            if (tmdbId != null) put("tmdbId", JsonPrimitive(tmdbId))
+            if (posterUrl != null) put("posterUrl", JsonPrimitive(posterUrl))
+            if (!overview.isNullOrBlank()) put("overview", JsonPrimitive(overview))
+            if (!note.isNullOrBlank()) put("note", JsonPrimitive(note))
+        }))
+
+    override suspend fun wantWish(id: String, on: Boolean) {
+        call("PUT", "/api/wishlist/$id/want", body = buildJsonObject { put("on", JsonPrimitive(on)) })
+    }
+
+    override suspend fun wishAction(id: String, action: String) {
+        call("PATCH", "/api/wishlist/$id", body = buildJsonObject { put("action", JsonPrimitive(action)) })
+    }
+
+    override suspend fun removeWish(id: String) {
+        call("DELETE", "/api/wishlist/$id")
+    }
+
+    override suspend fun radio(artistId: String?, songId: String?): RadioResult =
+        get("/api/music/radio", mapOf("artist" to artistId, "song" to songId))
 }
 
 /** An OkHttp call as a suspending function (a failed connection becomes an ApiException with status 0). */
@@ -300,4 +374,17 @@ object Unsupported : RoamApi {
     override suspend fun markNotificationsRead() = nope()
     override suspend fun devices() = nope()
     override suspend fun signOutDevice(id: String) = nope()
+    override suspend fun setWatchlist(titleId: String, on: Boolean) = nope()
+    override suspend fun labels(serverId: String) = nope()
+    override suspend fun label(serverId: String, id: String) = nope()
+    override suspend fun labelsFor(titleId: String) = nope()
+    override suspend fun setLabel(labelId: String, titleId: String, on: Boolean) = nope()
+    override suspend fun createLabel(name: String, titleId: String?) = nope()
+    override suspend fun wishlist(serverId: String) = nope()
+    override suspend fun searchWishes(serverId: String, kind: String, query: String) = nope()
+    override suspend fun addWish(serverId: String, kind: String, title: String, year: Int?, creator: String?, tmdbId: Int?, posterUrl: String?, overview: String?, note: String?) = nope()
+    override suspend fun wantWish(id: String, on: Boolean) = nope()
+    override suspend fun wishAction(id: String, action: String) = nope()
+    override suspend fun removeWish(id: String) = nope()
+    override suspend fun radio(artistId: String?, songId: String?) = nope()
 }

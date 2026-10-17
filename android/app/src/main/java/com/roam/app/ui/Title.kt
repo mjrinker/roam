@@ -82,6 +82,7 @@ fun TitleContent(serverId: String, t: Title, nav: Nav, onSeason: (Int) -> Unit, 
             }
         }
         if (t.type == "movie" || t.type == "show" || t.type == "audiobook") item(key = "my-rating") { MyRating(t.id, t.myRating, average = t.averageRating) }
+        if (t.type == "movie" || t.type == "show" || t.type == "audiobook") item(key = "labels") { WatchlistAndLabels(t, nav) }
         when (t.type) {
             "movie" -> movieActions(t, nav, mark)
             "show" -> showBody(serverId, t, nav, onSeason, mark)

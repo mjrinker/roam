@@ -80,6 +80,8 @@ Playback uses endpoints that already existed for the website; they accept the sa
 
 Playlists (`/api/servers/{serverId}/playlists`, `/api/playlists/{id}`, `/api/playlists/{id}/items`, `…/next`), notifications (`GET /api/notifications`, `POST /api/notifications/read`), and ownership (`POST /api/ownership/claims`, `PUT /api/ownership/mine`, evidence pictures at `/api/ownership/claims/{id}/evidence`). They take and answer JSON like the rest. Push to Android apps: an app that has a Firebase registration token gives it with `PUT /api/v1/device/push` `{ token }` (and `DELETE` to stop); Roam then sends each notification to it too, when the server has `FCM_SERVICE_ACCOUNT` set. Other apps poll `notifications` (or the `unreadNotifications` count in `home`).
 
+Labels, the watch list, the wishlist and radio: `GET /api/v1/servers/{serverId}/labels` (the profile's labels with counts) and `…/labels/{id}` (a label's titles as items); `GET /api/labels?title=` (each label and whether the title is under it), `POST /api/labels` `{ name, titleId? }`, `PUT /api/labels/{id}/items` `{ titleId, on }`; `PUT /api/watchlist` `{ titleId, on }` (a title answers `inWatchlist` and `labels`); the wishlist at `GET|POST /api/servers/{serverId}/wishlist`, `GET …/wishlist/search?kind=&q=`, `PUT /api/wishlist/{id}/want` `{ on }`, `PATCH /api/wishlist/{id}` `{ action: claim|unclaim|got|reopen }`, `DELETE /api/wishlist/{id}`; and `GET /api/music/radio?artist=|song=` for `{ ids, artistName }`.
+
 ## Not in v1 yet
 
 Pictures of a title's cast, download-for-offline helpers for native apps, and the admin's screens (assigning owners, settling claims, server settings), which stay on the web.

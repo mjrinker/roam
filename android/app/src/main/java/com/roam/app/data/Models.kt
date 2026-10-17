@@ -249,7 +249,76 @@ data class Title(
     /** What everyone on the server gave it, on average. */
     val averageRating: AverageRating? = null,
     val similar: List<ApiItem> = emptyList(),
+    val inWatchlist: Boolean = false,
+    /** This profile's own labels on it. */
+    val labels: List<LabelRef> = emptyList(),
 )
+
+@Serializable
+data class LabelRef(val id: String, val name: String)
+
+/** One of the profile's labels: with `count` on a list of labels, and with `has` when asked about a title. */
+@Serializable
+data class LabelRow(val id: String, val name: String, val count: Int = 0, val has: Boolean = false)
+
+@Serializable
+data class LabelsResponse(val labels: List<LabelRow> = emptyList())
+
+@Serializable
+data class LabelPage(val label: LabelRef, val items: List<ApiItem> = emptyList())
+
+@Serializable
+data class OnServer(val titleId: String)
+
+/** One thing on the server's shared wishlist. `status` is wanted, claimed (someone is getting it) or got. */
+@Serializable
+data class Wish(
+    val id: String,
+    val kind: String,
+    val title: String,
+    val year: Int? = null,
+    val creator: String? = null,
+    val posterUrl: String? = null,
+    val overview: String? = null,
+    val note: String? = null,
+    val status: String = "wanted",
+    val wants: Int = 1,
+    val wantedBy: List<String> = emptyList(),
+    val iWant: Boolean = false,
+    val claimedByName: String? = null,
+    val claimedByMe: Boolean = false,
+    val canRemove: Boolean = false,
+    val onServer: OnServer? = null,
+) {
+    /** Got, or already on the server. */
+    val done get() = status == "got" || onServer != null
+}
+
+@Serializable
+data class WishlistResponse(val items: List<Wish> = emptyList(), val canEdit: Boolean = true)
+
+/** A movie or show found on TMDB for the wishlist. */
+@Serializable
+data class WishHit(
+    val tmdbId: Int,
+    val kind: String,
+    val title: String,
+    val year: Int? = null,
+    val posterUrl: String? = null,
+    val overview: String? = null,
+    val titleId: String? = null,
+    val wishId: String? = null,
+)
+
+@Serializable
+data class WishSearchResponse(val results: List<WishHit> = emptyList())
+
+@Serializable
+data class WishAdded(val id: String = "", val joined: Boolean = false)
+
+/** The songs of a radio, in the order to play. */
+@Serializable
+data class RadioResult(val ids: List<String> = emptyList(), val artistName: String = "")
 
 @Serializable
 data class SearchResponse(val query: String = "", val items: List<ApiItem> = emptyList())

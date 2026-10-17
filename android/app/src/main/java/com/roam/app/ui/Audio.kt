@@ -22,7 +22,7 @@ private sealed interface AudioStage {
 
 /** A song or an audiobook. An audiobook keeps its place; a song doesn't. */
 @Composable
-fun AudioScreen(id: String, name: String, remember: Boolean, nav: Nav) {
+fun AudioScreen(id: String, name: String, remember: Boolean, nav: Nav, queue: List<String> = emptyList(), onNext: (String, List<String>) -> Unit = { _, _ -> }) {
     val graph = LocalGraph.current
     var attempt by remember { mutableIntStateOf(0) }
     var stage by remember { mutableStateOf<AudioStage>(AudioStage.Loading) }
@@ -44,7 +44,7 @@ fun AudioScreen(id: String, name: String, remember: Boolean, nav: Nav) {
         is AudioStage.Failed -> if (s.signedOut) LaunchedEffect(Unit) { nav.signedOut() } else ErrorView(s.message) { attempt++ }
         is AudioStage.Ready -> PlayerHost(
             manifest = s.manifest, items = s.items, startSeconds = s.start, kind = "title", id = id, keepsPlace = remember, audioOnly = true, nav = nav,
-            onFinished = { nav.back() }, onError = { attempt++ },
+            onFinished = { if (queue.isEmpty()) nav.back() else onNext(queue.first(), queue.drop(1)) }, onError = { attempt++ },
         )
     }
 }

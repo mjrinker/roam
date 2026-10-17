@@ -75,7 +75,7 @@ const req = (path = "/x") => new Request(`https://roam.example${path}`);
 const post = (fields: Record<string, string>, headers: Record<string, string> = {}) => new Request("https://roam.example/x", { method: "POST", headers, body: new URLSearchParams(fields) });
 const text = async (r: Response) => r.text();
 /** The queue a listening page carries, read from its embedded settings. */
-const queueOf = (html: string) => (JSON.parse(/id="listen-config">(.*?)<\/script>/s.exec(html)?.[1] ?? "{}") as { queue?: { items: { id: string }[]; index: number } | null }).queue ?? null;
+const queueOf = (html: string) => (JSON.parse(/id="listen-config">([\s\S]*?)<\/script>/.exec(html)?.[1] ?? "{}") as { queue?: { items: { id: string }[]; index: number } | null }).queue ?? null;
 
 async function signIn(who: Awaited<ReturnType<typeof makeAccount>>, pick?: string) {
   const [account] = await db.select().from(profiles).where(eq(profiles.id, who.accountId));

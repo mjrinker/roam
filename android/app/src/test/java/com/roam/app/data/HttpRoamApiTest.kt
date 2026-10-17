@@ -291,4 +291,42 @@ class HttpRoamApiTest {
             assertEquals(0, e.status)
         }
     }
+
+    @Test fun labelsWatchlistWishlistAndRadioUseTheirEndpoints() = runBlocking {
+        reply("""{"labels":[{"id":"l1","name":"Weekend","count":2}]}""")
+        assertEquals(2, api.labels("S").single().count)
+        assertEquals("/api/v1/servers/S/labels", server.takeRequest().path)
+        reply("""{"labels":[{"id":"l1","name":"Weekend","has":true}]}""")
+        assertTrue(api.labelsFor("t1").single().has)
+        assertEquals("/api/labels?title=t1", server.takeRequest().path)
+        reply("""{"ok":true}""")
+        api.setLabel("l1", "t1", false)
+        val put = server.takeRequest()
+        assertEquals("PUT /api/labels/l1/items", "${put.method} ${put.path}")
+        assertEquals("""{"titleId":"t1","on":false}""", put.body.readUtf8())
+        reply("""{"id":"l2","name":"New","count":1}""", 201)
+        assertEquals("l2", api.createLabel("New", "t1").id)
+        assertEquals("""{"name":"New","titleId":"t1"}""", server.takeRequest().body.readUtf8())
+        reply("""{"ok":true}""")
+        api.setWatchlist("t1", true)
+        assertEquals("""{"titleId":"t1","on":true}""", server.takeRequest().body.readUtf8())
+        reply("""{"items":[{"id":"w1","kind":"movie","title":"Heat","wants":2,"iWant":true,"onServer":{"titleId":"t9"}}],"canEdit":true}""")
+        val list = api.wishlist("S")
+        assertTrue(list.items.single().done)
+        assertEquals("/api/servers/S/wishlist", server.takeRequest().path)
+        reply("""{"id":"w2","joined":false}""", 201)
+        api.addWish("S", "movie", "Heat", 1995, null, 949, null, null, null)
+        assertEquals("""{"kind":"movie","title":"Heat","year":1995,"tmdbId":949}""", server.takeRequest().body.readUtf8())
+    }
+
+    @Test fun wishActionsAndRadio() = runBlocking {
+        reply("""{"ok":true}""")
+        api.wishAction("w1", "claim")
+        val patch = server.takeRequest()
+        assertEquals("PATCH /api/wishlist/w1", "${patch.method} ${patch.path}")
+        assertEquals("""{"action":"claim"}""", patch.body.readUtf8())
+        reply("""{"ids":["a","b"],"artistName":"Band"}""")
+        assertEquals(listOf("a", "b"), api.radio("ar1", null).ids)
+        assertEquals("/api/music/radio?artist=ar1", server.takeRequest().path)
+    }
 }
