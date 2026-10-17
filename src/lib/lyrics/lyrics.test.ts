@@ -49,6 +49,26 @@ describe("LRCLIB", () => {
     expect(await findLyrics(song, f as never)).toEqual({ synced: "[00:02.00]timed", plain: "timed", instrumental: false });
     expect(await findLyrics({ ...song, album: null }, f as never)).toMatchObject({ plain: "timed" }); // no album: straight to the search
   });
+  it("uses the same song's words for a file that is only a clip of it, taking the nearest longer recording, never a different title or version", async () => {
+    const clip = { ...song, title: "Rolling in the Deep", artist: "Adele", album: "21", durationSeconds: 40 };
+    const f = vi.fn(async (url: string) =>
+      url.includes("/get?")
+        ? json({}, 404)
+        : json([
+            { trackName: "Rolling in the Deep (Live)", artistName: "Adele", duration: 500, syncedLyrics: "[00:01]live" },
+            { trackName: "Rolling in the Deep", artistName: "Someone Else", duration: 228, syncedLyrics: "[00:01]cover" },
+            { trackName: "Rolling In The Deep [Remastered]", artistName: "ADELE", duration: 240, plainLyrics: "plain" },
+            { trackName: "Rolling in the Deep", artistName: "Adele", duration: 228, syncedLyrics: "[00:03.00]timed", plainLyrics: "timed" },
+            { trackName: "Another Song", artistName: "Adele", duration: 100, syncedLyrics: "[00:01]no" },
+          ])
+    );
+    expect(await findLyrics(clip, f as never)).toEqual({ synced: "[00:03.00]timed", plain: "timed", instrumental: false });
+    // a file as long as the recording, or longer, is a different version: not matched by title alone
+    expect(await findLyrics({ ...clip, durationSeconds: 300 }, f as never)).toBeNull();
+    // too short to be a clip of anything, or no length at all
+    expect(await findLyrics({ ...clip, durationSeconds: 3 }, f as never)).toBeNull();
+    expect(await findLyrics({ ...clip, durationSeconds: null }, f as never)).toMatchObject({ synced: "[00:01]live" }); // unchanged: no length means any will do
+  });
   it("is null when nothing is there, and can say a song is an instrumental", async () => {
     expect(await findLyrics(song, (async () => json({}, 404)) as never)).toBeNull();
     expect(await findLyrics(song, (async (u: string) => (u.includes("/get?") ? json({}, 404) : json([{ duration: 200, instrumental: true }]))) as never)).toEqual({ synced: null, plain: null, instrumental: true });

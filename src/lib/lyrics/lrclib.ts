@@ -51,5 +51,39 @@ export async function findLyrics(song: Song, fetchImpl: typeof fetch = fetch): P
   if (found.status !== 200 || !Array.isArray(found.body)) return null;
   const near = (found.body as Raw[]).filter((r) => !song.durationSeconds || r.duration === undefined || Math.abs(r.duration - (song.durationSeconds as number)) <= 3);
   const best = near.find((r) => clean(r.syncedLyrics)) ?? near.find((r) => clean(r.plainLyrics)) ?? near.find((r) => r.instrumental === true);
-  return best ? shape(best) : null;
+  if (best) return shape(best);
+  const clip = fromLongerRecording(found.body as Raw[], song);
+  return clip ? shape(clip) : null;
+}
+
+/** Title and artist as they are compared: no case, accents, punctuation or bracketed notes ("(Remastered)", "[Live]"). */
+const plainName = (s: string) =>
+  s
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[([][^)\]]*[)\]]/g, " ")
+    .replace(/[^\p{L}\p{N}]+/gu, " ")
+    .trim();
+
+/** Bracketed words that make a recording a different version of the song, whose words and timing can differ. */
+const OTHER_VERSION = /\b(live|acoustic|remix|demo|instrumental|karaoke|cover|unplugged|edit|mix|version|radio|session)\b/i;
+const bracketed = (s: string): string[] => [...s.matchAll(/[([]([^)\]]*)[)\]]/g)].map((m) => m[1]);
+/** Whether a recording is named as another version of the song than the file's own title says. */
+const isOtherVersion = (recording: string, title: string) => bracketed(recording).some((b) => OTHER_VERSION.test(b) && !bracketed(title).some((t) => OTHER_VERSION.test(t)));
+
+/**
+ * A file that is only a piece of the song (a preview or a clip, much shorter than the recording) matches no lengths. Its words are still the same
+ * song's, so take the recording of the very same title and artist that is closest above the file's length, preferring timed words. Never used for a
+ * file as long as the recording, where a different length means a different version.
+ */
+function fromLongerRecording(results: Raw[], song: Song): Raw | null {
+  const have = song.durationSeconds;
+  if (!have || have < 5) return null;
+  const same = results.filter(
+    (r) => typeof r.duration === "number" && r.duration > have + 3 && plainName(r.trackName ?? "") === plainName(song.title) && !isOtherVersion(r.trackName ?? "", song.title) && plainName(r.artistName ?? "") === plainName(song.artist) && (clean(r.syncedLyrics) || clean(r.plainLyrics) || r.instrumental === true)
+  );
+  if (same.length === 0) return null;
+  same.sort((a, b) => (a.duration as number) - (b.duration as number));
+  return same.find((r) => clean(r.syncedLyrics)) ?? same.find((r) => clean(r.plainLyrics)) ?? same[0];
 }
