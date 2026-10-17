@@ -30,7 +30,7 @@ export default function PrivacyPage() {
               <strong>Profiles and preferences.</strong> The profile names you create, and settings such as playback speed, age limits and which profile is shown on a server.
             </>,
             <>
-              <strong>Activity.</strong> Where you stopped in each movie, episode, book or song, what you marked finished, and the playlists you make. This is what lets Roam resume where you left off.
+              <strong>Activity.</strong> Where you stopped in each movie, episode, book or song, what you marked finished, and the playlists you make. This is what lets Roam resume where you left off. A server&apos;s admin can also see how long each household (an account, not a single profile) spent watching or listening, and on which movies, shows and books, as totals by day.
             </>,
             <>
               <strong>What is in a library.</strong> For the folders an admin adds: file and folder names, sizes, durations, formats, and details read from the files themselves or looked up online (names, posters, descriptions, cast, tags, embedded cover art).

@@ -15,6 +15,7 @@ import {
   check,
   primaryKey,
   smallint,
+  date,
   foreignKey,
   customType,
   type AnyPgColumn,
@@ -991,6 +992,21 @@ export const albumAbout = pgTable("album_about", {
   sourceUrl: text("source_url"),
   fetchedAt: timestamp("fetched_at", { withTimezone: true }).notNull().defaultNow(),
 }).enableRLS();
+
+// ── watch_activity ───────────────────────────────────────────────────────
+// How long each household (an account, never a single profile) spent on each movie, show (its episodes together) or audiobook on each day, for
+// the server admin's statistics. Built up from the progress players save while playing; nothing says which profile of the household it was.
+export const watchActivity = pgTable(
+  "watch_activity",
+  {
+    serverId: uuid("server_id").notNull().references(() => servers.id, { onDelete: "cascade" }),
+    accountId: uuid("account_id").notNull().references(() => profiles.id, { onDelete: "cascade" }),
+    day: date("day", { mode: "string" }).notNull(),
+    titleId: uuid("title_id").notNull().references(() => titles.id, { onDelete: "cascade" }),
+    seconds: integer("seconds").notNull().default(0),
+  },
+  (t) => [primaryKey({ columns: [t.serverId, t.accountId, t.day, t.titleId] }), index("watch_activity_server_day_idx").on(t.serverId, t.day)]
+).enableRLS();
 
 // ── labels / label_items ─────────────────────────────────────────────────
 // A profile's own tags for movies, shows and books ("Date night", "Christmas"): private to the profile, used to filter lists and smart playlists.

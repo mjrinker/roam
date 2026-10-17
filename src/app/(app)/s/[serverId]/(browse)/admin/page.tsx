@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { and, asc, desc, eq, inArray } from "drizzle-orm";
 import { db } from "@/lib/db/client";
 import { libraries, librarySources, scanRuns, servers, titles, viewers } from "@/lib/db/schema";
@@ -99,6 +100,11 @@ export default async function AdminPage({
           {BOX_ERROR_MESSAGES[errorParam] ?? "Something went wrong."}
         </p>
       )}
+
+      <Link href={`/s/${serverId}/admin/stats`} className="flex items-center justify-between gap-3 rounded-2xl bg-white/[0.04] px-4 py-3 text-sm ring-1 ring-white/[0.08] transition hover:bg-white/[0.07]">
+        <span className="font-medium">Watch statistics</span>
+        <span className="text-muted-foreground">Time watched, the most watched, and each household&apos;s totals</span>
+      </Link>
 
       <StorageConnections serverId={serverId} connections={connections} available={availableProviders()} />
 

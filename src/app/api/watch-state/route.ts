@@ -6,6 +6,7 @@ import { watchState } from "@/lib/db/schema";
 import { authorizeOwner } from "@/lib/auth/resolve-server";
 import { libraryRemembersProgress } from "@/lib/libraries/profile";
 import { dropFinished } from "@/lib/watchlist/queries";
+import { recordWatch, secondsWatched } from "@/lib/stats/record";
 
 const patchSchema = z.object({
   ownerKind: z.enum(["title", "episode"]),
@@ -37,6 +38,12 @@ export async function PATCH(request: Request) {
   // Clips in a photo library and songs in a music library never resume (they always start from the beginning), so nothing is recorded.
   if (!libraryRemembersProgress(auth.libraryKind)) return NextResponse.json({ ok: true, recorded: false });
 
+  // How far it moved since the last save is how long it was watched (see lib/stats/record), counted for the household.
+  const [before] = await db
+    .select({ positionSeconds: watchState.positionSeconds, savedAt: watchState.updatedAt })
+    .from(watchState)
+    .where(and(eq(watchState.viewerId, auth.member.viewer.id), eq(watchState.ownerKind, ownerKind), eq(watchState.ownerId, ownerId)));
+  const now = new Date();
   await db
     .insert(watchState)
     .values({
@@ -57,6 +64,8 @@ export async function PATCH(request: Request) {
         updatedAt: new Date(),
       },
     });
+
+  await recordWatch(db, { serverId: auth.serverId, accountId: auth.member.profile.id, ownerKind, ownerId, seconds: secondsWatched(before ?? null, positionSeconds, now), now }).catch(() => undefined);
 
   // Finishing a movie, audiobook or (the last episode of) a show takes it off the watch list.
   if (finished) await dropFinished(db, auth.member.viewer.id, ownerKind === "title" ? { titleIds: [ownerId] } : { episodeIds: [ownerId] });

@@ -456,6 +456,13 @@
       "when": 1792220376095,
       "tag": "0064_detected_skip_marks",
       "breakpoints": true
+    },
+    {
+      "idx": 65,
+      "version": "7",
+      "when": 1792222047995,
+      "tag": "0065_watch_activity",
+      "breakpoints": true
     }
   ]
 }
