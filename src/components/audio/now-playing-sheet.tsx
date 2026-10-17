@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { Artwork as Image } from "@/components/ui/artwork";
 import Link from "next/link";
-import { Headphones, Loader2, Pause, Play, RotateCcw, RotateCw } from "lucide-react";
+import { ChevronDown, Headphones, Loader2, Pause, Play, RotateCcw, RotateCw } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { formatClock, PLAYBACK_RATES } from "@/lib/player/timeline";
 import { formatSpeed } from "@/lib/player/speed";
@@ -12,6 +12,7 @@ import { LyricsPanel } from "@/components/audio/lyrics-panel";
 import { CrossfadeSetting } from "@/components/audio/crossfade-setting";
 import { Slider } from "@/components/ui/slider";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuRadioGroup, DropdownMenuRadioItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import {
   SKIP_BACK_SECONDS,
   SKIP_FORWARD_SECONDS,
@@ -164,16 +165,23 @@ export function NowPlayingSheet({
 
         <section className="flex flex-col gap-2">
           <h3 className="text-xs font-semibold tracking-wide text-muted-foreground uppercase">Speed</h3>
-          <div className="flex flex-wrap gap-1.5">
-            {PLAYBACK_RATES.map((r) => (
-              <Chip key={r} active={p.rate === r} onClick={() => p.setRate(r)}>
-                {formatSpeed(r)}
-              </Chip>
-            ))}
-            <Chip active={!PLAYBACK_RATES.includes(p.rate)} onClick={() => setCustomSpeed(true)}>
-              {PLAYBACK_RATES.includes(p.rate) ? "Custom…" : `${formatSpeed(p.rate)} (custom)`}
-            </Chip>
-          </div>
+          <DropdownMenu>
+            <DropdownMenuTrigger render={<button type="button" aria-label="Speed" className="flex h-10 w-full cursor-pointer items-center justify-between gap-2 rounded-xl bg-white/[0.06] px-3 text-left text-sm ring-1 ring-white/10 outline-none hover:bg-white/10 focus-visible:ring-2 focus-visible:ring-ring" />}>
+              <span>{PLAYBACK_RATES.includes(p.rate) ? formatSpeed(p.rate) : `${formatSpeed(p.rate)} (custom)`}</span>
+              <ChevronDown className="size-4 shrink-0 text-muted-foreground" />
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start" className="max-h-72 min-w-40 overflow-y-auto">
+              <DropdownMenuRadioGroup value={String(p.rate)} onValueChange={(v) => p.setRate(Number(v))}>
+                {PLAYBACK_RATES.map((r) => (
+                  <DropdownMenuRadioItem key={r} value={String(r)}>
+                    {formatSpeed(r)}
+                  </DropdownMenuRadioItem>
+                ))}
+              </DropdownMenuRadioGroup>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onClick={() => setCustomSpeed(true)}>Custom…</DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
           {customSpeed && <SpeedDialog open onOpenChange={setCustomSpeed} current={p.rate} onPick={p.setRate} />}
         </section>
 
