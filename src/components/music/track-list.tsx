@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { useAudioPlayer } from "@/components/audio/audio-player-provider";
 import { AddToPlaylistMenu } from "@/components/playlists/add-to-playlist-menu";
 import { DownloadButton } from "@/components/offline/download-button";
+import { RadioButton } from "@/components/music/radio-button";
 
 export interface TrackListItem {
   id: string;
@@ -22,7 +23,7 @@ export interface TrackListItem {
 }
 
 /** Play and Shuffle for an album: queues every song so it carries on to the next one. */
-export function AlbumPlayButtons({ ids, children }: { ids: string[]; children?: React.ReactNode }) {
+export function AlbumPlayButtons({ ids, radioArtistId, children }: { ids: string[]; /** Adds a Radio button that starts a radio from this artist. */ radioArtistId?: string; children?: React.ReactNode }) {
   const p = useAudioPlayer();
   const current = p?.book?.titleId;
   // Only "in the album" when it is being played as a list: a song opened on its own has no queue, so Play starts the whole album.
@@ -48,6 +49,7 @@ export function AlbumPlayButtons({ ids, children }: { ids: string[]; children?: 
       <Button variant="secondary" disabled={!p || ids.length === 0} onClick={() => start(shuffled(ids))} className="h-12 gap-2 rounded-xl px-5">
         <Shuffle className="size-4" /> Shuffle
       </Button>
+      {radioArtistId && <RadioButton seed={{ artistId: radioArtistId }} />}
       {children}
     </div>
   );
@@ -82,7 +84,7 @@ export function TrackList({ tracks, serverId }: { tracks: TrackListItem[]; serve
               onClick={() => playFrom(i)}
               disabled={!p}
               className={cn(
-                "group flex w-full items-center gap-4 rounded-lg py-2.5 pr-24 pl-3 text-left outline-none transition-colors hover:bg-white/[0.06] focus-visible:ring-2 focus-visible:ring-primary",
+                "group flex w-full items-center gap-4 rounded-lg py-2.5 pr-36 pl-3 text-left outline-none transition-colors hover:bg-white/[0.06] focus-visible:ring-2 focus-visible:ring-primary",
                 isCurrent && "bg-white/[0.06]"
               )}
             >
@@ -106,6 +108,7 @@ export function TrackList({ tracks, serverId }: { tracks: TrackListItem[]; serve
               <span className="shrink-0 text-xs text-muted-foreground tabular-nums">{t.durationSeconds != null ? formatClock(t.durationSeconds) : ""}</span>
             </button>
             <div className="absolute top-1/2 right-2 flex -translate-y-1/2 items-center gap-1">
+              <RadioButton seed={{ songId: t.id }} variant="icon" />
               <DownloadButton serverId={serverId} ownerKind="title" ownerId={t.id} variant="icon" />
               <AddToPlaylistMenu serverId={serverId} target={{ titleId: t.id }} variant="icon" />
             </div>

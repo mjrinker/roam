@@ -67,7 +67,7 @@ export default async function AlbumPage({ params }: PageProps<"/s/[serverId]/alb
             {[album.year, `${album.trackCount} ${album.trackCount === 1 ? "song" : "songs"}`, runtime].filter(Boolean).map((part) => ` · ${part}`)}
           </p>
           <StarRating kind="album" id={album.id} initial={(await ratingsOf(db, viewer.id, "album", [album.id])).get(album.id) ?? null} average={(await averageOf(db, "album", [album.id])).get(album.id) ?? null} />
-          <AlbumPlayButtons ids={tracks.map((t) => t.id)}>
+          <AlbumPlayButtons ids={tracks.map((t) => t.id)} radioArtistId={album.artistId}>
             <MoreMenu>
               <DownloadAlbumButton serverId={serverId} songIds={tracks.map((t) => t.id)} albumName={album.name} />
               <AddSongsToPlaylistMenu serverId={serverId} target={{ albumId: album.id }} label="Add album to playlist" />

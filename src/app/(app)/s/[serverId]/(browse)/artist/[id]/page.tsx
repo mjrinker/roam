@@ -38,7 +38,7 @@ export default async function ArtistPage({ params }: PageProps<"/s/[serverId]/ar
           <AddSongsToPlaylistMenu serverId={serverId} target={{ artistId: artist.id }} label="Add all songs to playlist" />
         </div>
       </div>
-      <AlbumPlayButtons ids={songIds} />
+      <AlbumPlayButtons ids={songIds} radioArtistId={artist.id} />
       <div className={TILE_GRID}>
         {albums.map((a) => (
           <AlbumTile key={a.id} serverId={serverId} album={a} showArtist={false} />
