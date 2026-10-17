@@ -10,6 +10,7 @@ A Roku channel written in BrightScript and SceneGraph. It uses the same JSON API
 - Who's watching (a PIN pad for a profile with a PIN), and which server if there are several.
 - Home: continue watching, recently added, your movie, show and video libraries, search, switch profile, sign out.
 - Libraries as poster grids (more load as you scroll), video folders, movie and show pages (a show lists one season's episodes and can change season), search.
+- **Labels** and the **Wishlist** (Home, More): your labels with the movies and shows under them; the wishlist, where pressing OK on a wish steps it along (want it, then "I'll get this", then "got it"). Making labels, adding wishes and radio are not on Roku (typing, and the channel plays no music).
 - **Playlists** (Home, More): the playlists you can see; an episode plays at once with the ones after it queued, a movie or show opens its page. Audiobooks and photos in a playlist are left out.
 - **Chapters** on a movie's page (each plays from where it starts) and **subtitles**: choose a language, search, pick one; it is shown as words on the picture while the movie plays (movies only, not episodes yet; Roku's own menu still handles tracks inside a file).
 - **Mark as watched / not watched** on a movie's or show's page.

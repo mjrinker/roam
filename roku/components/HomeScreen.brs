@@ -47,6 +47,8 @@ sub onHome(event as Object)
   tools.title = "More"
   more = [{ id: "search", name: "Search" }]
   if h.hasPlaylists = true then more.push({ id: "playlists", name: "Playlists" })
+  more.push({ id: "labels", name: "Labels" })
+  more.push({ id: "wishlist", name: "Wishlist" })
   more.push({ id: "profile", name: "Switch profile" })
   more.push({ id: "signout", name: "Sign out" })
   for each t in more
@@ -82,6 +84,8 @@ sub onSelected()
   else if t = "action" then
     if item.itemId = "search" then m.top.route = { name: "search", serverId: m.serverId }
     if item.itemId = "playlists" then m.top.route = { name: "playlists", serverId: m.serverId }
+    if item.itemId = "labels" then m.top.route = { name: "labels", serverId: m.serverId }
+    if item.itemId = "wishlist" then m.top.route = { name: "wishlist", serverId: m.serverId }
     if item.itemId = "profile" then m.top.route = { name: "switchProfile" }
     if item.itemId = "signout" then m.top.route = { name: "signOut" }
   else if t = "episode" then
