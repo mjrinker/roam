@@ -470,6 +470,13 @@
       "when": 1792223572447,
       "tag": "0066_data_saver",
       "breakpoints": true
+    },
+    {
+      "idx": 67,
+      "version": "7",
+      "when": 1792224259187,
+      "tag": "0067_wishlist",
+      "breakpoints": true
     }
   ]
 }

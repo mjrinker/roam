@@ -995,6 +995,44 @@ export const albumAbout = pgTable("album_about", {
   fetchedAt: timestamp("fetched_at", { withTimezone: true }).notNull().defaultNow(),
 }).enableRLS();
 
+// ── wishlist_items / wishlist_votes ──────────────────────────────────────
+// The server's shared wishlist: things members would like the household that buys media to get next (a movie, show, audiobook, book, album...).
+// Everyone on the server sees it. `status`: wanted, claimed (someone says they will buy it) or got. `title_key` and `year_key` (0 for no year)
+// stop the same thing being listed twice; wanting something already listed is a vote instead.
+export const wishlistItems = pgTable(
+  "wishlist_items",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    serverId: uuid("server_id").notNull().references(() => servers.id, { onDelete: "cascade" }),
+    kind: text("kind").$type<"movie" | "show" | "audiobook" | "book" | "album" | "other">().notNull(),
+    title: text("title").notNull(),
+    titleKey: text("title_key").notNull(),
+    year: integer("year"),
+    yearKey: integer("year_key").notNull().default(0),
+    creator: text("creator"),
+    tmdbId: integer("tmdb_id"),
+    posterUrl: text("poster_url"),
+    overview: text("overview"),
+    note: text("note"),
+    requestedBy: uuid("requested_by").references(() => profiles.id, { onDelete: "set null" }),
+    status: text("status").$type<"wanted" | "claimed" | "got">().notNull().default("wanted"),
+    claimedBy: uuid("claimed_by").references(() => profiles.id, { onDelete: "set null" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex("wishlist_items_unique_idx").on(t.serverId, t.kind, t.titleKey, t.yearKey), index("wishlist_items_server_idx").on(t.serverId, t.status)]
+).enableRLS();
+
+export const wishlistVotes = pgTable(
+  "wishlist_votes",
+  {
+    wishId: uuid("wish_id").notNull().references(() => wishlistItems.id, { onDelete: "cascade" }),
+    accountId: uuid("account_id").notNull().references(() => profiles.id, { onDelete: "cascade" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [primaryKey({ columns: [t.wishId, t.accountId] })]
+).enableRLS();
+
 // ── watch_activity ───────────────────────────────────────────────────────
 // How long each household (an account, never a single profile) spent on each movie, show (its episodes together) or audiobook on each day, for
 // the server admin's statistics. Built up from the progress players save while playing; nothing says which profile of the household it was.
