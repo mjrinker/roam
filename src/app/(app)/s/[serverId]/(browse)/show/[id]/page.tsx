@@ -14,6 +14,8 @@ import { TitleShelf } from "@/components/library/similar-row";
 import { averageOf, ratingsOf } from "@/lib/ratings/service";
 import { onWatchlist } from "@/lib/watchlist/queries";
 import { WatchlistButton } from "@/components/watchlist/watchlist-button";
+import { LabelsMenu } from "@/components/labels/labels-menu";
+import { labelIdsByTitle } from "@/lib/labels/service";
 import { StarRating } from "@/components/ratings/star-rating";
 import { countryFromLocale, displayCertification } from "@/lib/content/ratings";
 import { TitleResyncButton } from "@/components/admin/title-resync-button";
@@ -217,6 +219,7 @@ export default async function ShowDetailPage({
           </PlayChoicesButton>
         )}
         <WatchlistButton titleId={show.id} initial={listed} />
+        <LabelsMenu titleId={show.id} initialCount={(await labelIdsByTitle(db, viewer.id, [show.id])).get(show.id)?.length ?? 0} />
         <AddToPlaylistMenu serverId={serverId} target={{ titleId: show.id }} />
         <MoreMenu>
           {rows.length > 0 && <MarkDoneButton kind="show" id={show.id} done={rows.some((r) => r.ready) && rows.filter((r) => r.ready).every((r) => r.watched)} media="watch" scope="show" />}

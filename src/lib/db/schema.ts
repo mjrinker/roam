@@ -989,6 +989,31 @@ export const albumAbout = pgTable("album_about", {
   fetchedAt: timestamp("fetched_at", { withTimezone: true }).notNull().defaultNow(),
 }).enableRLS();
 
+// ── labels / label_items ─────────────────────────────────────────────────
+// A profile's own tags for movies, shows and books ("Date night", "Christmas"): private to the profile, used to filter lists and smart playlists.
+// Two of a profile's labels can't be spelled alike (name_key is the lower-cased name).
+export const labels = pgTable(
+  "labels",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    viewerId: uuid("viewer_id").notNull().references(() => viewers.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    nameKey: text("name_key").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex("labels_viewer_name_idx").on(t.viewerId, t.nameKey)]
+).enableRLS();
+
+export const labelItems = pgTable(
+  "label_items",
+  {
+    labelId: uuid("label_id").notNull().references(() => labels.id, { onDelete: "cascade" }),
+    titleId: uuid("title_id").notNull().references(() => titles.id, { onDelete: "cascade" }),
+    addedAt: timestamp("added_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [primaryKey({ columns: [t.labelId, t.titleId] }), index("label_items_title_idx").on(t.titleId)]
+).enableRLS();
+
 // ── watchlist_items ──────────────────────────────────────────────────────
 // Movies, shows and audiobooks a profile means to get to. Private to the profile; a title drops off once the profile has finished it.
 export const watchlistItems = pgTable(

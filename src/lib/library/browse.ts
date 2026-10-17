@@ -28,6 +28,8 @@ export interface BrowseItem {
   myRating?: number | null;
   /** The accounts that own a copy (of any season, for a show); only set on servers that track ownership. */
   ownerIds?: string[];
+  /** The ids of this profile's own labels on it. */
+  labelIds?: string[];
 }
 
 export const UNRATED = "Unrated";
@@ -66,6 +68,8 @@ export interface BrowseFilters {
   owners: ReadonlySet<string>;
   /** Choices from MINE_CHOICES, OR'd: rated 4 stars or more, 3 or more, any rating, or not rated by this profile. */
   mine: ReadonlySet<string>;
+  /** Label ids: titles under any of them. */
+  labels: ReadonlySet<string>;
 }
 
 export const EMPTY_FILTERS: BrowseFilters = {
@@ -76,6 +80,7 @@ export const EMPTY_FILTERS: BrowseFilters = {
   audioNeedsFix: false,
   owners: new Set(),
   mine: new Set(),
+  labels: new Set(),
 };
 
 export const DEFAULT_DIRECTION: Record<SortKey, SortDir> = {
@@ -97,7 +102,8 @@ export function activeFilterCount(f: BrowseFilters): number {
     (f.minSeconds !== null || f.maxSeconds !== null ? 1 : 0) +
     (f.audioNeedsFix ? 1 : 0) +
     (f.owners.size > 0 ? 1 : 0) +
-    (f.mine.size > 0 ? 1 : 0)
+    (f.mine.size > 0 ? 1 : 0) +
+    (f.labels.size > 0 ? 1 : 0)
   );
 }
 
@@ -121,6 +127,7 @@ export function applyFilters<T extends BrowseItem>(items: readonly T[], f: Brows
       const ok = [...f.mine].some((c) => (c === "unrated" ? mine === null : c === "rated" ? mine !== null : mine !== null && mine >= Number(c.replace("+", "")) * 2));
       if (!ok) return false;
     }
+    if (f.labels.size > 0 && !(i.labelIds ?? []).some((l) => f.labels.has(l))) return false;
     return true;
   });
 }

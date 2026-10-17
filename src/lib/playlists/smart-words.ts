@@ -113,7 +113,7 @@ const minutes = (m: number) => (m >= 60 ? `${Math.floor(m / 60)} h${m % 60 ? ` $
 const stars = (half: number) => `${starsText(half)} ${half === 2 ? "star" : "stars"}`;
 
 /** "Unwatched comedy or drama movies, rated 4 stars and up, from 1990 to 1999, added in the last 30 days, my highest rated first, up to 50". */
-export function describeRules(r: SmartRules, libs?: readonly SmartLibrary[]): string {
+export function describeRules(r: SmartRules, libs?: readonly SmartLibrary[], labels?: readonly { id: string; name: string }[]): string {
   const parts: string[] = [];
   const state = r.watched === "unwatched" ? "Unwatched" : r.watched === "inProgress" ? "Partly watched" : r.watched === "watched" ? "Watched" : "All";
   const genres = r.genres.length ? ` ${r.genres.join(" or ")}` : "";
@@ -122,6 +122,10 @@ export function describeRules(r: SmartRules, libs?: readonly SmartLibrary[]): st
   const names = (libs ?? []).filter((l) => r.libraryIds.includes(l.id)).map((l) => l.name);
   const where = r.libraryIds.length === 0 ? "" : names.length === 0 ? "" : names.length <= 3 ? ` in ${names.length === 1 ? names[0] : `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`}` : ` in ${names.length} libraries`;
   parts.push(`${state}${genres} ${noun}${where}`);
+  if (r.labelIds.length > 0) {
+    const names = (labels ?? []).filter((l) => r.labelIds.includes(l.id)).map((l) => `“${l.name}”`);
+    parts.push(names.length === 0 ? "under my labels" : `labelled ${names.join(" or ")}`);
+  }
   if (r.rated === "unrated") parts.push("that I haven't rated");
   else if (r.minStars !== null && r.maxStars !== null) parts.push(`rated ${stars(r.minStars)} to ${stars(r.maxStars)}`);
   else if (r.minStars !== null) parts.push(`rated ${stars(r.minStars)} and up`);
@@ -149,10 +153,11 @@ export function describeRules(r: SmartRules, libs?: readonly SmartLibrary[]): st
 }
 
 // ── The form: which conditions have been added ──
-export type Condition = "watched" | "genres" | "rating" | "years" | "added" | "duration" | "name" | "person" | "age" | "scores" | "average" | "quality" | "lastWatched";
+export type Condition = "watched" | "genres" | "label" | "rating" | "years" | "added" | "duration" | "name" | "person" | "age" | "scores" | "average" | "quality" | "lastWatched";
 export const CONDITIONS: { key: Condition; label: string }[] = [
   { key: "watched", label: "Watched" },
   { key: "genres", label: "Genres" },
+  { key: "label", label: "My label" },
   { key: "rating", label: "My rating" },
   { key: "years", label: "Release year" },
   { key: "added", label: "Added recently" },
@@ -171,6 +176,7 @@ export function activeConditions(r: SmartRules): Condition[] {
   const on: Condition[] = [];
   if (r.watched !== "any") on.push("watched");
   if (r.genres.length > 0) on.push("genres");
+  if (r.labelIds.length > 0) on.push("label");
   if (r.minStars !== null || r.maxStars !== null || r.rated !== "any") on.push("rating");
   if (r.yearFrom !== null || r.yearTo !== null) on.push("years");
   if (r.addedWithinDays !== null) on.push("added");
@@ -189,6 +195,7 @@ export function activeConditions(r: SmartRules): Condition[] {
 export const CLEARED: Record<Condition, Partial<SmartRules>> = {
   watched: { watched: "any" },
   genres: { genres: [] },
+  label: { labelIds: [] },
   rating: { minStars: null, maxStars: null, rated: "any" },
   years: { yearFrom: null, yearTo: null },
   added: { addedWithinDays: null },

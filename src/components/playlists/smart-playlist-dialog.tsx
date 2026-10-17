@@ -11,8 +11,9 @@ import { Input } from "@/components/ui/input";
 import type { SmartRules } from "@/lib/playlists/smart";
 import { activeConditions, AGE_CHOICES, CLEARED, CONDITIONS, HEIGHT_WORDS, holdsOnlyShows, nounsOf, SMART_MAX_LIMIT, SMART_MAX_SORTS, SORT_SHORT, SORT_WORDS, toggleSort, WATCHED_WORDS, type Condition, type SmartLibrary } from "@/lib/playlists/smart-words";
 import { starsText } from "@/lib/ratings/stars";
+import { MAX_LABEL_FILTER } from "@/lib/labels/names";
 
-const DEFAULT: SmartRules = { libraryIds: [], kinds: [], showsAs: "shows", genres: [], minStars: null, maxStars: null, rated: "any", watched: "any", yearFrom: null, yearTo: null, addedWithinDays: null, minMinutes: null, maxMinutes: null, titleContains: null, maxAge: null, minImdb: null, minRottenTomatoes: null, minAverage: null, person: null, minHeight: null, watchedWithinDays: null, notWatchedWithinDays: null, sorts: ["title"], limit: 50 };
+const DEFAULT: SmartRules = { libraryIds: [], kinds: [], showsAs: "shows", genres: [], minStars: null, maxStars: null, rated: "any", watched: "any", yearFrom: null, yearTo: null, addedWithinDays: null, minMinutes: null, maxMinutes: null, titleContains: null, maxAge: null, minImdb: null, minRottenTomatoes: null, minAverage: null, person: null, minHeight: null, watchedWithinDays: null, notWatchedWithinDays: null, labelIds: [], sorts: ["title"], limit: 50 };
 const SELECT = "h-9 w-full min-w-0 rounded-lg bg-white/[0.06] px-2 text-sm ring-1 ring-white/[0.1] focus:outline-none focus:ring-2 focus:ring-primary";
 const STAR_CHOICES = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
 const num = (v: string): number | null => (v.trim() === "" || Number.isNaN(Number(v)) ? null : Math.trunc(Number(v)));
@@ -41,6 +42,27 @@ function Setting({ label, children }: { label: string; children: React.ReactNode
       <span className="truncate text-sm font-medium">{label}</span>
       {children}
     </div>
+  );
+}
+
+/** The profile's own labels as a menu of ticks (a title under any ticked one counts). */
+function LabelPicker({ choices, value, onChange }: { choices: { id: string; name: string }[]; value: string[]; onChange: (ids: string[]) => void }) {
+  const names = choices.filter((c) => value.includes(c.id)).map((c) => c.name);
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger render={<button type="button" aria-label="Labels" className="flex h-9 w-full min-w-0 cursor-pointer items-center justify-between gap-2 rounded-lg bg-white/[0.06] px-3 text-left text-sm ring-1 ring-white/[0.1] focus:outline-none focus-visible:ring-2 focus-visible:ring-primary" />}>
+        <span className="truncate">{names.length === 0 ? "Choose labels…" : names.join(", ")}</span>
+        <ChevronDown className="size-4 shrink-0 text-muted-foreground" />
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start" className="max-h-72 min-w-56 overflow-y-auto">
+        {choices.length === 0 && <DropdownMenuItem disabled>No labels yet</DropdownMenuItem>}
+        {choices.map((c) => (
+          <DropdownMenuCheckboxItem key={c.id} checked={value.includes(c.id)} closeOnClick={false} onCheckedChange={(on) => onChange(on ? [...value, c.id].slice(0, MAX_LABEL_FILTER) : value.filter((x) => x !== c.id))}>
+            <span className="truncate">{c.name}</span>
+          </DropdownMenuCheckboxItem>
+        ))}
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }
 
@@ -117,7 +139,7 @@ function SortPicker({ value, onChange }: { value: SmartRules["sorts"]; onChange:
 const SMART_SORT_KEYS = Object.keys(SORT_WORDS) as SmartRules["sorts"];
 
 /** Make a smart playlist (or change one's rules): say what it holds, then add the conditions you want with the + button. */
-export function SmartPlaylistDialog({ serverId, playlistId, initialName = "", initialRules, genres, libraries, open, onOpenChange }: { serverId: string; playlistId?: string; initialName?: string; initialRules?: SmartRules | null; genres: string[]; libraries: SmartLibrary[]; open: boolean; onOpenChange: (open: boolean) => void }) {
+export function SmartPlaylistDialog({ serverId, playlistId, initialName = "", initialRules, genres, labels = [], libraries, open, onOpenChange }: { serverId: string; playlistId?: string; initialName?: string; initialRules?: SmartRules | null; genres: string[]; /** The profile's own labels, for the My label condition. */ labels?: { id: string; name: string }[]; libraries: SmartLibrary[]; open: boolean; onOpenChange: (open: boolean) => void }) {
   const router = useRouter();
   const start = initialRules ?? DEFAULT;
   const [name, setName] = useState(initialName);
@@ -207,6 +229,12 @@ export function SmartPlaylistDialog({ serverId, playlistId, initialName = "", in
                 <Row label="Genres" onRemove={() => remove("genres")}>
                   <GenrePicker choices={genres} value={rules.genres} onChange={(g) => set({ genres: g })} />
                   <Word>Any of the ones ticked.</Word>
+                </Row>
+              )}
+              {shown.includes("label") && (
+                <Row label="My label" onRemove={() => remove("label")}>
+                  <LabelPicker choices={labels} value={rules.labelIds} onChange={(ids) => set({ labelIds: ids })} />
+                  <Word>Under any of the ones ticked.</Word>
                 </Row>
               )}
               {shown.includes("rating") && (
@@ -364,20 +392,20 @@ export function SmartPlaylistDialog({ serverId, playlistId, initialName = "", in
 }
 
 /** "New smart playlist" on the playlists page. */
-export function NewSmartPlaylistButton({ serverId, genres, libraries }: { serverId: string; genres: string[]; libraries: SmartLibrary[] }) {
+export function NewSmartPlaylistButton({ serverId, genres, labels = [], libraries }: { serverId: string; genres: string[]; labels?: { id: string; name: string }[]; libraries: SmartLibrary[] }) {
   const [open, setOpen] = useState(false);
   return (
     <>
       <Button variant="secondary" onClick={() => setOpen(true)} className="gap-2 rounded-xl">
         <Sparkles className="size-4" /> <span className="hidden sm:inline">New smart playlist</span><span className="sm:hidden">Smart</span>
       </Button>
-      {open && <SmartPlaylistDialog serverId={serverId} genres={genres} libraries={libraries} open onOpenChange={setOpen} />}
+      {open && <SmartPlaylistDialog serverId={serverId} genres={genres} labels={labels} libraries={libraries} open onOpenChange={setOpen} />}
     </>
   );
 }
 
 /** On a smart playlist's page: its rules in words, with Edit rules and Refresh now for whoever may change it. */
-export function SmartPlaylistBar({ serverId, playlistId, name, rules, words, canEdit, genres, libraries }: { serverId: string; playlistId: string; name: string; rules: SmartRules | null; words: string; canEdit: boolean; genres: string[]; libraries: SmartLibrary[] }) {
+export function SmartPlaylistBar({ serverId, playlistId, name, rules, words, canEdit, genres, labels = [], libraries }: { serverId: string; playlistId: string; name: string; rules: SmartRules | null; words: string; canEdit: boolean; genres: string[]; labels?: { id: string; name: string }[]; libraries: SmartLibrary[] }) {
   const router = useRouter();
   const [editing, setEditing] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -398,7 +426,7 @@ export function SmartPlaylistBar({ serverId, playlistId, name, rules, words, can
           <Button variant="secondary" size="sm" onClick={() => setEditing(true)}>Edit rules</Button>
         </div>
       )}
-      {editing && <SmartPlaylistDialog serverId={serverId} playlistId={playlistId} initialName={name} initialRules={rules} genres={genres} libraries={libraries} open onOpenChange={setEditing} />}
+      {editing && <SmartPlaylistDialog serverId={serverId} playlistId={playlistId} initialName={name} initialRules={rules} genres={genres} labels={labels} libraries={libraries} open onOpenChange={setEditing} />}
     </div>
   );
 }

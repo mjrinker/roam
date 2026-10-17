@@ -15,6 +15,7 @@ import { libraryVisible, type LibraryActor } from "@/lib/content/library-access"
 import { SONG_LIBRARY_KINDS } from "@/lib/libraries/profile";
 import type { Executor } from "./executor";
 import { SMART_MAX_LIMIT, SMART_MAX_SORTS } from "./smart-words";
+import { MAX_LABEL_FILTER } from "@/lib/labels/names";
 import { POSITION_GAP } from "./position";
 
 /** The kinds of library a smart playlist can draw from. */
@@ -89,6 +90,8 @@ const smartRulesObject = z
     minRottenTomatoes: z.number().int().min(1).max(100).nullable().default(null),
     /** What everyone on the server who rated it gave it, on average, in half stars: at least. */
     minAverage: halfStars.nullable().default(null),
+    /** Under any of these of the playlist owner's own labels (a show's episodes through their show). */
+    labelIds: z.array(z.string().uuid()).max(MAX_LABEL_FILTER).default([]),
     /** A name among its cast and crew (movies, shows), its artist (songs) or its authors and narrators (audiobooks). */
     person: z.string().trim().max(80).nullable().default(null).transform((v) => (v ? v : null)),
     /** The picture is at least this tall, in pixels (720, 1080, 2160...). */
@@ -192,8 +195,12 @@ export const heightOf = (t: Subject) =>
 export const averageOfSubject = (t: Subject) => sql`(SELECT avg(r.half_stars)::float FROM ratings r WHERE r.owner_kind = ${t.kind} AND r.owner_id = ${t.id})`;
 
 /** The conditions that are about the thing itself rather than the profile's history. */
-function subjectConditions(rules: SmartRules, t: Subject, viewer: AccessProfile, since: { watched: Date | null; notWatched: Date | null }): SQL[] {
+function subjectConditions(rules: SmartRules, t: Subject, viewer: AccessProfile, since: { watched: Date | null; notWatched: Date | null }, viewerId: string): SQL[] {
   const out: SQL[] = [];
+  if (rules.labelIds.length > 0) {
+    const ids = sql.join(rules.labelIds.map((id) => sql`${id}::uuid`), sql`, `);
+    out.push(sql`EXISTS (SELECT 1 FROM label_items li JOIN labels lb ON lb.id = li.label_id WHERE li.title_id = ${t.titleId} AND lb.viewer_id = ${viewerId} AND li.label_id IN (${ids}))`);
+  }
   if (rules.titleContains) {
     const q = rules.titleContains.toLowerCase();
     out.push(t.otherName ? sql`(strpos(lower(${t.name}), ${q}) > 0 OR strpos(lower(${t.otherName}), ${q}) > 0)` : sql`strpos(lower(${t.name}), ${q}) > 0`);
@@ -418,7 +425,7 @@ async function episodesEntries(ex: Executor, rules: SmartRules, a: { actor: Libr
         a.since ? sql`${titles.addedAt} >= ${a.since.toISOString()}::timestamptz` : undefined,
         watched ?? undefined,
         ...durationConditions(rules, runtime),
-        ...subjectConditions(rules, subject, a.viewer, a.sinceWatch),
+        ...subjectConditions(rules, subject, a.viewer, a.sinceWatch, a.viewerId),
         ...conditions
       )
     )
@@ -462,7 +469,7 @@ async function titleEntries(ex: Executor, rules: SmartRules, group: "movies" | "
         a.since ? sql`${titles.addedAt} >= ${a.since.toISOString()}::timestamptz` : undefined,
         watched ?? undefined,
         ...(group === "shows" ? [] : durationConditions(rules, runtime)),
-        ...subjectConditions(rules, subject, a.viewer, a.sinceWatch),
+        ...subjectConditions(rules, subject, a.viewer, a.sinceWatch, a.viewerId),
         ...conditions
       )
     )

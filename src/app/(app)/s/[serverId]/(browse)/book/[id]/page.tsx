@@ -5,6 +5,8 @@ import { Headphones, Loader2 } from "lucide-react";
 import { db } from "@/lib/db/client";
 import { libraries, mediaFiles, titles, watchState } from "@/lib/db/schema";
 import { averageOf, ratingsOf } from "@/lib/ratings/service";
+import { LabelsMenu } from "@/components/labels/labels-menu";
+import { labelIdsByTitle } from "@/lib/labels/service";
 import { onWatchlist } from "@/lib/watchlist/queries";
 import { WatchlistButton } from "@/components/watchlist/watchlist-button";
 import { StarRating } from "@/components/ratings/star-rating";
@@ -197,6 +199,7 @@ export default async function BookDetailPage({ params, searchParams }: PageProps
             )}
             <div className="flex flex-wrap justify-center gap-2 md:justify-start">
               <WatchlistButton titleId={book.id} initial={(await onWatchlist(db, viewer.id, [book.id])).has(book.id)} />
+              <LabelsMenu titleId={book.id} initialCount={(await labelIdsByTitle(db, viewer.id, [book.id])).get(book.id)?.length ?? 0} />
               <AddToPlaylistMenu serverId={serverId} target={{ titleId: book.id }} />
               <MoreMenu>
                 <DownloadButton serverId={serverId} ownerKind="title" ownerId={book.id} />

@@ -31,6 +31,7 @@ import { favoriteWords } from "@/lib/photos/favorite-word";
 import { PhotoTimeline } from "@/components/photos/photo-timeline";
 import { decodeCursor, encodeCursor } from "@/lib/playlists/http";
 import { ratingsOf } from "@/lib/ratings/service";
+import { labelIdsByTitle, listLabels } from "@/lib/labels/service";
 import { collectionIndex, listCollections } from "@/lib/collections/queries";
 import { CollectionGrid, CollectionViewTabs, parseLibraryView } from "@/components/collections/collection-views";
 import { NewCollectionButton } from "@/components/collections/collection-admin";
@@ -342,6 +343,9 @@ export default async function LibraryDetailPage({
 
   const ownership = await libraryOwnership(db, { serverId, libraryId, accountId: profile.id, isAdmin: role === "admin" && viewer.role !== "limited" });
   const mineByTitle = await ratingsOf(db, viewer.id, "title", libraryTitles.map((t) => t.id));
+  const labelsByTitle = await labelIdsByTitle(db, viewer.id, libraryTitles.map((t) => t.id));
+  const usedLabels = new Set([...labelsByTitle.values()].flat());
+  const myLabels = (await listLabels(db, viewer.id)).filter((l) => usedLabels.has(l.id)).map((l) => ({ id: l.id, name: l.name }));
   const items: LibraryBrowserItem[] = libraryTitles.map((t) => {
     const state = stateById.get(t.id);
     const stats = statsById.get(t.id);
@@ -365,6 +369,7 @@ export default async function LibraryDetailPage({
       needsAudioFix: audioFixIds.has(t.id),
       ownerIds: ownership ? (ownership.byTitle[t.id] ?? []) : undefined,
       myRating: mineByTitle.get(t.id) ?? null,
+      labelIds: labelsByTitle.get(t.id) ?? [],
       watched: t.kind === "show" ? watchedShows.has(t.id) : (state?.finished ?? false),
       progressFraction:
         state && !state.finished && state.durationSeconds
@@ -427,7 +432,7 @@ export default async function LibraryDetailPage({
       ) : bookView === "authors" ? (
         <AuthorGrid serverId={serverId} authors={groupAuthors(libraryTitles.filter((t) => t.kind === "audiobook"))} />
       ) : (
-        <LibraryBrowser items={items} serverId={serverId} isAdmin={role === "admin"} ownership={ownership} collections={groupCollections ? { group: true, index: groupIndex } : null} />
+        <LibraryBrowser items={items} serverId={serverId} isAdmin={role === "admin"} ownership={ownership} collections={groupCollections ? { group: true, index: groupIndex } : null} labels={myLabels} />
       )}
     </div>
   );

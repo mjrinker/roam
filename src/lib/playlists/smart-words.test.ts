@@ -46,12 +46,22 @@ describe("the conditions of the form", () => {
     expect(activeConditions(rulesOf({ rated: "unrated" }))).toEqual(["rating"]);
   });
   it("offer every condition once, and taking one away clears exactly what it set", () => {
-    expect(CONDITIONS.map((c) => c.key)).toEqual(["watched", "genres", "rating", "years", "added", "duration", "name", "person", "age", "scores", "average", "quality", "lastWatched"]);
-    const full = rulesOf({ watched: "watched", genres: ["A"], minStars: 2, maxStars: 9, rated: "rated", yearFrom: 1990, yearTo: 2000, addedWithinDays: 5, minMinutes: 10, maxMinutes: 20, titleContains: "t", person: "p", maxAge: 7, minImdb: 7, minRottenTomatoes: 80, minAverage: 6, minHeight: 720, watchedWithinDays: 9 });
+    expect(CONDITIONS.map((c) => c.key)).toEqual(["watched", "genres", "label", "rating", "years", "added", "duration", "name", "person", "age", "scores", "average", "quality", "lastWatched"]);
+    const full = rulesOf({ watched: "watched", genres: ["A"], minStars: 2, maxStars: 9, rated: "rated", yearFrom: 1990, yearTo: 2000, addedWithinDays: 5, minMinutes: 10, maxMinutes: 20, titleContains: "t", person: "p", maxAge: 7, minImdb: 7, minRottenTomatoes: 80, minAverage: 6, minHeight: 720, watchedWithinDays: 9, labelIds: ["123e4567-e89b-42d3-a456-426614174000"] });
     for (const { key } of CONDITIONS) {
       const after = { ...full, ...CLEARED[key] };
       expect(activeConditions(after)).toEqual(activeConditions(full).filter((k) => k !== key));
     }
+  });
+});
+
+describe("labels in words", () => {
+  const id = "123e4567-e89b-42d3-a456-426614174000";
+  const id2 = "223e4567-e89b-42d3-a456-426614174000";
+  it("name the labels when they are known, and say so plainly when they are not (another profile's rules)", () => {
+    const r = smartRulesSchema.parse({ media: "movies", labelIds: [id, id2] });
+    expect(describeRules(r, undefined, [{ id, name: "Date night" }, { id: id2, name: "Xmas" }])).toContain("labelled “Date night” or “Xmas”");
+    expect(describeRules(r)).toContain("under my labels");
   });
 });
 

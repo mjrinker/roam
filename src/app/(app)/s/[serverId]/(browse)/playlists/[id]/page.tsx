@@ -4,6 +4,7 @@ import { db } from "@/lib/db/client";
 import { requireServerMember } from "@/lib/auth/guards";
 import { libraryActor } from "@/lib/content/library-access";
 import { visibleGenres, visibleSmartLibraries } from "@/lib/playlists/smart-genres";
+import { listLabels } from "@/lib/labels/service";
 import { encodeCursor, isUuid } from "@/lib/playlists/http";
 import { listItems } from "@/lib/playlists/item-service";
 import { nextAfter } from "@/lib/playlists/next";
@@ -72,9 +73,10 @@ export default async function PlaylistPage({ params }: PageProps<"/s/[serverId]/
           playlistId={playlist.id}
           name={playlist.name}
           rules={playlist.smartRules}
-          words={playlist.smartRules ? describeRules(playlist.smartRules, smartLibraries) : "It fills itself from rules its owner set."}
+          words={playlist.smartRules ? describeRules(playlist.smartRules, smartLibraries, (await listLabels(db, viewer.id)).map((l) => ({ id: l.id, name: l.name }))) : "It fills itself from rules its owner set."}
           canEdit={playlist.can.rename}
           genres={playlist.can.rename ? await visibleGenres(db, smartActor, viewer) : []}
+          labels={playlist.can.rename ? (await listLabels(db, viewer.id)).map((l) => ({ id: l.id, name: l.name })) : []}
           libraries={smartLibraries}
         />
       )}

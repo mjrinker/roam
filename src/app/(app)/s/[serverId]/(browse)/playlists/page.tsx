@@ -5,6 +5,7 @@ import { db } from "@/lib/db/client";
 import { requireServerMember } from "@/lib/auth/guards";
 import { libraryActor } from "@/lib/content/library-access";
 import { visibleGenres, visibleSmartLibraries } from "@/lib/playlists/smart-genres";
+import { listLabels } from "@/lib/labels/service";
 import { decodeCursor, encodeCursor } from "@/lib/playlists/http";
 import { listPlaylists, type ListScope } from "@/lib/playlists/service";
 import { Badge } from "@/components/ui/badge";
@@ -66,7 +67,7 @@ export default async function PlaylistsPage({
               <ShieldCheck className="size-4" /> Moderate
             </Link>
           )}
-          <NewSmartPlaylistButton serverId={serverId} genres={genres} libraries={smartLibraries} />
+          <NewSmartPlaylistButton serverId={serverId} genres={genres} labels={(await listLabels(db, viewer.id)).map((l) => ({ id: l.id, name: l.name }))} libraries={smartLibraries} />
           <NewPlaylistButton serverId={serverId} />
         </div>
       </div>

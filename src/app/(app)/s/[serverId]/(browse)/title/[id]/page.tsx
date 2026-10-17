@@ -40,6 +40,8 @@ import { isFileTreeLibraryKind } from "@/lib/libraries/profile";
 import { averageOf, ratingsOf } from "@/lib/ratings/service";
 import { onWatchlist } from "@/lib/watchlist/queries";
 import { WatchlistButton } from "@/components/watchlist/watchlist-button";
+import { LabelsMenu } from "@/components/labels/labels-menu";
+import { labelIdsByTitle } from "@/lib/labels/service";
 import { StarRating } from "@/components/ratings/star-rating";
 import { moreInCollections } from "@/lib/collections/queries";
 import { similarTitles } from "@/lib/recommend/service";
@@ -202,6 +204,7 @@ export default async function TitleDetailPage({
         </div>
       )}
       {title.kind === "movie" && <WatchlistButton titleId={title.id} initial={listed} />}
+      <LabelsMenu titleId={title.id} initialCount={(await labelIdsByTitle(db, viewer.id, [title.id])).get(title.id)?.length ?? 0} />
       <AddToPlaylistMenu serverId={serverId} target={{ titleId: title.id }} />
       {role === "admin" && viewer.role !== "limited" && !isGeneric && <AddToCollectionMenu libraryId={row.libraryId} titleId={title.id} />}
       <MoreMenu>

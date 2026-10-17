@@ -8,6 +8,7 @@ import { loadContext } from "./context";
 import { listVisibleItems } from "./items";
 import { addItem as addItemService } from "./item-service";
 import { createPlaylist, getPlaylistDetail, patchPlaylist } from "./service";
+import { createLabel, setTitleLabel } from "@/lib/labels/service";
 import { evaluateRules, refreshSmartPlaylist, refreshSmartIfStale, smartRulesSchema, SMART_STALE_MS, type SmartRules } from "./smart";
 import { createTestDb, joinServer, makeAccount, makeLibrary, makeServer, makeShow, makeTitle, type TestDb } from "./test-db";
 
@@ -59,6 +60,43 @@ describe("what the rules select", () => {
     await w.movie("alpha");
     await w.movie("No file", { playable: false });
     expect(await w.names(rules())).toEqual(["alpha", "Bravo"]);
+  });
+
+  it("narrows to what is under any of the owner's own labels, and never uses somebody else's", async () => {
+    const w = await world();
+    const a = await w.movie("Alpha");
+    const b = await w.movie("Bravo");
+    await w.movie("Charlie");
+    const date = await createLabel(db, w.viewerId, "Date night");
+    const xmas = await createLabel(db, w.viewerId, "Christmas");
+    if (!date.ok || !xmas.ok) throw new Error("x");
+    await setTitleLabel(db, w.viewerId, date.value.id, a.id, true);
+    await setTitleLabel(db, w.viewerId, xmas.value.id, b.id, true);
+    expect(await w.names(rules({ labelIds: [date.value.id] }))).toEqual(["Alpha"]);
+    expect(await w.names(rules({ labelIds: [date.value.id, xmas.value.id] }))).toEqual(["Alpha", "Bravo"]);
+    expect(await w.names(rules({ labelIds: ["123e4567-e89b-42d3-a456-426614174000"] }))).toEqual([]);
+    // someone else's label, even with its id in the rules, selects nothing for this owner
+    const other = await makeAccount(db, `lbother${++n}`);
+    await joinServer(db, w.server.id, other.accountId);
+    const theirs = await createLabel(db, other.viewer.id, "Theirs");
+    if (!theirs.ok) throw new Error("x");
+    await setTitleLabel(db, other.viewer.id, theirs.value.id, a.id, true);
+    expect(await w.names(rules({ labelIds: [theirs.value.id] }))).toEqual([]);
+    expect(smartRulesSchema.safeParse({ labelIds: ["not-an-id"] }).success).toBe(false);
+    expect(smartRulesSchema.safeParse({ labelIds: Array.from({ length: 11 }, () => "123e4567-e89b-42d3-a456-426614174000") }).success).toBe(false);
+  });
+
+  it("reaches a show's episodes through the show's label", async () => {
+    const w = await world();
+    const shows = await makeLibrary(db, w.server.id, "shows", "everyone");
+    const labelled = await makeShow(db, shows.id, 2, { name: "Labelled show" }, { files: true });
+    await makeShow(db, shows.id, 2, { name: "Plain show" }, { files: true });
+    const l = await createLabel(db, w.viewerId, "Binge");
+    if (!l.ok) throw new Error("x");
+    await setTitleLabel(db, w.viewerId, l.value.id, labelled.show.id, true);
+    expect(await w.names(chosen({ libraryIds: [shows.id], labelIds: [l.value.id] }))).toEqual(["Labelled show"]);
+    const eps = await w.run(chosen({ libraryIds: [shows.id], showsAs: "episodes", labelIds: [l.value.id] }));
+    expect(eps.sort()).toEqual(labelled.episodes.map((e) => e.id).sort());
   });
 
   it("narrows by genre (any of), year, how recently it was added, and library", async () => {

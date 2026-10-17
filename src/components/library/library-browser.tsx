@@ -89,6 +89,7 @@ export function LibraryBrowser({
   isAdmin = false,
   ownership = null,
   collections = null,
+  labels = [],
 }: {
   items: LibraryBrowserItem[];
   serverId: string;
@@ -97,6 +98,8 @@ export function LibraryBrowser({
   /** When the profile groups collections: the collections to show as single tiles (only while nothing is searched, filtered or selected). */
   collections?: { group: boolean; index: CollectionIndex } | null;
   ownership?: { households: { id: string; name: string }[]; assignable: { id: string; name: string }[] } | null;
+  /** This profile's own labels that are on something in this library, for the Label filter. */
+  labels?: { id: string; name: string }[];
 }) {
   const [query, setQuery] = useState("");
   const [sort, setSort] = useState<SortKey>("title");
@@ -308,6 +311,18 @@ export function LibraryBrowser({
                     onClick={() => setFilters((f) => ({ ...f, genres: toggled(f.genres, g) }))}
                   >
                     {g}
+                  </Chip>
+                ))}
+              </div>
+            </FilterGroup>
+          )}
+
+          {labels.length > 0 && (
+            <FilterGroup label="Label">
+              <div className="flex flex-wrap gap-1.5">
+                {labels.map((l) => (
+                  <Chip key={l.id} active={filters.labels.has(l.id)} onClick={() => setFilters((f) => ({ ...f, labels: toggled(f.labels, l.id) }))}>
+                    {l.name}
                   </Chip>
                 ))}
               </div>

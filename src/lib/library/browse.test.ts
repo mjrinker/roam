@@ -65,6 +65,21 @@ describe("applyFilters", () => {
   });
 });
 
+describe("the label filter", () => {
+  const a = item("A", { labelIds: ["date"] });
+  const b = item("B", { labelIds: ["date", "xmas"] });
+  const c = item("C", { labelIds: [] });
+  const d = item("D");
+  it("keeps titles under any of the chosen labels, and none without", () => {
+    const f = (...ids: string[]) => applyFilters([a, b, c, d], { ...EMPTY_FILTERS, labels: new Set(ids) }).map((i) => i.name);
+    expect(f("date")).toEqual(["A", "B"]);
+    expect(f("xmas")).toEqual(["B"]);
+    expect(f("date", "xmas")).toEqual(["A", "B"]);
+    expect(f("nothing")).toEqual([]);
+    expect(f()).toEqual(["A", "B", "C", "D"]);
+  });
+});
+
 describe("activeFilterCount", () => {
   it("counts each active filter group once", () => {
     expect(activeFilterCount(EMPTY_FILTERS)).toBe(0);
@@ -77,8 +92,9 @@ describe("activeFilterCount", () => {
         maxSeconds: null,
         audioNeedsFix: true,
         mine: new Set(["4+"]),
+        labels: new Set(["l1", "l2"]),
       })
-    ).toBe(4);
+    ).toBe(5);
   });
 });
 
