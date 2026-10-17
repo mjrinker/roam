@@ -205,6 +205,24 @@ describe("organizeMusicLibrary", () => {
 });
 
 describe("in a scan", () => {
+  it("groups a big new library at the start of a pass, so it can be browsed even when probing and reading tags use up the whole pass", async () => {
+    const m = await newLibrary();
+    await m.add("Queen/A Night at the Opera", ["01 - Death on Two Legs.mp3", "02 - Lazing.mp3"]);
+    await m.add("Adele/21", ["01 - Rolling.mp3"]);
+    const { probeFiles } = await import("@/lib/scan/media-files");
+    // Probing takes longer than the time the pass has: nothing after it (tags, the closing grouping) gets any time.
+    vi.mocked(probeFiles).mockImplementationOnce(async () => {
+      await new Promise((r) => setTimeout(r, 150));
+      return true;
+    });
+    const provider = { listFolder: async () => [], getFolder: async () => null, getStreamingUrl: async () => ({ url: "", expiresAt: new Date() }), fetchByteRange: async () => new ArrayBuffer(0) } satisfies StorageProvider;
+    const incomplete = await probeVideoLibrary(provider, m.lib.id, Date.now() + 100, [], MUSIC_PROFILE);
+    expect(incomplete).toBe(true); // more passes are needed...
+    const v = await m.view();
+    expect(v.artists).toEqual(["Adele", "Queen"]); // ...but the library already shows its artists and albums
+    expect(v.albums).toEqual(["Adele / 21", "Queen / A Night at the Opera"]);
+  });
+
   it("probing a music library groups its tracks, and an audio library is left alone", async () => {
     const m = await newLibrary();
     await m.add("A/B", ["01 - x.mp3"]);

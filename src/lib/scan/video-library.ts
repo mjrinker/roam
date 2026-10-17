@@ -45,6 +45,8 @@ const LOCK_TIMEOUT = "55P03";
 const CHUNK = 500;
 /** Per pass, so a huge library's probing is spread over passes instead of loading every pending row at once. */
 const PROBE_BATCH = 300;
+/** The time a music library's first grouping into artists and albums may take in a pass. */
+const EARLY_ORGANIZE_MS = 10_000;
 
 export const isUnsupportedVideo = (fileName: string): boolean => VIDEO_PROFILE.isUnsupported(fileName);
 
@@ -463,6 +465,12 @@ export async function probeVideoLibrary(
   const inLibrary = eq(titles.libraryId, libraryId);
   // A picture has no duration or codecs: the MP4 prober must never be pointed at one.
   const notPhoto = ne(titles.kind, "photo");
+
+  // A music library is grouped into artists and albums FIRST (from the folders, which is enough for nearly every track), with a share of the
+  // time of its own. Probing and reading tags for a big library take many passes, and the library shows nothing until it is grouped, so
+  // waiting for the end of those left a new library empty for a long time. It is grouped again after the tags (below), which can name the
+  // artist of a track in the top folder.
+  if (profile.groupsIntoAlbums) await organizeMusicLibrary(libraryId, Math.min(deadline, Date.now() + EARLY_ORGANIZE_MS));
 
   const pendingTitleFiles = await db
     .select({ file: mediaFiles })
