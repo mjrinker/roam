@@ -91,6 +91,13 @@ def mark_menu(kind, item_id, done_now=None):
             ("Roam: mark not watched", "RunPlugin(%s)" % build_url(action="mark", kind=kind, id=item_id, done="0"))]
 
 
+def keep_menu(item_id):
+    """Context-menu entries for a movie or show: the watch list and this profile's labels."""
+    return [("Roam: labels", "RunPlugin(%s)" % build_url(action="label_menu", id=item_id)),
+            ("Roam: add to watch list", "RunPlugin(%s)" % build_url(action="watchlist", id=item_id, on="1")),
+            ("Roam: take off watch list", "RunPlugin(%s)" % build_url(action="watchlist", id=item_id, on="0"))]
+
+
 def add_item(ctx, item, queue=None):
     """One of the API's items as a list entry."""
     kind, label, thumb, square = item["type"], item["name"], item.get("posterUrl"), bool(item.get("square"))
@@ -102,13 +109,13 @@ def add_item(ctx, item, queue=None):
                      [("Play from the beginning", "PlayMedia(%s)" % build_url(action="play", kind="title", id=item["id"], name=item["name"], start_over="1")),
                       ("Roam: details", "RunPlugin(%s)" % build_url(action="info", id=item["id"])),
                       ("Roam: chapters", "Container.Update(%s)" % build_url(action="chapters", id=item["id"], name=item["name"])),
-                      ("Roam: extras", "Container.Update(%s)" % build_url(action="extras", id=item["id"], name=item["name"]))] + mark_menu("title", item["id"]))
+                      ("Roam: extras", "Container.Update(%s)" % build_url(action="extras", id=item["id"], name=item["name"]))] + keep_menu(item["id"]) + mark_menu("title", item["id"]))
     elif kind == "episode":
         add_playable(ctx, label, build_url(action="play", kind="episode", id=item["id"], name=item["name"], queue=queue), thumb, square, {"mediatype": "episode"}, mark_menu("episode", item["id"]))
     elif kind == "show":
         li = xbmcgui.ListItem(label=label)
         art(li, thumb)
-        li.addContextMenuItems([("Roam: details", "RunPlugin(%s)" % build_url(action="info", id=item["id"]))] + mark_menu("show", item["id"]))
+        li.addContextMenuItems([("Roam: details", "RunPlugin(%s)" % build_url(action="info", id=item["id"]))] + keep_menu(item["id"]) + mark_menu("show", item["id"]))
         xbmcplugin.addDirectoryItem(ctx.handle, build_url(action="show", id=item["id"], name=item["name"]), li, True)
     elif kind == "artist":
         add_folder(ctx, label, build_url(action="artist", id=item["id"]), thumb, True)
@@ -266,6 +273,8 @@ def root(ctx):
         if lib.get("style"):
             add_folder(ctx, lib["name"], build_url(action="library", id=lib["id"], style=lib["style"], name=lib["name"]))
     add_folder(ctx, "Playlists", build_url(action="playlists"))
+    add_folder(ctx, "Labels", build_url(action="labels"))
+    add_folder(ctx, "Wishlist", build_url(action="wishlist"))
     add_folder(ctx, "Search", build_url(action="search"))
     add_folder(ctx, "Switch profile", build_url(action="switch_profile"))
     add_folder(ctx, "Sign out", build_url(action="sign_out"))
@@ -488,6 +497,7 @@ def artist(ctx, artist_id):
         d = ctx.api.get(sp(ctx, "/artists/%s" % artist_id))
     except ApiError as e:
         return fail(ctx, e)
+    add_folder(ctx, "Start radio", build_url(action="radio", artist=artist_id))
     for al in d.get("albums", []):
         add_folder(ctx, al["name"] + (" (%s)" % al["subtitle"] if al.get("subtitle") else ""), build_url(action="album", id=al["id"]), al.get("posterUrl"), True)
     end(ctx, "albums")
@@ -500,6 +510,8 @@ def album(ctx, album_id):
         d = ctx.api.get(sp(ctx, "/albums/%s" % album_id))
     except ApiError as e:
         return fail(ctx, e)
+    if (d.get("artist") or {}).get("id"):
+        add_folder(ctx, "Start radio", build_url(action="radio", artist=d["artist"]["id"]))
     for t in d.get("tracks", []):
         label = ("%s. " % t["number"] if t.get("number") else "") + t["name"]
         add_playable(ctx, label, build_url(action="play_audio", id=t["id"], name=t["name"], remember="0"), d.get("coverUrl"), True)
@@ -519,6 +531,170 @@ def search(ctx):
     for item in r.get("items", []):
         add_item(ctx, item)
     end(ctx, "movies")
+
+
+# ── Labels, the watch list, the wishlist and radio ──
+def labels(ctx):
+    """This profile's labels, each opening the titles under it."""
+    if not ready(ctx):
+        return
+    try:
+        rows = ctx.api.get(sp(ctx, "/labels")).get("labels", [])
+    except ApiError as e:
+        return fail(ctx, e)
+    if not rows:
+        xbmcgui.Dialog().ok("Roam", "No labels yet. Long-press a movie or show and choose Roam: labels to make one.")
+        return end(ctx, ok=False)
+    for row in rows:
+        add_folder(ctx, "%s  (%s)" % (row["name"], row.get("count", 0)), build_url(action="label", id=row["id"]))
+    end(ctx, "files")
+
+
+def label(ctx, label_id):
+    if not ready(ctx):
+        return
+    try:
+        r = ctx.api.get(sp(ctx, "/labels/%s" % label_id))
+    except ApiError as e:
+        return fail(ctx, e)
+    for item in r.get("items", []):
+        add_item(ctx, item)
+    end(ctx, "movies")
+
+
+def label_menu(ctx, title_id):
+    """Ticks and unticks this profile's labels on a title (or makes a new one), then comes back until you pick Done."""
+    if not ready(ctx):
+        return
+    try:
+        while True:
+            rows = ctx.api.get("/api/labels", title=title_id).get("labels", [])
+            names = [("[x] " if r.get("has") else "[ ] ") + r["name"] for r in rows] + ["New label…", "Done"]
+            choice = xbmcgui.Dialog().select("Labels", names)
+            if choice < 0 or choice == len(names) - 1:
+                break
+            if choice == len(names) - 2:
+                name = xbmcgui.Dialog().input("New label")
+                if name and name.strip():
+                    ctx.api.post("/api/labels", {"name": name.strip(), "titleId": title_id})
+                continue
+            row = rows[choice]
+            ctx.api.put("/api/labels/%s/items" % row["id"], {"titleId": title_id, "on": not row.get("has")})
+    except ApiError as e:
+        return fail(ctx, e)
+
+
+def watchlist(ctx, title_id, on):
+    if not ready(ctx):
+        return
+    try:
+        ctx.api.put("/api/watchlist", {"titleId": title_id, "on": on == "1"})
+    except ApiError as e:
+        return fail(ctx, e)
+    xbmcgui.Dialog().notification("Roam", "Added to your watch list." if on == "1" else "Taken off your watch list.", xbmcgui.NOTIFICATION_INFO, 2500)
+
+
+def wish_status(w):
+    if w.get("onServer"):
+        return "on the server now"
+    if w.get("status") == "got":
+        return "got it"
+    if w.get("status") == "claimed":
+        return "you're getting this" if w.get("claimedByMe") else "%s is getting this" % (w.get("claimedByName") or "someone")
+    return "%s want%s this" % (w.get("wants", 1), "s" if w.get("wants", 1) == 1 else "")
+
+
+def wishlist(ctx):
+    """What the household that buys media could get next; pressing one offers what you can do with it."""
+    if not ready(ctx):
+        return
+    try:
+        r = ctx.api.get("/api/servers/%s/wishlist" % ctx.server)
+    except ApiError as e:
+        return fail(ctx, e)
+    if r.get("canEdit", True):
+        add_folder(ctx, "Add a wish…", build_url(action="wish_add"))
+    for w in r.get("items", []):
+        year = " (%s)" % w["year"] if w.get("year") else ""
+        add_folder(ctx, "%s%s  —  %s" % (w["title"], year, wish_status(w)), build_url(action="wish_menu", id=w["id"]), w.get("posterUrl"))
+    end(ctx, "files")
+
+
+def wish_menu(ctx, wish_id):
+    if not ready(ctx):
+        return
+    try:
+        r = ctx.api.get("/api/servers/%s/wishlist" % ctx.server)
+        w = next((x for x in r.get("items", []) if x["id"] == wish_id), None)
+        if not w or not r.get("canEdit", True):
+            return xbmcplugin.endOfDirectory(ctx.handle, succeeded=False)
+        options = []
+        if w.get("onServer"):
+            pass
+        elif w.get("status") == "got":
+            options.append(("Want it again", lambda: ctx.api.patch("/api/wishlist/%s" % wish_id, {"action": "reopen"})))
+        else:
+            options.append(("I don't want it" if w.get("iWant") else "I want it", lambda: ctx.api.put("/api/wishlist/%s/want" % wish_id, {"on": not w.get("iWant")})))
+            if w.get("status") == "claimed" and w.get("claimedByMe"):
+                options.append(("Got it", lambda: ctx.api.patch("/api/wishlist/%s" % wish_id, {"action": "got"})))
+                options.append(("Not me", lambda: ctx.api.patch("/api/wishlist/%s" % wish_id, {"action": "unclaim"})))
+            elif w.get("status") != "claimed":
+                options.append(("I'll get this", lambda: ctx.api.patch("/api/wishlist/%s" % wish_id, {"action": "claim"})))
+        if w.get("canRemove"):
+            options.append(("Remove", lambda: ctx.api.delete("/api/wishlist/%s" % wish_id)))
+        if options:
+            choice = xbmcgui.Dialog().select(w["title"], [o[0] for o in options])
+            if choice >= 0:
+                options[choice][1]()
+                xbmc.executebuiltin("Container.Refresh")
+    except ApiError as e:
+        return fail(ctx, e)
+    xbmcplugin.endOfDirectory(ctx.handle, succeeded=False)
+
+
+WISH_KINDS = [("movie", "Movie"), ("show", "TV show"), ("audiobook", "Audiobook"), ("album", "Album"), ("book", "Book"), ("other", "Other")]
+
+
+def wish_add(ctx):
+    """Asks what kind and what name, and adds it (or joins it if it is listed already)."""
+    if not ready(ctx):
+        return
+    kind = xbmcgui.Dialog().select("What kind of thing?", [k[1] for k in WISH_KINDS])
+    if kind < 0:
+        return xbmcplugin.endOfDirectory(ctx.handle, succeeded=False)
+    title = xbmcgui.Dialog().input("What would you like?")
+    if title and title.strip():
+        try:
+            ctx.api.post("/api/servers/%s/wishlist" % ctx.server, {"kind": WISH_KINDS[kind][0], "title": title.strip()})
+            xbmcgui.Dialog().notification("Roam", "Added to the wishlist.", xbmcgui.NOTIFICATION_INFO, 2500)
+            xbmc.executebuiltin("Container.Refresh")
+        except ApiError as e:
+            return fail(ctx, e)
+    xbmcplugin.endOfDirectory(ctx.handle, succeeded=False)
+
+
+def radio(ctx, artist_id):
+    """Songs like an artist, queued to play one after another (Kodi's own gapless and crossfade settings apply)."""
+    if not ready(ctx):
+        return
+    try:
+        r = ctx.api.get("/api/music/radio", artist=artist_id)
+    except ApiError as e:
+        return fail(ctx, e)
+    ids = r.get("ids", [])
+    if not ids:
+        xbmcgui.Dialog().ok("Roam", "Not enough music like this to make a radio.")
+        return xbmcplugin.endOfDirectory(ctx.handle, succeeded=False)
+    playlist = xbmc.PlayList(xbmc.PLAYLIST_MUSIC)
+    playlist.clear()
+    name = r.get("artistName") or "Radio"
+    for song_id in ids:
+        url = build_url(action="play_audio", id=song_id, name=name, remember="0")
+        li = xbmcgui.ListItem(label=name, path=url)
+        li.setProperty("IsPlayable", "true")
+        playlist.add(url, li)
+    xbmc.Player().play(playlist)
+    xbmcplugin.endOfDirectory(ctx.handle, succeeded=False)
 
 
 # ── Playing ──
@@ -666,6 +842,22 @@ def run(argv):
         artist(ctx, params["id"])
     elif action == "album":
         album(ctx, params["id"])
+    elif action == "labels":
+        labels(ctx)
+    elif action == "label":
+        label(ctx, params["id"])
+    elif action == "label_menu":
+        label_menu(ctx, params["id"])
+    elif action == "watchlist":
+        watchlist(ctx, params["id"], params.get("on", "1"))
+    elif action == "wishlist":
+        wishlist(ctx)
+    elif action == "wish_menu":
+        wish_menu(ctx, params["id"])
+    elif action == "wish_add":
+        wish_add(ctx)
+    elif action == "radio":
+        radio(ctx, params["artist"])
     elif action == "search":
         search(ctx)
     elif action == "play":

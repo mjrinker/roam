@@ -40,6 +40,9 @@ class FakeApi:
     def patch(self, path, body):
         return self._answer("PATCH", path)
 
+    def put(self, path, body):
+        return self._answer("PUT", path, body)
+
     def delete(self, path):
         return self._answer("DELETE", path)
 
@@ -80,7 +83,7 @@ class Lists(Base):
         FakeApi.answers["/api/v1/servers/S/libraries"] = {"libraries": [{"id": "L1", "name": "Movies", "kind": "movies", "style": "grid"}, {"id": "L2", "name": "Books", "kind": "ebooks", "style": None}]}
         self.run_action()
         labels = [i["li"].label for i in xbmcplugin.items]
-        self.assertEqual(labels, ["Continue watching", "Up next", "Recommended for you", "Recently added", "Movies", "Playlists", "Search", "Switch profile", "Sign out"])
+        self.assertEqual(labels, ["Continue watching", "Up next", "Recommended for you", "Recently added", "Movies", "Playlists", "Labels", "Wishlist", "Search", "Switch profile", "Sign out"])
         self.assertTrue(all(i["folder"] for i in xbmcplugin.items))
         self.assertEqual(xbmcplugin.ended, [True])
 
@@ -135,6 +138,57 @@ class Lists(Base):
         item = xbmcplugin.items[0]
         self.assertEqual(item["li"].label, "1. One")
         self.assertEqual(params_of(item["url"])["remember"], "0")
+
+
+class LabelsWishlistRadio(Base):
+    def test_the_front_page_has_labels_and_the_wishlist(self):
+        self.run_action()
+        labels = [i["li"].label for i in xbmcplugin.items]
+        self.assertIn("Labels", labels)
+        self.assertIn("Wishlist", labels)
+
+    def test_labels_list_with_counts_and_open_their_titles(self):
+        FakeApi.answers["/api/v1/servers/S/labels"] = {"labels": [{"id": "l1", "name": "Weekend", "count": 2}]}
+        self.run_action(action="labels")
+        self.assertEqual(xbmcplugin.items[0]["li"].label, "Weekend  (2)")
+        self.assertEqual(params_of(xbmcplugin.items[0]["url"]), {"action": "label", "id": "l1"})
+        xbmcplugin.reset()
+        FakeApi.answers["/api/v1/servers/S/labels/l1"] = {"items": [{"type": "movie", "id": "m1", "name": "Film", "subtitle": "2001"}]}
+        self.run_action(action="label", id="l1")
+        self.assertEqual(xbmcplugin.items[0]["li"].label, "Film (2001)")
+
+    def test_the_label_menu_ticks_a_label_then_finishes(self):
+        FakeApi.answers["/api/labels"] = {"labels": [{"id": "l1", "name": "Weekend", "has": False}]}
+        choices = iter([0, 2])
+        xbmcgui.Dialog.select = lambda self, h, items: next(choices)
+        try:
+            self.run_action(action="label_menu", id="m1")
+        finally:
+            del xbmcgui.Dialog.select
+        self.assertIn(("PUT", "/api/labels/l1/items", {"titleId": "m1", "on": True}), FakeApi.seen)
+
+    def test_the_watch_list_is_changed_from_the_context_menu(self):
+        self.run_action(action="watchlist", id="m1", on="1")
+        self.assertIn(("PUT", "/api/watchlist", {"titleId": "m1", "on": True}), FakeApi.seen)
+
+    def test_the_wishlist_shows_status_and_the_menu_claims(self):
+        FakeApi.answers["/api/servers/S/wishlist"] = {"items": [{"id": "w1", "kind": "movie", "title": "Heat", "year": 1995, "status": "wanted", "wants": 3}], "canEdit": True}
+        self.run_action(action="wishlist")
+        self.assertEqual([i["li"].label for i in xbmcplugin.items], ["Add a wish…", "Heat (1995)  —  3 want this"])
+        xbmcgui.Dialog.select = lambda self, h, items: items.index("I'll get this")
+        try:
+            self.run_action(action="wish_menu", id="w1")
+        finally:
+            del xbmcgui.Dialog.select
+        self.assertIn(("PATCH", "/api/wishlist/w1", {}), FakeApi.seen)
+
+    def test_a_radio_queues_the_songs(self):
+        FakeApi.answers["/api/music/radio"] = {"ids": ["a", "b"], "artistName": "Band"}
+        self.run_action(action="radio", artist="ar1")
+        self.assertIn(("play", 2, 0), xbmc.calls)
+        urls = [u for u, _ in xbmc.Player.last.played[0].items]
+        self.assertEqual([params_of(u)["id"] for u in urls], ["a", "b"])
+        self.assertIn(("GET", "/api/music/radio", {"artist": "ar1"}), FakeApi.seen)
 
 
 class SigningIn(Base):
@@ -332,8 +386,8 @@ class Details(Base):
         self.run_action(action="library", id="L1", style="grid", name="Movies")
         film, shw = xbmcplugin.items
         menus = [label for label, _ in film["li"].context]
-        self.assertEqual(menus, ["Play from the beginning", "Roam: details", "Roam: chapters", "Roam: extras", "Roam: mark watched", "Roam: mark not watched"])
-        self.assertEqual([label for label, _ in shw["li"].context], ["Roam: details", "Roam: mark watched", "Roam: mark not watched"])
+        self.assertEqual(menus, ["Play from the beginning", "Roam: details", "Roam: chapters", "Roam: extras", "Roam: labels", "Roam: add to watch list", "Roam: take off watch list", "Roam: mark watched", "Roam: mark not watched"])
+        self.assertEqual([label for label, _ in shw["li"].context], ["Roam: details", "Roam: labels", "Roam: add to watch list", "Roam: take off watch list", "Roam: mark watched", "Roam: mark not watched"])
 
     def test_chapters_play_from_where_they_start(self):
         FakeApi.answers["/api/v1/servers/S/titles/m1"] = self.MOVIE
