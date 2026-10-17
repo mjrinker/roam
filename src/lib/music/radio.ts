@@ -88,7 +88,7 @@ export interface Radio {
  * The radio for an artist (or the artist of a song, which then plays first). Null when the seed isn't something this viewer can see, or the
  * library has nothing to play. `deps` is for tests.
  */
-export async function radioFor(ex: Db, scope: Scope, seed: { artistId: string; songId?: string }, deps: AboutDeps = {}): Promise<Radio | null> {
+export async function radioFor(ex: Db, scope: Scope, seed: { artistId: string; songId?: string }, deps: AboutDeps = {}, opts: { random?: () => number } = {}): Promise<Radio | null> {
   const [artist] = await ex.select({ id: musicArtists.id, name: musicArtists.name, libraryId: musicArtists.libraryId }).from(musicArtists).where(eq(musicArtists.id, seed.artistId));
   if (!artist) return null;
   const own = await artistSongIds(ex, { ...scope, artistId: artist.id }, 400);
@@ -112,7 +112,7 @@ export async function radioFor(ex: Db, scope: Scope, seed: { artistId: string; s
     const songs = await artistSongIds(ex, { ...scope, artistId: o.id }, SONGS_PER_ARTIST);
     if (songs?.length) pool.push({ id: o.id, songs, weight: weights.others[i] });
   }
-  const ids = buildRadio({ artists: pool, firstSongId: seed.songId });
+  const ids = buildRadio({ artists: pool, firstSongId: seed.songId, random: opts.random });
   return ids.length ? { ids, artistName: artist.name, fromArtists: pool.length - 1 } : null;
 }
 

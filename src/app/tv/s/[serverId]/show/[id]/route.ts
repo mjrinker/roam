@@ -2,10 +2,11 @@ import { db } from "@/lib/db/client";
 import { asUuid, notFoundPage, tvAccess } from "@/lib/tv/context";
 import { showDetail } from "@/lib/tv/data";
 import { html } from "@/lib/tv/http";
-import { ownershipSections, ratingSection } from "@/lib/tv/sections";
+import { labelSection, ownershipSections, ratingSection } from "@/lib/tv/sections";
 import { similarTitles } from "@/lib/recommend/service";
 import { averageOf, ratingsOf } from "@/lib/ratings/service";
 import { onWatchlist } from "@/lib/watchlist/queries";
+import { labelsForTitle } from "@/lib/labels/service";
 import { detailPage } from "@/tv/render";
 import { starsText } from "@/lib/ratings/stars";
 
@@ -29,7 +30,8 @@ export async function GET(request: Request, ctx: RouteContext<"/tv/s/[serverId]/
     ? [{ heading: "Rate or mark an episode", lines: show.episodes.map((e) => ({ text: `${e.number}. ${e.name ?? `Episode ${e.number}`}`, sub: episodeMine.has(e.id) ? `Your rating: ${starsText(episodeMine.get(e.id) as number)}` : "Not rated", href: `${access.base}/episode/${e.id}` })) }]
     : [];
   const similar = await similarTitles(db, { actor: access.scope.actor, viewer: access.scope.viewer, titleId: id, limit: 8 });
-  const sections = [ratingSection({ base: access.base, kind: "title", id, back: `${here}${show.currentSeason ? `?season=${show.currentSeason}` : ""}`, mine, average: (await averageOf(db, "title", [id])).get(id) ?? null }), ...rateEpisodes, ...(similar.length ? [{ heading: "More like this", lines: similar.map((i) => ({ text: i.name, sub: i.year ? String(i.year) : null, href: `${access.base}/show/${i.id}` })) }] : []), ...(await ownershipSections(db, { serverId, base: access.base, who: access.who, viewerId: access.scope.viewerId, libraryKind: "shows", titleId: id, seasonId: show.currentSeasonId, back: `${here}${show.currentSeason ? `?season=${show.currentSeason}` : ""}` }))];
+  const labelBox = labelSection({ base: access.base, titleId: id, back: `${here}${show.currentSeason ? `?season=${show.currentSeason}` : ""}`, labels: await labelsForTitle(db, access.scope.viewerId, id) });
+  const sections = [...(labelBox ? [labelBox] : []), ratingSection({ base: access.base, kind: "title", id, back: `${here}${show.currentSeason ? `?season=${show.currentSeason}` : ""}`, mine, average: (await averageOf(db, "title", [id])).get(id) ?? null }), ...rateEpisodes, ...(similar.length ? [{ heading: "More like this", lines: similar.map((i) => ({ text: i.name, sub: i.year ? String(i.year) : null, href: `${access.base}/show/${i.id}` })) }] : []), ...(await ownershipSections(db, { serverId, base: access.base, who: access.who, viewerId: access.scope.viewerId, libraryKind: "shows", titleId: id, seasonId: show.currentSeasonId, back: `${here}${show.currentSeason ? `?season=${show.currentSeason}` : ""}` }))];
   return html(
     detailPage({
       sections,

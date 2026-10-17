@@ -28,6 +28,7 @@ const ALLOWLIST: Record<string, string> = {
   "api/v1/servers/[serverId]/titles/[id]/route.ts": "reads only through lib/tv/data (library visibility and the age filter) and the ownership view; covered by app/api/v1/browse.routes.test.ts",
   "(app)/s/[serverId]/(browse)/admin/stats/page.tsx": "admin-only (requireServerAdmin); shows aggregate time and title names from lib/stats, which count only this server's activity (stats.sql.test.ts)",
   "(app)/s/[serverId]/(browse)/admin/stats/[accountId]/page.tsx": "admin-only (requireServerAdmin); one household's recorded time on this server, only for a member of it (stats.sql.test.ts)",
+  "tv/s/[serverId]/labels/[id]/route.ts": "reads only through labelWithTitles in lib/labels/queries, which applies the profile's own label, library visibility, the age limit and something to play (queries.sql.test.ts and apps-features.routes.test.ts)",
   "api/ownership/owners/route.ts": "admin-only (getCurrentServerAdmin); only reads the titles of that admin's own server, to assign owners",
   "api/titles/[id]/match/route.ts": "admin-only (getCurrentServerAdmin)",
   "api/titles/[id]/match-audible/route.ts": "admin-only (getCurrentServerAdmin)",

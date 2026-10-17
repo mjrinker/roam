@@ -9,12 +9,13 @@ import { and, asc, desc, eq, gt, inArray, isNull, sql } from "drizzle-orm";
 import type { PgDatabase, PgQueryResultHKT } from "drizzle-orm/pg-core";
 import { contentFilter, type AccessProfile } from "@/lib/content/access";
 import { libraryVisible, type LibraryActor } from "@/lib/content/library-access";
-import { episodes, libraries, seasons, titles, watchState } from "@/lib/db/schema";
+import { episodes, libraries, musicAlbums, musicArtists, seasons, titles, watchState } from "@/lib/db/schema";
 import { listFolder, normalizeFolderPath, type FolderPage } from "@/lib/libraries/folder-browse";
 import type { LibraryKind } from "@/lib/db/schema";
 import { GLOBALLY_LISTED_LIBRARY_KINDS, isPhotoLibraryKind, libraryRemembersProgress, tvBrowseStyle, TV_LISTEN_KINDS, TV_WATCH_KINDS, type TvBrowseStyle } from "@/lib/libraries/profile";
 import { getAlbum, getArtist } from "@/lib/music/browse";
-import { shuffled } from "@/lib/tv/shuffle";
+import { generator, shuffled } from "@/lib/tv/shuffle";
+import { radioFor } from "@/lib/music/radio";
 import { onDeck } from "@/lib/watch/on-deck";
 import { listCollections, SERIES_MIN } from "@/lib/collections/queries";
 import { DEFAULT_OPTIONS, type LibraryOptions, type LibrarySort } from "@/lib/tv/library-options";
@@ -435,8 +436,29 @@ export async function artistSongs(ex: Db, scope: TvScope, artistId: string): Pro
 /** Most songs a queue will hold (an artist with a huge catalogue still plays, just not past this). */
 const QUEUE_MAX = 300;
 
+/**
+ * A radio from an artist as a song queue. The same seed gives the same radio (as long as the library and the similar-artist data are the same),
+ * so every song's page agrees on what comes next. Null when the artist isn't visible or has nothing to play.
+ */
+export async function radioQueue(ex: Db, scope: TvScope, artistId: string, seed: number): Promise<{ songs: QueueSong[]; artistName: string } | null> {
+  const radio = await radioFor(ex, { actor: scope.actor, viewer: scope.viewer }, { artistId }, {}, { random: generator(seed) });
+  if (!radio) return null;
+  const rows = await ex
+    .select({ id: titles.id, name: titles.name, album: musicAlbums.name, cover: titles.posterUrl, artist: musicArtists.name })
+    .from(titles)
+    .innerJoin(musicAlbums, eq(musicAlbums.id, titles.albumId))
+    .innerJoin(musicArtists, eq(musicArtists.id, musicAlbums.artistId))
+    .where(inArray(titles.id, radio.ids));
+  const byId = new Map(rows.map((r) => [r.id, r]));
+  const songs = radio.ids.flatMap((id) => {
+    const r = byId.get(id);
+    return r ? [{ id, title: r.name, by: r.artist, cover: r.cover } satisfies QueueSong] : [];
+  });
+  return { songs, artistName: radio.artistName };
+}
+
 /** What a listening page needs: the names, where Back goes and the next song, only for something this profile may see. */
-export async function listenInfo(ex: Db, scope: TvScope, id: string, opts: { artistId?: string | null; shuffleSeed?: number | null } = {}): Promise<ListenInfo | null> {
+export async function listenInfo(ex: Db, scope: TvScope, id: string, opts: { artistId?: string | null; shuffleSeed?: number | null; radio?: { artistId: string; seed: number } | null } = {}): Promise<ListenInfo | null> {
   const [row] = await ex
     .select({ title: titles, libraryId: libraries.id, libraryKind: libraries.kind })
     .from(titles)
@@ -463,6 +485,14 @@ export async function listenInfo(ex: Db, scope: TvScope, id: string, opts: { art
       if (all && all.albumIds.has(t.albumId)) {
         songs = all.songs;
         back = `/artist/${opts.artistId}`;
+      }
+    }
+    // A radio replaces the album's order: the songs it chose for this artist, in the order the seed gives.
+    if (opts.radio) {
+      const radio = await radioQueue(ex, scope, opts.radio.artistId, opts.radio.seed);
+      if (radio && radio.songs.some((x) => x.id === t.id)) {
+        songs = radio.songs;
+        back = `/artist/${opts.radio.artistId}`;
       }
     }
     if (opts.shuffleSeed) songs = shuffled(songs, opts.shuffleSeed);

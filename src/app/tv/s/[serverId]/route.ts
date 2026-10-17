@@ -10,6 +10,7 @@ import { unreadCount } from "@/lib/ownership/notify";
 import { canChangeOwnSettings } from "@/lib/tv/settings";
 import { recommendations } from "@/lib/recommend/service";
 import { listWatchlist } from "@/lib/watchlist/queries";
+import { listLabels } from "@/lib/labels/service";
 import { homePage } from "@/tv/render";
 
 
@@ -32,6 +33,7 @@ export async function GET(request: Request, ctx: RouteContext<"/tv/s/[serverId]"
       recommended: recs.forYou.map((r) => ({ href: `${access.base}/${r.kind === "show" ? "show" : "title"}/${r.id}`, name: r.name, meta: r.year ? String(r.year) : null, posterUrl: r.posterUrl })),
       continueListening: cont.listening.map((c) => ({ href: `${access.base}/listen/${c.id}`, name: c.name, meta: c.meta, posterUrl: c.posterUrl, progress: c.progress, square: true })),
       hasPlaylists: lists.length > 0,
+      hasLabels: (await listLabels(db, access.scope.viewerId)).length > 0,
       unread: await unreadCount(db, access.who.accountId),
       hasSettings: canChangeOwnSettings({ id: access.who.viewerId, role: access.who.viewerRole }),
       screensaver: libs.supported.some((l) => isPhotoLibraryKind(l.kind)) ? { href: `${access.base}/screensaver`, afterSeconds: 300 } : null,

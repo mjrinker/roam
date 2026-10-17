@@ -16,10 +16,13 @@ export async function GET(request: Request, ctx: RouteContext<"/tv/s/[serverId]/
   const query = new URL(request.url).searchParams;
   const artistId = asUuid(query.get("artist") ?? "");
   const seed = parseSeed(query.get("shuffle"));
-  const info = await listenInfo(db, access.scope, id, { artistId, shuffleSeed: seed });
+  const radioArtist = asUuid(query.get("radio") ?? "");
+  const radioSeed = parseSeed(query.get("rseed"));
+  const radio = radioArtist && radioSeed ? { artistId: radioArtist, seed: radioSeed } : null;
+  const info = await listenInfo(db, access.scope, id, { artistId, shuffleSeed: seed, radio });
   if (!info) return notFoundPage();
   // Playing through a playlist: its order replaces an album's, and Back returns to the playlist.
-  let nextHref = info.next ? `${access.base}${info.next}${carried(info.back, artistId, seed)}` : null;
+  let nextHref = info.next ? `${access.base}${info.next}${carried(info.back, artistId, seed, radio)}` : null;
   let backHref = `${access.base}${info.back}`;
   let queue = info.queue;
   const inPlaylist = parseQueueContext(query);
@@ -48,7 +51,7 @@ export async function GET(request: Request, ctx: RouteContext<"/tv/s/[serverId]/
 }
 
 /** The address parts that keep an artist's play-all and a shuffle going from one song's page to the next. */
-function carried(back: string, artistId: string | null, seed: number | null): string {
-  const parts = [artistId && back === `/artist/${artistId}` ? `artist=${artistId}` : "", seed ? `shuffle=${seed}` : ""].filter(Boolean);
+function carried(back: string, artistId: string | null, seed: number | null, radio: { artistId: string; seed: number } | null): string {
+  const parts = [artistId && back === `/artist/${artistId}` && !radio ? `artist=${artistId}` : "", seed ? `shuffle=${seed}` : "", radio ? `radio=${radio.artistId}&rseed=${radio.seed}` : ""].filter(Boolean);
   return parts.length ? `?${parts.join("&")}` : "";
 }

@@ -73,6 +73,17 @@ export async function movieSections(ex: Db, ctx: { serverId: string; base: strin
   return out;
 }
 
+/** "Labels" on a TV page: each of the profile's labels as a button that shows whether the title is under it and flips that (up to a dozen). Null with no labels. */
+export function labelSection(args: { base: string; titleId: string; back: string; labels: { id: string; name: string; has: boolean }[] }): TvSection | null {
+  if (args.labels.length === 0) return null;
+  return {
+    heading: "Your labels",
+    lines: [],
+    posts: args.labels.slice(0, 12).map((l) => ({ action: `${args.base}/labels`, label: `${l.name}: ${l.has ? "On" : "Off"}`, fields: { label: l.id, title: args.titleId, on: l.has ? "0" : "1", back: args.back } })),
+    note: args.labels.length > 12 ? `The first 12 of your ${args.labels.length} labels. The rest are on the web.` : null,
+  };
+}
+
 /** "Your rating" on a TV page: the whole stars to give (a half-star rating made on the web shows as it is), and a button to clear it. */
 export function ratingSection(args: { base: string; kind: "title" | "episode" | "album"; id: string; back: string; mine: number | null; average?: { halfStars: number; count: number } | null }): TvSection {
   const fields = (stars: number) => ({ kind: args.kind, id: args.id, stars: String(stars), back: args.back });

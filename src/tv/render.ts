@@ -113,6 +113,8 @@ export interface HomeData {
   recentlyAdded?: Poster[];
   /** Whether this profile has any playlists to show. */
   hasPlaylists?: boolean;
+  /** The profile has made labels, so Labels is offered. */
+  hasLabels?: boolean;
   /** Show the Settings button (a profile that may change its own settings). */
   hasSettings?: boolean;
   /** Unread notifications; the button shows when there are any. */
@@ -144,7 +146,7 @@ export function homePage(d: HomeData): string {
   const more = d.unsupported > 0 ? `<p class="note">${d.unsupported} more ${d.unsupported === 1 ? "library isn't" : "libraries aren't"} available on TV yet.</p>` : "";
   return tvDocument({
     title: d.serverName,
-    body: `<div class="page"${d.screensaver ? ` data-saver="${esc(safeUrl(d.screensaver.href) ?? "")}" data-saver-after="${Math.max(1, Math.floor(d.screensaver.afterSeconds))}"` : ""}>${top(esc(d.profileName))}<h1>${esc(d.serverName)}</h1>${cont}${next}${mine}${picks}${listening}${recent}${libs}${more}<div class="row" style="margin-top:2rem">${actionRow([`<a class="btn" data-f href="${esc(d.base)}/search">Search</a>`, ...(d.hasPlaylists ? [`<a class="btn" data-f href="${esc(d.base)}/playlists">Playlists</a>`] : []), ...(d.unread ? [`<a class="btn" data-f href="${esc(d.base)}/notifications">Notifications (${d.unread})</a>`] : []), ...(d.hasSettings ? [`<a class="btn" data-f href="${esc(d.base)}/settings">Settings</a>`] : []), `<a class="btn" data-f href="/tv/profiles">Switch profile</a>`, postButton("/tv/signout", "Sign out")])}</div></div>`,
+    body: `<div class="page"${d.screensaver ? ` data-saver="${esc(safeUrl(d.screensaver.href) ?? "")}" data-saver-after="${Math.max(1, Math.floor(d.screensaver.afterSeconds))}"` : ""}>${top(esc(d.profileName))}<h1>${esc(d.serverName)}</h1>${cont}${next}${mine}${picks}${listening}${recent}${libs}${more}<div class="row" style="margin-top:2rem">${actionRow([`<a class="btn" data-f href="${esc(d.base)}/search">Search</a>`, ...(d.hasPlaylists ? [`<a class="btn" data-f href="${esc(d.base)}/playlists">Playlists</a>`] : []), ...(d.unread ? [`<a class="btn" data-f href="${esc(d.base)}/notifications">Notifications (${d.unread})</a>`] : []), ...(d.hasSettings ? [`<a class="btn" data-f href="${esc(d.base)}/settings">Settings</a>`] : []), `<a class="btn" data-f href="/tv/profiles">Switch profile</a>`, ...(d.hasLabels ? [`<a class="btn" data-f href="${esc(d.base)}/labels">Labels</a>`] : []), `<a class="btn" data-f href="${esc(d.base)}/wishlist">Wishlist</a>`, postButton("/tv/signout", "Sign out")])}</div></div>`,
   });
 }
 

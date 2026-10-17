@@ -5,10 +5,11 @@ import { formatRemaining, formatRuntime } from "@/lib/format";
 import { asUuid, notFoundPage, tvAccess } from "@/lib/tv/context";
 import { movieDetail } from "@/lib/tv/data";
 import { html } from "@/lib/tv/http";
-import { movieSections, ownershipSections, ratingSection } from "@/lib/tv/sections";
+import { labelSection, movieSections, ownershipSections, ratingSection } from "@/lib/tv/sections";
 import { detailPage } from "@/tv/render";
 import { averageOf, ratingsOf } from "@/lib/ratings/service";
 import { onWatchlist } from "@/lib/watchlist/queries";
+import { labelsForTitle } from "@/lib/labels/service";
 import { similarTitles } from "@/lib/recommend/service";
 import { moreInCollections } from "@/lib/collections/queries";
 
@@ -32,8 +33,10 @@ export async function GET(request: Request, ctx: RouteContext<"/tv/s/[serverId]/
   const similar = await similarTitles(db, { actor: access.scope.actor, viewer: access.scope.viewer, titleId: id, exclude: more.flatMap((c) => c.items.map((i) => i.id)), limit: 8 });
   const mine = (await ratingsOf(db, access.scope.viewerId, "title", [id])).get(id) ?? null;
   const listed = (await onWatchlist(db, access.scope.viewerId, [id])).has(id);
+  const labelBox = labelSection({ base: access.base, titleId: id, back: here, labels: await labelsForTitle(db, access.scope.viewerId, id) });
   const sections = [
     ratingSection({ base: access.base, kind: "title", id, back: here, mine, average: (await averageOf(db, "title", [id])).get(id) ?? null }),
+    ...(labelBox ? [labelBox] : []),
     ...(await movieSections(db, { serverId, base: access.base, who: access.who, titleId: id, title: { imdbId: t.imdbId, tmdbId: t.tmdbId } })),
     ...more.map((c) => ({ heading: `More in ${c.name}`, lines: c.items.map((i) => ({ text: i.name, sub: i.year ? String(i.year) : null, href: `${access.base}/${i.kind === "show" ? "show" : "title"}/${i.id}` })) })),
     ...(similar.length ? [{ heading: "More like this", lines: similar.map((i) => ({ text: i.name, sub: i.year ? String(i.year) : null, href: `${access.base}/title/${i.id}` })) }] : []),

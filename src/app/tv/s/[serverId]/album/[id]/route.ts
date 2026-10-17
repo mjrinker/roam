@@ -33,7 +33,7 @@ export async function GET(request: Request, ctx: RouteContext<"/tv/s/[serverId]/
       posterUrl: album.coverUrl,
       square: true,
       backHref: `${access.base}/artist/${album.artistId}`,
-      actions: first ? [{ href: `${access.base}/listen/${first.id}`, label: "Play album", primary: true }, ...(mixed ? [{ href: `${access.base}/listen/${mixed.id}?shuffle=${seed}`, label: "Shuffle" }] : []), { href: `${access.base}/add?album=${id}&back=${encodeURIComponent(here)}`, label: "Add to playlist" }] : [],
+      actions: first ? [{ href: `${access.base}/listen/${first.id}`, label: "Play album", primary: true }, ...(mixed ? [{ href: `${access.base}/listen/${mixed.id}?shuffle=${seed}`, label: "Shuffle" }] : []), { href: `${access.base}/artist/${album.artistId}/radio`, label: "Radio" }, { href: `${access.base}/add?album=${id}&back=${encodeURIComponent(here)}`, label: "Add to playlist" }] : [],
       posts: tracks.length
         ? [{ action: `${access.base}/mark`, label: albumDone ? doneWords("listen").markUndone : doneWords("listen").markDone, fields: { kind: "album", id, done: albumDone ? "0" : "1", back: here } }]
         : [],

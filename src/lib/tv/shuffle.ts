@@ -4,7 +4,7 @@
  */
 
 /** A small seeded random number generator (mulberry32): 0 <= value < 1. */
-function generator(seed: number): () => number {
+export function generator(seed: number): () => number {
   let a = seed >>> 0;
   return () => {
     a = (a + 0x6d2b79f5) >>> 0;
