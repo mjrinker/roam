@@ -24,6 +24,8 @@ export interface TvWho {
   autoSkip: AutoSkipPrefs;
   /** The profile shows collections as single tiles in lists. */
   groupCollections: boolean;
+  /** Data saver is on for the profile. */
+  dataSaver: boolean;
 }
 
 export type TvAccess = { ok: true; scope: TvScope; base: string; profileName: string; serverId: string; who: TvWho } | { ok: false; response: Response };
@@ -43,7 +45,7 @@ export async function resolveAccess(serverId: string): Promise<Resolved> {
     ok: true,
     serverId,
     profileName: resolved.viewer.name,
-    who: { accountId: resolved.account.id, isAdmin: membership.role === "admin", limited: resolved.viewer.role === "limited", filterPrefs: normalizePrefs(resolved.viewer.contentFilter), viewerId: resolved.viewer.id, viewerRole: resolved.viewer.role, hasPin: !!resolved.viewer.pinHash, autoSkip: normalizeAutoSkip(resolved.viewer.autoSkip), groupCollections: resolved.viewer.groupCollections },
+    who: { accountId: resolved.account.id, isAdmin: membership.role === "admin", limited: resolved.viewer.role === "limited", filterPrefs: normalizePrefs(resolved.viewer.contentFilter), viewerId: resolved.viewer.id, viewerRole: resolved.viewer.role, hasPin: !!resolved.viewer.pinHash, autoSkip: normalizeAutoSkip(resolved.viewer.autoSkip), groupCollections: resolved.viewer.groupCollections, dataSaver: resolved.viewer.dataSaver },
     scope: { actor: libraryActor({ profile: resolved.account, role: membership.role }, serverId), viewer: resolved.viewer, viewerId: resolved.viewer.id },
   };
 }

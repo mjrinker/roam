@@ -112,9 +112,12 @@ function DownloadDialog({ serverId, ownerKind, ownerId, records, onClose }: { se
             {options.options.map((option) => {
               const record = records.find((r) => r.id === downloadId(options.kind, options.ownerKind, options.ownerId, option.label));
               return (
-                <li key={option.label || "default"} className="flex items-center gap-3 rounded-xl bg-white/[0.04] px-4 py-3 ring-1 ring-white/[0.08]">
+                <li key={option.label || "default"} className="flex items-center gap-3 rounded-xl bg-white/[0.04] px-4 py-3 ring-1 ring-white/[0.08]" data-suggested={options.suggestedLabel === option.label ? "true" : undefined}>
                   <div className="min-w-0 flex-1">
-                    <p className="font-medium">{option.name}</p>
+                    <p className="font-medium">
+                      {option.name}
+                      {options.suggestedLabel === option.label && <span className="ml-2 rounded-full bg-primary/15 px-2 py-0.5 text-[11px] font-medium text-primary">Suggested for data saver</span>}
+                    </p>
                     <p className="text-xs text-muted-foreground">
                       {formatBytes(option.sizeBytes)}
                       {option.parts > 1 ? ` · ${option.parts} parts` : ""}

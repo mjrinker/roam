@@ -3,6 +3,8 @@ import { z } from "zod";
 import { authorizeOwner } from "@/lib/auth/resolve-server";
 import { buildDownloadOptions } from "@/lib/offline/build-options";
 import { ownershipGate } from "@/lib/ownership/gate";
+import { aimHeight } from "@/lib/player/data-saver";
+import { pickVersion } from "@/lib/player/versions";
 
 const notFound = () => NextResponse.json({ error: "Not found" }, { status: 404 });
 
@@ -19,5 +21,8 @@ export async function GET(_request: Request, ctx: RouteContext<"/api/download/[o
   if (blocked) return blocked;
   const options = await buildDownloadOptions(ownerKind, ownerId);
   if (!options) return notFound();
+  if (auth.member.viewer.dataSaver && options.kind === "watch" && options.options.length > 1) {
+    options.suggestedLabel = pickVersion(options.options.map((o) => ({ label: o.label, name: o.name, height: o.height })), null, aimHeight(null, true));
+  }
   return NextResponse.json(options, { headers: { "Cache-Control": "no-store" } });
 }

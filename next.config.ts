@@ -16,6 +16,8 @@ const nextConfig: NextConfig = {
     ],
   },
   images: {
+    // 75 is the usual picture quality; 40 is what a profile with data saver on gets (see lib/player/data-saver).
+    qualities: [40, 75],
     remotePatterns: [
       {
         protocol: "https",

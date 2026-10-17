@@ -36,6 +36,7 @@ export interface EditableProfile {
   contentFilter: ContentFilterPrefs;
   autoSkip: AutoSkipPrefs;
   groupCollections: boolean;
+  dataSaver: boolean;
   hasPin: boolean;
 }
 
@@ -80,6 +81,7 @@ export function ProfileEditorDialog({
   const [contentFilter, setContentFilter] = useState<ContentFilterPrefs>(profile?.contentFilter ?? {});
   const [autoSkip, setAutoSkip] = useState<AutoSkipPrefs>(profile?.autoSkip ?? {});
   const [groupCollections, setGroupCollections] = useState(profile?.groupCollections ?? false);
+  const [dataSaver, setDataSaver] = useState(profile?.dataSaver ?? false);
   const [newPin, setNewPin] = useState("");
   const [currentPin, setCurrentPin] = useState("");
   const [busy, setBusy] = useState(false);
@@ -124,6 +126,7 @@ export function ProfileEditorDialog({
           contentFilter,
           autoSkip: normalizeAutoSkip(autoSkip),
           groupCollections,
+          dataSaver,
           ...(showRolePicker ? { role } : {}),
           ...(newPin.trim() ? { pin: newPin } : {}),
           ...(actor.hasPin ? { currentPin } : {}),
@@ -272,6 +275,14 @@ export function ProfileEditorDialog({
                 <span>
                   Group collections in lists
                   <span className="block text-xs text-muted-foreground">A film series (or a collection your admin made) shows as one tile in the Movies and TV Shows lists. Searching and filtering still show every title.</span>
+                </span>
+              </label>
+
+              <label className="flex items-start gap-2 text-sm">
+                <input type="checkbox" checked={dataSaver} onChange={(e) => setDataSaver(e.target.checked)} className="mt-0.5 size-4 rounded border-input" />
+                <span>
+                  Data saver
+                  <span className="block text-xs text-muted-foreground">For a limited data plan. Video plays at about 480p unless you pick another quality, pictures load at lower quality, and the next song isn&apos;t loaded ahead of time. Downloads suggest the version closest to 480p.</span>
                 </span>
               </label>
 

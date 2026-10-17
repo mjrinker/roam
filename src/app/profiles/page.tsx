@@ -53,6 +53,7 @@ export default async function ProfilesPage({ searchParams }: PageProps<"/profile
             contentFilter: normalizePrefs(v.contentFilter),
             autoSkip: normalizeAutoSkip(v.autoSkip),
             groupCollections: v.groupCollections,
+            dataSaver: v.dataSaver,
             hasPin: v.pinHash !== null,
           }))}
           actor={

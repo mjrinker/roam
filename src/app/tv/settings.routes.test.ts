@@ -147,6 +147,16 @@ describe("what to skip", () => {
     expect((await row(w.member.viewer.id)).groupCollections).toBe(false);
   });
 
+  it("switches data saver on and off", async () => {
+    const w = await world();
+    expect(await text(await settingsGet(req("/x"), ctx(w.sid)))).toContain("Data saver: Off");
+    await press(w, "data", "saver");
+    expect((await row(w.member.viewer.id)).dataSaver).toBe(true);
+    expect(await text(await settingsGet(req("/x?f=data:saver"), ctx(w.sid)))).toContain("Data saver: On");
+    await press(w, "data", "saver");
+    expect((await row(w.member.viewer.id)).dataSaver).toBe(false);
+  });
+
   it("refuses nonsense, a request from another site, and a child's profile", async () => {
     const w = await world();
     expect((await settingsPost(post("/x", { kind: "filter", key: "nope" }), ctx(w.sid))).status).toBe(404);

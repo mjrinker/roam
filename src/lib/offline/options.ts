@@ -19,4 +19,6 @@ export interface DownloadOptions {
   /** A picture to keep with the download so it can be shown offline (a TMDB or cover address). */
   posterUrl: string | null;
   options: DownloadOption[];
+  /** With data saver on: the version closest to 480p, suggested over the rest. */
+  suggestedLabel?: string | null;
 }

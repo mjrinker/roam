@@ -198,6 +198,8 @@ interface Engine {
   preparing: string | null;
   /** Seconds of overlap between songs of a list. */
   crossfade: number;
+  /** Data saver: the next song is not fetched ahead of time. */
+  dataSaver: boolean;
   /** A crossfade under way: the element fading out, and what to let go of when it is done. */
   fade: { timer: ReturnType<typeof setInterval>; from: MediaEl; to: MediaEl; oldLocal: LocalFiles | null } | null;
 }
@@ -212,7 +214,8 @@ interface PreparedSong {
 export function createPlayer(
   setState: Dispatch<SetStateAction<AudioPlayerState>>,
   initialRate = 1,
-  initialCrossfade = 0
+  initialCrossfade = 0,
+  dataSaver = false
 ): { actions: AudioPlayerActions; internals: EngineInternals } {
   const e: Engine = {
     book: null,
@@ -235,6 +238,7 @@ export function createPlayer(
     next: null,
     preparing: null,
     crossfade: initialCrossfade,
+    dataSaver,
     fade: null,
   };
 
@@ -423,7 +427,7 @@ export function createPlayer(
   async function prepareNext() {
     const q = e.list;
     const el = standbyEl;
-    if (!q || !el || !e.book || e.fade) return;
+    if (!q || !el || !e.book || e.fade || e.dataSaver) return;
     const index = nextIndex(q);
     if (index === null) return;
     const titleId = q.ids[index];
@@ -841,7 +845,7 @@ export function createPlayer(
 
 // ── Provider ─────────────────────────────────────────────────────────────
 
-export function AudioPlayerProvider({ children }: { children: ReactNode }) {
+export function AudioPlayerProvider({ children, dataSaver = false }: { children: ReactNode; /** The profile has data saver on: the next song is not loaded ahead of time. */ dataSaver?: boolean }) {
   const startRate = 1;
   // The crossfade chosen on this device (the server render has no storage, and nothing it draws depends on it).
   const [startCrossfade] = useState(() => (typeof window === "undefined" ? 0 : readStoredCrossfade()));
@@ -860,7 +864,7 @@ export function AudioPlayerProvider({ children }: { children: ReactNode }) {
     crossfade: startCrossfade,
   });
 
-  const [{ actions, internals }] = useState(() => createPlayer(setState, startRate, startCrossfade));
+  const [{ actions, internals }] = useState(() => createPlayer(setState, startRate, startCrossfade, dataSaver));
   const router = useRouter();
   // createPlayer lives outside React, so the end-of-book hand-off reaches the router through this ref.
   const queueEnded = useRef<(queue: BookQueue) => void>(() => {});

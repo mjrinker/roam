@@ -7,6 +7,7 @@ import { parseUnsupportedCodecs } from "@/lib/player/variant-selection";
 import { viewerLibrarySpeed } from "@/lib/player/library-speed";
 import { parseSkipParam } from "@/lib/content-filter/timeline";
 import { needsHeartbeat, ownershipGate } from "@/lib/ownership/gate";
+import { aimHeight } from "@/lib/player/data-saver";
 
 // authorizeOwner covers server membership AND the profile's rating limit —
 // see lib/content/access. A title blocked by the limit 404s exactly like a
@@ -39,7 +40,8 @@ export async function GET(
   const heightParam = Number(params.get("height"));
   const choice = {
     version: params.get("version") !== null ? params.get("version")!.trim().toLowerCase().slice(0, 60) : null,
-    preferredHeight: Number.isInteger(heightParam) && heightParam >= 100 && heightParam <= 5000 ? heightParam : null,
+    // With data saver on, no higher than about 480p unless a version is asked for by name.
+    preferredHeight: aimHeight(Number.isInteger(heightParam) && heightParam >= 100 && heightParam <= 5000 ? heightParam : null, auth.member.viewer.dataSaver),
     // Scenes chosen just before playing, for this play only (on top of the profile's own).
     extraSkip: parseSkipParam(params.get("skip")),
   };

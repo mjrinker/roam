@@ -128,6 +128,8 @@ export const viewers = pgTable(
     // Which parts this profile skips without being asked ("intro": true): the Skip intro button pressed for it. Empty = none.
     // Show a film series (or other collection) as one tile in the Movies and TV Shows lists instead of one tile per title.
     groupCollections: boolean("group_collections").notNull().default(false),
+    // Data saver: video plays at about 480p unless another quality is picked, artwork is fetched at lower quality, and the next song is not loaded ahead of time.
+    dataSaver: boolean("data_saver").notNull().default(false),
     autoSkip: jsonb("auto_skip").$type<Partial<Record<"intro" | "recap" | "outro" | "preview", boolean>>>().notNull().default({}),
     // Whether this profile's name/avatar may be shown to OTHER accounts that
     // are members of the same server (not yet surfaced anywhere in the UI —

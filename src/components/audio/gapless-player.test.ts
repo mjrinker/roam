@@ -30,9 +30,9 @@ const requested: string[] = [];
 const failing = new Set<string>();
 const manifestOver = new Map<string, Manifest>();
 
-function newPlayer(opts: { fixedVolume?: boolean; standby?: boolean } = {}) {
+function newPlayer(opts: { fixedVolume?: boolean; standby?: boolean; dataSaver?: boolean } = {}) {
   state = { book: null, status: "idle", error: null, buffering: false, position: 0, rate: 1, sleep: null, sleepMinutesLeft: null, chapterIndex: -1, listPosition: null, crossfade: 0 };
-  const { actions, internals } = createPlayer((u) => (state = typeof u === "function" ? u(state) : u), 1);
+  const { actions, internals } = createPlayer((u) => (state = typeof u === "function" ? u(state) : u), 1, 0, opts.dataSaver ?? false);
   const main = fakeAudio(opts.fixedVolume);
   const standby = fakeAudio(opts.fixedVolume);
   internals.attach(main as never);
@@ -118,6 +118,21 @@ describe("getting the next song ready", () => {
     expect(p.internals.handover(0)).toBe(false);
     expect(p.internals.e.next).toBeNull();
     expect(state.book?.titleId).toBe("a");
+  });
+});
+
+describe("with data saver on", () => {
+  it("does not load the next song ahead of time, and songs then load one at a time as usual", async () => {
+    const p = newPlayer({ dataSaver: true });
+    await p.actions.playList(["a", "b", "c"], 0);
+    await p.internals.prepareNext();
+    expect(requested).toEqual(["a"]);
+    expect(p.internals.e.next).toBeNull();
+    expect(p.internals.handover(0)).toBe(false);
+    p.actions.next();
+    await settle();
+    expect(requested).toEqual(["a", "b"]);
+    expect(state.book?.titleId).toBe("b");
   });
 });
 

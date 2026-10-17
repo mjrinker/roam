@@ -1,0 +1,1 @@
+ALTER TABLE "viewers" ADD COLUMN "data_saver" boolean DEFAULT false NOT NULL;
