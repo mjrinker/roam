@@ -62,6 +62,18 @@ describe("playing with data saver", () => {
   });
 });
 
+describe("asking for the original quality", () => {
+  it("aims at no height, even with data saver on, and a height asked for with it is ignored", async () => {
+    const on = await world(true);
+    await play(new Request("http://x?quality=original"), ctx(on.film.id));
+    expect(lastChoice().preferredHeight).toBeNull();
+    await play(new Request("http://x?quality=original&height=360"), ctx(on.film.id));
+    expect(lastChoice().preferredHeight).toBeNull();
+    await play(new Request("http://x?quality=other"), ctx(on.film.id));
+    expect(lastChoice().preferredHeight).toBe(480); // only "original" is special
+  });
+});
+
 describe("a device's own data saver choice", () => {
   it("wins over the profile's setting in both directions, and anything else leaves the profile's alone", async () => {
     const on = await world(true);

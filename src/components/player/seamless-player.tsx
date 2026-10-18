@@ -36,7 +36,8 @@ import { rememberLanguage, useEmbeddedTracks } from "@/components/player/use-emb
 import { MarkPanel } from "@/components/player/mark-panel";
 import { SkipButton } from "@/components/player/skip-button";
 import { activeSkipButton, autoSkipNow, skipKey } from "@/lib/skipdb/active";
-import { readPreferredHeight, writePreferredHeight } from "@/lib/player/quality-preference";
+import { readPreferredHeight, readQualityMode, writePreferredHeight, writeQualityMode, type QualityMode } from "@/lib/player/quality-preference";
+import { automaticHeight, conditionsNow } from "@/lib/player/automatic-quality";
 import { applyLocalFiles, localVideoFor, offlineVideoManifest, openLocalFiles, type LocalFiles } from "@/lib/offline/local-playback";
 import { queueProgress } from "@/lib/offline/sync";
 import type { PlayManifest, PlayOwnerKind } from "@/lib/player/types";
@@ -180,8 +181,12 @@ function playManifestUrl(ownerKind: PlayOwnerKind, ownerId: string, version?: st
   if (extraSkip) params.set("skip", extraSkip);
   // This device's own choice about data saver (absent: the profile's setting applies).
   if (dataSaver) params.set("dataSaver", dataSaver);
-  // Which resolution: the one asked for, else the one closest to what this device last picked, else the best the title has.
+  // Which resolution: the one asked for; else Original (the best, even with data saver on) or Automatic (fitted to this screen and
+  // connection) when this device chose that; else the one closest to what it last picked; else the best the title has.
+  const mode = readQualityMode();
   if (version !== undefined) params.set("version", version);
+  else if (mode === "original") params.set("quality", "original");
+  else if (mode === "auto") params.set("height", String(automaticHeight(conditionsNow(dataSaver === "1"))));
   else {
     const height = readPreferredHeight();
     if (height !== null) params.set("height", String(height));
@@ -1079,10 +1084,23 @@ export function SeamlessPlayer({
   }, [rate, frontSlot, manifest]);
 
   /** Switches to another resolution of the same title: same place in the film, same play/pause state. */
+  const [qualityMode, setQualityMode] = useState<QualityMode>(() => (typeof window === "undefined" ? "pick" : readQualityMode()));
   const switchVersion = useCallback(
-    async (label: string) => {
+    async (choice: string) => {
       const m = manifestRef.current;
-      if (!m || label === m.version) return;
+      if (!m) return;
+      // "@auto" and "@original" are the two ways of letting the player choose; anything else is a version picked by hand.
+      const special = choice === "@auto" ? "auto" : choice === "@original" ? "original" : null;
+      const label = special ? undefined : choice;
+      if (special) {
+        writeQualityMode(special);
+        setQualityMode(special);
+      } else {
+        const picked = m.versions?.find((v) => v.label === choice)?.height ?? null;
+        writePreferredHeight(picked);
+        setQualityMode("pick");
+        if (choice === m.version) return;
+      }
       const at = currentGlobalTime();
       const wasPlaying = !(videoRefs.current[frontSlotRef.current]?.paused ?? true);
       flushRef.current();
@@ -1090,11 +1108,11 @@ export function SeamlessPlayer({
       const res = await fetch(playManifestUrl(ownerKind, ownerId, label, extraSkipRef.current, dataSaverParamRef.current)).catch(() => null);
       if (!res || !res.ok) return; // staying on the version already playing is better than an error
       const data: PlayManifest = await res.json();
+      if (special && data.version === m.version) return; // the choice is kept, and it is the version already playing
       if (manifestRef.current !== m || token !== switchTokenRef.current) return; // another video opened, or a newer switch was asked for
       const files = await applyLocalFiles(data).catch(() => null); // the chosen version may be one that is downloaded
       localFilesRef.current?.release();
       localFilesRef.current = files;
-      writePreferredHeight(data.versions?.find((v) => v.label === data.version)?.height ?? null);
       data.resumeSeconds = Math.min(at, Math.max(0, data.durationSeconds - 1));
       resumePlayingRef.current = wasPlaying;
       // The old files stop now, so no late event from them is read against the new version's parts.
@@ -1563,6 +1581,7 @@ export function SeamlessPlayer({
             onSubtitleOffset={setSubOffset}
             qualities={manifest?.versions ?? []}
             quality={manifest?.version ?? ""}
+            qualityMode={qualityMode}
             onQuality={(label) => void switchVersion(label)}
           />
           <Button

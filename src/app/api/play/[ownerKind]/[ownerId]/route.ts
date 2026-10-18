@@ -48,7 +48,8 @@ export async function GET(
   const choice = {
     version: params.get("version") !== null ? params.get("version")!.trim().toLowerCase().slice(0, 60) : null,
     // With data saver on, no higher than about 480p unless a version is asked for by name.
-    preferredHeight: aimHeight(Number.isInteger(heightParam) && heightParam >= 100 && heightParam <= 5000 ? heightParam : null, dataSaverFor(params.get("dataSaver"), auth.member.viewer.dataSaver)),
+    // Original is asked for by name: it is the best version even when data saver would aim lower.
+    preferredHeight: params.get("quality") === "original" ? null : aimHeight(Number.isInteger(heightParam) && heightParam >= 100 && heightParam <= 5000 ? heightParam : null, dataSaverFor(params.get("dataSaver"), auth.member.viewer.dataSaver)),
     // Scenes chosen just before playing, for this play only (on top of the profile's own).
     extraSkip: parseSkipParam(params.get("skip")),
   };

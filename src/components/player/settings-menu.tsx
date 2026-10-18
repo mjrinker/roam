@@ -43,7 +43,9 @@ interface SettingsMenuProps {
   /** The resolution versions on offer (shown only when there is more than one) and the one playing. */
   qualities: readonly QualityOption[];
   quality: string;
-  onQuality: (label: string) => void;
+  /** A version's label, or "@auto" / "@original" to let the player choose (and keep choosing, on this device). */
+  onQuality: (choice: string) => void;
+  qualityMode?: "auto" | "original" | "pick";
 }
 
 type View = "main" | "speed" | "subtitles" | "quality" | "language";
@@ -78,7 +80,10 @@ export function SettingsMenu(p: SettingsMenuProps) {
   const activeLabel = p.tracks.find((t) => t.id === p.activeTrack)?.label ?? "Off";
   const audioChoices = p.audioOptions ?? [];
   const audioName = audioChoices.find((a) => a.index === (p.audioIndex ?? 0))?.label ?? "";
-  const qualityName = p.qualities.find((q) => q.label === p.quality)?.name ?? "";
+  const mode = p.qualityMode ?? "pick";
+  const playing = p.qualities.find((q) => q.label === p.quality)?.name ?? "";
+  const qualityName = mode === "auto" ? `Automatic${playing ? ` (${playing})` : ""}` : mode === "original" ? `Original${playing ? ` (${playing})` : ""}` : playing;
+  const best = p.qualities[0]?.name ?? "";
   const row = "flex w-full items-center justify-between gap-3 rounded-lg px-3 py-2 text-left text-sm outline-none hover:bg-white/15 focus-visible:bg-white/15";
   const title: Record<Exclude<View, "main">, string> = { speed: "Speed", subtitles: "Subtitles", quality: "Quality", language: "Audio" };
 
@@ -157,10 +162,25 @@ export function SettingsMenu(p: SettingsMenuProps) {
                 )}
                 {view === "quality" && (
                   <div role="menu" aria-label="Quality">
+                    <button type="button" role="menuitemradio" aria-checked={mode === "auto"} onClick={() => (p.onQuality("@auto"), close())} className={cn(row, "flex-col items-start gap-0", mode === "auto" && "font-semibold text-primary")}>
+                      <span className="flex w-full items-center justify-between">
+                        <span>Automatic</span>
+                        {mode === "auto" && <span aria-hidden>✓</span>}
+                      </span>
+                      <span className="text-xs font-normal text-white/60">Fitted to this screen and connection, each time</span>
+                    </button>
+                    <button type="button" role="menuitemradio" aria-checked={mode === "original"} onClick={() => (p.onQuality("@original"), close())} className={cn(row, "flex-col items-start gap-0", mode === "original" && "font-semibold text-primary")}>
+                      <span className="flex w-full items-center justify-between">
+                        <span>Original{best ? ` (${best})` : ""}</span>
+                        {mode === "original" && <span aria-hidden>✓</span>}
+                      </span>
+                      <span className="text-xs font-normal text-white/60">The best version of every title</span>
+                    </button>
+                    <div className="my-1 border-t border-white/15" />
                     {p.qualities.map((q) => (
-                      <button key={q.label} type="button" role="menuitemradio" aria-checked={q.label === p.quality} onClick={() => (p.onQuality(q.label), close())} className={cn(row, q.label === p.quality && "font-semibold text-primary")}>
+                      <button key={q.label} type="button" role="menuitemradio" aria-checked={mode === "pick" && q.label === p.quality} onClick={() => (p.onQuality(q.label), close())} className={cn(row, mode === "pick" && q.label === p.quality && "font-semibold text-primary")}>
                         <span>{q.name}</span>
-                        {q.label === p.quality && <span aria-hidden>✓</span>}
+                        {q.label === p.quality && <span aria-hidden className={mode === "pick" ? undefined : "text-white/40"}>{mode === "pick" ? "✓" : "playing"}</span>}
                       </button>
                     ))}
                   </div>
