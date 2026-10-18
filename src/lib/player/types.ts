@@ -9,6 +9,8 @@ export interface PlaySegment {
   startSeconds: number;
   /** The physical file's size in bytes when known (a download shows progress against it). */
   sizeBytes?: number;
+  /** The media file this segment plays (the browser-friendly copy when that is what is playing): what the audio and subtitle track routes take. */
+  fileId?: string;
   /** The file's container ("mp4", "mkv"...) when known; the address has no file extension, so a native player needs this to know how to open it. */
   container?: string;
   // Both PRESENT together only for a trimmed segment — an episode's

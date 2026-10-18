@@ -12,6 +12,8 @@ export interface LoadedTrack {
   id: string;
   label: string;
   cues: Cue[];
+  /** A track that is part of the video file itself: its words are read the first time it is chosen. */
+  embedded?: { language: string; loaded: boolean; loading: boolean };
 }
 
 /**

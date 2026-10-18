@@ -82,6 +82,8 @@ Playlists (`/api/servers/{serverId}/playlists`, `/api/playlists/{id}`, `/api/pla
 
 Labels, the watch list, the wishlist and radio: `GET /api/v1/servers/{serverId}/labels` (the profile's labels with counts) and `…/labels/{id}` (a label's titles as items); `GET /api/labels?title=` (each label and whether the title is under it), `POST /api/labels` `{ name, titleId? }`, `PUT /api/labels/{id}/items` `{ titleId, on }`; `PUT /api/watchlist` `{ titleId, on }` (a title answers `inWatchlist` and `labels`); the wishlist at `GET|POST /api/servers/{serverId}/wishlist`, `GET …/wishlist/search?kind=&q=`, `PUT /api/wishlist/{id}/want` `{ on }`, `PATCH /api/wishlist/{id}` `{ action: claim|unclaim|got|reopen }`, `DELETE /api/wishlist/{id}`; and `GET /api/music/radio?artist=|song=` for `{ ids, artistName }`.
 
+**Tracks inside a file.** `PlaySegment.fileId` in the play manifest names the file playing; `GET /api/play/{kind}/{id}/tracks/{fileId}` answers `{ audioTracks: [{ index, language, label, codec, channels, mime }], textTracks: [{ index, language, label }] }`, `…/audio/{track}/init` and `…/audio/{track}/{n}` give an AAC track as fragmented MP4, and `…/text/{track}` answers `{ cues: [[start, end, text]] }`. Native apps (ExoPlayer, Kodi, Roku) can select a track from the file itself and don't need these.
+
 ## Not in v1 yet
 
 Pictures of a title's cast, download-for-offline helpers for native apps, and the admin's screens (assigning owners, settling claims, server settings), which stay on the web.

@@ -7,6 +7,12 @@ import { formatSpeed } from "@/lib/player/speed";
 import { SpeedPanel, type DefaultSpeed } from "@/components/player/speed-menu";
 import { SubtitlePanel, type LoadedTrack } from "@/components/player/subtitles";
 
+export interface AudioChoice {
+  index: number;
+  label: string;
+  supported: boolean;
+}
+
 export interface QualityOption {
   label: string;
   name: string;
@@ -18,6 +24,11 @@ interface SettingsMenuProps {
   defaultSpeed?: DefaultSpeed;
   ownerKind: string;
   ownerId: string;
+  /** The audio tracks inside the video (shown only when there is more than one), the one playing, and a problem playing another. */
+  audioOptions?: readonly AudioChoice[];
+  audioIndex?: number;
+  onAudio?: (index: number) => void;
+  audioProblem?: string | null;
   tracks: readonly LoadedTrack[];
   activeTrack: string | null;
   onSelectTrack: (id: string | null) => void;
@@ -30,7 +41,7 @@ interface SettingsMenuProps {
   onQuality: (label: string) => void;
 }
 
-type View = "main" | "speed" | "subtitles" | "quality";
+type View = "main" | "speed" | "subtitles" | "quality" | "language";
 
 /**
  * The player's settings: one gear button opening a list of Speed, Subtitles and (when the title has several versions) Quality, each
@@ -60,9 +71,11 @@ export function SettingsMenu(p: SettingsMenuProps) {
   }, [open, view]);
 
   const activeLabel = p.tracks.find((t) => t.id === p.activeTrack)?.label ?? "Off";
+  const audioChoices = p.audioOptions ?? [];
+  const audioName = audioChoices.find((a) => a.index === (p.audioIndex ?? 0))?.label ?? "";
   const qualityName = p.qualities.find((q) => q.label === p.quality)?.name ?? "";
   const row = "flex w-full items-center justify-between gap-3 rounded-lg px-3 py-2 text-left text-sm outline-none hover:bg-white/15 focus-visible:bg-white/15";
-  const title: Record<Exclude<View, "main">, string> = { speed: "Speed", subtitles: "Subtitles", quality: "Quality" };
+  const title: Record<Exclude<View, "main">, string> = { speed: "Speed", subtitles: "Subtitles", quality: "Quality", language: "Audio" };
 
   return (
     <div ref={box} className="relative">
@@ -87,6 +100,14 @@ export function SettingsMenu(p: SettingsMenuProps) {
                   {formatSpeed(p.rate)} <ChevronRight className="size-4" />
                 </span>
               </button>
+              {audioChoices.length > 1 && (
+                <button type="button" role="menuitem" onClick={() => setView("language")} className={row}>
+                  <span>Audio</span>
+                  <span className="flex min-w-0 items-center gap-1 text-white/70">
+                    <span className="truncate">{audioName}</span> <ChevronRight className="size-4 shrink-0" />
+                  </span>
+                </button>
+              )}
               <button type="button" role="menuitem" onClick={() => setView("subtitles")} className={row}>
                 <span>Subtitles</span>
                 <span className="flex min-w-0 items-center gap-1 text-white/70">
@@ -111,6 +132,17 @@ export function SettingsMenu(p: SettingsMenuProps) {
                 {view === "speed" && <SpeedPanel rate={p.rate} onChange={p.onRate} onDone={close} defaultSpeed={p.defaultSpeed} />}
                 {view === "subtitles" && (
                   <SubtitlePanel ownerKind={p.ownerKind} ownerId={p.ownerId} tracks={p.tracks} activeId={p.activeTrack} onSelect={p.onSelectTrack} onLoaded={p.onLoadedTrack} offset={p.subtitleOffset} onOffset={p.onSubtitleOffset} onDone={close} />
+                )}
+                {view === "language" && (
+                  <div role="menu" aria-label="Audio">
+                    {audioChoices.map((a) => (
+                      <button key={a.index} type="button" role="menuitemradio" aria-checked={a.index === (p.audioIndex ?? 0)} disabled={!a.supported} onClick={() => (p.onAudio?.(a.index), close())} className={cn(row, a.index === (p.audioIndex ?? 0) && "font-semibold text-primary", !a.supported && "opacity-50")}>
+                        <span className="truncate">{a.label}{!a.supported && " (not supported here)"}</span>
+                        {a.index === (p.audioIndex ?? 0) && <span aria-hidden>✓</span>}
+                      </button>
+                    ))}
+                    {p.audioProblem && <p className="px-3 py-2 text-xs text-red-300">{p.audioProblem}</p>}
+                  </div>
                 )}
                 {view === "quality" && (
                   <div role="menu" aria-label="Quality">

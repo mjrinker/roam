@@ -1,0 +1,238 @@
+"use client";
+
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { PlayManifest, PlayOwnerKind, PlaySegment } from "@/lib/player/types";
+import type { LoadedTrack } from "@/components/player/subtitles";
+import type { Cue } from "@/lib/subtitles/cues";
+import { AltAudio, canPlayAltAudio } from "@/lib/player/alt-audio";
+
+interface AudioInfo {
+  index: number;
+  language: string;
+  label: string;
+  codec: string;
+  channels: number;
+  mime: string | null;
+}
+interface TextInfo {
+  index: number;
+  language: string;
+  label: string;
+}
+interface FileTracks {
+  audioTracks: AudioInfo[];
+  textTracks: TextInfo[];
+}
+
+export interface AudioOption {
+  index: number;
+  label: string;
+  /** False when this browser can't play that track (its sound isn't in a format it takes). */
+  supported: boolean;
+}
+
+interface Args {
+  manifest: PlayManifest | null;
+  ownerKind: PlayOwnerKind;
+  ownerId: string;
+  /** The segment playing now, and where in the whole film. */
+  segment: PlaySegment | null;
+  globalTime: number;
+  frontVideo: () => HTMLVideoElement | null;
+  /** Changes when the picture moves to the other video element. */
+  frontSlot: number;
+  volume: number;
+}
+
+const tracksUrl = (ownerKind: string, ownerId: string, fileId: string) => `/api/play/${ownerKind}/${ownerId}/tracks/${fileId}`;
+
+/** The audio tracks and subtitle tracks inside a video's files: choosing another language, and subtitles that came with the file. */
+export function useEmbeddedTracks({ manifest, ownerKind, ownerId, segment, globalTime, frontVideo, frontSlot, volume }: Args) {
+  const [info, setInfo] = useState<Record<string, FileTracks>>({});
+  const [selectedAudio, setSelectedAudio] = useState(0);
+  const [audioProblem, setAudioProblem] = useState<string | null>(null);
+  const [textState, setTextState] = useState<Record<string, Cue[] | "loading">>({});
+
+  // What each file of this video holds (one small request per file, quietly skipped when it can't be read).
+  useEffect(() => {
+    setInfo({});
+    setTextState({});
+    if (!manifest) return;
+    let live = true;
+    for (const seg of manifest.segments) {
+      if (!seg.fileId) continue;
+      const fileId = seg.fileId;
+      void fetch(tracksUrl(ownerKind, ownerId, fileId))
+        .then((r) => (r.ok ? (r.json() as Promise<FileTracks>) : null))
+        .then((t) => live && t && setInfo((all) => ({ ...all, [fileId]: t })))
+        .catch(() => undefined);
+    }
+    return () => {
+      live = false;
+    };
+  }, [manifest, ownerKind, ownerId]);
+
+  const first = manifest?.segments[0]?.fileId ? info[manifest.segments[0].fileId] : undefined;
+  const current = segment?.fileId ? info[segment.fileId] : undefined;
+
+  // A browser that lists a video's audio tracks itself (Safari) switches them natively; everywhere else the other tracks play as pieces.
+  const nativeTracks = useCallback(() => {
+    const list = (frontVideo() as (HTMLVideoElement & { audioTracks?: { length: number; [i: number]: { enabled: boolean } } }) | null)?.audioTracks;
+    return list && list.length > 1 ? list : null;
+  }, [frontVideo]);
+
+  const audioOptions: AudioOption[] = useMemo(() => {
+    if (!first || first.audioTracks.length < 2) return [];
+    return first.audioTracks.map((a) => ({ index: a.index, label: a.label, supported: a.index === 0 || canPlayAltAudio(a.mime) || "audioTracks" in HTMLMediaElement.prototype }));
+  }, [first]);
+
+  // The track in this part that is the chosen one: the same position, or failing that the same language.
+  const trackIn = useCallback(
+    (file: FileTracks | undefined) => {
+      const want = first?.audioTracks[selectedAudio];
+      if (!file || !want) return null;
+      const same = file.audioTracks[selectedAudio];
+      if (same && same.language === want.language) return same;
+      return file.audioTracks.find((a) => a.language === want.language && a.channels === want.channels) ?? file.audioTracks.find((a) => a.language === want.language) ?? null;
+    },
+    [first, selectedAudio]
+  );
+
+  const engines = useRef(new Map<number, AltAudio>());
+  const [altActive, setAltActive] = useState(false);
+  const volumeRef = useRef(volume);
+  useEffect(() => {
+    volumeRef.current = volume;
+    engines.current.forEach((e) => e.setVolume(volume));
+  }, [volume]);
+
+  // Native switching.
+  useEffect(() => {
+    const list = nativeTracks();
+    if (!list) return;
+    for (let i = 0; i < list.length; i++) list[i].enabled = i === selectedAudio;
+  }, [nativeTracks, selectedAudio, frontSlot, segment?.index, current]);
+
+  // Pieces: one engine for the part playing, and (shortly before it ends) one ready for the next part.
+  const segmentIndex = segment?.index ?? -1;
+  const segmentEnd = segment ? segment.startSeconds + segment.durationSeconds : 0;
+  const wantNext = !!segment && manifest !== null && segmentEnd - globalTime < 30 && segment.index + 1 < manifest.segments.length;
+  useEffect(() => {
+    const keep = new Set<number>();
+    const stop = () => {
+      engines.current.forEach((e) => e.destroy());
+      engines.current.clear();
+      setAltActive(false);
+    };
+    if (!manifest || !segment || selectedAudio === 0 || nativeTracks()) {
+      stop();
+      return;
+    }
+    const make = (seg: PlaySegment): AltAudio | null => {
+      const file = seg.fileId ? info[seg.fileId] : undefined;
+      const track = trackIn(file);
+      if (!seg.fileId || !track || !canPlayAltAudio(track.mime)) return null;
+      const existing = engines.current.get(seg.index);
+      if (existing) return existing;
+      const engine = new AltAudio({
+        base: `${tracksUrl(ownerKind, ownerId, seg.fileId)}/audio/${track.index}`,
+        mime: track.mime!,
+        onFailure: (message) => {
+          setAudioProblem(message);
+          setSelectedAudio(0);
+        },
+      });
+      engine.setVolume(volumeRef.current);
+      engines.current.set(seg.index, engine);
+      return engine;
+    };
+    const engine = make(segment);
+    const video = frontVideo();
+    if (!engine || !video) {
+      stop();
+      return;
+    }
+    keep.add(segment.index);
+    engines.current.forEach((e, i) => i !== segment.index && e.detach());
+    engine.attach(video);
+    setAltActive(true);
+    if (wantNext) {
+      const next = manifest.segments[segment.index + 1];
+      if (make(next)) keep.add(next.index);
+    }
+    for (const [i, e] of [...engines.current]) {
+      if (!keep.has(i)) {
+        e.destroy();
+        engines.current.delete(i);
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [manifest, segmentIndex, frontSlot, selectedAudio, info, wantNext, ownerKind, ownerId]);
+
+  useEffect(
+    () => () => {
+      engines.current.forEach((e) => e.destroy());
+      engines.current.clear();
+    },
+    []
+  );
+
+  const selectAudio = useCallback((index: number) => {
+    setAudioProblem(null);
+    setSelectedAudio(index);
+  }, []);
+
+  // ── Subtitles that came with the file ──
+  const textLanguages = useMemo(() => {
+    const seen = new Map<string, string>();
+    for (const t of first?.textTracks ?? []) if (!seen.has(t.language)) seen.set(t.language, t.label);
+    return [...seen];
+  }, [first]);
+
+  const embeddedTracks: LoadedTrack[] = useMemo(
+    () =>
+      textLanguages.map(([language, label]) => {
+        const state = textState[language];
+        return { id: `emb:${language}`, label: `${label} (in the file)`, cues: Array.isArray(state) ? state : [], embedded: { language, loaded: Array.isArray(state), loading: state === "loading" } };
+      }),
+    [textLanguages, textState]
+  );
+
+  /** Reads one language's subtitles from every part of the video and puts them on the whole film's clock. */
+  const loadText = useCallback(
+    async (language: string): Promise<boolean> => {
+      if (!manifest) return false;
+      setTextState((s) => ({ ...s, [language]: "loading" }));
+      try {
+        const all: Cue[] = [];
+        for (const seg of manifest.segments) {
+          const file = seg.fileId ? info[seg.fileId] : undefined;
+          const track = file?.textTracks.find((t) => t.language === language);
+          if (!seg.fileId || !track) continue;
+          const res = await fetch(`${tracksUrl(ownerKind, ownerId, seg.fileId)}/text/${track.index}`);
+          if (!res.ok) throw new Error("subtitles failed");
+          const { cues } = (await res.json()) as { cues: Cue[] };
+          const offset = seg.inFileOffsetSeconds ?? 0;
+          const end = seg.inFileEndSeconds ?? Infinity;
+          for (const [start, stop, words] of cues) {
+            if (start < offset - 0.01 || start >= end) continue;
+            all.push([seg.startSeconds + start - offset, seg.startSeconds + Math.min(stop, end) - offset, words]);
+          }
+        }
+        all.sort((a, b) => a[0] - b[0]);
+        setTextState((s) => ({ ...s, [language]: all }));
+        return true;
+      } catch {
+        setTextState((s) => {
+          const { [language]: _gone, ...rest } = s;
+          void _gone;
+          return rest;
+        });
+        return false;
+      }
+    },
+    [manifest, info, ownerKind, ownerId]
+  );
+
+  return { audioOptions, selectedAudio, selectAudio, audioProblem, altAudioActive: altActive, embeddedTracks, loadText };
+}

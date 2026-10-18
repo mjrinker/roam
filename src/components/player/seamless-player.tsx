@@ -25,6 +25,7 @@ import { useAudioActions } from "@/components/audio/audio-player-provider";
 import { clampSpeed } from "@/lib/player/speed";
 import { SubtitleOverlay, type LoadedTrack } from "@/components/player/subtitles";
 import { SettingsMenu } from "@/components/player/settings-menu";
+import { useEmbeddedTracks } from "@/components/player/use-embedded-tracks";
 import { MarkPanel } from "@/components/player/mark-panel";
 import { SkipButton } from "@/components/player/skip-button";
 import { activeSkipButton, autoSkipNow, skipKey } from "@/lib/skipdb/active";
@@ -669,7 +670,28 @@ export function SeamlessPlayer({
     return () => clearTimeout(timer);
   }, [manifest, ownerKind, ownerId]);
 
-  const cues = tracks.find((t) => t.id === activeTrack)?.cues ?? null;
+  // Languages and subtitles inside the video's own files.
+  const currentSegment = manifest ? findSegment(manifest, globalTime).segment : null;
+  const getFrontVideo = useCallback(() => videoRefs.current[frontSlotRef.current], []);
+  const embedded = useEmbeddedTracks({ manifest, ownerKind, ownerId, segment: currentSegment, globalTime, frontVideo: getFrontVideo, frontSlot, volume });
+  const allTracks = [...embedded.embeddedTracks, ...tracks];
+  const cues = allTracks.find((t) => t.id === activeTrack)?.cues ?? null;
+  const selectTrack = useCallback(
+    (id: string | null) => {
+      const t = embedded.embeddedTracks.find((e) => e.id === id);
+      if (t?.embedded && !t.embedded.loaded) {
+        void embedded.loadText(t.embedded.language).then((ok) => {
+          if (ok) {
+            setActiveTrack(id);
+            setSubOffset(0);
+          }
+        });
+        return;
+      }
+      setActiveTrack(id);
+    },
+    [embedded]
+  );
   const addTrack = useCallback((track: LoadedTrack) => {
     setTracks((all) => [...all, track]);
     setActiveTrack(track.id);
@@ -905,10 +927,11 @@ export function SeamlessPlayer({
   useEffect(() => {
     videoRefs.current.forEach((el) => {
       if (!el) return;
-      el.volume = volume;
+      // Another language plays on its own element (see use-embedded-tracks), so the picture's own sound is turned all the way down.
+      el.volume = embedded.altAudioActive ? 0 : volume;
       el.muted = muted;
     });
-  }, [volume, muted]);
+  }, [volume, muted, embedded.altAudioActive, frontSlot]);
 
   // Speed goes on both elements, as the default too, so a segment loaded into either one later starts at the same speed.
   useEffect(() => {
@@ -1332,9 +1355,13 @@ export function SeamlessPlayer({
             defaultSpeed={manifest?.libraryId ? { libraryId: manifest.libraryId, saved: manifest.defaultRate ?? null } : undefined}
             ownerKind={ownerKind}
             ownerId={ownerId}
-            tracks={tracks}
+            tracks={allTracks}
             activeTrack={activeTrack}
-            onSelectTrack={setActiveTrack}
+            onSelectTrack={selectTrack}
+            audioOptions={embedded.audioOptions}
+            audioIndex={embedded.selectedAudio}
+            onAudio={embedded.selectAudio}
+            audioProblem={embedded.audioProblem}
             onLoadedTrack={addTrack}
             subtitleOffset={subOffset}
             onSubtitleOffset={setSubOffset}
