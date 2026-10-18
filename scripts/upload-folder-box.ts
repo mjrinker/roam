@@ -10,6 +10,8 @@
  *          --dir <folder>     the local folder; its name is the Box folder's name unless --folder-name is given
  *          --folder-name <n>  e.g. "David (2025) {tmdb-1167307}"
  *          --dry-run          say what would be uploaded, change nothing
+ *
+ * A file already in Box under the same name and size is left alone; one with a different size is replaced (a new version of the same file).
  */
 import { readdir, stat } from "node:fs/promises";
 import { basename, join } from "node:path";
@@ -66,19 +68,22 @@ function tokenProvider(serverId: string): TokenProvider {
     folder = { id: made.id, name: folderName, kind: "folder" };
     console.log(`made folder "${folderName}" (${made.id})`);
   }
-  const have = new Map((await provider.listFolder(folder.id)).filter((e) => e.kind === "file").map((e) => [e.name, e.sizeBytes ?? -1]));
+  const have = new Map((await provider.listFolder(folder.id)).filter((e) => e.kind === "file").map((e) => [e.name, { id: e.id, size: e.sizeBytes ?? -1 }]));
   const getToken = tokenProvider(lib.serverId);
   let done = 0;
   for (const f of files) {
     done++;
-    if (have.get(f) === sizes.get(f)) {
+    const there = have.get(f);
+    if (there?.size === sizes.get(f)) {
       console.log(`[${done}/${files.length}] ${f}: already there`);
       continue;
     }
     for (let attempt = 1; ; attempt++) {
       try {
         console.log(`[${done}/${files.length}] uploading ${f} (${(sizes.get(f)! / GIB).toFixed(2)} GiB)`);
-        const r = await uploadFile({ getToken, folderId: folder.id, name: f, filePath: join(dir, f) });
+        // A file already there with another size is replaced by a new version of it (same Box file, so anything keyed on it keeps working).
+        if (there) console.log(`   replacing the copy in Box (${there.size} bytes)`);
+        const r = await uploadFile({ getToken, folderId: folder.id, name: f, filePath: join(dir, f), replaceFileId: there?.id });
         if ("conflictId" in r) console.warn(`   ${f} is in Box already with other contents; left alone`);
         break;
       } catch (e) {

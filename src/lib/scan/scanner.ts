@@ -390,6 +390,35 @@ export async function scanLibrary(
 }
 
 /**
+ * Scans one movie folder of a movies library (a film just added) without walking the whole library: records its title and files, then reads
+ * what the files hold (lengths, codecs, chapters) until they are all known, so the movie can play. Returns what happened in words.
+ */
+export async function scanMovieFolder(libraryId: string, folderName: string): Promise<{ titleId: string | null; added: boolean; errors: string[] }> {
+  const [library] = await db.select().from(libraries).where(eq(libraries.id, libraryId)).limit(1);
+  if (!library || library.kind !== "movies") throw new Error("That isn't a movies library.");
+  const provider = createStorageForServer(library.serverId);
+  let folder: StorageEntry | undefined;
+  for (const root of await libraryRootIds(library)) {
+    folder = (await provider.listFolder(root, { strict: true })).find((e) => e.kind === "folder" && e.name === folderName);
+    if (folder) break;
+  }
+  if (!folder) throw new Error(`No folder named "${folderName}" in that library.`);
+  const added = await syncMovieFolder(provider, library.id, folder);
+  const [title] = await db.select({ id: titles.id }).from(titles).where(and(eq(titles.libraryId, library.id), eq(titles.boxFolderId, folder.id))).limit(1);
+  const errors: string[] = [];
+  if (title) {
+    for (let pass = 0; pass < 20; pass++) {
+      await probeTitlePendingDurations(provider, title.id, "movie", Date.now() + 30_000, errors);
+      const pending = await db.select({ id: mediaFiles.id }).from(mediaFiles).where(and(eq(mediaFiles.ownerKind, "title"), eq(mediaFiles.ownerId, title.id), pendingProbeCondition)).limit(1);
+      if (pending.length === 0) break;
+    }
+    await backfillCodecs(provider, [title.id], [], Date.now() + 60_000).catch((e) => errors.push((e as Error).message));
+    await backfillChapters(provider, [title.id], [], Date.now() + 60_000).catch((e) => errors.push((e as Error).message));
+  }
+  return { titleId: title?.id ?? null, added, errors };
+}
+
+/**
  * Compare-and-set on libraries.scan_cursor: moves it from `from` to `to`
  * only if it still holds `from`. False means another scan advanced or reset
  * it since this pass read it, so this pass no longer owns the cursor.

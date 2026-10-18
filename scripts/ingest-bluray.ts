@@ -19,10 +19,11 @@
  *                   named "<language> (night mode)": it shows in the player's Audio choice, for watching quietly late at night)
  */
 import { spawn } from "node:child_process";
-import { copyFile, mkdir, readdir, rename, rm, stat, writeFile } from "node:fs/promises";
+import { copyFile, mkdir, readdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { basename, join } from "node:path";
 import { audioKbps, MAX_OUTPUT_BYTES, rungSize, videoKbps } from "@/lib/remux/version-plan";
+import { parseSubtitleBytes } from "@/lib/subtitles/cues";
 
 const args = process.argv.slice(2);
 const phase = args[0];
@@ -188,6 +189,28 @@ async function subtitleFiles(): Promise<{ file: string; lang: string }[]> {
   return files.map((f) => ({ file: join(subsDir, f), lang: /\.([a-z]{3})\.srt$/i.exec(f)?.[1]?.toLowerCase() ?? "eng" }));
 }
 
+/** The cues of a subtitle file that fall within [from, to) of the video, on the part's own clock (from its start) and cut off at its end, as an SRT file. */
+async function partSrt(source: string, from: number, to: number | null, dest: string): Promise<void> {
+  const parsed = parseSubtitleBytes(new Uint8Array(await readFile(source)));
+  if (!parsed.ok) throw new Error(`${source}: ${parsed.error}`);
+  const stamp = (t: number) => {
+    const ms = Math.round(t * 1000);
+    const pad = (n: number, w = 2) => String(n).padStart(w, "0");
+    return `${pad(Math.floor(ms / 3_600_000))}:${pad(Math.floor(ms / 60_000) % 60)}:${pad(Math.floor(ms / 1000) % 60)},${pad(ms % 1000, 3)}`;
+  };
+  let n = 0;
+  const out: string[] = [];
+  for (const [start, end, words] of parsed.cues) {
+    if (end <= from || (to !== null && start >= to)) continue;
+    const a = Math.max(start, from) - from;
+    const b = (to === null ? end : Math.min(end, to)) - from;
+    if (b - a < 0.05) continue;
+    out.push(`${++n}\n${stamp(a)} --> ${stamp(b)}\n${words}\n`);
+  }
+  // A part with no words in it still gets a (one blank cue) track, so every part has the same tracks.
+  await writeFile(dest, out.length ? `${out.join("\n")}\n` : `1\n${stamp(0)} --> ${stamp(0.1)}\n \n`);
+}
+
 async function cutOne(opts: {
   video: string;
   movie: string;
@@ -205,7 +228,14 @@ async function cutOne(opts: {
   await writeFile(meta, chapterFile(info.chapters, from, to ?? Number(info.format.duration) + 1));
   const window = ["-ss", String(from), ...(to === null ? [] : ["-to", String(to)])];
   const argv = ["-y", "-v", "error", "-stats", ...window, "-i", video, ...window, "-i", movie, "-i", meta];
-  subs.forEach((s) => argv.push(...window, "-i", s.file));
+  // Each part gets the subtitle cues that fall inside it, cut off at its end (a track left running past the picture would stretch the file).
+  const partSubs: string[] = [];
+  for (const [i, sub] of subs.entries()) {
+    const file = `${dest}.sub${i}.srt`;
+    await partSrt(sub.file, from, to, file);
+    partSubs.push(file);
+    argv.push("-i", file);
+  }
   argv.push("-map", "0:v:0", "-map", "1:a");
   const withNight = night && mode === "aac" && audio.length > 0;
   if (withNight) argv.push("-map", "1:a:0");
@@ -226,6 +256,7 @@ async function cutOne(opts: {
   await run("ffmpeg", argv);
   await rename(`${dest}.part`, dest);
   await rm(meta, { force: true });
+  for (const f of partSubs) await rm(f, { force: true });
 }
 
 async function cut() {
@@ -325,6 +356,53 @@ async function extras() {
   }
 }
 
+/**
+ * Fixes parts whose subtitle tracks run past their picture (an earlier cut passed the whole film's cues to every part): each file is copied
+ * with subtitles cut to its own stretch of the film. A part's place in the film is the total of the parts before it.
+ */
+async function repair() {
+  const subs = await subtitleFiles();
+  if (subs.length === 0) throw new Error("repair needs --subs");
+  const files = (await readdir(final)).filter((f) => f.startsWith(`${name} - `) && f.endsWith(".mp4") && !f.endsWith(".part"));
+  const groups = new Map<string, { file: string; part: number }[]>();
+  for (const f of files) {
+    const m = /^.* - (\d+p)(?: - pt(\d+))?(\.aac)?\.mp4$/.exec(f);
+    if (!m) continue;
+    const key = `${m[1]}${m[3] ?? ""}`;
+    groups.set(key, [...(groups.get(key) ?? []), { file: f, part: Number(m[2] ?? 1) }]);
+  }
+  for (const [key, parts] of groups) {
+    parts.sort((a, b) => a.part - b.part);
+    let at = 0;
+    for (const [i, p] of parts.entries()) {
+      const path = join(final, p.file);
+      const info = await probe(path);
+      const video = Number((await run("ffprobe", ["-v", "error", "-select_streams", "v:0", "-show_entries", "stream=duration", "-of", "csv=p=0", path], { quiet: true })).trim());
+      const last = i === parts.length - 1;
+      const to = last ? null : at + video;
+      say(`${p.file}: subtitles cut to ${at.toFixed(1)}s-${(to ?? at + video).toFixed(1)}s (${key})`);
+      const srts: string[] = [];
+      for (const [k, sub] of subs.entries()) {
+        const f = `${path}.sub${k}.srt`;
+        await partSrt(sub.file, at, to, f);
+        srts.push(f);
+      }
+      const argv = ["-y", "-v", "error", "-i", path];
+      srts.forEach((f) => argv.push("-i", f));
+      argv.push("-map", "0:v:0", "-map", "0:a");
+      srts.forEach((_, k) => argv.push("-map", `${k + 1}:0`));
+      argv.push("-map_chapters", "0", "-map_metadata", "0", "-c", "copy", "-c:s", "mov_text", "-t", String(video));
+      subs.forEach((s, k) => argv.push(`-metadata:s:s:${k}`, `language=${s.lang}`, `-metadata:s:s:${k}`, `handler_name=${LANGUAGES[s.lang] ?? s.lang}`, `-disposition:s:${k}`, "0"));
+      void info;
+      argv.push("-movflags", "+faststart", "-f", "mp4", `${path}.fixed`);
+      await run("ffmpeg", argv);
+      await rename(`${path}.fixed`, path);
+      for (const f of srts) await rm(f, { force: true });
+      at += video;
+    }
+  }
+}
+
 async function check() {
   for (const f of (await readdir(final)).filter((n) => n.endsWith(".mp4")).sort()) {
     const info = await probe(join(final, f));
@@ -332,16 +410,19 @@ async function check() {
     const audio = kinds("audio").map((s) => `${s.tags?.language}:${s.codec_name}:${s.channels}`).join(" ");
     const subs = kinds("subtitle").map((s) => `${s.tags?.language}:${s.codec_name}`).join(" ");
     const bytes = await sizeOf(join(final, f));
-    console.log(`${bytes >= 2 * GIB ? "TOO BIG " : ""}${f}\n   ${(bytes / GIB).toFixed(2)} GiB, ${Math.round(Number(info.format.duration))}s, ${kinds("video").map((s) => `${s.codec_name} ${s.width}x${s.height}`).join(" ")}, audio [${audio}], subtitles [${subs || "none"}], ${info.chapters.length} chapters`);
+    const longest = Math.max(...info.streams.map((st) => Number((st as { duration?: string }).duration ?? 0)));
+    const picture = Number((info.streams.find((st) => st.codec_type === "video") as { duration?: string } | undefined)?.duration ?? 0);
+    console.log(`${longest > picture + 1.5 && kinds("subtitle").length ? "SUBTITLES RUN LONG " : ""}${bytes >= 2 * GIB ? "TOO BIG " : ""}${f}\n   ${(bytes / GIB).toFixed(2)} GiB, ${Math.round(Number(info.format.duration))}s, ${kinds("video").map((s) => `${s.codec_name} ${s.width}x${s.height}`).join(" ")}, audio [${audio}], subtitles [${subs || "none"}], ${info.chapters.length} chapters`);
   }
 }
 
 (async () => {
-  if (!["encode", "cut", "extras", "check"].includes(phase) || !out) throw new Error("usage: ingest-bluray.ts encode|cut|extras|check --src <folder> --out <staging> [--movie file] [--name 'Title (Year)']");
+  if (!["encode", "cut", "extras", "check", "repair"].includes(phase) || !out) throw new Error("usage: ingest-bluray.ts encode|cut|extras|check --src <folder> --out <staging> [--movie file] [--name 'Title (Year)']");
   await mkdir(out, { recursive: true });
   if (phase === "encode") await encode();
   else if (phase === "cut") await cut();
   else if (phase === "extras") await extras();
+  else if (phase === "repair") await repair();
   else await check();
   say("done");
 })().catch((e) => {
