@@ -7,6 +7,8 @@ import { parseUnsupportedCodecs } from "@/lib/player/variant-selection";
 import { viewerLibrarySpeed } from "@/lib/player/library-speed";
 import { parseSkipParam } from "@/lib/content-filter/timeline";
 import { needsHeartbeat, ownershipGate } from "@/lib/ownership/gate";
+import { db } from "@/lib/db/client";
+import { tracksFor } from "@/lib/subtitles/tracks";
 import { aimHeight, dataSaverFor } from "@/lib/player/data-saver";
 
 // authorizeOwner covers server membership AND the profile's rating limit —
@@ -51,5 +53,5 @@ export async function GET(
   }
   // A server's admin (a profile that may change settings) can mark scenes while watching; the marking route checks again.
   const canMark = ownerKind !== "extra" && auth.member.role === "admin" && auth.member.viewer.role !== "limited";
-  return NextResponse.json({ ...result.manifest, heartbeat: await needsHeartbeat(ownerKind, ownerId), canMark, languagePrefs: { audio: auth.member.viewer.audioLanguage, subtitles: auth.member.viewer.subtitleLanguage }, libraryId: auth.libraryId, defaultRate: await viewerLibrarySpeed(auth.member.viewer.id, auth.libraryId) });
+  return NextResponse.json({ ...result.manifest, heartbeat: await needsHeartbeat(ownerKind, ownerId), canMark, subtitleTracks: ownerKind === "extra" ? [] : await tracksFor(db, ownerKind, ownerId), languagePrefs: { audio: auth.member.viewer.audioLanguage, subtitles: auth.member.viewer.subtitleLanguage }, libraryId: auth.libraryId, defaultRate: await viewerLibrarySpeed(auth.member.viewer.id, auth.libraryId) });
 }

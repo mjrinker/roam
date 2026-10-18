@@ -13,7 +13,9 @@ export interface LoadedTrack {
   label: string;
   cues: Cue[];
   /** A track that is part of the video file itself: its words are read the first time it is chosen. */
-  embedded?: { language: string; loaded: boolean; loading: boolean };
+  embedded?: { language: string; loaded: boolean; loading: boolean; /** Set for subtitles kept with the title (a file beside the video, or saved by the admin): their id. */ trackId?: string };
+  /** The language a loaded track is in, when known (three letters or two); used to keep it for everyone. */
+  language?: string;
 }
 
 /**
@@ -83,7 +85,7 @@ function SubtitleFinder({ ownerKind, ownerId, onLoaded, onDone }: { ownerKind: s
     setBusy(null);
     if (!res || !res.ok) return setMessage(res ? await errorOf(res, "Couldn't get that subtitle.") : "Couldn't reach the server.");
     const body = (await res.json()) as { cues: Cue[] };
-    onLoaded({ id: `os-${r.fileId}-${crypto.randomUUID()}`, label: `${r.language.toUpperCase()} · ${r.release || r.fileName || "OpenSubtitles"}`.slice(0, 60), cues: body.cues });
+    onLoaded({ id: `os-${r.fileId}-${crypto.randomUUID()}`, label: `${r.language.toUpperCase()} · ${r.release || r.fileName || "OpenSubtitles"}`.slice(0, 60), cues: body.cues, language: r.language });
     onDone();
   }
   async function file(f: File | undefined) {
@@ -147,8 +149,14 @@ function SubtitleFinder({ ownerKind, ownerId, onLoaded, onDone }: { ownerKind: s
 }
 
 /** The subtitle choices as a panel (the player's settings menu hosts it): off, what has been loaded for this viewing, a delay control, and a way to load more. */
-export function SubtitlePanel({ ownerKind, ownerId, tracks, activeId, onSelect, onLoaded, offset, onOffset, onDone }: { ownerKind: string; ownerId: string; tracks: readonly LoadedTrack[]; activeId: string | null; onSelect: (id: string | null) => void; onLoaded: (t: LoadedTrack) => void; offset: number; onOffset: (seconds: number) => void; onDone: () => void }) {
+export function SubtitlePanel({ ownerKind, ownerId, tracks, activeId, onSelect, onLoaded, offset, onOffset, onDone, canKeep = false }: { ownerKind: string; ownerId: string; tracks: readonly LoadedTrack[]; activeId: string | null; onSelect: (id: string | null) => void; onLoaded: (t: LoadedTrack) => void; offset: number; onOffset: (seconds: number) => void; onDone: () => void; /** The admin may keep a track they loaded for everyone. */ canKeep?: boolean }) {
   const [finding, setFinding] = useState(false);
+  const [kept, setKept] = useState<Record<string, "saving" | "kept" | "failed">>({});
+  const keep = async (t: LoadedTrack) => {
+    setKept((k) => ({ ...k, [t.id]: "saving" }));
+    const res = await fetch("/api/subtitles/tracks", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ownerKind, ownerId, language: t.language, label: t.label, cues: t.cues }) }).catch(() => null);
+    setKept((k) => ({ ...k, [t.id]: res?.ok ? "kept" : "failed" }));
+  };
   const item = "flex w-full items-center justify-between rounded-lg px-3 py-1.5 text-left text-sm outline-none hover:bg-white/15 focus-visible:bg-white/15";
   if (finding) return <SubtitleFinder ownerKind={ownerKind} ownerId={ownerId} onLoaded={onLoaded} onDone={() => (setFinding(false), onDone())} />;
   return (
@@ -165,6 +173,11 @@ export function SubtitlePanel({ ownerKind, ownerId, tracks, activeId, onSelect, 
               <span className="truncate">{t.label}</span>
               {activeId === t.id && <span aria-hidden>✓</span>}
             </button>
+            {canKeep && !t.embedded && activeId === t.id && (
+              <button type="button" disabled={kept[t.id] === "saving" || kept[t.id] === "kept"} onClick={() => void keep(t)} className="mb-1 ml-3 rounded-md px-2 py-0.5 text-xs text-white/70 underline hover:bg-white/10 disabled:no-underline">
+                {kept[t.id] === "kept" ? "Kept for everyone" : kept[t.id] === "saving" ? "Saving…" : kept[t.id] === "failed" ? "Couldn't keep it. Try again" : "Keep for everyone"}
+              </button>
+            )}
           </li>
         ))}
       </ul>

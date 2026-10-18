@@ -219,14 +219,43 @@ export function useEmbeddedTracks({ manifest, ownerKind, ownerId, segment, globa
     return [...seen];
   }, [first]);
 
+  // Subtitles kept with the title (files beside the video, and ones the admin saved): listed with the manifest, read when first chosen.
+  const kept = manifest?.subtitleTracks;
+  const [keptState, setKeptState] = useState<Record<string, Cue[] | "loading">>({});
+  useEffect(() => setKeptState({}), [manifest]);
+
   const embeddedTracks: LoadedTrack[] = useMemo(
-    () =>
-      textLanguages.map(([language, label]) => {
+    () => [
+      ...textLanguages.map(([language, label]) => {
         const state = textState[language];
         return { id: `emb:${language}`, label: `${label} (in the file)`, cues: Array.isArray(state) ? state : [], embedded: { language, loaded: Array.isArray(state), loading: state === "loading" } };
       }),
-    [textLanguages, textState]
+      ...(kept ?? []).map((k) => {
+        const state = keptState[k.id];
+        return { id: `sav:${k.id}`, label: k.label, cues: Array.isArray(state) ? state : [], embedded: { language: k.language ?? "und", loaded: Array.isArray(state), loading: state === "loading", trackId: k.id } };
+      }),
+    ],
+    [textLanguages, textState, kept, keptState]
   );
+
+  /** Reads a kept subtitle track (they are on the whole title's clock already). */
+  const loadSaved = useCallback(async (trackId: string): Promise<boolean> => {
+    setKeptState((s) => ({ ...s, [trackId]: "loading" }));
+    try {
+      const res = await fetch(`/api/subtitles/tracks/${trackId}`);
+      if (!res.ok) throw new Error("subtitles failed");
+      const { cues } = (await res.json()) as { cues: Cue[] };
+      setKeptState((s) => ({ ...s, [trackId]: cues }));
+      return true;
+    } catch {
+      setKeptState((s) => {
+        const { [trackId]: _gone, ...rest } = s;
+        void _gone;
+        return rest;
+      });
+      return false;
+    }
+  }, []);
 
   /** Reads one language's subtitles from every part of the video and puts them on the whole film's clock. */
   const loadText = useCallback(
@@ -268,8 +297,10 @@ export function useEmbeddedTracks({ manifest, ownerKind, ownerId, segment, globa
   const preferredText = useMemo(() => {
     if (!prefs?.subtitles) return null;
     const match = textLanguages.find(([language]) => sameLanguage(language, prefs.subtitles));
-    return match ? `emb:${match[0]}` : null;
-  }, [prefs?.subtitles, textLanguages]);
+    if (match) return `emb:${match[0]}`;
+    const keptMatch = kept?.find((k) => sameLanguage(k.language, prefs.subtitles));
+    return keptMatch ? `sav:${keptMatch.id}` : null;
+  }, [prefs?.subtitles, textLanguages, kept]);
 
-  return { audioOptions, selectedAudio, selectAudio: chooseAudio, audioProblem, altAudioActive: altActive, embeddedTracks, loadText, preferredText };
+  return { audioOptions, selectedAudio, selectAudio: chooseAudio, audioProblem, altAudioActive: altActive, embeddedTracks, loadText, loadSaved, preferredText };
 }

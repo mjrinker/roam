@@ -7,20 +7,13 @@ import { and, eq, isNull } from "drizzle-orm";
 import { db } from "@/lib/db/client";
 import { mediaFiles } from "@/lib/db/schema";
 import { languageCuesFromSubtitles } from "@/lib/content-filter/profanity";
+import { subtitleFileParts } from "@/lib/scan/subtitle-names";
 import { isBrowserFriendlyVariant, isExtraFile, isVideoFile } from "@/lib/scan/conventions";
 import { MAX_SUBTITLE_BYTES, parseSubtitleBytes } from "@/lib/subtitles/cues";
 import { StorageReauthRequiredError } from "@/lib/storage/reauth";
 import type { StorageEntry, StorageProvider } from "@/lib/storage/provider";
 
-/** "Movie.en.srt" -> { base: "Movie", language: "en" }; "Movie.srt" -> language null. Forced and hearing-impaired variants are named by it too. */
-export function subtitleFileParts(fileName: string): { base: string; language: string | null; forced: boolean } | null {
-  const m = /^(.*?)((?:\.(?:[a-z]{2,3}(?:-[a-z]{2,4})?|forced|sdh|hi|cc))*)\.srt$/i.exec(fileName);
-  if (!m) return null;
-  const tags = m[2].split(".").filter(Boolean).map((t) => t.toLowerCase());
-  const forced = tags.includes("forced");
-  const language = tags.find((t) => /^[a-z]{2,3}(-[a-z]{2,4})?$/.test(t) && !["forced", "sdh", "hi", "cc"].includes(t)) ?? null;
-  return { base: m[1], language, forced };
-}
+export { subtitleFileParts };
 
 const ENGLISH = new Set(["en", "eng", "en-us", "en-gb"]);
 const baseName = (fileName: string) => fileName.replace(/\.[^.]+$/, "").toLowerCase();

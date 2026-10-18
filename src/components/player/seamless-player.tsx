@@ -729,7 +729,7 @@ export function SeamlessPlayer({
       }
       const t = embedded.embeddedTracks.find((e) => e.id === id);
       if (t?.embedded && !t.embedded.loaded) {
-        void embedded.loadText(t.embedded.language).then((ok) => {
+        void (t.embedded.trackId ? embedded.loadSaved(t.embedded.trackId) : embedded.loadText(t.embedded.language)).then((ok) => {
           if (ok) {
             setActiveTrack(id);
             setSubOffset(0);
@@ -1417,6 +1417,7 @@ export function SeamlessPlayer({
             onSelectTrack={selectTrack}
             autoplay={nextHref ? autoplay : undefined}
             onAutoplay={changeAutoplay}
+            canKeepSubtitles={manifest?.canMark}
             audioOptions={embedded.audioOptions}
             audioIndex={embedded.selectedAudio}
             onAudio={embedded.selectAudio}

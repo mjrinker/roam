@@ -48,6 +48,8 @@ export interface PlayManifest {
   /** The resolution version this plays (its label; "" for a file with none) and every version on offer, best first. */
   version?: string;
   versions?: { label: string; name: string; height: number | null }[];
+  /** Subtitles kept with this title for everyone: files beside the video, and ones the admin saved. Their words come from `/api/subtitles/tracks/{id}`. */
+  subtitleTracks?: { id: string; language: string | null; label: string; source: "file" | "saved" }[];
   /** The language this profile wants by default: the audio track and the subtitles to switch on when the video has them (ISO 639-2). */
   languagePrefs?: { audio: string | null; subtitles: string | null };
   /** The library this plays from, and the speed this profile starts it at (null or missing = normal speed). */

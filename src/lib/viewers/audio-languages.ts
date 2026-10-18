@@ -33,3 +33,17 @@ export const sameLanguage = (a: string | null | undefined, b: string | null | un
   const x = normalizeLanguage(a);
   return x !== null && x === normalizeLanguage(b);
 };
+
+/** Two-letter codes (what OpenSubtitles and web pages use) and their three-letter ones. */
+const TWO_TO_THREE: Record<string, string> = { en: "eng", es: "spa", fr: "fra", de: "deu", it: "ita", pt: "por", nl: "nld", sv: "swe", da: "dan", no: "nor", fi: "fin", pl: "pol", cs: "ces", hu: "hun", ro: "ron", el: "ell", tr: "tur", ru: "rus", uk: "ukr", he: "heb", ar: "ara", fa: "fas", hi: "hin", ja: "jpn", ko: "kor", zh: "zho", th: "tha", vi: "vie", id: "ind" };
+
+/** A language as any of its spellings ("en", "pt-BR", "eng", "fre") in the three-letter one; null when it isn't recognised. */
+export function languageCode3(raw: string | null | undefined): string | null {
+  const c = (raw ?? "").trim().toLowerCase().split(/[-_]/)[0];
+  return normalizeLanguage(c) ?? TWO_TO_THREE[c] ?? null;
+}
+
+/** A language's name for a label ("spa" is "Spanish"); the code in capitals when it isn't one of the listed languages. */
+export function languageLabel(code3: string): string {
+  return MEDIA_LANGUAGES.find((l) => l.code === code3)?.label ?? code3.toUpperCase();
+}

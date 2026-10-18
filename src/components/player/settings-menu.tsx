@@ -28,6 +28,8 @@ interface SettingsMenuProps {
   /** Whether the next episode starts by itself after a countdown (shown only when there is a next one to start). */
   autoplay?: boolean;
   onAutoplay?: (on: boolean) => void;
+  /** The admin may keep subtitles they load for everyone. */
+  canKeepSubtitles?: boolean;
   audioOptions?: readonly AudioChoice[];
   audioIndex?: number;
   onAudio?: (index: number) => void;
@@ -140,7 +142,7 @@ export function SettingsMenu(p: SettingsMenuProps) {
               <div className="border-t border-white/15 pt-1">
                 {view === "speed" && <SpeedPanel rate={p.rate} onChange={p.onRate} onDone={close} defaultSpeed={p.defaultSpeed} />}
                 {view === "subtitles" && (
-                  <SubtitlePanel ownerKind={p.ownerKind} ownerId={p.ownerId} tracks={p.tracks} activeId={p.activeTrack} onSelect={p.onSelectTrack} onLoaded={p.onLoadedTrack} offset={p.subtitleOffset} onOffset={p.onSubtitleOffset} onDone={close} />
+                  <SubtitlePanel ownerKind={p.ownerKind} ownerId={p.ownerId} tracks={p.tracks} activeId={p.activeTrack} onSelect={p.onSelectTrack} onLoaded={p.onLoadedTrack} offset={p.subtitleOffset} onOffset={p.onSubtitleOffset} onDone={close} canKeep={p.canKeepSubtitles} />
                 )}
                 {view === "language" && (
                   <div role="menu" aria-label="Audio">

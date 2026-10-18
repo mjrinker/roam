@@ -1082,6 +1082,28 @@ export const labelItems = pgTable(
   (t) => [primaryKey({ columns: [t.labelId, t.titleId] }), index("label_items_title_idx").on(t.titleId)]
 ).enableRLS();
 
+// ── subtitle_tracks ──────────────────────────────────────────────────────
+// Subtitles kept with a movie or episode for everyone who can play it: a file beside the video in storage ("Movie.es.srt": only where it is,
+// read when played) or ones the admin saved from OpenSubtitles or a file (the cues are kept, on the whole title's clock).
+export const subtitleTracks = pgTable(
+  "subtitle_tracks",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    ownerKind: ownerKindEnum("owner_kind").notNull(),
+    ownerId: uuid("owner_id").notNull(),
+    // ISO 639-2 ("spa"); null when the file doesn't say.
+    language: text("language"),
+    label: text("label").notNull(),
+    // "file" (beside the video) or "saved" (cues kept here).
+    source: text("source").notNull(),
+    storageFileId: text("storage_file_id"),
+    sizeBytes: integer("size_bytes"),
+    cues: jsonb("cues").$type<[number, number, string][]>(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("subtitle_tracks_owner_idx").on(t.ownerKind, t.ownerId), uniqueIndex("subtitle_tracks_file_idx").on(t.ownerKind, t.ownerId, t.storageFileId)]
+).enableRLS();
+
 // ── watchlist_items ──────────────────────────────────────────────────────
 // Movies, shows and audiobooks a profile means to get to. Private to the profile; a title drops off once the profile has finished it.
 export const watchlistItems = pgTable(

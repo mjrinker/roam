@@ -111,12 +111,13 @@ describe("searching OpenSubtitles", () => {
 });
 
 describe("downloading from OpenSubtitles", () => {
-  it("fetches the file and sends back its words and timing, keeping nothing", async () => {
+  it("fetches the file and sends back its words and timing, keeping nothing unless asked", async () => {
     const w = await world();
     pretendOpenSubtitles();
     const res = await downloadBody({ ...filmOwner(w.film.id), fileId: 111 });
     expect([res.status, await res.json()]).toEqual([200, { cues: [[1, 3, "Hello there"], [4, 5.5, "Second line"]], remaining: 19, resetTime: "2026-10-10T00:00:00Z" }]);
-    expect((await db.execute(sql`select to_regclass('public.subtitle_tracks') as t`)).rows[0]).toEqual({ t: null });
+    // Downloading keeps nothing by itself (the admin keeps one on purpose, with POST /api/subtitles/tracks).
+    expect((await db.execute(sql`select count(*)::int as n from subtitle_tracks`)).rows[0]).toEqual({ n: 0 });
   });
   it("is open to any member who can watch it, and 404 for one who can't", async () => {
     const w = await world();
