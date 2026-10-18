@@ -31,6 +31,8 @@ const ALLOWLIST: Record<string, string> = {
   "tv/s/[serverId]/labels/[id]/route.ts": "reads only through labelWithTitles in lib/labels/queries, which applies the profile's own label, library visibility, the age limit and something to play (queries.sql.test.ts and apps-features.routes.test.ts)",
   "api/v1/servers/[serverId]/labels/route.ts": "reads only through visibleLabels in lib/labels/queries, which counts just the titles this profile may see (queries.sql.test.ts and labels.routes.test.ts)",
   "api/v1/servers/[serverId]/labels/[id]/route.ts": "reads only through labelWithTitles in lib/labels/queries, which applies the profile's own label, library visibility, the age limit and something to play (queries.sql.test.ts and labels.routes.test.ts)",
+  "api/watch-together/route.ts": "gated by authorizeSubtitles (the same gate as playing: membership, rating limit, library access) before a room is made",
+  "api/watch-together/[id]/route.ts": "gated by authorizeSubtitles for the room's own title and server on every look; the room holds no title data",
   "api/ownership/owners/route.ts": "admin-only (getCurrentServerAdmin); only reads the titles of that admin's own server, to assign owners",
   "api/titles/[id]/match/route.ts": "admin-only (getCurrentServerAdmin)",
   "api/titles/[id]/match-audible/route.ts": "admin-only (getCurrentServerAdmin)",

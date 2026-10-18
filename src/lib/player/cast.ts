@@ -31,7 +31,7 @@ export function castGlobal(items: CastItem[], index: number, seconds: number): n
   return (items[index]?.startSeconds ?? 0) + seconds;
 }
 
-/** Whether AirPlay can take this video: Safari's own picker plays the one file the picture is showing, so a video in parts can't use it. */
+/** Whether AirPlay can take this video (Safari's own picker plays the one file the picture is showing, so a video in parts can't use it). */
 export function airPlayUsable(manifest: Pick<PlayManifest, "segments"> | null, videoEl: { webkitShowPlaybackTargetPicker?: unknown } | null): boolean {
   return !!manifest && manifest.segments.length === 1 && typeof videoEl?.webkitShowPlaybackTargetPicker === "function";
 }
