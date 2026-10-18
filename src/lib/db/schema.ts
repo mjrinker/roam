@@ -1088,6 +1088,29 @@ export const labelItems = pgTable(
   (t) => [primaryKey({ columns: [t.labelId, t.titleId] }), index("label_items_title_idx").on(t.titleId)]
 ).enableRLS();
 
+// ── watch_rooms ──────────────────────────────────────────────────────────
+// Watching together: a shared play/pause/position that the members' players follow, for one movie or episode on one server. `position_seconds`
+// was true at `state_at`; while playing, the true position moves on from there at `rate`. `members` is who has looked in lately.
+export const watchRooms = pgTable(
+  "watch_rooms",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    serverId: uuid("server_id").notNull().references(() => servers.id, { onDelete: "cascade" }),
+    ownerKind: ownerKindEnum("owner_kind").notNull(),
+    ownerId: uuid("owner_id").notNull(),
+    createdBy: uuid("created_by").notNull().references(() => viewers.id, { onDelete: "cascade" }),
+    playing: boolean("playing").notNull().default(false),
+    positionSeconds: real("position_seconds").notNull().default(0),
+    rate: real("rate").notNull().default(1),
+    // Counts changes to the shared state, so a player can tell a new change from the one it already has.
+    seq: integer("seq").notNull().default(0),
+    stateAt: timestamp("state_at", { withTimezone: true }).notNull().defaultNow(),
+    members: jsonb("members").$type<Record<string, { name: string; seenAt: string }>>().notNull().default({}),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("watch_rooms_server_idx").on(t.serverId)]
+).enableRLS();
+
 // ── trakt_links ──────────────────────────────────────────────────────────
 // A profile's connection to its Trakt account (trakt.tv), to send what it finishes and rates there and to bring its Trakt history in. The tokens
 // are encrypted. Only exists once the server has TRAKT_CLIENT_ID and TRAKT_CLIENT_SECRET.

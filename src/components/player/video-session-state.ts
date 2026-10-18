@@ -18,6 +18,8 @@ export interface VideoSessionInfo {
   startToken?: number;
   /** Scenes chosen just before playing, for this play only ("violence:high,language:low"). */
   extraSkip?: string;
+  /** A watch-together room to join (from an invite link). */
+  room?: string;
 }
 
 export interface VideoSessionState {

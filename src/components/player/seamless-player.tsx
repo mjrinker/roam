@@ -27,6 +27,8 @@ import { SubtitleOverlay, type LoadedTrack } from "@/components/player/subtitles
 import { SettingsMenu } from "@/components/player/settings-menu";
 import { useDataSaverState } from "@/components/ui/data-saver-context";
 import { AUTOPLAY_SECONDS, readAutoplay, writeAutoplay } from "@/lib/player/autoplay";
+import { useWatchTogether } from "@/components/player/use-watch-together";
+import { WatchTogetherButton } from "@/components/player/watch-together";
 import { rememberLanguage, useEmbeddedTracks } from "@/components/player/use-embedded-tracks";
 import { MarkPanel } from "@/components/player/mark-panel";
 import { SkipButton } from "@/components/player/skip-button";
@@ -93,6 +95,8 @@ interface SeamlessPlayerProps {
   startToken?: number;
   /** Scenes to skip for this play only, on top of the profile's own ("violence:high,language:low"). */
   extraSkip?: string;
+  /** A watch-together room to join (from the invite link). */
+  room?: string;
 }
 
 const PRELOAD_THRESHOLD_SECONDS = 15;
@@ -198,6 +202,7 @@ export function SeamlessPlayer({
   startAt,
   startToken,
   extraSkip,
+  room,
 }: SeamlessPlayerProps) {
   // A movie takes over: pause any audiobook that's playing in the background.
   const audioActions = useAudioActions();
@@ -825,6 +830,42 @@ export function SeamlessPlayer({
     return m && seg && front ? seg.startSeconds + toLocalTime(seg, front.currentTime) : 0;
   }, []);
 
+  // Watching together: a room (from an invite link, or one the viewer starts) keeps this player in step with the others.
+  const [roomId, setRoomId] = useState<string | null>(room ?? null);
+  const [roomNotice, setRoomNotice] = useState<string | null>(null);
+  const roomLocal = useCallback(() => {
+    const front = videoRefs.current[frontSlotRef.current];
+    return manifestRef.current && front ? { playing: !front.paused, time: currentGlobalTime() } : null;
+  }, [currentGlobalTime]);
+  const roomApply = useCallback(
+    async (playing: boolean, position: number) => {
+      const front = videoRefs.current[frontSlotRef.current];
+      if (!front || !manifestRef.current) return false;
+      if (Math.abs(currentGlobalTime() - position) > 1.5) seekTo(Math.max(0, Math.min(position, manifestRef.current.durationSeconds - 0.5)));
+      if (playing && front.paused) {
+        try {
+          await front.play();
+        } catch {
+          // The browser wants a press before it will start sound: the viewer presses play and joins in.
+          setRoomNotice("Press play to join in.");
+          return false;
+        }
+      } else if (!playing && !front.paused) front.pause();
+      setRoomNotice(null);
+      return true;
+    },
+    [currentGlobalTime, seekTo]
+  );
+  const together = useWatchTogether({
+    roomId: mode === "full" ? roomId : null,
+    getLocal: roomLocal,
+    apply: roomApply,
+    onEnded: (why) => {
+      setRoomId(null);
+      setRoomNotice(why === "full" ? "That room is full." : "That watch-together room has ended.");
+    },
+  });
+
   // Scenes this viewer chose to skip or silence (see lib/content-filter): checked ten times a second, so a skip lands within a tenth of a
   // second of the scene's start (the element's own time updates come only about four times a second).
   useEffect(() => {
@@ -1432,6 +1473,9 @@ export function SeamlessPlayer({
             >
               <Flag className="size-5" />
             </Button>
+          )}
+          {mode === "full" && ownerKind !== "extra" && (
+            <WatchTogetherButton roomId={roomId} watching={together.watching} ownerKind={ownerKind} ownerId={ownerId} notice={roomNotice} onStart={setRoomId} onLeave={() => setRoomId(null)} />
           )}
           <SettingsMenu
             rate={rate}

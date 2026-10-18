@@ -180,6 +180,7 @@ export default async function WatchPage({
       title={loaded.displayTitle}
       subtitle={loaded.subtitle}
       backHref={backHref}
+      room={typeof query.room === "string" && /^[0-9a-f-]{36}$/i.test(query.room) ? query.room : undefined}
       nextHref={nextHref}
       nextLabel={nextLabel}
       watchHref={`/s/${serverId}/watch/${ownerKind}/${ownerId}${queueQuery ? `?${queueQuery}` : ""}`}
