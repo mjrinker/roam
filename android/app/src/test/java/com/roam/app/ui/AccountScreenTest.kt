@@ -109,4 +109,15 @@ class AccountScreenTest {
         rule.onNodeWithText("“The Film” is free to watch now.").assertIsDisplayed()
         assertEquals(1, marked)
     }
+
+    @Test fun aDeviceCanBeSetToFollowTheConnectionForDataSaver() {
+        val settings = MemorySettings(token = "rdt_test")
+        rule.setContent { Shown(testGraph(api(), settings)) { AccountScreen(FakeNav(), onSwitchProfile = {}) } }
+        rule.waitForIdle()
+        assertEquals("profile", settings.dataSaverMode)
+        rule.onNodeWithTag("saver-auto").performScrollTo().performClick()
+        assertEquals("auto", settings.dataSaverMode)
+        rule.onNodeWithTag("saver-off").performScrollTo().performClick()
+        assertEquals("off", settings.dataSaverMode)
+    }
 }

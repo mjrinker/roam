@@ -85,6 +85,19 @@ export function isEffectivelyFinished(
   return durationSeconds > 0 && durationSeconds - positionSeconds <= remainingThreshold;
 }
 
+/**
+ * A movie or episode counts as watched once this little is left (the credits): people stop there, and showing "1 minute left" under
+ * Continue Watching, instead of moving on to the next episode, helps no one. Capped at a fifth of the length so a short video isn't
+ * "watched" well before the end, and never applied to anything under two minutes.
+ */
+export const VIDEO_NEAR_END_SECONDS = 300;
+export const VIDEO_NEAR_END_SHARE = 0.2;
+
+export function isNearEnd(positionSeconds: number, durationSeconds: number): boolean {
+  if (!(durationSeconds >= 120)) return false;
+  return durationSeconds - positionSeconds <= Math.min(VIDEO_NEAR_END_SECONDS, durationSeconds * VIDEO_NEAR_END_SHARE);
+}
+
 /** A book only shows up under "continue listening" once there's real progress. */
 export const CONTINUE_LISTENING_MIN_SECONDS = 10;
 

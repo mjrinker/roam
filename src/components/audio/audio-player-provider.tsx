@@ -150,6 +150,8 @@ interface CachedUrl {
 
 /** Hooks the element's event listeners call; not part of the public API. */
 interface EngineInternals {
+  /** Data saver turned on or off while playing (the connection changed, or the viewer chose). */
+  setDataSaver(on: boolean): void;
   attach(el: MediaEl | null): void;
   /** The second element that gets the next song ready (optional: without it songs load one at a time). */
   attachStandby(el: MediaEl | null): void;
@@ -822,6 +824,9 @@ export function createPlayer(
   return {
     actions,
     internals: {
+      setDataSaver: (on) => {
+        e.dataSaver = on;
+      },
       attach: (el) => {
         audioEl = el;
       },
@@ -865,6 +870,7 @@ export function AudioPlayerProvider({ children, dataSaver = false }: { children:
   });
 
   const [{ actions, internals }] = useState(() => createPlayer(setState, startRate, startCrossfade, dataSaver));
+  useEffect(() => internals.setDataSaver(dataSaver), [internals, dataSaver]);
   const router = useRouter();
   // createPlayer lives outside React, so the end-of-book hand-off reaches the router through this ref.
   const queueEnded = useRef<(queue: BookQueue) => void>(() => {});

@@ -5,6 +5,7 @@ import android.content.Context
 import android.content.res.Configuration
 import androidx.compose.runtime.staticCompositionLocalOf
 import com.roam.app.data.AndroidSettings
+import com.roam.app.data.DataSaver
 import com.roam.app.data.HttpRoamApi
 import com.roam.app.data.RoamApi
 import com.roam.app.data.Settings
@@ -32,7 +33,10 @@ class AppGraph(
     companion object {
         fun create(context: Context): AppGraph {
             val settings = AndroidSettings(context)
-            val api = HttpRoamApi({ settings.serverUrl ?: BuildConfig.DEFAULT_SERVER }, { settings.token })
+            val connectivity = context.getSystemService(Context.CONNECTIVITY_SERVICE) as android.net.ConnectivityManager
+            // Metered: mobile data, or a Wi-Fi network the person marked as metered. Null when the device won't say.
+            val metered = { runCatching { connectivity.isActiveNetworkMetered }.getOrNull() }
+            val api = HttpRoamApi({ settings.serverUrl ?: BuildConfig.DEFAULT_SERVER }, { settings.token }, { DataSaver.param(settings.dataSaverMode, metered()) })
             val tv = (context.getSystemService(Context.UI_MODE_SERVICE) as UiModeManager).currentModeType == Configuration.UI_MODE_TYPE_TELEVISION ||
                 context.packageManager.hasSystemFeature("android.software.leanback") ||
                 context.packageManager.hasSystemFeature("amazon.hardware.fire_tv")

@@ -10,6 +10,11 @@ export const DATA_SAVER_HEIGHT = 480;
 export const NORMAL_IMAGE_QUALITY = 75;
 export const DATA_SAVER_IMAGE_QUALITY = 40;
 
+/** This device's own choice sent with a request ("1" on, "0" off) wins over the profile's setting; anything else leaves the profile's setting. */
+export function dataSaverFor(param: string | null, profileOn: boolean): boolean {
+  return param === "1" ? true : param === "0" ? false : profileOn;
+}
+
 /** The height to aim a video at: with data saver on, no more than DATA_SAVER_HEIGHT (a lower request is kept); off, whatever was asked for. */
 export function aimHeight(requested: number | null, dataSaver: boolean): number | null {
   if (!dataSaver) return requested;

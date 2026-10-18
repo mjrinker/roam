@@ -97,6 +97,8 @@ interface RoamApi {
 class HttpRoamApi(
     private val baseUrl: () -> String,
     private val token: () -> String?,
+    /** This device's own data saver choice for a play request: "1", "0", or null for the profile's setting. */
+    private val dataSaver: () -> String? = { null },
     private val http: OkHttpClient = OkHttpClient.Builder().connectTimeout(15, TimeUnit.SECONDS).readTimeout(30, TimeUnit.SECONDS).build(),
 ) : RoamApi {
     private val json = Json { ignoreUnknownKeys = true; coerceInputValues = true; explicitNulls = false }
@@ -217,10 +219,10 @@ class HttpRoamApi(
     override suspend fun album(serverId: String, id: String): Album = get("/api/v1/servers/$serverId/albums/$id")
     override suspend fun artist(serverId: String, id: String): Artist = get("/api/v1/servers/$serverId/artists/$id")
     override suspend fun play(kind: String, id: String, unsupportedCodecs: String): PlayManifest =
-        get("/api/play/$kind/$id", mapOf("unsupportedCodecs" to unsupportedCodecs.ifEmpty { null }))
+        get("/api/play/$kind/$id", mapOf("unsupportedCodecs" to unsupportedCodecs.ifEmpty { null }, "dataSaver" to dataSaver()))
 
     override suspend fun playVersion(kind: String, id: String, unsupportedCodecs: String, version: String): PlayManifest =
-        get("/api/play/$kind/$id", mapOf("unsupportedCodecs" to unsupportedCodecs.ifEmpty { null }, "version" to version))
+        get("/api/play/$kind/$id", mapOf("unsupportedCodecs" to unsupportedCodecs.ifEmpty { null }, "version" to version, "dataSaver" to dataSaver()))
 
     override suspend fun audiobook(id: String): AudiobookManifest = get("/api/audiobooks/$id/manifest")
     override suspend fun audiobookSegmentUrl(id: String, index: Int): String = get<AudioUrl>("/api/audiobooks/$id/segments/$index").url

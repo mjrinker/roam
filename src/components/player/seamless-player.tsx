@@ -25,6 +25,7 @@ import { useAudioActions } from "@/components/audio/audio-player-provider";
 import { clampSpeed } from "@/lib/player/speed";
 import { SubtitleOverlay, type LoadedTrack } from "@/components/player/subtitles";
 import { SettingsMenu } from "@/components/player/settings-menu";
+import { useDataSaverState } from "@/components/ui/data-saver-context";
 import { useEmbeddedTracks } from "@/components/player/use-embedded-tracks";
 import { MarkPanel } from "@/components/player/mark-panel";
 import { SkipButton } from "@/components/player/skip-button";
@@ -142,9 +143,11 @@ function formatTime(totalSeconds: number) {
 // Which of the known-problem audio codecs THIS browser can't decode. Tested
 // per codec (Safari plays AC-3 but not DTS), and computed once — the server
 // uses it to hand back a remuxed copy of any file whose audio is one of them.
-function playManifestUrl(ownerKind: PlayOwnerKind, ownerId: string, version?: string, extraSkip?: string): string {
+function playManifestUrl(ownerKind: PlayOwnerKind, ownerId: string, version?: string, extraSkip?: string, dataSaver?: "1" | "0" | null): string {
   const params = new URLSearchParams(unsupportedCodecsParam());
   if (extraSkip) params.set("skip", extraSkip);
+  // This device's own choice about data saver (absent: the profile's setting applies).
+  if (dataSaver) params.set("dataSaver", dataSaver);
   // Which resolution: the one asked for, else the one closest to what this device last picked, else the best the title has.
   if (version !== undefined) params.set("version", version);
   else {
@@ -268,6 +271,12 @@ export function SeamlessPlayer({
   const startTokenRef = useRef(startToken);
   const handledStartRef = useRef<number | undefined>(undefined);
   const extraSkipRef = useRef(extraSkip);
+  // This device's own data saver choice, sent with every manifest request (absent: the profile's setting).
+  const dataSaverParamRef = useRef<"1" | "0" | null>(null);
+  const saver = useDataSaverState();
+  useEffect(() => {
+    dataSaverParamRef.current = saver.param;
+  }, [saver.param]);
   useEffect(() => {
     startAtRef.current = startAt;
     startTokenRef.current = startToken;
@@ -282,7 +291,7 @@ export function SeamlessPlayer({
       // A downloaded copy is played from this device. When there is a connection the server is still asked (for where the viewer left
       // off, the speed and the other versions), for the downloaded version; with none, what was saved is enough.
       const downloaded = await localVideoFor(ownerKind, ownerId).catch(() => null);
-      const res = await fetch(playManifestUrl(ownerKind, ownerId, downloaded?.version, extraSkipRef.current)).catch(() => null);
+      const res = await fetch(playManifestUrl(ownerKind, ownerId, downloaded?.version, extraSkipRef.current, dataSaverParamRef.current)).catch(() => null);
       if (cancelled) return;
       let data: PlayManifest;
       if (res && res.ok) {
@@ -612,7 +621,7 @@ export function SeamlessPlayer({
         // Segment URL likely expired mid-playback — re-fetch a fresh
         // manifest and resume from the current global position.
         setError("Reconnecting…");
-        fetch(playManifestUrl(ownerKind, ownerId, manifestRef.current?.version, extraSkipRef.current))
+        fetch(playManifestUrl(ownerKind, ownerId, manifestRef.current?.version, extraSkipRef.current, dataSaverParamRef.current))
           .then((r) => r.json())
           .then((data: PlayManifest) => {
             manifestRef.current = data;
@@ -659,7 +668,7 @@ export function SeamlessPlayer({
     const timer = setTimeout(async () => {
       const seg = manifestRef.current!.segments[segIndexRef.current];
       const currentGlobal = seg.startSeconds + toLocalTime(seg, videoRefs.current[frontSlotRef.current]?.currentTime ?? 0);
-      const res = await fetch(playManifestUrl(ownerKind, ownerId, manifestRef.current?.version, extraSkipRef.current)).catch(() => null);
+      const res = await fetch(playManifestUrl(ownerKind, ownerId, manifestRef.current?.version, extraSkipRef.current, dataSaverParamRef.current)).catch(() => null);
       if (!res?.ok) return;
       const fresh: PlayManifest = await res.json();
       fresh.resumeSeconds = currentGlobal;
@@ -951,7 +960,7 @@ export function SeamlessPlayer({
       const wasPlaying = !(videoRefs.current[frontSlotRef.current]?.paused ?? true);
       flushRef.current();
       const token = ++switchTokenRef.current;
-      const res = await fetch(playManifestUrl(ownerKind, ownerId, label, extraSkipRef.current)).catch(() => null);
+      const res = await fetch(playManifestUrl(ownerKind, ownerId, label, extraSkipRef.current, dataSaverParamRef.current)).catch(() => null);
       if (!res || !res.ok) return; // staying on the version already playing is better than an error
       const data: PlayManifest = await res.json();
       if (manifestRef.current !== m || token !== switchTokenRef.current) return; // another video opened, or a newer switch was asked for

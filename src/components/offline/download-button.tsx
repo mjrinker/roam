@@ -8,6 +8,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { cn } from "@/lib/utils";
 import { formatBytes, percentOf } from "@/lib/offline/format";
 import { pauseDownload, removeDownload, resumeDownload, savedBytes, startDownload } from "@/lib/offline/manager";
+import { useDataSaverState } from "@/components/ui/data-saver-context";
 import type { DownloadOption, DownloadOptions } from "@/lib/offline/options";
 import { offlineStorageSupported, storageUsage } from "@/lib/offline/storage";
 import { downloadId, type DownloadRecord } from "@/lib/offline/types";
@@ -66,10 +67,12 @@ function DownloadDialog({ serverId, ownerKind, ownerId, records, onClose }: { se
   const [error, setError] = useState<string | null>(null);
   const [starting, setStarting] = useState<string | null>(null);
   const [space, setSpace] = useState<{ usage: number; quota: number } | null>(null);
+  const saver = useDataSaverState();
+  const saverParam = saver.param;
 
   useEffect(() => {
     let cancelled = false;
-    fetch(`/api/download/${ownerKind}/${ownerId}/options`, { cache: "no-store" })
+    fetch(`/api/download/${ownerKind}/${ownerId}/options${saverParam ? `?dataSaver=${saverParam}` : ""}`, { cache: "no-store" })
       .then(async (res) => {
         if (res.ok) return (await res.json()) as DownloadOptions;
         throw new Error(res.status === 404 ? "Nothing to download here yet." : "Couldn't load the download choices.");
@@ -80,7 +83,7 @@ function DownloadDialog({ serverId, ownerKind, ownerId, records, onClose }: { se
     return () => {
       cancelled = true;
     };
-  }, [ownerKind, ownerId]);
+  }, [ownerKind, ownerId, saverParam]);
 
   async function begin(option: DownloadOption) {
     if (!options) return;

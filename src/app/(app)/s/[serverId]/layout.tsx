@@ -1,6 +1,6 @@
 import { after } from "next/server";
 import { requireServerMember } from "@/lib/auth/guards";
-import { AudioPlayerProvider } from "@/components/audio/audio-player-provider";
+import { AudioPlayerBoundary } from "@/components/audio/audio-player-boundary";
 import { VideoSessionProvider } from "@/components/player/video-session";
 import { DataSaverProvider } from "@/components/ui/data-saver-context";
 import { findResumableLibraries, scanLibrary } from "@/lib/scan/scanner";
@@ -37,9 +37,9 @@ export default async function ServerLayout({
   // across browse pages, and can be paused when a video starts.
   return (
     <DataSaverProvider on={viewer.dataSaver}>
-      <AudioPlayerProvider dataSaver={viewer.dataSaver}>
+      <AudioPlayerBoundary>
         <VideoSessionProvider>{children}</VideoSessionProvider>
-      </AudioPlayerProvider>
+      </AudioPlayerBoundary>
     </DataSaverProvider>
   );
 }

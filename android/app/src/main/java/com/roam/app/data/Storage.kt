@@ -10,13 +10,15 @@ interface Settings {
     var token: String?
     var serverUrl: String?
     var serverId: String?
+    /** Data saver on this device: "profile" (the profile's own setting), "auto" (on while the connection is metered), "on" or "off". */
+    var dataSaverMode: String
     fun signOutLocally() {
         token = null
         serverId = null
     }
 }
 
-class MemorySettings(override var token: String? = null, override var serverUrl: String? = null, override var serverId: String? = null) : Settings
+class MemorySettings(override var token: String? = null, override var serverUrl: String? = null, override var serverId: String? = null, override var dataSaverMode: String = "profile") : Settings
 
 class AndroidSettings(context: Context) : Settings {
     private val plain: SharedPreferences = context.getSharedPreferences("roam", Context.MODE_PRIVATE)
@@ -39,6 +41,9 @@ class AndroidSettings(context: Context) : Settings {
     override var serverUrl: String?
         get() = plain.getString("serverUrl", null)
         set(value) = plain.edit().apply { if (value == null) remove("serverUrl") else putString("serverUrl", value) }.apply()
+    override var dataSaverMode: String
+        get() = plain.getString("dataSaverMode", null)?.takeIf { it in DataSaver.MODES } ?: "profile"
+        set(value) = plain.edit().putString("dataSaverMode", value).apply()
     override var serverId: String?
         get() = plain.getString("serverId", null)
         set(value) = plain.edit().apply { if (value == null) remove("serverId") else putString("serverId", value) }.apply()

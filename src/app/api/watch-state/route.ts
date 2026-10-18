@@ -6,6 +6,7 @@ import { watchState } from "@/lib/db/schema";
 import { authorizeOwner } from "@/lib/auth/resolve-server";
 import { libraryRemembersProgress } from "@/lib/libraries/profile";
 import { dropFinished } from "@/lib/watchlist/queries";
+import { isNearEnd } from "@/lib/player/timeline";
 import { recordWatch, secondsWatched } from "@/lib/stats/record";
 
 const patchSchema = z.object({
@@ -44,6 +45,9 @@ export async function PATCH(request: Request) {
     .from(watchState)
     .where(and(eq(watchState.viewerId, auth.member.viewer.id), eq(watchState.ownerKind, ownerKind), eq(watchState.ownerId, ownerId)));
   const now = new Date();
+  // Stopping in the credits counts as watching it (movies and episodes; books keep their own rule): it leaves Continue Watching and
+  // the next episode comes up in Up Next.
+  const watched = finished === true || ((ownerKind === "episode" || auth.libraryKind === "movies") && isNearEnd(positionSeconds, durationSeconds ?? 0));
   await db
     .insert(watchState)
     .values({
@@ -52,7 +56,7 @@ export async function PATCH(request: Request) {
       ownerId,
       positionSeconds,
       durationSeconds,
-      finished: finished ?? false,
+      finished: watched,
       updatedAt: new Date(),
     })
     .onConflictDoUpdate({
@@ -60,7 +64,7 @@ export async function PATCH(request: Request) {
       set: {
         positionSeconds,
         durationSeconds,
-        finished: finished ?? false,
+        finished: watched,
         updatedAt: new Date(),
       },
     });
@@ -68,7 +72,7 @@ export async function PATCH(request: Request) {
   await recordWatch(db, { serverId: auth.serverId, accountId: auth.member.profile.id, ownerKind, ownerId, seconds: secondsWatched(before ?? null, positionSeconds, now), now }).catch(() => undefined);
 
   // Finishing a movie, audiobook or (the last episode of) a show takes it off the watch list.
-  if (finished) await dropFinished(db, auth.member.viewer.id, ownerKind === "title" ? { titleIds: [ownerId] } : { episodeIds: [ownerId] });
+  if (watched) await dropFinished(db, auth.member.viewer.id, ownerKind === "title" ? { titleIds: [ownerId] } : { episodeIds: [ownerId] });
 
   return NextResponse.json({ ok: true });
 }

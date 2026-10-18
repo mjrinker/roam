@@ -68,10 +68,20 @@ async function probe(file: string): Promise<Probe> {
   return JSON.parse(await run("ffprobe", ["-v", "error", "-show_format", "-show_streams", "-show_chapters", "-of", "json", file], { quiet: true }));
 }
 
-/** Seconds of every picture keyframe, in order. */
-async function keyframes(file: string): Promise<number[]> {
-  const text = await run("ffprobe", ["-v", "error", "-select_streams", "v:0", "-skip_frame", "nokey", "-show_entries", "frame=pts_time", "-of", "csv=p=0", file], { quiet: true });
-  return text.split("\n").map((l) => Number(l.split(",")[0])).filter((n) => Number.isFinite(n)).sort((a, b) => a - b);
+/** Every picture keyframe's time in seconds and how many bytes of picture come before it, plus the picture's total bytes. */
+async function keyframes(file: string): Promise<{ times: number[]; before: number[]; total: number }> {
+  const text = await run("ffprobe", ["-v", "error", "-select_streams", "v:0", "-show_entries", "packet=pts_time,size,flags", "-of", "csv=p=0", file], { quiet: true });
+  const rows: { time: number; before: number }[] = [];
+  let total = 0;
+  for (const line of text.split("\n")) {
+    const c = line.split(",");
+    const size = Number(c[1]);
+    if (!Number.isFinite(size)) continue;
+    if ((c[2] ?? "").startsWith("K") && Number.isFinite(Number(c[0]))) rows.push({ time: Number(c[0]), before: total });
+    total += size;
+  }
+  rows.sort((x, y) => x.time - y.time);
+  return { times: rows.map((r) => r.time), before: rows.map((r) => r.before), total };
 }
 
 const sizeOf = async (f: string) => (await stat(f)).size;
@@ -126,15 +136,32 @@ function labelOf(s: Probe["streams"][number]): string {
   return `${lang} ${channels}`.trim();
 }
 
-/** Where to cut a film of `duration` seconds into `n` parts: near equal lengths, at keyframes, preferring the nearest chapter mark within a few minutes. */
-export function planCuts(duration: number, n: number, keys: number[], chapterStarts: number[]): number[] {
-  const nearest = (t: number, from: number[]) => from.reduce((best, k) => (Math.abs(k - t) < Math.abs(best - t) ? k : best), from[0]);
+/**
+ * Where to cut a film into `n` parts of near equal SIZE (not length: a film's action scenes take far more bytes than its talk): at keyframes,
+ * each as close as possible to its share of the bytes, preferring a chapter mark when one costs under 5% of a part's size.
+ */
+export function planCuts(n: number, keys: { times: number[]; before: number[] }, audioBytesPerSecond: number, chapterStarts: number[]): number[] {
+  const cost = (i: number) => keys.before[i] + audioBytesPerSecond * keys.times[i];
+  const last = keys.times.length - 1;
+  const all = cost(last);
   const cuts: number[] = [];
-  for (let i = 1; i < n; i++) {
-    const target = (duration * i) / n;
-    const chapter = chapterStarts.length ? nearest(target, chapterStarts) : null;
-    const key = chapter !== null && Math.abs(chapter - target) < 240 ? nearest(chapter, keys) : nearest(target, keys);
-    if (key > (cuts.at(-1) ?? 0) + 60 && key < duration - 60) cuts.push(key);
+  let from = 0;
+  for (let k = 1; k < n; k++) {
+    const target = (all * k) / n;
+    let best = from;
+    for (let i = from; i <= last && cost(i) < target + all / n; i++) if (Math.abs(cost(i) - target) < Math.abs(cost(best) - target)) best = i;
+    // A chapter start just as good (within 5% of a part) is nicer to cut at.
+    let pick = best;
+    for (const c of chapterStarts) {
+      let j = best;
+      while (j > from && keys.times[j] > c) j--;
+      while (j < last && keys.times[j] < c - 0.5) j++;
+      if (Math.abs(keys.times[j] - c) < 1 && Math.abs(cost(j) - target) < all / n / 20 && Math.abs(cost(j) - target) < Math.abs(cost(pick) - target) + all / n / 20) pick = j;
+    }
+    if (pick > from || cuts.length === 0) {
+      cuts.push(keys.times[pick]);
+      from = pick + 1;
+    }
   }
   return cuts;
 }
@@ -213,11 +240,14 @@ async function cut() {
     }
     const keys = await keyframes(video);
     const origAudio = info.streams.filter((s) => s.codec_type === "audio").reduce((sum, s) => sum + ((s.channels ?? 2) > 2 ? 448 : 192), 0);
-    // Video alone: the encode's own size, or for the stream copy what is left of the film's file after its audio and subtitles.
-    const videoBytes = isOriginal ? Number(info.format.size) - audioBytes(origAudio) - 300 * 1024 ** 2 : await sizeOf(video);
-    let n = Math.max(1, Math.ceil((videoBytes + audioBytes(origAudio)) / (PART_LIMIT * 0.92)));
+    const audioPerSecond = (origAudio * 1000) / 8;
+    // The pictures' real bytes, the original audio (the larger of the two audio versions) and a little for subtitles and the container.
+    const totalBytes = (keys.total + audioPerSecond * duration) * 1.01;
+    let share = 0.9;
+    let n = Math.max(1, Math.ceil(totalBytes / (PART_LIMIT * share)));
+    console.log(`${rung}p: ${keys.times.length} keyframes, about ${(totalBytes / GIB).toFixed(1)} GiB, so ${n} parts to start with`);
     for (;;) {
-      const cuts = planCuts(duration, n, keys, chapterStarts);
+      const cuts = planCuts(n, keys, audioPerSecond, chapterStarts);
       const bounds = [0, ...cuts, null] as (number | null)[];
       say(`${rung}p: ${bounds.length - 1} part(s), cut at ${cuts.map((c) => c.toFixed(1)).join(", ") || "-"}`);
       const made: string[] = [];
@@ -231,12 +261,17 @@ async function cut() {
           made.push(dest);
           const bytes = await sizeOf(dest);
           console.log(`\n   ${file}: ${(bytes / GIB).toFixed(2)} GiB`);
-          if (bytes > PART_LIMIT) tooBig = true;
+          if (bytes > PART_LIMIT) {
+            tooBig = true;
+            break; // no point finishing the others: plan again with smaller parts
+          }
         }
+        if (tooBig) break;
       }
       if (!tooBig) break;
       for (const f of made) await rm(f, { force: true });
-      n++;
+      share -= 0.05;
+      n = Math.max(n + 1, Math.ceil(totalBytes / (PART_LIMIT * share)));
       if (n > 40) throw new Error("couldn't get the parts under the limit");
     }
   }

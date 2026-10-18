@@ -130,6 +130,7 @@ fun AccountScreen(nav: Nav, onSwitchProfile: () -> Unit) {
     val devices = rememberLoader { graph.api.devices() }
     var address by remember { mutableStateOf(graph.serverUrl) }
     var note by remember { mutableStateOf<String?>(null) }
+    var saverMode by remember { mutableStateOf(graph.settings.dataSaverMode) }
     LoadView(me, nav) { m ->
         LazyColumn(Modifier.fillMaxSize().testTag("account").padding(if (graph.isTv) 48.dp else 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             item {
@@ -138,6 +139,16 @@ fun AccountScreen(nav: Nav, onSwitchProfile: () -> Unit) {
                 Text("Watching as ${m.profile?.name ?: "—"}", color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             item { Button(onClick = onSwitchProfile, modifier = Modifier.testTag("switch-profile")) { Text("Switch profile") } }
+            item {
+                Text("Data saver on this device", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onBackground)
+                Text("Lower video quality to save mobile data. Automatic turns it on while the connection is metered (mobile data) and off on Wi-Fi.", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
+            }
+            items(com.roam.app.data.DataSaver.MODES, key = { "saver-$it" }) { mode ->
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    androidx.compose.material3.RadioButton(selected = saverMode == mode, onClick = { saverMode = mode; graph.settings.dataSaverMode = mode }, modifier = Modifier.testTag("saver-$mode"))
+                    Text(com.roam.app.data.DataSaver.label(mode), color = MaterialTheme.colorScheme.onSurface)
+                }
+            }
             item {
                 Text("Signed-in devices", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onBackground)
             }

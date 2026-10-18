@@ -3,7 +3,11 @@
 import { setOfflineViewer } from "@/lib/offline/viewer";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { LayoutGrid, LogOut, Settings2, Users } from "lucide-react";
+import { useState } from "react";
+import { Gauge, LayoutGrid, LogOut, Settings2, Users } from "lucide-react";
+import { DataSaverDialog } from "@/components/shell/data-saver-dialog";
+import { useDataSaverState } from "@/components/ui/data-saver-context";
+import { describeDataSaver } from "@/lib/player/data-saver-mode";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 import { ViewerAvatar } from "@/components/profiles/viewer-avatar";
 import {
@@ -24,6 +28,8 @@ export function UserMenu({
   avatarKey: string;
 }) {
   const router = useRouter();
+  const [saverOpen, setSaverOpen] = useState(false);
+  const saver = useDataSaverState();
 
   async function signOut() {
     setOfflineViewer(null);
@@ -36,6 +42,7 @@ export function UserMenu({
   }
 
   return (
+    <>
     <DropdownMenu>
       <DropdownMenuTrigger
         aria-label="Profile menu"
@@ -60,6 +67,13 @@ export function UserMenu({
           <Settings2 className="size-4 text-muted-foreground" />
           Manage profiles
         </DropdownMenuItem>
+        <DropdownMenuItem onClick={() => setSaverOpen(true)} className="gap-2.5">
+          <Gauge className="size-4 text-muted-foreground" />
+          <span className="min-w-0">
+            Data saver
+            <span className="block truncate text-xs text-muted-foreground">{describeDataSaver(saver.mode, saver.profileOn, saver.metered)}</span>
+          </span>
+        </DropdownMenuItem>
         <DropdownMenuSeparator />
         <DropdownMenuItem render={<Link href="/servers" />} className="gap-2.5">
           <LayoutGrid className="size-4 text-muted-foreground" />
@@ -71,5 +85,7 @@ export function UserMenu({
         </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
+    <DataSaverDialog open={saverOpen} onOpenChange={setSaverOpen} />
+    </>
   );
 }
