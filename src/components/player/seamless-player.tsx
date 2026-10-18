@@ -26,7 +26,8 @@ import { clampSpeed } from "@/lib/player/speed";
 import { SubtitleOverlay, type LoadedTrack } from "@/components/player/subtitles";
 import { SettingsMenu } from "@/components/player/settings-menu";
 import { useDataSaverState } from "@/components/ui/data-saver-context";
-import { useEmbeddedTracks } from "@/components/player/use-embedded-tracks";
+import { AUTOPLAY_SECONDS, readAutoplay, writeAutoplay } from "@/lib/player/autoplay";
+import { rememberLanguage, useEmbeddedTracks } from "@/components/player/use-embedded-tracks";
 import { MarkPanel } from "@/components/player/mark-panel";
 import { SkipButton } from "@/components/player/skip-button";
 import { activeSkipButton, autoSkipNow, skipKey } from "@/lib/skipdb/active";
@@ -116,6 +117,30 @@ function findSegment(manifest: PlayManifest, globalTime: number) {
     }
   }
   return { segment: seg, localTime: clamped - seg.startSeconds };
+}
+
+/** "Next episode in 9": counts down on the finished screen, then goes on by itself unless cancelled. */
+function NextCountdown({ href, label, onCancel }: { href: string; label: string; onCancel: () => void }) {
+  const router = useRouter();
+  const [left, setLeft] = useState(AUTOPLAY_SECONDS);
+  useEffect(() => {
+    if (left <= 0) {
+      router.push(href);
+      return;
+    }
+    const t = setTimeout(() => setLeft((n) => n - 1), 1000);
+    return () => clearTimeout(t);
+  }, [left, href, router]);
+  return (
+    <p className="flex items-center gap-3 text-sm text-white/80" aria-live="polite">
+      <span>
+        {label} in {Math.max(left, 0)}
+      </span>
+      <button type="button" onClick={onCancel} className="rounded-md px-2 py-1 text-white underline hover:bg-white/10">
+        Cancel
+      </button>
+    </p>
+  );
 }
 
 function formatTime(totalSeconds: number) {
@@ -216,6 +241,13 @@ export function SeamlessPlayer({
   const [muted, setMuted] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [finished, setFinished] = useState(false);
+  // Going on to the next episode by itself (a choice kept on this device), and whether this ending's countdown was cancelled.
+  const [autoplay, setAutoplay] = useState(() => (typeof window === "undefined" ? true : readAutoplay()));
+  const [cancelledFor, setCancelledFor] = useState<PlayManifest | null>(null);
+  const changeAutoplay = useCallback((on: boolean) => {
+    writeAutoplay(on);
+    setAutoplay(on);
+  }, []);
   const finishedRef = useRef(false);
   // Whether this title has actually played in this player: only then is its position worth saving on the way out
   // (a player closed before the picture loaded would otherwise write 0 over a resume point or a watched mark).
@@ -682,11 +714,19 @@ export function SeamlessPlayer({
   // Languages and subtitles inside the video's own files.
   const currentSegment = manifest ? findSegment(manifest, globalTime).segment : null;
   const getFrontVideo = useCallback(() => videoRefs.current[frontSlotRef.current], []);
-  const embedded = useEmbeddedTracks({ manifest, ownerKind, ownerId, segment: currentSegment, globalTime, frontVideo: getFrontVideo, frontSlot, volume });
+  const embedded = useEmbeddedTracks({ manifest, ownerKind, ownerId, segment: currentSegment, globalTime, frontVideo: getFrontVideo, frontSlot, volume, prefs: manifest?.languagePrefs });
   const allTracks = [...embedded.embeddedTracks, ...tracks];
   const cues = allTracks.find((t) => t.id === activeTrack)?.cues ?? null;
   const selectTrack = useCallback(
-    (id: string | null) => {
+    (id: string | null, remember = true) => {
+      // The language of an embedded track is remembered for the next video; turning subtitles off after one forgets it. A subtitle file the
+      // viewer loaded themselves is for this viewing only.
+      if (remember) {
+        const picked = embedded.embeddedTracks.find((e) => e.id === id)?.embedded?.language;
+        const was = embedded.embeddedTracks.find((e) => e.id === activeTrack);
+        if (picked) rememberLanguage({ subtitles: picked });
+        else if (id === null && was) rememberLanguage({ subtitles: null });
+      }
       const t = embedded.embeddedTracks.find((e) => e.id === id);
       if (t?.embedded && !t.embedded.loaded) {
         void embedded.loadText(t.embedded.language).then((ok) => {
@@ -699,8 +739,15 @@ export function SeamlessPlayer({
       }
       setActiveTrack(id);
     },
-    [embedded]
+    [embedded, activeTrack]
   );
+  // A new video turns the profile's subtitles on by itself once, when the file has them.
+  const subtitlesAppliedFor = useRef<PlayManifest | null>(null);
+  useEffect(() => {
+    if (!manifest || !embedded.preferredText || subtitlesAppliedFor.current === manifest) return;
+    subtitlesAppliedFor.current = manifest;
+    selectTrack(embedded.preferredText, false);
+  }, [manifest, embedded.preferredText, selectTrack]);
   const addTrack = useCallback((track: LoadedTrack) => {
     setTracks((all) => [...all, track]);
     setActiveTrack(track.id);
@@ -1152,6 +1199,7 @@ export function SeamlessPlayer({
             <p className="text-2xl font-semibold text-white">{title}</p>
             {subtitle && <p className="mt-1 text-white/60">{subtitle}</p>}
           </div>
+          {nextHref && autoplay && cancelledFor !== manifest && mode === "full" && <NextCountdown href={nextHref} label={nextLabel ?? "Next up"} onCancel={() => setCancelledFor(manifest)} />}
           <div className="flex flex-wrap justify-center gap-3">
             <Button
               render={
@@ -1367,6 +1415,8 @@ export function SeamlessPlayer({
             tracks={allTracks}
             activeTrack={activeTrack}
             onSelectTrack={selectTrack}
+            autoplay={nextHref ? autoplay : undefined}
+            onAutoplay={changeAutoplay}
             audioOptions={embedded.audioOptions}
             audioIndex={embedded.selectedAudio}
             onAudio={embedded.selectAudio}

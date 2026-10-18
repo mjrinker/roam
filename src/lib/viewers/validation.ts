@@ -2,6 +2,7 @@ import { z } from "zod";
 import { isAvatarKey } from "@/lib/viewers/avatars";
 import { VIEWER_NAME_MAX_LENGTH } from "@/lib/viewers/config";
 import { isSupportedLocale } from "@/lib/viewers/locales";
+import { normalizeLanguage } from "@/lib/viewers/audio-languages";
 import { RATING_LEVEL_VALUES } from "@/lib/content/access";
 import { FILTER_CATEGORIES, FILTER_SEVERITIES } from "@/lib/content-filter/categories";
 
@@ -12,6 +13,8 @@ export const maxAgeSchema = z
   .union([z.number().int(), z.null()])
   .refine((v) => RATING_LEVEL_VALUES.includes(v), "Not a valid rating limit");
 // null clears the PIN; a 4-digit string sets or changes it.
+// A three-letter language code (what video files use), or null for no preference. Stored in one spelling ("fre" is "fra").
+export const mediaLanguageSchema = z.union([z.string().regex(/^[A-Za-z]{3}$/, "Not a language code").transform((v) => normalizeLanguage(v)!), z.null()]);
 export const pinSchema = z.union([z.string().regex(/^\d{4}$/, "PIN must be 4 digits"), z.null()]);
 // The owner is fixed at account creation and never assigned through this
 // schema — see lib/content/roles.
@@ -37,6 +40,8 @@ export const createViewerSchema = z.object({
   autoSkip: autoSkipSchema.optional(),
   groupCollections: z.boolean().optional(),
   dataSaver: z.boolean().optional(),
+  audioLanguage: mediaLanguageSchema.optional(),
+  subtitleLanguage: mediaLanguageSchema.optional(),
   // A PIN can be set at creation time; there's nothing to clear yet, so null is just ignored.
   pin: pinSchema.optional(),
 });
@@ -48,6 +53,8 @@ export const selfEditSchema = z
     avatarKey: avatarKeySchema.optional(),
     groupCollections: z.boolean().optional(),
     dataSaver: z.boolean().optional(),
+    audioLanguage: mediaLanguageSchema.optional(),
+    subtitleLanguage: mediaLanguageSchema.optional(),
   })
   .strict()
   .refine((v) => Object.keys(v).length > 0, "Nothing to change");
@@ -70,6 +77,8 @@ export const extendedEditSchema = z
     autoSkip: autoSkipSchema.optional(),
     groupCollections: z.boolean().optional(),
     dataSaver: z.boolean().optional(),
+    audioLanguage: mediaLanguageSchema.optional(),
+    subtitleLanguage: mediaLanguageSchema.optional(),
     pin: pinSchema.optional(),
     role: assignableRoleSchema.optional(),
     // Required whenever the ACTING profile itself has a PIN — see the PATCH route.

@@ -18,6 +18,7 @@ import { AvatarPicker } from "@/components/profiles/avatar-picker";
 import { ViewerAvatar } from "@/components/profiles/viewer-avatar";
 import { DEFAULT_AVATAR_KEY } from "@/lib/viewers/avatars";
 import { VIEWER_NAME_MAX_LENGTH } from "@/lib/viewers/config";
+import { MEDIA_LANGUAGES } from "@/lib/viewers/audio-languages";
 import { DEFAULT_LOCALE, LOCALES } from "@/lib/viewers/locales";
 import { RATING_LEVELS } from "@/lib/content/access";
 import { canEditExtended } from "@/lib/content/roles";
@@ -38,6 +39,9 @@ export interface EditableProfile {
   autoSkip: AutoSkipPrefs;
   groupCollections: boolean;
   dataSaver: boolean;
+  /** ISO 639-2 codes ("eng"), or null for no preference. */
+  audioLanguage: string | null;
+  subtitleLanguage: string | null;
   hasPin: boolean;
 }
 
@@ -83,6 +87,8 @@ export function ProfileEditorDialog({
   const [autoSkip, setAutoSkip] = useState<AutoSkipPrefs>(profile?.autoSkip ?? {});
   const [groupCollections, setGroupCollections] = useState(profile?.groupCollections ?? false);
   const [dataSaver, setDataSaver] = useState(profile?.dataSaver ?? false);
+  const [audioLanguage, setAudioLanguage] = useState(profile?.audioLanguage ?? "");
+  const [subtitleLanguage, setSubtitleLanguage] = useState(profile?.subtitleLanguage ?? "");
   const [newPin, setNewPin] = useState("");
   const [currentPin, setCurrentPin] = useState("");
   const [busy, setBusy] = useState(false);
@@ -128,6 +134,8 @@ export function ProfileEditorDialog({
           autoSkip: normalizeAutoSkip(autoSkip),
           groupCollections,
           dataSaver,
+          audioLanguage: audioLanguage || null,
+          subtitleLanguage: subtitleLanguage || null,
           ...(showRolePicker ? { role } : {}),
           ...(newPin.trim() ? { pin: newPin } : {}),
           ...(actor.hasPin ? { currentPin } : {}),
@@ -286,6 +294,28 @@ export function ProfileEditorDialog({
             Allow titles with no rating on file
           </label>
         )}
+      </div>
+
+      <div className="grid gap-3 sm:grid-cols-2">
+        <div className="grid gap-1.5">
+          <Label htmlFor="profile-audio-language">Audio language</Label>
+          <select id="profile-audio-language" value={audioLanguage} onChange={(e) => setAudioLanguage(e.target.value)} className={select}>
+            <option value="" className="bg-popover">The file&apos;s default</option>
+            {MEDIA_LANGUAGES.map((l) => (
+              <option key={l.code} value={l.code} className="bg-popover">{l.label}</option>
+            ))}
+          </select>
+        </div>
+        <div className="grid gap-1.5">
+          <Label htmlFor="profile-subtitle-language">Subtitles</Label>
+          <select id="profile-subtitle-language" value={subtitleLanguage} onChange={(e) => setSubtitleLanguage(e.target.value)} className={select}>
+            <option value="" className="bg-popover">Off</option>
+            {MEDIA_LANGUAGES.map((l) => (
+              <option key={l.code} value={l.code} className="bg-popover">{l.label}</option>
+            ))}
+          </select>
+        </div>
+        <p className="text-xs text-muted-foreground sm:col-span-2">Used automatically when a video has that audio or those subtitles inside it. Picking one in the player sets these too.</p>
       </div>
 
       <label className={check}>

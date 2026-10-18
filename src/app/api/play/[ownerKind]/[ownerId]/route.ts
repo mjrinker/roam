@@ -51,5 +51,5 @@ export async function GET(
   }
   // A server's admin (a profile that may change settings) can mark scenes while watching; the marking route checks again.
   const canMark = ownerKind !== "extra" && auth.member.role === "admin" && auth.member.viewer.role !== "limited";
-  return NextResponse.json({ ...result.manifest, heartbeat: await needsHeartbeat(ownerKind, ownerId), canMark, libraryId: auth.libraryId, defaultRate: await viewerLibrarySpeed(auth.member.viewer.id, auth.libraryId) });
+  return NextResponse.json({ ...result.manifest, heartbeat: await needsHeartbeat(ownerKind, ownerId), canMark, languagePrefs: { audio: auth.member.viewer.audioLanguage, subtitles: auth.member.viewer.subtitleLanguage }, libraryId: auth.libraryId, defaultRate: await viewerLibrarySpeed(auth.member.viewer.id, auth.libraryId) });
 }

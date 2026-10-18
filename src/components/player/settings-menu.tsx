@@ -25,6 +25,9 @@ interface SettingsMenuProps {
   ownerKind: string;
   ownerId: string;
   /** The audio tracks inside the video (shown only when there is more than one), the one playing, and a problem playing another. */
+  /** Whether the next episode starts by itself after a countdown (shown only when there is a next one to start). */
+  autoplay?: boolean;
+  onAutoplay?: (on: boolean) => void;
   audioOptions?: readonly AudioChoice[];
   audioIndex?: number;
   onAudio?: (index: number) => void;
@@ -114,6 +117,12 @@ export function SettingsMenu(p: SettingsMenuProps) {
                   <span className="truncate">{activeLabel}</span> <ChevronRight className="size-4 shrink-0" />
                 </span>
               </button>
+              {p.autoplay !== undefined && (
+                <button type="button" role="menuitemcheckbox" aria-checked={p.autoplay} onClick={() => p.onAutoplay?.(!p.autoplay)} className={row}>
+                  <span>Autoplay next</span>
+                  <span className="text-white/70">{p.autoplay ? "On" : "Off"}</span>
+                </button>
+              )}
               {p.qualities.length > 1 && (
                 <button type="button" role="menuitem" onClick={() => setView("quality")} className={row}>
                   <span>Quality</span>

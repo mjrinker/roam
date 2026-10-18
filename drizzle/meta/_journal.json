@@ -484,6 +484,13 @@
       "when": 1792225352640,
       "tag": "0068_photo_duplicates",
       "breakpoints": true
+    },
+    {
+      "idx": 69,
+      "version": "7",
+      "when": 1792302804606,
+      "tag": "0069_language_preferences",
+      "breakpoints": true
     }
   ]
 }

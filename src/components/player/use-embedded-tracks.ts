@@ -5,6 +5,12 @@ import type { PlayManifest, PlayOwnerKind, PlaySegment } from "@/lib/player/type
 import type { LoadedTrack } from "@/components/player/subtitles";
 import type { Cue } from "@/lib/subtitles/cues";
 import { AltAudio, canPlayAltAudio } from "@/lib/player/alt-audio";
+import { sameLanguage } from "@/lib/viewers/audio-languages";
+
+/** Tells Roam which language the viewer just picked, so the next video that has it starts that way (best effort). */
+export function rememberLanguage(change: { audio?: string | null; subtitles?: string | null }) {
+  void fetch("/api/viewers/current/languages", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(change) }).catch(() => undefined);
+}
 
 interface AudioInfo {
   index: number;
@@ -42,12 +48,14 @@ interface Args {
   /** Changes when the picture moves to the other video element. */
   frontSlot: number;
   volume: number;
+  /** The languages this profile wants by default (from the play manifest). */
+  prefs?: { audio: string | null; subtitles: string | null };
 }
 
 const tracksUrl = (ownerKind: string, ownerId: string, fileId: string) => `/api/play/${ownerKind}/${ownerId}/tracks/${fileId}`;
 
 /** The audio tracks and subtitle tracks inside a video's files: choosing another language, and subtitles that came with the file. */
-export function useEmbeddedTracks({ manifest, ownerKind, ownerId, segment, globalTime, frontVideo, frontSlot, volume }: Args) {
+export function useEmbeddedTracks({ manifest, ownerKind, ownerId, segment, globalTime, frontVideo, frontSlot, volume, prefs }: Args) {
   const [info, setInfo] = useState<Record<string, FileTracks>>({});
   const [selectedAudio, setSelectedAudio] = useState(0);
   const [audioProblem, setAudioProblem] = useState<string | null>(null);
@@ -182,6 +190,28 @@ export function useEmbeddedTracks({ manifest, ownerKind, ownerId, segment, globa
     setSelectedAudio(index);
   }, []);
 
+  // What the viewer picks by hand is remembered for the next video; what the preference picks automatically is not saved again.
+  const chooseAudio = useCallback(
+    (index: number) => {
+      selectAudio(index);
+      const language = first?.audioTracks[index]?.language;
+      if (language && language !== "und") rememberLanguage({ audio: language });
+    },
+    [first, selectAudio]
+  );
+
+  // A new video starts in the profile's audio language when it has that track (and this browser can play it).
+  const audioAppliedFor = useRef<PlayManifest | null>(null);
+  useEffect(() => {
+    if (!manifest || !first || audioAppliedFor.current === manifest) return;
+    audioAppliedFor.current = manifest;
+    if (!prefs?.audio || first.audioTracks.length < 2) return;
+    const want = first.audioTracks.find((a) => sameLanguage(a.language, prefs.audio));
+    if (!want || want.index === selectedAudio) return;
+    if (want.index === 0 || canPlayAltAudio(want.mime) || "audioTracks" in HTMLMediaElement.prototype) selectAudio(want.index);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [manifest, first, prefs?.audio]);
+
   // ── Subtitles that came with the file ──
   const textLanguages = useMemo(() => {
     const seen = new Map<string, string>();
@@ -234,5 +264,12 @@ export function useEmbeddedTracks({ manifest, ownerKind, ownerId, segment, globa
     [manifest, info, ownerKind, ownerId]
   );
 
-  return { audioOptions, selectedAudio, selectAudio, audioProblem, altAudioActive: altActive, embeddedTracks, loadText };
+  // The subtitles to switch on by themselves: the profile's language, when the file has it (the player turns it on once per video).
+  const preferredText = useMemo(() => {
+    if (!prefs?.subtitles) return null;
+    const match = textLanguages.find(([language]) => sameLanguage(language, prefs.subtitles));
+    return match ? `emb:${match[0]}` : null;
+  }, [prefs?.subtitles, textLanguages]);
+
+  return { audioOptions, selectedAudio, selectAudio: chooseAudio, audioProblem, altAudioActive: altActive, embeddedTracks, loadText, preferredText };
 }

@@ -54,6 +54,8 @@ export default async function ProfilesPage({ searchParams }: PageProps<"/profile
             autoSkip: normalizeAutoSkip(v.autoSkip),
             groupCollections: v.groupCollections,
             dataSaver: v.dataSaver,
+            audioLanguage: v.audioLanguage,
+            subtitleLanguage: v.subtitleLanguage,
             hasPin: v.pinHash !== null,
           }))}
           actor={

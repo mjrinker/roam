@@ -18,11 +18,13 @@ import { loadSettings, openClaims } from "@/lib/ownership/owners";
 import { Breadcrumbs } from "@/components/shell/breadcrumbs";
 import { libraryKindUsesExternalMetadata } from "@/lib/libraries/profile";
 import { cn } from "@/lib/utils";
+import { healthIssueCount, serverHealth, type ServerHealth } from "@/lib/admin/health";
 
 const TABS = [
   { id: "libraries", label: "Libraries", hint: "Storage and what is shared" },
   { id: "people", label: "People", hint: "Invites and join links" },
   { id: "ownership", label: "Ownership", hint: "Who owns which copies" },
+  { id: "health", label: "Health", hint: "What needs attention" },
   { id: "more", label: "More", hint: "Statistics and deleting" },
 ] as const;
 type Tab = (typeof TABS)[number]["id"];
@@ -45,6 +47,8 @@ export default async function AdminPage({
 
   const tab: Tab = TABS.find((t) => t.id === query.tab)?.id ?? "libraries";
   const [server] = await db.select().from(servers).where(eq(servers.id, serverId)).limit(1);
+  const health = await serverHealth(db, serverId);
+  const attention = healthIssueCount(health);
 
   return (
     <div className="mx-auto flex w-full max-w-4xl flex-col gap-6 px-4 py-8 sm:px-8">
@@ -66,6 +70,7 @@ export default async function AdminPage({
             className={cn("-mb-px shrink-0 border-b-2 px-3 py-2 text-sm font-medium transition-colors", t.id === tab ? "border-primary text-foreground" : "border-transparent text-muted-foreground hover:text-foreground")}
           >
             {t.label}
+            {t.id === "health" && attention > 0 && <span className="ml-1.5 rounded-full bg-amber-500/20 px-1.5 py-0.5 text-xs text-amber-200">{attention}</span>}
           </Link>
         ))}
       </nav>
@@ -79,6 +84,7 @@ export default async function AdminPage({
       {tab === "libraries" && <LibrariesTab serverId={serverId} />}
       {tab === "people" && <PeopleTab serverId={serverId} canManageOpenLinks={adminAccount.canManageOpenLinks} adminAccountId={adminAccount.id} joinToken={server?.joinToken ?? null} isDemo={server?.isDemo ?? false} />}
       {tab === "ownership" && <OwnershipTab serverId={serverId} />}
+      {tab === "health" && <HealthTab serverId={serverId} health={health} />}
       {tab === "more" && (
         <div className="flex flex-col gap-6">
           <Link href={`/s/${serverId}/admin/stats`} className="flex items-center justify-between gap-3 rounded-2xl bg-white/[0.04] px-4 py-3 text-sm ring-1 ring-white/[0.08] transition hover:bg-white/[0.07]">
@@ -199,4 +205,106 @@ async function OwnershipTab({ serverId }: { serverId: string }) {
   const ownership = await loadSettings(db, serverId);
   const claims = ownership.enabled ? await openClaims(db, serverId) : [];
   return <OwnershipManager serverId={serverId} initial={ownership} claims={claims.map((c) => ({ ...c, createdAt: c.createdAt.toISOString() }))} />;
+}
+
+function HealthSection({ title, ok, children }: { title: string; ok: boolean; children?: React.ReactNode }) {
+  return (
+    <section className="rounded-2xl bg-white/[0.04] p-4 ring-1 ring-white/[0.08]">
+      <h2 className="flex items-center gap-2 text-sm font-semibold">
+        <span aria-hidden className={cn("size-2.5 rounded-full", ok ? "bg-emerald-400" : "bg-amber-400")} />
+        {title}
+      </h2>
+      {children && <div className="mt-2 text-sm text-muted-foreground">{children}</div>}
+    </section>
+  );
+}
+
+/** Everything that needs the admin's attention, each with where to fix it. */
+function HealthTab({ serverId, health: h }: { serverId: string; health: ServerHealth }) {
+  const base = `/s/${serverId}`;
+  const titleHref = (t: { id: string; kind: string }) => `${base}/${t.kind === "show" ? "show" : "title"}/${t.id}`;
+  const fixLink = (label: string) => (
+    <Link href={`${base}/admin`} className="mt-1 inline-block text-foreground underline">
+      {label}
+    </Link>
+  );
+  return (
+    <div className="flex flex-col gap-3">
+      <HealthSection title={h.connections.length === 0 ? "Storage is signed in" : `${h.connections.length} storage connection${h.connections.length === 1 ? "" : "s"} need signing in`} ok={h.connections.length === 0}>
+        {h.connections.length > 0 && (
+          <>
+            <ul className="list-disc pl-5">
+              {h.connections.map((c) => (
+                <li key={c.id}>{c.label}</li>
+              ))}
+            </ul>
+            {fixLink("Open Libraries to reconnect")}
+          </>
+        )}
+      </HealthSection>
+      <HealthSection title={h.libraries.length === 0 ? "Libraries are scanned and clean" : `${h.libraries.length} librar${h.libraries.length === 1 ? "y needs" : "ies need"} a look`} ok={h.libraries.length === 0}>
+        {h.libraries.length > 0 && (
+          <>
+            <ul className="list-disc pl-5">
+              {h.libraries.map((l) => (
+                <li key={l.id}>
+                  {l.name}: {l.detail}
+                </li>
+              ))}
+            </ul>
+            {fixLink("Open Libraries to rescan")}
+          </>
+        )}
+      </HealthSection>
+      <HealthSection title={h.noFile.total === 0 ? "Every movie and show has something to play" : `${h.noFile.total} movie${h.noFile.total === 1 ? "" : "s"} or show${h.noFile.total === 1 ? "" : "s"} with nothing to play`} ok={h.noFile.total === 0}>
+        {h.noFile.total > 0 && (
+          <>
+            <p>These are hidden from members until a file turns up (a rescan may find it).</p>
+            <ul className="mt-1 list-disc pl-5">
+              {h.noFile.sample.map((t) => (
+                <li key={t.id}>
+                  <Link href={titleHref(t)} className="text-foreground underline">
+                    {t.name}
+                    {t.year ? ` (${t.year})` : ""}
+                  </Link>{" "}
+                  · {t.libraryName}
+                </li>
+              ))}
+            </ul>
+            {h.noFile.total > h.noFile.sample.length && <p className="mt-1">…and {h.noFile.total - h.noFile.sample.length} more.</p>}
+          </>
+        )}
+      </HealthSection>
+      <HealthSection title={h.unreadable.total === 0 ? "Every file could be read" : `${h.unreadable.total} file${h.unreadable.total === 1 ? "" : "s"} couldn't be read`} ok={h.unreadable.total === 0}>
+        {h.unreadable.total > 0 && (
+          <>
+            <p>Roam tried and failed to read these (a damaged or unsupported file). They can&apos;t be played.</p>
+            <ul className="mt-1 list-disc pl-5 break-all">
+              {h.unreadable.sample.map((f) => (
+                <li key={f.id}>{f.filename}</li>
+              ))}
+            </ul>
+          </>
+        )}
+      </HealthSection>
+      <HealthSection title={h.unmatched === 0 ? "Every title is matched" : `${h.unmatched} title${h.unmatched === 1 ? "" : "s"} still to match`} ok={h.unmatched === 0}>
+        {h.unmatched > 0 && fixLink("Open Libraries to match them")}
+      </HealthSection>
+      <HealthSection title={h.duplicates.length === 0 ? "No titles listed twice" : `${h.duplicates.length} title${h.duplicates.length === 1 ? "" : "s"} that look listed twice`} ok={h.duplicates.length === 0}>
+        {h.duplicates.length > 0 && (
+          <>
+            <p>The same name and year more than once in a library. If they are the same film, keep one folder (or save the other as a resolution version).</p>
+            <ul className="mt-1 list-disc pl-5">
+              {h.duplicates.map((d) => (
+                <li key={d.ids.join()}>
+                  {d.name}
+                  {d.year ? ` (${d.year})` : ""} ×{d.count} · {d.libraryName}
+                </li>
+              ))}
+            </ul>
+          </>
+        )}
+      </HealthSection>
+    </div>
+  );
 }
