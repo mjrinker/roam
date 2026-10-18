@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { afterResponse } from "@/lib/after-response";
 import { z } from "zod";
 import { and, eq } from "drizzle-orm";
 import { db } from "@/lib/db/client";
@@ -8,6 +9,7 @@ import { libraryRemembersProgress } from "@/lib/libraries/profile";
 import { dropFinished } from "@/lib/watchlist/queries";
 import { isNearEnd } from "@/lib/player/timeline";
 import { recordWatch, secondsWatched } from "@/lib/stats/record";
+import { pushWatched } from "@/lib/trakt/service";
 import { addWatched, settingsOf } from "@/lib/screen-time/service";
 
 const patchSchema = z.object({
@@ -42,7 +44,7 @@ export async function PATCH(request: Request) {
 
   // How far it moved since the last save is how long it was watched (see lib/stats/record), counted for the household.
   const [before] = await db
-    .select({ positionSeconds: watchState.positionSeconds, savedAt: watchState.updatedAt })
+    .select({ positionSeconds: watchState.positionSeconds, savedAt: watchState.updatedAt, finished: watchState.finished })
     .from(watchState)
     .where(and(eq(watchState.viewerId, auth.member.viewer.id), eq(watchState.ownerKind, ownerKind), eq(watchState.ownerId, ownerId)));
   const now = new Date();
@@ -76,6 +78,8 @@ export async function PATCH(request: Request) {
   await addWatched(db, auth.member.viewer.id, settingsOf(auth.member.viewer), watchedSeconds, now).catch(() => undefined);
 
   // Finishing a movie, audiobook or (the last episode of) a show takes it off the watch list.
+  // Finishing something sends it to Trakt, for a connected profile (once, when it becomes finished).
+  if (watched && !before?.finished) afterResponse(() => pushWatched(db, auth.member.viewer.id, ownerKind, ownerId, now));
   if (watched) await dropFinished(db, auth.member.viewer.id, ownerKind === "title" ? { titleIds: [ownerId] } : { episodeIds: [ownerId] });
 
   return NextResponse.json({ ok: true });

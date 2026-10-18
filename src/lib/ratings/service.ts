@@ -9,7 +9,7 @@ import type { PgDatabase, PgQueryResultHKT } from "drizzle-orm/pg-core";
 
 type Db = PgDatabase<PgQueryResultHKT, Record<string, unknown>>;
 export type RatingKind = "title" | "episode" | "album";
-export type RateResult = { ok: true } | { ok: false; status: 403 | 404 };
+export type RateResult = { ok: true; viewerId: string } | { ok: false; status: 403 | 404 };
 
 /** Rates (`halfStars` 1 to 10) or, with null, clears the rating. A picture or clip in a photo library can't be rated; anything unseen is "not found". */
 export async function setRating(args: { kind: RatingKind; id: string; halfStars: number | null }): Promise<RateResult> {
@@ -34,7 +34,7 @@ export async function setRating(args: { kind: RatingKind; id: string; halfStars:
       .values({ viewerId, ownerKind: args.kind, ownerId: args.id, halfStars: args.halfStars })
       .onConflictDoUpdate({ target: [ratings.viewerId, ratings.ownerKind, ratings.ownerId], set: { halfStars: args.halfStars, updatedAt: new Date() } });
   }
-  return { ok: true };
+  return { ok: true, viewerId };
 }
 
 export interface AverageRating {

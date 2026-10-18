@@ -1088,6 +1088,18 @@ export const labelItems = pgTable(
   (t) => [primaryKey({ columns: [t.labelId, t.titleId] }), index("label_items_title_idx").on(t.titleId)]
 ).enableRLS();
 
+// ── trakt_links ──────────────────────────────────────────────────────────
+// A profile's connection to its Trakt account (trakt.tv), to send what it finishes and rates there and to bring its Trakt history in. The tokens
+// are encrypted. Only exists once the server has TRAKT_CLIENT_ID and TRAKT_CLIENT_SECRET.
+export const traktLinks = pgTable("trakt_links", {
+  viewerId: uuid("viewer_id").primaryKey().references(() => viewers.id, { onDelete: "cascade" }),
+  accessTokenEncrypted: text("access_token_encrypted").notNull(),
+  refreshTokenEncrypted: text("refresh_token_encrypted").notNull(),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  username: text("username"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}).enableRLS();
+
 // ── screen_time ──────────────────────────────────────────────────────────
 // How long a profile has watched on each day (the day on the clock of the profile's time_zone), for its daily limit.
 export const screenTime = pgTable(

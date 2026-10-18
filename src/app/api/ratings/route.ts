@@ -1,6 +1,9 @@
 import { NextResponse } from "next/server";
+import { afterResponse } from "@/lib/after-response";
 import { z } from "zod";
+import { db } from "@/lib/db/client";
 import { setRating } from "@/lib/ratings/service";
+import { pushRating } from "@/lib/trakt/service";
 import { json, notFound, readJson, uuid } from "@/lib/ownership/http";
 
 const body = z
@@ -18,5 +21,10 @@ export async function PUT(request: Request) {
   if (data instanceof NextResponse) return data;
   const result = await setRating(data);
   if (!result.ok) return result.status === 403 ? json({ error: "Forbidden" }, 403) : notFound();
+  // A profile connected to Trakt has the rating sent there too (after the answer, best effort).
+  if (data.halfStars !== null && data.kind !== "album") {
+    const { kind, id, halfStars } = data;
+    afterResponse(() => pushRating(db, result.viewerId, kind, id, halfStars));
+  }
   return json({ ok: true, halfStars: data.halfStars });
 }
