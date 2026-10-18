@@ -252,6 +252,8 @@ export function SeamlessPlayer({
   // Going on to the next episode by itself (a choice kept on this device), and whether this ending's countdown was cancelled.
   const [autoplay, setAutoplay] = useState(() => (typeof window === "undefined" ? true : readAutoplay()));
   const [cancelledFor, setCancelledFor] = useState<PlayManifest | null>(null);
+  /** The touch now happening found the controls hidden: it only reveals them (see the container's pointer-down). */
+  const revealingTap = useRef(false);
   // Screen time: the seconds of watching left (from the manifest) run down while playing; at zero the picture stops.
   const [screenSpent, setScreenSpent] = useState<{ m: PlayManifest | null; n: number }>({ m: null, n: 0 });
   const screenLimit = manifest?.screenTime?.stopInSeconds ?? null;
@@ -295,6 +297,10 @@ export function SeamlessPlayer({
   // The viewer pressed back and the page behind is still loading.
   const [leaving, setLeaving] = useState(false);
   const [controlsVisible, setControlsVisible] = useState(true);
+  const controlsShownRef = useRef(true);
+  useEffect(() => {
+    controlsShownRef.current = controlsVisible || !playing || finished;
+  }, [controlsVisible, playing, finished]);
   const [hoverRatio, setHoverRatio] = useState<number | null>(null);
   const [hoverChapter, setHoverChapter] = useState<string | null>(null);
   // One message when playback starts if filtering this viewer asked for couldn't be applied (never about scenes that were skipped).
@@ -1131,6 +1137,7 @@ export function SeamlessPlayer({
   const displayTime = scrubTime ?? viewNow;
   const progressPct = duration > 0 ? Math.min(100, (displayTime / duration) * 100) : 0;
   const controlsShown = controlsVisible || !playing || finished;
+
   const hideCursor = playing && !controlsShown && !finished;
 
   function ratioFromPointer(e: React.PointerEvent) {
@@ -1150,7 +1157,11 @@ export function SeamlessPlayer({
     <div
       ref={containerRef}
       onMouseMove={showControls}
-      onPointerDown={showControls}
+      onPointerDown={(e) => {
+        // A touch that finds the controls hidden only brings them back: it must not also press whatever was under the finger (play or pause).
+        revealingTap.current = e.pointerType === "touch" && !controlsShownRef.current;
+        showControls();
+      }}
       className={cn(
         mode === "full" ? "relative h-dvh w-full overflow-hidden bg-black select-none" : "pointer-events-none fixed top-0 left-0 size-px overflow-hidden opacity-0",
         mode === "full" && hideCursor && "cursor-none"
@@ -1175,7 +1186,17 @@ export function SeamlessPlayer({
       {/* Click anywhere on the picture to play/pause; double-click for fullscreen. */}
       <div
         className="absolute inset-0"
-        onClick={manifest && !finished ? togglePlay : undefined}
+        onClick={
+          manifest && !finished
+            ? () => {
+                if (revealingTap.current) {
+                  revealingTap.current = false;
+                  return;
+                }
+                togglePlay();
+              }
+            : undefined
+        }
         onDoubleClick={manifest ? toggleFullscreen : undefined}
       />
 
@@ -1415,7 +1436,8 @@ export function SeamlessPlayer({
           )}
         </div>
 
-        <div className="flex items-center gap-1 text-white sm:gap-2">
+        <div className="flex flex-wrap items-center gap-x-1 gap-y-0 text-white sm:gap-x-2">
+         <div className="flex items-center gap-0.5 sm:gap-2">
           <Button
             variant="ghost"
             size="icon-lg"
@@ -1484,8 +1506,8 @@ export function SeamlessPlayer({
             <span className="text-white/45"> / {formatTime(duration)}</span>
           </span>
 
-          <div className="flex-1" />
-
+         </div>
+         <div className="ml-auto flex items-center gap-0.5 max-sm:w-full max-sm:justify-end sm:gap-2">
           {nextHref && (
             <Button
               render={<Link href={nextHref} />}
@@ -1552,6 +1574,7 @@ export function SeamlessPlayer({
           >
             {isFullscreen ? <Minimize className="size-5" /> : <Maximize className="size-5" />}
           </Button>
+         </div>
         </div>
       </div>
     </div>
