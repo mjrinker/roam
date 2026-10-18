@@ -193,6 +193,9 @@ private fun androidx.compose.foundation.lazy.LazyListScope.movieActions(t: Title
             OutlinedButton(onClick = { mark("title", t.id, !t.finished) }, modifier = Modifier.testTag("mark")) { Text(if (t.finished) "Mark not watched" else "Mark watched") }
         }
     }
+    item(key = "download") {
+        DownloadControl("title", t.id, t.name, t.year?.toString())
+    }
 }
 
 private fun androidx.compose.foundation.lazy.LazyListScope.showBody(serverId: String, t: Title, nav: Nav, onSeason: (Int) -> Unit, mark: (String, String, Boolean) -> Unit) {
@@ -231,6 +234,7 @@ private fun androidx.compose.foundation.lazy.LazyListScope.showBody(serverId: St
                 else if (e.inProgress) Text("In progress", color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.bodySmall)
                 androidx.compose.material3.TextButton(onClick = { mark("episode", e.id, !e.watched) }, modifier = Modifier.testTag("mark-${e.id}")) { Text(if (e.watched) "Mark unwatched" else "Mark watched") }
             }
+            DownloadControl("episode", e.id, t.name, "S${t.season ?: 1} · E${e.number}${e.name?.let { " · $it" } ?: ""}", Modifier.padding(start = 14.dp))
             MyRating(e.id, e.myRating, kind = "episode", average = e.averageRating)
             }
         }

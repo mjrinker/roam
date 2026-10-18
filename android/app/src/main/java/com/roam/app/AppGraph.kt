@@ -27,6 +27,8 @@ class AppGraph(
     val appScope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.IO),
     val push: com.roam.app.push.PushRegistrar = com.roam.app.push.NoPush,
     val continueRow: com.roam.app.tv.ContinuePublisher = com.roam.app.tv.NoContinueRow,
+    /** Videos saved on this device. */
+    val downloads: com.roam.app.data.DownloadManager = com.roam.app.data.DownloadManager(com.roam.app.data.NoDownloads(), CoroutineScope(SupervisorJob() + Dispatchers.IO)),
 ) {
     val serverUrl: String get() = settings.serverUrl ?: BuildConfig.DEFAULT_SERVER
 
@@ -40,8 +42,11 @@ class AppGraph(
             val tv = (context.getSystemService(Context.UI_MODE_SERVICE) as UiModeManager).currentModeType == Configuration.UI_MODE_TYPE_TELEVISION ||
                 context.packageManager.hasSystemFeature("android.software.leanback") ||
                 context.packageManager.hasSystemFeature("amazon.hardware.fire_tv")
+            val appScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
             return AppGraph(
                 settings, api, tv,
+                appScope = appScope,
+                downloads = com.roam.app.data.DownloadManager(com.roam.app.data.FileDownloadStore(java.io.File(context.filesDir, "downloads")), appScope),
                 unsupportedAudio = { AudioSupport.unsupported(AudioSupport.deviceCanPlay(context)) },
                 deviceName = android.os.Build.MODEL ?: "Android",
                 push = com.roam.app.push.FcmPush(context),

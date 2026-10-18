@@ -36,6 +36,9 @@ object Routes {
     fun label(sid: String, id: String) = "label/$sid/$id"
     const val WISHLIST = "wishlist/{sid}"
     fun wishlist(sid: String) = "wishlist/$sid"
+    const val DOWNLOADS = "downloads"
+    const val OFFLINE_PLAYER = "offline/{kind}/{id}"
+    fun offlinePlayer(kind: String, id: String) = "offline/$kind/$id"
     const val NOTIFICATIONS = "notifications"
     const val ACCOUNT = "account"
 }

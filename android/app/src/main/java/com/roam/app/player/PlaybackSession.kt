@@ -200,3 +200,10 @@ class PlaybackSession(
         const val BEAT_EVERY_MS = 30_000L
     }
 }
+
+/** Playing a saved video with no connection: nothing is reported anywhere. */
+object NoReporter : Reporter {
+    override fun saveProgress(positionSeconds: Int, durationSeconds: Int, finished: Boolean) = Unit
+    override fun beat(paused: Boolean, onLost: (String) -> Unit) = Unit
+    override fun end() = Unit
+}

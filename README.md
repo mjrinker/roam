@@ -215,7 +215,7 @@ A Kodi add-on is in [`kodi/`](kodi/README.md) (Python, using the same JSON API):
 
 ### Android, Android TV and Fire TV
 
-One Kotlin app for phones, Android TV and Fire TV is in [`android/`](android/README.md) (Compose and Media3, using the same JSON API). Its 101 tests run on the JVM (Robolectric draws the real screens); tests that play a real video on an emulator are written and compile, but need hardware virtualization to run. Build with `./gradlew :app:assembleDebug` in `android/`.
+One Kotlin app for phones, Android TV and Fire TV is in [`android/`](android/README.md) (Compose and Media3, using the same JSON API). **Downloads:** a movie or episode's page has a **Download** button (it asks which quality when there are several) that saves the video on the device; **Downloads** on the home screen (and the "Open downloads" button shown when Roam can't be reached) lists what is saved and plays it with no connection. A download runs while the app is open and starts over if the app is closed before it finishes; a saved video's place isn't reported back to Roam. Its 101 tests run on the JVM (Robolectric draws the real screens); tests that play a real video on an emulator are written and compile, but need hardware virtualization to run. Build with `./gradlew :app:assembleDebug` in `android/`.
 
 ### Xbox
 

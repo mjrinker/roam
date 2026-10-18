@@ -362,6 +362,8 @@ data class PlaySegment(
     val inFileOffsetSeconds: Double? = null,
     val inFileEndSeconds: Double? = null,
     val container: String? = null,
+    /** The file's size in bytes, when the server knows it (a download shows progress against it). */
+    val sizeBytes: Long? = null,
 )
 
 @Serializable

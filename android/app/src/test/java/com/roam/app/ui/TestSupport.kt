@@ -23,7 +23,8 @@ class FakeNav : Nav {
     }
 }
 
-fun testGraph(api: RoamApi, settings: Settings = MemorySettings(token = "rdt_test"), tv: Boolean = false) = AppGraph(settings, api, isTv = tv, deviceName = "Test device")
+fun testGraph(api: RoamApi, settings: Settings = MemorySettings(token = "rdt_test"), tv: Boolean = false, downloads: com.roam.app.data.DownloadManager? = null) =
+    if (downloads == null) AppGraph(settings, api, isTv = tv, deviceName = "Test device") else AppGraph(settings, api, isTv = tv, deviceName = "Test device", downloads = downloads)
 
 @Composable
 fun Shown(graph: AppGraph, content: @Composable () -> Unit) = CompositionLocalProvider(LocalGraph provides graph) { RoamTheme { content() } }

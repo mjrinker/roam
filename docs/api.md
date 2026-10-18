@@ -86,4 +86,4 @@ Labels, the watch list, the wishlist and radio: `GET /api/v1/servers/{serverId}/
 
 ## Not in v1 yet
 
-Pictures of a title's cast, download-for-offline helpers for native apps, and the admin's screens (assigning owners, settling claims, server settings), which stay on the web.
+Pictures of a title's cast, and the admin's screens (assigning owners, settling claims, server settings), which stay on the web.

@@ -61,6 +61,8 @@ fun RoamApp(navController: NavHostController = rememberNavController()) {
             }
             composable(Routes.PLAYLISTS) { e -> PlaylistsScreen(e.arguments!!.getString("sid")!!, nav) }
             composable(Routes.PLAYLIST) { e -> PlaylistScreen(e.arguments!!.getString("sid")!!, e.arguments!!.getString("id")!!, nav) }
+            composable(Routes.DOWNLOADS) { DownloadsScreen(nav) }
+            composable(Routes.OFFLINE_PLAYER) { e -> OfflinePlayerScreen(e.arguments!!.getString("kind")!!, e.arguments!!.getString("id")!!, nav) }
             composable(Routes.LABELS) { e -> LabelsScreen(e.arguments!!.getString("sid")!!, nav) }
             composable(Routes.LABEL) { e -> LabelScreen(e.arguments!!.getString("sid")!!, e.arguments!!.getString("id")!!, nav) }
             composable(Routes.WISHLIST) { e -> WishlistScreen(e.arguments!!.getString("sid")!!, nav) }

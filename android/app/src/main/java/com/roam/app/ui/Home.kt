@@ -14,6 +14,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.testTag
@@ -30,6 +31,18 @@ fun HomeScreen(serverId: String, nav: Nav) {
         androidx.compose.runtime.LaunchedEffect(Unit) { graph.push.register(graph.api) }
     }
     val loader = rememberLoader(serverId) { graph.api.home(serverId) }
+    // With no connection, what is saved on this device can still be watched.
+    val answer = loader.state.value
+    if (answer is Load.Failed && answer.error.status == 0) {
+        Centered {
+            androidx.compose.foundation.layout.Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(16.dp), modifier = Modifier.padding(32.dp)) {
+                Text("Roam can't be reached. Check the network connection.", color = MaterialTheme.colorScheme.onBackground, modifier = Modifier.testTag("error"))
+                androidx.compose.material3.Button(onClick = loader.reload) { Text("Try again") }
+                androidx.compose.material3.OutlinedButton(onClick = { nav.open(Routes.DOWNLOADS) }, modifier = Modifier.testTag("open-downloads")) { Text("Open downloads") }
+            }
+        }
+        return
+    }
     LoadView(loader, nav) { home ->
         androidx.compose.runtime.LaunchedEffect(home) { graph.continueRow.publish(home.continueWatching, graph.serverUrl) }
         HomeContent(serverId, home, nav)
@@ -49,6 +62,7 @@ fun HomeContent(serverId: String, home: Home, nav: Nav) {
                     if (home.hasPlaylists) TextButton(onClick = { nav.open(Routes.playlists(serverId)) }, modifier = Modifier.testTag("go-playlists")) { Text("Playlists") }
                     TextButton(onClick = { nav.open(Routes.labels(serverId)) }, modifier = Modifier.testTag("go-labels")) { Text("Labels") }
                     TextButton(onClick = { nav.open(Routes.wishlist(serverId)) }, modifier = Modifier.testTag("go-wishlist")) { Text("Wishlist") }
+                    TextButton(onClick = { nav.open(Routes.DOWNLOADS) }, modifier = Modifier.testTag("go-downloads")) { Text("Downloads") }
                     TextButton(onClick = { nav.open(Routes.NOTIFICATIONS) }, modifier = Modifier.testTag("go-notifications")) { Text(if (home.unreadNotifications > 0) "Notifications (${home.unreadNotifications})" else "Notifications") }
                     TextButton(onClick = { nav.open(Routes.ACCOUNT) }, modifier = Modifier.testTag("go-account")) { Text("Account") }
                 }
