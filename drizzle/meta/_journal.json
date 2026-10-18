@@ -498,6 +498,13 @@
       "when": 1792303647415,
       "tag": "0070_subtitle_tracks",
       "breakpoints": true
+    },
+    {
+      "idx": 71,
+      "version": "7",
+      "when": 1792304880004,
+      "tag": "0071_screen_time",
+      "breakpoints": true
     }
   ]
 }

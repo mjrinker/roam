@@ -1,7 +1,7 @@
 /** What a player does when the server tracks ownership: notice that a copy isn't available, hold its place, and ask to be told when one is free. */
 
 export interface Unavailable {
-  code: "withdrawn" | "busy";
+  code: "withdrawn" | "busy" | "screen_time";
   error: string;
   unit: { titleId: string; seasonId: string | null };
   watching: boolean;
@@ -11,7 +11,10 @@ export interface Unavailable {
 export async function readUnavailable(res: Response | null): Promise<Unavailable | null> {
   if (!res || res.status !== 423) return null;
   const body = (await res.json().catch(() => null)) as Partial<Unavailable> | null;
-  if (!body || (body.code !== "withdrawn" && body.code !== "busy") || !body.unit) return null;
+  if (!body) return null;
+  // Screen time (a daily limit or quiet hours) refuses a profile, not a copy: there is no unit to wait for.
+  if (body.code === "screen_time") return { code: "screen_time", error: body.error ?? "Screen time is up.", unit: { titleId: "", seasonId: null }, watching: false };
+  if ((body.code !== "withdrawn" && body.code !== "busy") || !body.unit) return null;
   return { code: body.code, error: body.error ?? "This isn't available right now.", unit: body.unit, watching: !!body.watching };
 }
 

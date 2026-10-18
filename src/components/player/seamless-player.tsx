@@ -244,6 +244,19 @@ export function SeamlessPlayer({
   // Going on to the next episode by itself (a choice kept on this device), and whether this ending's countdown was cancelled.
   const [autoplay, setAutoplay] = useState(() => (typeof window === "undefined" ? true : readAutoplay()));
   const [cancelledFor, setCancelledFor] = useState<PlayManifest | null>(null);
+  // Screen time: the seconds of watching left (from the manifest) run down while playing; at zero the picture stops.
+  const [screenSpent, setScreenSpent] = useState<{ m: PlayManifest | null; n: number }>({ m: null, n: 0 });
+  const screenLimit = manifest?.screenTime?.stopInSeconds ?? null;
+  const screenLeft = screenLimit === null ? null : screenLimit - (screenSpent.m === manifest ? screenSpent.n : 0);
+  const screenUp = screenLeft !== null && screenLeft <= 0;
+  useEffect(() => {
+    if (!playing || screenLimit === null || mode !== "full") return;
+    const t = setInterval(() => setScreenSpent((s) => ({ m: manifest, n: (s.m === manifest ? s.n : 0) + 1 })), 1000);
+    return () => clearInterval(t);
+  }, [playing, screenLimit, manifest, mode]);
+  useEffect(() => {
+    if (screenUp) videoRefs.current.forEach((el) => el?.pause());
+  }, [screenUp]);
   const changeAutoplay = useCallback((on: boolean) => {
     writeAutoplay(on);
     setAutoplay(on);
@@ -1193,6 +1206,20 @@ export function SeamlessPlayer({
         </button>
       )}
 
+      {screenUp && !finished && (
+        <div className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-4 bg-black/90 px-6 text-center" role="alertdialog" aria-label="Screen time">
+          <p className="text-2xl font-semibold text-white">Time to take a break</p>
+          <p className="max-w-sm text-sm text-white/70">Screen time is up for now. You can come back later.</p>
+          <Button render={<Link href={backHref} />} variant="secondary" className="h-11 gap-2 rounded-xl bg-white/10 px-5 hover:bg-white/20">
+            <ArrowLeft /> Back
+          </Button>
+        </div>
+      )}
+      {mode === "full" && screenLeft !== null && screenLeft > 0 && screenLeft <= 60 && playing && (
+        <p className="pointer-events-none absolute top-4 left-1/2 z-10 -translate-x-1/2 rounded-full bg-black/70 px-4 py-1.5 text-sm text-white" role="status">
+          {screenLeft <= 10 ? `${screenLeft} seconds left` : "About a minute of screen time left"}
+        </p>
+      )}
       {finished && (
         <div className="absolute inset-0 flex flex-col items-center justify-center gap-5 bg-black/85 px-6 text-center backdrop-blur-sm">
           <div>

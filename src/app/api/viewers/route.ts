@@ -50,6 +50,10 @@ export async function POST(request: Request) {
         autoSkip: parsed.data.autoSkip ?? {},
         groupCollections: parsed.data.groupCollections ?? false,
         dataSaver: parsed.data.dataSaver ?? false,
+        screenTimeMinutes: parsed.data.screenTimeMinutes ?? null,
+        quietFrom: parsed.data.quietFrom ?? null,
+        quietTo: parsed.data.quietTo ?? null,
+        timeZone: parsed.data.timeZone ?? null,
         audioLanguage: parsed.data.audioLanguage ?? null,
         subtitleLanguage: parsed.data.subtitleLanguage ?? null,
         // A guest is invisible to other visitors, whatever profiles it adds.

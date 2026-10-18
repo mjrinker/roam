@@ -8,6 +8,7 @@ import { libraryRemembersProgress } from "@/lib/libraries/profile";
 import { dropFinished } from "@/lib/watchlist/queries";
 import { isNearEnd } from "@/lib/player/timeline";
 import { recordWatch, secondsWatched } from "@/lib/stats/record";
+import { addWatched, settingsOf } from "@/lib/screen-time/service";
 
 const patchSchema = z.object({
   ownerKind: z.enum(["title", "episode"]),
@@ -69,7 +70,10 @@ export async function PATCH(request: Request) {
       },
     });
 
-  await recordWatch(db, { serverId: auth.serverId, accountId: auth.member.profile.id, ownerKind, ownerId, seconds: secondsWatched(before ?? null, positionSeconds, now), now }).catch(() => undefined);
+  const watchedSeconds = secondsWatched(before ?? null, positionSeconds, now);
+  await recordWatch(db, { serverId: auth.serverId, accountId: auth.member.profile.id, ownerKind, ownerId, seconds: watchedSeconds, now }).catch(() => undefined);
+  // The profile's own screen time for the day (only kept when it has a limit or quiet hours).
+  await addWatched(db, auth.member.viewer.id, settingsOf(auth.member.viewer), watchedSeconds, now).catch(() => undefined);
 
   // Finishing a movie, audiobook or (the last episode of) a show takes it off the watch list.
   if (watched) await dropFinished(db, auth.member.viewer.id, ownerKind === "title" ? { titleIds: [ownerId] } : { episodeIds: [ownerId] });

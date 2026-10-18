@@ -62,6 +62,21 @@ describe("playing with data saver", () => {
   });
 });
 
+describe("a device's own data saver choice", () => {
+  it("wins over the profile's setting in both directions, and anything else leaves the profile's alone", async () => {
+    const on = await world(true);
+    await play(new Request("http://x?dataSaver=0"), ctx(on.film.id));
+    expect(lastChoice().preferredHeight).toBeNull();
+    await play(new Request("http://x?dataSaver=banana"), ctx(on.film.id));
+    expect(lastChoice().preferredHeight).toBe(480);
+    const off = await world(false);
+    await play(new Request("http://x?dataSaver=1"), ctx(off.film.id));
+    expect(lastChoice().preferredHeight).toBe(480);
+    const suggested = await (await downloadOptions(new Request("http://x?dataSaver=1"), ctx(off.film.id))).json();
+    expect(suggested.suggestedLabel).toBe("480p");
+  });
+});
+
 describe("downloading with data saver", () => {
   it("suggests the version nearest 480p, and suggests nothing when it is off", async () => {
     const on = await world(true);

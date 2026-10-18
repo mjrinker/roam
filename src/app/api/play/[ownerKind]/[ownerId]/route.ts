@@ -9,6 +9,7 @@ import { parseSkipParam } from "@/lib/content-filter/timeline";
 import { needsHeartbeat, ownershipGate } from "@/lib/ownership/gate";
 import { db } from "@/lib/db/client";
 import { tracksFor } from "@/lib/subtitles/tracks";
+import { screenTimeNow } from "@/lib/screen-time/service";
 import { aimHeight, dataSaverFor } from "@/lib/player/data-saver";
 
 // authorizeOwner covers server membership AND the profile's rating limit —
@@ -37,6 +38,10 @@ export async function GET(
   const blocked = await ownershipGate({ viewerId: auth.member.viewer.id, accountId: auth.member.profile.id }, ownerKind, ownerId, { take: true });
   if (blocked) return blocked;
 
+  // A profile with screen time rules (a daily limit, quiet hours) can't start once they say stop.
+  const screen = await screenTimeNow(db, auth.member.viewer);
+  if (screen && !screen.decision.allowed) return NextResponse.json({ error: screen.decision.message, code: "screen_time" }, { status: 423, headers: { "Cache-Control": "no-store" } });
+
   const params = new URL(request.url).searchParams;
   const unsupportedCodecs = parseUnsupportedCodecs(params.get("unsupportedCodecs"));
   const heightParam = Number(params.get("height"));
@@ -53,5 +58,5 @@ export async function GET(
   }
   // A server's admin (a profile that may change settings) can mark scenes while watching; the marking route checks again.
   const canMark = ownerKind !== "extra" && auth.member.role === "admin" && auth.member.viewer.role !== "limited";
-  return NextResponse.json({ ...result.manifest, heartbeat: await needsHeartbeat(ownerKind, ownerId), canMark, subtitleTracks: ownerKind === "extra" ? [] : await tracksFor(db, ownerKind, ownerId), languagePrefs: { audio: auth.member.viewer.audioLanguage, subtitles: auth.member.viewer.subtitleLanguage }, libraryId: auth.libraryId, defaultRate: await viewerLibrarySpeed(auth.member.viewer.id, auth.libraryId) });
+  return NextResponse.json({ ...result.manifest, heartbeat: await needsHeartbeat(ownerKind, ownerId), canMark, ...(screen && screen.stopInSeconds !== null ? { screenTime: { stopInSeconds: screen.stopInSeconds } } : {}), subtitleTracks: ownerKind === "extra" ? [] : await tracksFor(db, ownerKind, ownerId), languagePrefs: { audio: auth.member.viewer.audioLanguage, subtitles: auth.member.viewer.subtitleLanguage }, libraryId: auth.libraryId, defaultRate: await viewerLibrarySpeed(auth.member.viewer.id, auth.libraryId) });
 }

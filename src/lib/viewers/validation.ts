@@ -15,6 +15,23 @@ export const maxAgeSchema = z
 // null clears the PIN; a 4-digit string sets or changes it.
 // A three-letter language code (what video files use), or null for no preference. Stored in one spelling ("fre" is "fra").
 export const mediaLanguageSchema = z.union([z.string().regex(/^[A-Za-z]{3}$/, "Not a language code").transform((v) => normalizeLanguage(v)!), z.null()]);
+// Screen time: a daily limit in minutes (15 to 12 hours) and quiet hours as minutes after midnight, on the clock of an IANA time zone.
+export const screenTimeMinutesSchema = z.union([z.number().int().min(15).max(720), z.null()]);
+export const quietMinuteSchema = z.union([z.number().int().min(0).max(1439), z.null()]);
+export const timeZoneSchema = z.union([
+  z
+    .string()
+    .max(64)
+    .refine((v) => {
+      try {
+        new Intl.DateTimeFormat("en-US", { timeZone: v });
+        return true;
+      } catch {
+        return false;
+      }
+    }, "Unknown time zone"),
+  z.null(),
+]);
 export const pinSchema = z.union([z.string().regex(/^\d{4}$/, "PIN must be 4 digits"), z.null()]);
 // The owner is fixed at account creation and never assigned through this
 // schema — see lib/content/roles.
@@ -42,6 +59,10 @@ export const createViewerSchema = z.object({
   dataSaver: z.boolean().optional(),
   audioLanguage: mediaLanguageSchema.optional(),
   subtitleLanguage: mediaLanguageSchema.optional(),
+  screenTimeMinutes: screenTimeMinutesSchema.optional(),
+  quietFrom: quietMinuteSchema.optional(),
+  quietTo: quietMinuteSchema.optional(),
+  timeZone: timeZoneSchema.optional(),
   // A PIN can be set at creation time; there's nothing to clear yet, so null is just ignored.
   pin: pinSchema.optional(),
 });
@@ -79,6 +100,10 @@ export const extendedEditSchema = z
     dataSaver: z.boolean().optional(),
     audioLanguage: mediaLanguageSchema.optional(),
     subtitleLanguage: mediaLanguageSchema.optional(),
+    screenTimeMinutes: screenTimeMinutesSchema.optional(),
+    quietFrom: quietMinuteSchema.optional(),
+    quietTo: quietMinuteSchema.optional(),
+    timeZone: timeZoneSchema.optional(),
     pin: pinSchema.optional(),
     role: assignableRoleSchema.optional(),
     // Required whenever the ACTING profile itself has a PIN — see the PATCH route.

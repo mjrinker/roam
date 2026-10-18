@@ -131,6 +131,12 @@ export const viewers = pgTable(
     // Data saver: video plays at about 480p unless another quality is picked, artwork is fetched at lower quality, and the next song is not loaded ahead of time.
     dataSaver: boolean("data_saver").notNull().default(false),
     // The languages this profile wants: the audio track and the subtitles picked automatically when a video has them (ISO 639-2, "eng"). Null = no preference.
+    // Screen time: the most this profile may watch in a day (minutes), and quiet hours it may not watch in (minutes after midnight; the window
+    // may run past midnight), on the clock of time_zone (an IANA name the editor sent from the device). All null = no limits.
+    screenTimeMinutes: integer("screen_time_minutes"),
+    quietFrom: integer("quiet_from"),
+    quietTo: integer("quiet_to"),
+    timeZone: text("time_zone"),
     audioLanguage: text("audio_language"),
     subtitleLanguage: text("subtitle_language"),
     autoSkip: jsonb("auto_skip").$type<Partial<Record<"intro" | "recap" | "outro" | "preview", boolean>>>().notNull().default({}),
@@ -1080,6 +1086,18 @@ export const labelItems = pgTable(
     addedAt: timestamp("added_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [primaryKey({ columns: [t.labelId, t.titleId] }), index("label_items_title_idx").on(t.titleId)]
+).enableRLS();
+
+// ── screen_time ──────────────────────────────────────────────────────────
+// How long a profile has watched on each day (the day on the clock of the profile's time_zone), for its daily limit.
+export const screenTime = pgTable(
+  "screen_time",
+  {
+    viewerId: uuid("viewer_id").notNull().references(() => viewers.id, { onDelete: "cascade" }),
+    day: text("day").notNull(),
+    seconds: integer("seconds").notNull().default(0),
+  },
+  (t) => [primaryKey({ columns: [t.viewerId, t.day] })]
 ).enableRLS();
 
 // ── subtitle_tracks ──────────────────────────────────────────────────────

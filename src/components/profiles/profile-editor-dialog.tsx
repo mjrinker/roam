@@ -39,6 +39,11 @@ export interface EditableProfile {
   autoSkip: AutoSkipPrefs;
   groupCollections: boolean;
   dataSaver: boolean;
+  /** Screen time: a daily limit in minutes and quiet hours (minutes after midnight), on the clock of timeZone; all null = none. */
+  screenTimeMinutes: number | null;
+  quietFrom: number | null;
+  quietTo: number | null;
+  timeZone: string | null;
   /** ISO 639-2 codes ("eng"), or null for no preference. */
   audioLanguage: string | null;
   subtitleLanguage: string | null;
@@ -87,6 +92,10 @@ export function ProfileEditorDialog({
   const [autoSkip, setAutoSkip] = useState<AutoSkipPrefs>(profile?.autoSkip ?? {});
   const [groupCollections, setGroupCollections] = useState(profile?.groupCollections ?? false);
   const [dataSaver, setDataSaver] = useState(profile?.dataSaver ?? false);
+  const [screenLimit, setScreenLimit] = useState<number | null>(profile?.screenTimeMinutes ?? null);
+  const [quietOn, setQuietOn] = useState(profile?.quietFrom != null && profile?.quietTo != null);
+  const [quietFrom, setQuietFrom] = useState(profile?.quietFrom ?? 21 * 60);
+  const [quietTo, setQuietTo] = useState(profile?.quietTo ?? 7 * 60);
   const [audioLanguage, setAudioLanguage] = useState(profile?.audioLanguage ?? "");
   const [subtitleLanguage, setSubtitleLanguage] = useState(profile?.subtitleLanguage ?? "");
   const [newPin, setNewPin] = useState("");
@@ -134,6 +143,11 @@ export function ProfileEditorDialog({
           autoSkip: normalizeAutoSkip(autoSkip),
           groupCollections,
           dataSaver,
+          screenTimeMinutes: screenLimit,
+          quietFrom: quietOn ? quietFrom : null,
+          quietTo: quietOn ? quietTo : null,
+          // The limit and quiet hours run on this device's clock (a device in another zone, as on holiday, doesn't move them).
+          ...(screenLimit !== null || quietOn ? { timeZone: profile?.timeZone ?? Intl.DateTimeFormat().resolvedOptions().timeZone } : {}),
           audioLanguage: audioLanguage || null,
           subtitleLanguage: subtitleLanguage || null,
           ...(showRolePicker ? { role } : {}),
@@ -317,6 +331,31 @@ export function ProfileEditorDialog({
         </div>
         <p className="text-xs text-muted-foreground sm:col-span-2">Used automatically when a video has that audio or those subtitles inside it. Picking one in the player sets these too.</p>
       </div>
+
+      <fieldset className="grid min-w-0 gap-2 rounded-lg bg-white/[0.03] p-3 ring-1 ring-white/10">
+        <legend className="px-1 text-sm font-medium">Screen time</legend>
+        <div className="flex items-center justify-between gap-3">
+          <Label htmlFor="screen-limit" className="font-normal">Daily limit</Label>
+          <select id="screen-limit" value={screenLimit ?? ""} onChange={(e) => setScreenLimit(e.target.value === "" ? null : Number(e.target.value))} className="h-8 rounded-md border border-input bg-transparent px-2 text-sm">
+            <option value="" className="bg-popover">No limit</option>
+            {[30, 60, 90, 120, 180, 240].map((m) => (
+              <option key={m} value={m} className="bg-popover">{m < 60 ? `${m} minutes` : m === 60 ? "1 hour" : `${m / 60} hours`}</option>
+            ))}
+          </select>
+        </div>
+        <label className="flex items-center gap-2 text-sm">
+          <input type="checkbox" checked={quietOn} onChange={(e) => setQuietOn(e.target.checked)} className="size-4 rounded border-input" />
+          Quiet hours: no watching between
+        </label>
+        {quietOn && (
+          <div className="flex items-center gap-2 text-sm">
+            <input type="time" aria-label="Quiet hours start" value={`${String(Math.floor(quietFrom / 60)).padStart(2, "0")}:${String(quietFrom % 60).padStart(2, "0")}`} onChange={(e) => { const [h, m] = e.target.value.split(":").map(Number); if (Number.isFinite(h) && Number.isFinite(m)) setQuietFrom(h * 60 + m); }} className="h-8 rounded-md border border-input bg-transparent px-2" />
+            and
+            <input type="time" aria-label="Quiet hours end" value={`${String(Math.floor(quietTo / 60)).padStart(2, "0")}:${String(quietTo % 60).padStart(2, "0")}`} onChange={(e) => { const [h, m] = e.target.value.split(":").map(Number); if (Number.isFinite(h) && Number.isFinite(m)) setQuietTo(h * 60 + m); }} className="h-8 rounded-md border border-input bg-transparent px-2" />
+          </div>
+        )}
+        <p className="text-xs text-muted-foreground">When the time is up, or in quiet hours, this profile can&apos;t start a video and one playing stops. Counted on this device&apos;s clock.</p>
+      </fieldset>
 
       <label className={check}>
         <input type="checkbox" checked={groupCollections} onChange={(e) => setGroupCollections(e.target.checked)} className="mt-0.5 size-4 rounded border-input" />
