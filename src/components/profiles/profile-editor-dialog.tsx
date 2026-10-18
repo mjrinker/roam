@@ -13,6 +13,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { AvatarPicker } from "@/components/profiles/avatar-picker";
 import { ViewerAvatar } from "@/components/profiles/viewer-avatar";
 import { DEFAULT_AVATAR_KEY } from "@/lib/viewers/avatars";
@@ -167,229 +168,236 @@ export function ProfileEditorDialog({
     onSaved();
   }
 
+  const FILTER_STRENGTHS = [
+    ["off", "Don't skip"],
+    ["high", "Skip strong"],
+    ["medium", "Skip moderate and up"],
+    ["low", "Skip all, even mild"],
+  ] as const;
+  const filtered = FILTER_CATEGORIES.filter((c) => contentFilter[c]).length;
+  const autoSkipCount = Object.values(normalizeAutoSkip(autoSkip)).filter(Boolean).length;
+  const setAllFilters = (value: string) => setContentFilter(value === "off" ? {} : Object.fromEntries(FILTER_CATEGORIES.map((c) => [c, value])) as ContentFilterPrefs);
+  const select = "h-9 rounded-md border border-input bg-transparent px-3 text-sm";
+  const check = "flex items-start gap-2 text-sm";
+
+  const profileFields = (
+    <div className="grid grid-cols-[minmax(0,1fr)] gap-4">
+      <div className="flex items-center gap-4">
+        <ViewerAvatar avatarKey={avatarKey} size="lg" />
+        <div className="grid flex-1 gap-1.5">
+          <Label htmlFor="profile-name">Name</Label>
+          <Input id="profile-name" value={name} maxLength={VIEWER_NAME_MAX_LENGTH} onChange={(e) => setName(e.target.value)} autoFocus required />
+        </div>
+      </div>
+      <div className="grid gap-2">
+        <Label>Avatar</Label>
+        <AvatarPicker value={avatarKey} onChange={setAvatarKey} />
+      </div>
+
+      {profile?.role === "owner" && (
+        <p className="rounded-lg bg-white/[0.04] px-3 py-2 text-xs text-muted-foreground">
+          This is the account owner&apos;s profile: it manages every other profile and can&apos;t be reassigned or deleted.
+        </p>
+      )}
+
+      {showRolePicker && (
+        <div className="grid gap-1.5">
+          <Label>Role</Label>
+          <div className="grid gap-2 sm:grid-cols-2">
+            {ASSIGNABLE_ROLES.map((r) => (
+              <button
+                key={r.value}
+                type="button"
+                onClick={() => setRole(r.value)}
+                className={`rounded-lg p-3 text-left ring-1 transition-colors ${role === r.value ? "bg-primary/10 ring-primary" : "bg-white/[0.03] ring-white/10 hover:bg-white/[0.06]"}`}
+              >
+                <span className="block text-sm font-medium">{r.label}</span>
+                <span className="mt-0.5 block text-xs text-muted-foreground">{r.hint}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {canExtend && (
+        <>
+          <div className="grid gap-1.5">
+            <Label htmlFor="profile-pin">{profile?.hasPin ? "Change PIN" : "PIN (optional)"}</Label>
+            <div className="flex items-center gap-2">
+              <Input
+                id="profile-pin"
+                value={newPin}
+                onChange={(e) => setNewPin(e.target.value.replace(/\D/g, "").slice(0, 4))}
+                inputMode="numeric"
+                autoComplete="off"
+                type="password"
+                maxLength={4}
+                placeholder="4 digits"
+                className="max-w-32 text-center tracking-[0.3em]"
+              />
+              {profile?.hasPin && (
+                <Button type="button" variant="ghost" size="sm" onClick={removePin} disabled={busy}>
+                  Remove PIN
+                </Button>
+              )}
+            </div>
+            <p className="text-xs text-muted-foreground">{profile?.hasPin ? "A PIN is required to open this profile." : "Ask for a 4-digit PIN to open this profile."}</p>
+          </div>
+
+          <label className={check}>
+            <input type="checkbox" checked={visibleOnServer} onChange={(e) => setVisibleOnServer(e.target.checked)} className="mt-0.5 size-4 rounded border-input" />
+            <span>
+              Show this profile to other members of the server
+              {profile && profile.visibleOnServer && !visibleOnServer && (
+                <span className="block text-xs text-muted-foreground">Hiding it also removes its access to playlists others shared with it; showing it again won&apos;t bring those back.</span>
+              )}
+            </span>
+          </label>
+        </>
+      )}
+    </div>
+  );
+
+  const watching = (
+    <div className="grid grid-cols-[minmax(0,1fr)] gap-4">
+      <div className="grid gap-1.5">
+        <Label htmlFor="profile-locale">Language and region</Label>
+        <select id="profile-locale" value={locale} onChange={(e) => setLocale(e.target.value)} className={select}>
+          {LOCALES.map((l) => (
+            <option key={l.tag} value={l.tag} className="bg-popover">
+              {l.label}
+            </option>
+          ))}
+        </select>
+      </div>
+
+      <div className="grid gap-1.5">
+        <Label htmlFor="profile-rating">Allowed ratings up to</Label>
+        <select id="profile-rating" value={RATING_SELECT_VALUE(maxAge)} onChange={(e) => setMaxAge(e.target.value === "none" ? null : Number(e.target.value))} className={select}>
+          {RATING_LEVELS.map((l) => (
+            <option key={RATING_SELECT_VALUE(l.value)} value={RATING_SELECT_VALUE(l.value)} className="bg-popover">
+              {l.label}
+            </option>
+          ))}
+        </select>
+        {maxAge !== null && (
+          <label className="mt-1 flex items-center gap-2 text-sm">
+            <input type="checkbox" checked={allowUnrated} onChange={(e) => setAllowUnrated(e.target.checked)} className="size-4 rounded border-input" />
+            Allow titles with no rating on file
+          </label>
+        )}
+      </div>
+
+      <label className={check}>
+        <input type="checkbox" checked={groupCollections} onChange={(e) => setGroupCollections(e.target.checked)} className="mt-0.5 size-4 rounded border-input" />
+        <span>
+          Group collections in lists
+          <span className="block text-xs text-muted-foreground">A film series shows as one tile in Movies and TV Shows. Searching and filtering still show every title.</span>
+        </span>
+      </label>
+
+      <label className={check}>
+        <input type="checkbox" checked={dataSaver} onChange={(e) => setDataSaver(e.target.checked)} className="mt-0.5 size-4 rounded border-input" />
+        <span>
+          Data saver
+          <span className="block text-xs text-muted-foreground">For a limited data plan: video at about 480p unless you pick another quality, lower-quality pictures, and no loading the next song ahead.</span>
+        </span>
+      </label>
+    </div>
+  );
+
+  const skipping = (
+    <div className="grid grid-cols-[minmax(0,1fr)] gap-5">
+      <fieldset className="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-1.5">
+        <legend className="text-sm font-medium">Skip automatically</legend>
+        <p className="-mt-1 text-xs text-muted-foreground">Move on by itself, where a show has the times, instead of showing a button.</p>
+        <div className="grid gap-1.5 sm:grid-cols-2">
+          {([["intro", "Intros"], ["recap", "Recaps"], ["preview", "Next-time previews"], ["outro", "Credits (then next episode)"]] as const).map(([kind, label]) => (
+            <label key={kind} className="flex items-center gap-2 text-sm">
+              <input type="checkbox" checked={autoSkip[kind] === true} onChange={(e) => setAutoSkip({ ...autoSkip, [kind]: e.target.checked })} className="size-4 rounded border-input" />
+              {label}
+            </label>
+          ))}
+        </div>
+      </fieldset>
+
+      <fieldset className="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-2">
+        <legend className="text-sm font-medium">Skip scenes</legend>
+        <p className="-mt-1 text-xs text-muted-foreground">For movies and shows that come with a content filter file, scenes in these categories are skipped quietly (or the sound is muted, for words).</p>
+        <div className="flex items-center justify-between gap-3 rounded-lg bg-white/[0.04] px-3 py-2">
+          <label htmlFor="filter-all" className="text-sm">Set every category to</label>
+          <select id="filter-all" value="" onChange={(e) => e.target.value && setAllFilters(e.target.value)} className="h-8 w-48 max-w-[62%] shrink-0 rounded-md border border-input bg-transparent px-2 text-sm">
+            <option value="" className="bg-popover">Choose…</option>
+            {FILTER_STRENGTHS.map(([v, label]) => (
+              <option key={v} value={v} className="bg-popover">{label}</option>
+            ))}
+          </select>
+        </div>
+        <div className="grid grid-cols-[minmax(0,1fr)] gap-1.5">
+          {FILTER_CATEGORIES.map((category) => (
+            <div key={category} className="flex items-center justify-between gap-3">
+              <label htmlFor={`filter-${category}`} className="min-w-0 flex-1 text-sm leading-tight">{CATEGORY_LABELS[category]}</label>
+              <select
+                id={`filter-${category}`}
+                value={contentFilter[category] ?? "off"}
+                onChange={(e) => {
+                  const next = { ...contentFilter };
+                  if (isFilterSeverity(e.target.value)) next[category] = e.target.value;
+                  else delete next[category];
+                  setContentFilter(next);
+                }}
+                className="h-8 w-48 max-w-[62%] shrink-0 rounded-md border border-input bg-transparent px-2 text-sm"
+              >
+                {FILTER_STRENGTHS.map(([v, label]) => (
+                  <option key={v} value={v} className="bg-popover">{label}</option>
+                ))}
+              </select>
+            </div>
+          ))}
+        </div>
+      </fieldset>
+    </div>
+  );
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[92dvh] overflow-y-auto sm:max-w-md">
-        <form onSubmit={save} className="grid grid-cols-[minmax(0,1fr)] gap-5">
+      <DialogContent className="max-h-[92dvh] overflow-y-auto sm:max-w-lg">
+        <form onSubmit={save} className="grid grid-cols-[minmax(0,1fr)] gap-4">
           <DialogHeader>
             <DialogTitle>{profile ? "Edit profile" : "Add profile"}</DialogTitle>
             <DialogDescription>Each profile keeps its own watch history and settings.</DialogDescription>
           </DialogHeader>
 
-          <div className="flex items-center gap-4">
-            <ViewerAvatar avatarKey={avatarKey} size="lg" />
-            <div className="grid flex-1 gap-1.5">
-              <Label htmlFor="profile-name">Name</Label>
+          {canExtend ? (
+            <Tabs defaultValue="profile" className="min-w-0 gap-4">
+              <TabsList className="w-full">
+                <TabsTrigger value="profile">Profile</TabsTrigger>
+                <TabsTrigger value="watching">Watching</TabsTrigger>
+                <TabsTrigger value="skipping">Skipping{filtered + autoSkipCount > 0 ? ` (${filtered + autoSkipCount})` : ""}</TabsTrigger>
+              </TabsList>
+              <TabsContent value="profile" className="min-h-[22rem]">{profileFields}</TabsContent>
+              <TabsContent value="watching" className="min-h-[22rem]">{watching}</TabsContent>
+              <TabsContent value="skipping" className="min-h-[22rem]">{skipping}</TabsContent>
+            </Tabs>
+          ) : (
+            profileFields
+          )}
+
+          {canExtend && actor.hasPin && profile && (
+            <div className="grid gap-1.5 rounded-lg bg-white/[0.04] p-3">
+              <Label htmlFor="actor-pin">Confirm your PIN to save</Label>
               <Input
-                id="profile-name"
-                value={name}
-                maxLength={VIEWER_NAME_MAX_LENGTH}
-                onChange={(e) => setName(e.target.value)}
-                autoFocus
+                id="actor-pin"
+                value={currentPin}
+                onChange={(e) => setCurrentPin(e.target.value.replace(/\D/g, "").slice(0, 4))}
+                inputMode="numeric"
+                autoComplete="off"
+                type="password"
+                maxLength={4}
                 required
+                className="max-w-32 text-center tracking-[0.3em]"
               />
             </div>
-          </div>
-
-          <div className="grid gap-2">
-            <Label>Avatar</Label>
-            <AvatarPicker value={avatarKey} onChange={setAvatarKey} />
-          </div>
-
-          {profile?.role === "owner" && (
-            <p className="rounded-lg bg-white/[0.04] px-3 py-2 text-xs text-muted-foreground">
-              This is the account owner&apos;s profile — it manages every other profile and can&apos;t be reassigned or
-              deleted.
-            </p>
-          )}
-
-          {showRolePicker && (
-            <div className="grid gap-1.5">
-              <Label>Role</Label>
-              <div className="grid gap-2 sm:grid-cols-2">
-                {ASSIGNABLE_ROLES.map((r) => (
-                  <button
-                    key={r.value}
-                    type="button"
-                    onClick={() => setRole(r.value)}
-                    className={`rounded-lg p-3 text-left ring-1 transition-colors ${
-                      role === r.value ? "bg-primary/10 ring-primary" : "bg-white/[0.03] ring-white/10 hover:bg-white/[0.06]"
-                    }`}
-                  >
-                    <span className="block text-sm font-medium">{r.label}</span>
-                    <span className="mt-0.5 block text-xs text-muted-foreground">{r.hint}</span>
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {canExtend && (
-            <>
-              <div className="grid gap-1.5">
-                <Label htmlFor="profile-locale">Language and region</Label>
-                <select
-                  id="profile-locale"
-                  value={locale}
-                  onChange={(e) => setLocale(e.target.value)}
-                  className="h-9 rounded-md border border-input bg-transparent px-3 text-sm"
-                >
-                  {LOCALES.map((l) => (
-                    <option key={l.tag} value={l.tag} className="bg-popover">
-                      {l.label}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div className="grid gap-1.5">
-                <Label htmlFor="profile-rating">Allowed ratings up to</Label>
-                <select
-                  id="profile-rating"
-                  value={RATING_SELECT_VALUE(maxAge)}
-                  onChange={(e) => setMaxAge(e.target.value === "none" ? null : Number(e.target.value))}
-                  className="h-9 rounded-md border border-input bg-transparent px-3 text-sm"
-                >
-                  {RATING_LEVELS.map((l) => (
-                    <option key={RATING_SELECT_VALUE(l.value)} value={RATING_SELECT_VALUE(l.value)} className="bg-popover">
-                      {l.label}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              {maxAge !== null && (
-                <label className="flex items-center gap-2 text-sm">
-                  <input
-                    type="checkbox"
-                    checked={allowUnrated}
-                    onChange={(e) => setAllowUnrated(e.target.checked)}
-                    className="size-4 rounded border-input"
-                  />
-                  Allow titles with no rating on file
-                </label>
-              )}
-
-              <label className="flex items-start gap-2 text-sm">
-                <input type="checkbox" checked={groupCollections} onChange={(e) => setGroupCollections(e.target.checked)} className="mt-0.5 size-4 rounded border-input" />
-                <span>
-                  Group collections in lists
-                  <span className="block text-xs text-muted-foreground">A film series (or a collection your admin made) shows as one tile in the Movies and TV Shows lists. Searching and filtering still show every title.</span>
-                </span>
-              </label>
-
-              <label className="flex items-start gap-2 text-sm">
-                <input type="checkbox" checked={dataSaver} onChange={(e) => setDataSaver(e.target.checked)} className="mt-0.5 size-4 rounded border-input" />
-                <span>
-                  Data saver
-                  <span className="block text-xs text-muted-foreground">For a limited data plan. Video plays at about 480p unless you pick another quality, pictures load at lower quality, and the next song isn&apos;t loaded ahead of time. Downloads suggest the version closest to 480p.</span>
-                </span>
-              </label>
-
-              <fieldset className="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-1.5">
-                <legend className="text-sm font-medium">Skip automatically</legend>
-                <p className="-mt-1 text-xs text-muted-foreground">Instead of showing a button to press. Where a show has the times, this profile moves on by itself.</p>
-                {([["intro", "Intros"], ["recap", "Recaps"], ["preview", "Next-time previews"], ["outro", "Credits (and go to the next episode)"]] as const).map(([kind, label]) => (
-                  <label key={kind} className="flex items-center gap-2 text-sm">
-                    <input type="checkbox" checked={autoSkip[kind] === true} onChange={(e) => setAutoSkip({ ...autoSkip, [kind]: e.target.checked })} className="size-4 rounded border-input" />
-                    {label}
-                  </label>
-                ))}
-              </fieldset>
-
-              <fieldset className="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-2">
-                <legend className="text-sm font-medium">What to skip</legend>
-                <p className="-mt-1 text-xs text-muted-foreground">
-                  For movies and shows that come with a content filter file, this profile skips the scenes below (or mutes the sound, for words).
-                  It is skipped quietly.
-                </p>
-                <div className="grid grid-cols-[minmax(0,1fr)] gap-1.5">
-                  {FILTER_CATEGORIES.map((category) => (
-                    <div key={category} className="flex items-center justify-between gap-3">
-                      <label htmlFor={`filter-${category}`} className="min-w-0 flex-1 text-sm leading-tight">
-                        {CATEGORY_LABELS[category]}
-                      </label>
-                      <select
-                        id={`filter-${category}`}
-                        value={contentFilter[category] ?? "off"}
-                        onChange={(e) => {
-                          const next = { ...contentFilter };
-                          if (isFilterSeverity(e.target.value)) next[category] = e.target.value;
-                          else delete next[category];
-                          setContentFilter(next);
-                        }}
-                        className="h-8 w-48 max-w-[62%] shrink-0 rounded-md border border-input bg-transparent px-2 text-sm"
-                      >
-                        <option value="off" className="bg-popover">Don&apos;t skip</option>
-                        <option value="high" className="bg-popover">Skip strong</option>
-                        <option value="medium" className="bg-popover">Skip moderate and up</option>
-                        <option value="low" className="bg-popover">Skip all, even mild</option>
-                      </select>
-                    </div>
-                  ))}
-                </div>
-              </fieldset>
-
-              <label className="flex items-center gap-2 text-sm">
-                <input
-                  type="checkbox"
-                  checked={visibleOnServer}
-                  onChange={(e) => setVisibleOnServer(e.target.checked)}
-                  className="size-4 rounded border-input"
-                />
-                Show this profile to other members of the server
-              </label>
-              {profile && profile.visibleOnServer && !visibleOnServer && (
-                <p className="-mt-2 text-xs text-muted-foreground">
-                  Hiding this profile also removes its access to playlists other people have shared with it. Showing it again won&apos;t bring
-                  those back — they&apos;d need to share them again.
-                </p>
-              )}
-
-              <div className="grid gap-1.5">
-                <Label htmlFor="profile-pin">{profile?.hasPin ? "Change PIN" : "PIN (optional)"}</Label>
-                <div className="flex items-center gap-2">
-                  <Input
-                    id="profile-pin"
-                    value={newPin}
-                    onChange={(e) => setNewPin(e.target.value.replace(/\D/g, "").slice(0, 4))}
-                    inputMode="numeric"
-                    autoComplete="off"
-                    type="password"
-                    maxLength={4}
-                    placeholder="4 digits"
-                    className="max-w-32 text-center tracking-[0.3em]"
-                  />
-                  {profile?.hasPin && (
-                    <Button type="button" variant="ghost" size="sm" onClick={removePin} disabled={busy}>
-                      Remove PIN
-                    </Button>
-                  )}
-                </div>
-                <p className="text-xs text-muted-foreground">
-                  {profile?.hasPin
-                    ? "A PIN is required to open this profile."
-                    : "Require a 4-digit PIN to open this profile."}
-                </p>
-              </div>
-
-              {actor.hasPin && profile && (
-                <div className="grid gap-1.5 rounded-lg bg-white/[0.04] p-3">
-                  <Label htmlFor="actor-pin">Confirm your PIN to save</Label>
-                  <Input
-                    id="actor-pin"
-                    value={currentPin}
-                    onChange={(e) => setCurrentPin(e.target.value.replace(/\D/g, "").slice(0, 4))}
-                    inputMode="numeric"
-                    autoComplete="off"
-                    type="password"
-                    maxLength={4}
-                    required
-                    className="max-w-32 text-center tracking-[0.3em]"
-                  />
-                </div>
-              )}
-            </>
           )}
 
           <DialogFooter className="gap-2 sm:justify-between">
@@ -400,10 +408,7 @@ export function ProfileEditorDialog({
             ) : (
               <span />
             )}
-            <Button
-              type="submit"
-              disabled={busy || !name.trim() || (canExtend && actor.hasPin && !!profile && currentPin.length !== 4)}
-            >
+            <Button type="submit" disabled={busy || !name.trim() || (canExtend && actor.hasPin && !!profile && currentPin.length !== 4)}>
               {profile ? "Save" : "Create profile"}
             </Button>
           </DialogFooter>

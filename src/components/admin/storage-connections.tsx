@@ -58,7 +58,7 @@ export function StorageConnections({ serverId, connections, available }: { serve
           {adding ? "Cancel" : "Add storage"}
         </Button>
       </div>
-      <p className="text-sm text-muted-foreground">Where your media is kept. A library can use folders from any of these, and you can connect as many as you like, even several accounts of the same kind.</p>
+      <p className="text-sm text-muted-foreground">Where your media is kept. A library can use folders from any of them.</p>
 
       {adding && offered.length === 0 && <p className="text-sm text-muted-foreground">No storage is set up on this deployment yet: its sign-in keys are missing.</p>}
       {adding && offered.length > 0 && (

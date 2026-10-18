@@ -7,14 +7,7 @@ import type { LibraryStatusDto } from "@/app/api/libraries/[id]/status/route";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardFooter,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { FolderBrowser } from "@/components/admin/folder-browser";
@@ -52,6 +45,8 @@ export interface LibraryRow {
   lastScannedAt: string | null;
   lastScan: LastScanInfo | null;
 }
+
+const KIND_LABELS: Partial<Record<LibraryKind, string>> = { movies: "Movies", shows: "TV shows", audiobooks: "Audiobooks", video: "Videos", music: "Music", ebooks: "eBooks", audio: "Audio", photos: "Photos" };
 
 const REGION_LABELS: Record<string, string> = {
   us: "United States",
@@ -411,7 +406,9 @@ export function LibraryManager({
   const boxConnected = connections.length > 0; // (the name is from when Box was the only storage)
   const router = useRouter();
   const [scanningId, setScanningId] = useState<string | null>(null);
-  const [showForm, setShowForm] = useState(libraries.length === 0);
+  const [showForm, setShowForm] = useState(false);
+  // The library whose settings are open in the dialog.
+  const [settingsFor, setSettingsFor] = useState<string | null>(null);
   const [accessFor, setAccessFor] = useState<string | null>(null);
   const [deleting, setDeleting] = useState<LibraryRow | null>(null);
   // Access changes made in this session, so the badge updates without a refresh.
@@ -519,28 +516,27 @@ export function LibraryManager({
       <div className="flex items-center justify-between">
         <h2 className="text-lg font-semibold">Libraries</h2>
         {boxConnected && (
-          <Button variant="outline" size="sm" onClick={() => setShowForm((s) => !s)}>
-            {showForm ? "Cancel" : "Add library"}
+          <Button variant="outline" size="sm" onClick={() => setShowForm(true)}>
+            Add library
           </Button>
         )}
       </div>
 
       {!boxConnected && (
         <p className="text-sm text-muted-foreground">
-          Connect some storage above before adding a library.
+          Connect some storage first, then add a library.
         </p>
       )}
+      {boxConnected && libraries.length === 0 && <p className="text-sm text-muted-foreground">No libraries yet. Add one to share a folder of movies, shows, music or photos.</p>}
 
-      {showForm && boxConnected && (
-        <Card>
-          <form onSubmit={createLibrary}>
-            <CardHeader>
-              <CardTitle className="text-base">New library</CardTitle>
-              <CardDescription>
-                Browse your connected storage and pick the folder to share. You can add more folders, from any storage, once it exists.
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="flex flex-col gap-3">
+      <Dialog open={showForm && boxConnected} onOpenChange={(open) => !open && !creating && setShowForm(open)}>
+        <DialogContent className="max-h-[92dvh] overflow-y-auto sm:max-w-lg">
+          <form onSubmit={createLibrary} className="grid grid-cols-[minmax(0,1fr)] gap-4">
+            <DialogHeader>
+              <DialogTitle>New library</DialogTitle>
+              <DialogDescription>Pick the folder to share. You can add more folders, from any storage, afterwards.</DialogDescription>
+            </DialogHeader>
+            <div className="flex flex-col gap-3">
               <div className="grid gap-1.5">
                 <Label htmlFor="lib-name">Name</Label>
                 <Input
@@ -616,15 +612,15 @@ export function LibraryManager({
                   <FolderBrowser key={newConnectionId} serverId={serverId} connectionId={newConnectionId} rootName={newConnection?.label} onSelect={setSelectedFolder} />
                 )}
               </div>
-            </CardContent>
-            <CardFooter>
+            </div>
+            <DialogFooter>
               <Button type="submit" disabled={creating || isPending || !selectedFolder}>
                 Create library
               </Button>
-            </CardFooter>
+            </DialogFooter>
           </form>
-        </Card>
-      )}
+        </DialogContent>
+      </Dialog>
 
       <div className="flex flex-col gap-3">
         {libraries.map((lib) => (
@@ -632,17 +628,21 @@ export function LibraryManager({
             <CardContent className="py-4">
               <div className="flex flex-wrap items-start justify-between gap-3">
                 {/* The name takes at least this much room: when the buttons would squeeze it, they wrap onto their own line instead. */}
-                <div className="flex min-w-[min(100%,15rem)] flex-1 flex-wrap items-center gap-2">
-                  <p className="min-w-0 font-medium break-words">{lib.name}</p>
-                  <Badge variant="secondary">{lib.kind}</Badge>
-                  <Badge variant={(access[lib.id] ?? lib.access) === "restricted" ? "outline" : "secondary"}>
-                    {(access[lib.id] ?? lib.access) === "restricted" ? "Restricted" : "Everyone"}
-                  </Badge>
+                <div className="flex min-w-[min(100%,15rem)] flex-1 flex-col gap-1">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <p className="min-w-0 font-medium break-words">{lib.name}</p>
+                    <Badge variant="secondary">{KIND_LABELS[lib.kind] ?? lib.kind}</Badge>
+                    <Badge variant={(access[lib.id] ?? lib.access) === "restricted" ? "outline" : "secondary"}>
+                      {(access[lib.id] ?? lib.access) === "restricted" ? "Restricted" : "Everyone"}
+                    </Badge>
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    Scanned {lib.lastScannedAt ? new Date(lib.lastScannedAt).toLocaleString() : "never"}
+                    {lib.lastScan && <> &middot; {lib.lastScan.titlesAdded} new</>}
+                    {" "}&middot; {1 + lib.sources.length} folder{lib.sources.length === 0 ? "" : "s"}
+                  </p>
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
-                  <Button variant="secondary" size="sm" onClick={() => setAccessFor(lib.id)}>
-                    Access
-                  </Button>
                   <Button
                     variant="secondary"
                     size="sm"
@@ -651,20 +651,13 @@ export function LibraryManager({
                   >
                     {scanningId === lib.id || statusById[lib.id]?.scanning ? "Scanning…" : "Rescan"}
                   </Button>
-                  <Button variant="ghost" size="sm" className="text-destructive hover:text-destructive" onClick={() => setDeleting(lib)}>
-                    Delete
+                  <Button variant="outline" size="sm" onClick={() => setSettingsFor(lib.id)}>
+                    Settings
                   </Button>
                 </div>
               </div>
-              <p className="mt-1.5 w-full text-xs text-muted-foreground">
-                last scanned {lib.lastScannedAt ? new Date(lib.lastScannedAt).toLocaleString() : "never"}
-                {lib.lastScan && (
-                  <>
-                    {" "}
-                    ({lib.lastScan.trigger}) &middot; {lib.lastScan.filesSeen} folder(s) seen, {lib.lastScan.titlesAdded} new
-                  </>
-                )}
-              </p>
+              {statusById[lib.id] && <ScanProgress status={statusById[lib.id]} />}
+              {lib.lastScan && <ScanErrors errors={lib.lastScan.errors} />}
               {accessFor === lib.id && (
                 <LibraryAccessDialog
                   libraryId={lib.id}
@@ -674,13 +667,37 @@ export function LibraryManager({
                   onSaved={(next) => setAccess((cur) => ({ ...cur, [lib.id]: next }))}
                 />
               )}
-              <LibraryFolders serverId={serverId} lib={lib} connections={connections} />
-              {lib.kind === "audiobooks" && <AudibleRegionSelect libraryId={lib.id} initial={lib.audibleRegion} />}
-              {isFileTreeLibraryKind(lib.kind) && <VideoRatingSelect libraryId={lib.id} initial={agesToRating(lib.ratingAges)} />}
-              {isFileTreeLibraryKind(lib.kind) && <PruneToggle libraryId={lib.id} initial={lib.pruneMissing} />}
-              {lib.kind === "music" && <MusicLookupToggle libraryId={lib.id} initial={lib.musicLookup} />}
-              {statusById[lib.id] && <ScanProgress status={statusById[lib.id]} />}
-              {lib.lastScan && <ScanErrors errors={lib.lastScan.errors} />}
+              {settingsFor === lib.id && (
+                <Dialog open onOpenChange={(open) => !open && setSettingsFor(null)}>
+                  <DialogContent className="max-h-[92dvh] overflow-y-auto sm:max-w-lg">
+                    <DialogHeader>
+                      <DialogTitle>{lib.name}</DialogTitle>
+                      <DialogDescription>Settings for this library.</DialogDescription>
+                    </DialogHeader>
+                    <div className="flex flex-col gap-1">
+                      <div className="flex items-center justify-between gap-3 rounded-lg bg-white/[0.04] px-3 py-2 text-sm">
+                        <span>
+                          Who can see it
+                          <span className="block text-xs text-muted-foreground">{(access[lib.id] ?? lib.access) === "restricted" ? "Only the members you choose" : "Every member of the server"}</span>
+                        </span>
+                        <Button variant="secondary" size="sm" onClick={() => (setSettingsFor(null), setAccessFor(lib.id))}>
+                          Change
+                        </Button>
+                      </div>
+                      <LibraryFolders serverId={serverId} lib={lib} connections={connections} />
+                      {lib.kind === "audiobooks" && <AudibleRegionSelect libraryId={lib.id} initial={lib.audibleRegion} />}
+                      {isFileTreeLibraryKind(lib.kind) && <VideoRatingSelect libraryId={lib.id} initial={agesToRating(lib.ratingAges)} />}
+                      {isFileTreeLibraryKind(lib.kind) && <PruneToggle libraryId={lib.id} initial={lib.pruneMissing} />}
+                      {lib.kind === "music" && <MusicLookupToggle libraryId={lib.id} initial={lib.musicLookup} />}
+                    </div>
+                    <DialogFooter className="sm:justify-start">
+                      <Button variant="ghost" size="sm" className="text-destructive hover:text-destructive" onClick={() => (setSettingsFor(null), setDeleting(lib))}>
+                        Delete library…
+                      </Button>
+                    </DialogFooter>
+                  </DialogContent>
+                </Dialog>
+              )}
             </CardContent>
           </Card>
         ))}
