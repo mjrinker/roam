@@ -279,7 +279,7 @@ class Playing(Base):
         super().setUp()
         self.watched = []
         self._watch = router.watch
-        router.watch = lambda session: self.watched.append(session)
+        router.watch = lambda session, *a, **k: self.watched.append(session)
         xbmc.Player.last = None
 
     def tearDown(self):
@@ -320,7 +320,7 @@ class Playing(Base):
 
     def test_the_next_episode_starts_after_one_watched_to_the_end(self):
         FakeApi.answers["/api/play/episode/e1"] = self.manifest()
-        router.watch = lambda session: setattr(session, "g", 198.0)
+        router.watch = lambda session, *a, **k: setattr(session, "g", 198.0)
         self.run_action(action="play", kind="episode", id="e1", name="The Show", queue="e2,e3")
         builtin = [c[1] for c in xbmc.calls if c[0] == "builtin"][0]
         self.assertIn("PlayMedia(", builtin)
@@ -328,7 +328,7 @@ class Playing(Base):
 
     def test_a_stopped_episode_does_not_start_the_next(self):
         FakeApi.answers["/api/play/episode/e1"] = self.manifest()
-        router.watch = lambda session: setattr(session, "g", 50.0)
+        router.watch = lambda session, *a, **k: setattr(session, "g", 50.0)
         self.run_action(action="play", kind="episode", id="e1", name="The Show", queue="e2")
         self.assertFalse([c for c in xbmc.calls if c[0] == "builtin"])
 

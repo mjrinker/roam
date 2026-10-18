@@ -9,7 +9,7 @@ import xbmcgui
 import xbmcplugin
 import xbmcvfs
 
-from . import auth, timeline
+from . import auth, languages, timeline
 from .api import ApiClient, ApiError
 from .kodi_adapter import KodiAdapter
 from .session import PlaybackSession
@@ -734,20 +734,31 @@ def play(ctx):
         xbmcgui.Dialog().notification("Roam", manifest["notice"], xbmcgui.NOTIFICATION_INFO, 7000)
     session = PlaybackSession(manifest, kind, item_id, ctx.api, KodiAdapter(player, playlist, ADDON.getAddonInfo("path")), time.time,
                               ADDON.getSettingBool("mute_as_skip"))
-    watch(session)
+    watch(session, manifest.get("languagePrefs"), ctx.api)
     # On to the next episode of the season, if the person watched this one to the end.
     queue = [i for i in (p.get("queue") or "").split(",") if i]
     if queue and session.finished and not xbmc.Monitor().abortRequested():
         xbmc.executebuiltin("PlayMedia(%s)" % build_url(action="play", kind="episode", id=queue[0], name=p.get("name", ""), queue=",".join(queue[1:]) or None))
 
 
-def watch(session):
-    """Looks after one playback: waits for it to start, then checks it four times a second until it ends."""
+def watch(session, prefs=None, api=None):
+    """Looks after one playback: waits for it to start, then checks it four times a second until it ends. With the profile's languages,
+    it starts in them and tells Roam when the person picks others."""
     monitor = xbmc.Monitor()
     for _ in range(150):  # up to fifteen seconds for it to start
         if monitor.waitForAbort(0.1) or session.a.playing():
             break
+    watcher = None
+    if api is not None and session.a.playing() and getattr(session.a, "player", None) is not None:
+        try:
+            languages.apply_prefs(session.a.player, prefs)
+            watcher = languages.LanguageWatcher(api)
+            watcher.baseline()
+        except Exception:  # languages are a nicety: never stop the video for them
+            watcher = None
     while not monitor.abortRequested():
+        if watcher is not None:
+            watcher.tick()
         if not session.tick():
             return
         if monitor.waitForAbort(0.25):

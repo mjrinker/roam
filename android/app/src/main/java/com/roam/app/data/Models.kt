@@ -374,6 +374,9 @@ data class SkipSegment(val kind: String, val startSeconds: Double, val endSecond
 data class VersionOption(val label: String, val name: String, val height: Int? = null)
 
 @Serializable
+data class LanguagePrefs(val audio: String? = null, val subtitles: String? = null)
+
+@Serializable
 data class PlayManifest(
     val heartbeat: Boolean = false,
     val durationSeconds: Double,
@@ -386,6 +389,8 @@ data class PlayManifest(
     val notice: String? = null,
     val version: String? = null,
     val versions: List<VersionOption> = emptyList(),
+    /** The languages this profile wants by default (ISO 639-2). */
+    val languagePrefs: LanguagePrefs? = null,
 )
 
 @Serializable

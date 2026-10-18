@@ -8,6 +8,8 @@ sub init()
   m.status = m.top.findNode("status")
   m.skipBox = m.top.findNode("skipBox")
   m.video.observeField("state", "onState")
+  m.video.observeField("audioTrack", "onAudioTrack")
+  m.video.observeField("subtitleTrack", "onSubtitleTrack")
   m.top.findNode("tick").observeField("fire", "onTick")
   m.top.findNode("saveTimer").observeField("fire", "onSaveTimer")
   m.top.findNode("beatTimer").observeField("fire", "onBeat")
@@ -18,6 +20,8 @@ sub init()
   m.lastJump = -1000.0
   m.button = invalid
   m.retried = false
+  m.langDone = false
+  m.applyingLang = false
 end sub
 
 sub activate()
@@ -101,6 +105,7 @@ sub playAt(t as Float)
   content.streamFormat = streamFormatFor(m.seg.container)
   content.title = m.top.params.name
   if loc.localTime > 1 then content.PlayStart = Int(loc.localTime)
+  m.langDone = false
   m.video.content = content
   m.video.control = "play"
   m.video.setFocus(true)
@@ -124,6 +129,7 @@ sub onState(event as Object)
   state = event.getData()
   if state = "playing" then
     m.retried = false
+    applyLanguages()
     if m.status.text = "Buffering..." then say("")
   else if state = "buffering" then
     ' (said briefly by Roku's own spinner)
@@ -140,6 +146,81 @@ sub onState(event as Object)
       say("This couldn't be played. Press Back.")
     end if
   end if
+end sub
+
+' ── Languages ──
+' The three-letter language code in its one spelling ("fre" and "fra" are the same language).
+function normLang(code as Dynamic) as String
+  if code = invalid then return ""
+  c = LCase(code)
+  if Len(c) <> 3 then return ""
+  if c = "fre" then return "fra"
+  if c = "ger" then return "deu"
+  if c = "chi" then return "zho"
+  if c = "dut" then return "nld"
+  return c
+end function
+
+' Start in this profile's audio language and subtitles when the file has them (once per file, when it starts playing).
+sub applyLanguages()
+  if m.langDone = true or m.manifest = invalid then return
+  m.langDone = true
+  prefs = m.manifest.languagePrefs
+  if prefs = invalid then return
+  m.applyingLang = true
+  wantAudio = normLang(prefs.audio)
+  tracks = m.video.availableAudioTracks
+  if wantAudio <> "" and tracks <> invalid then
+    for each t in tracks
+      if normLang(t.Language) = wantAudio and t.Track <> m.video.audioTrack then
+        m.video.audioTrack = t.Track
+        exit for
+      end if
+    end for
+  end if
+  wantSubs = normLang(prefs.subtitles)
+  subs = m.video.availableSubtitleTracks
+  if wantSubs <> "" and subs <> invalid then
+    for each t in subs
+      if normLang(t.Language) = wantSubs then
+        m.video.subtitleTrack = t.TrackName
+        m.video.globalCaptionMode = "On"
+        exit for
+      end if
+    end for
+  end if
+  m.applyingLang = false
+end sub
+
+' The person chose another audio track in Roku's own menu: have Roam remember its language.
+sub onAudioTrack()
+  if m.applyingLang = true or m.langDone <> true then return
+  tracks = m.video.availableAudioTracks
+  if tracks = invalid then return
+  for each t in tracks
+    if t.Track = m.video.audioTrack then
+      lang = normLang(t.Language)
+      if lang <> "" then m.tasks.rememberAudio = apiCall("PUT", "/api/viewers/current/languages", { audio: lang }, "onRemembered")
+      exit for
+    end if
+  end for
+end sub
+
+sub onSubtitleTrack()
+  if m.applyingLang = true or m.langDone <> true then return
+  subs = m.video.availableSubtitleTracks
+  if subs = invalid then return
+  for each t in subs
+    if t.TrackName = m.video.subtitleTrack then
+      lang = normLang(t.Language)
+      if lang <> "" then m.tasks.rememberSubs = apiCall("PUT", "/api/viewers/current/languages", { subtitles: lang }, "onRemembered")
+      exit for
+    end if
+  end for
+end sub
+
+sub onRemembered(event as Object)
+  ' (best effort: nothing to do either way)
 end sub
 
 sub nextPart()

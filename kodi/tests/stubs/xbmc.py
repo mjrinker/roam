@@ -81,3 +81,21 @@ class Player:
 
     def stop(self):
         calls.append(("stop",))
+
+    audio_streams = []
+    subtitle_streams = []
+
+    def getAvailableAudioStreams(self):
+        return list(Player.audio_streams)
+
+    def getAvailableSubtitleStreams(self):
+        return list(Player.subtitle_streams)
+
+    def setAudioStream(self, i):
+        calls.append(("audio", i))
+
+    def setSubtitleStream(self, i):
+        calls.append(("subtitle", i))
+
+    def showSubtitles(self, on):
+        calls.append(("subtitles", on))

@@ -92,6 +92,10 @@ interface RoamApi {
     suspend fun removeWish(id: String)
     /** A radio: songs like an artist, or like a song (which then starts it). */
     suspend fun radio(artistId: String?, songId: String?): RadioResult
+    /** Remembers the audio language just picked, for the next video that has it. */
+    suspend fun rememberAudioLanguage(code: String)
+    /** Remembers the subtitle language just picked, or (null) that subtitles were turned off. */
+    suspend fun rememberSubtitleLanguage(code: String?)
 }
 
 class HttpRoamApi(
@@ -318,6 +322,14 @@ class HttpRoamApi(
 
     override suspend fun radio(artistId: String?, songId: String?): RadioResult =
         get("/api/music/radio", mapOf("artist" to artistId, "song" to songId))
+
+    override suspend fun rememberAudioLanguage(code: String) {
+        call("PUT", "/api/viewers/current/languages", body = buildJsonObject { put("audio", JsonPrimitive(code)) })
+    }
+
+    override suspend fun rememberSubtitleLanguage(code: String?) {
+        call("PUT", "/api/viewers/current/languages", body = buildJsonObject { put("subtitles", if (code == null) kotlinx.serialization.json.JsonNull else JsonPrimitive(code)) })
+    }
 }
 
 /** An OkHttp call as a suspending function (a failed connection becomes an ApiException with status 0). */
@@ -389,4 +401,6 @@ object Unsupported : RoamApi {
     override suspend fun wishAction(id: String, action: String) = nope()
     override suspend fun removeWish(id: String) = nope()
     override suspend fun radio(artistId: String?, songId: String?) = nope()
+    override suspend fun rememberAudioLanguage(code: String) = nope()
+    override suspend fun rememberSubtitleLanguage(code: String?) = nope()
 }

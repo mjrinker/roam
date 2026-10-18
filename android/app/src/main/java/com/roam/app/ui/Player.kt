@@ -50,6 +50,11 @@ import com.roam.app.data.VersionOption
 import com.roam.app.player.ApiReporter
 import com.roam.app.player.BackgroundAudio
 import com.roam.app.player.ExoEngine
+import com.roam.app.player.LanguageChoices
+import com.roam.app.player.applyLanguagePrefs
+import com.roam.app.player.chooseAudio
+import com.roam.app.player.chooseSubtitles
+import com.roam.app.player.languageChoices
 import com.roam.app.player.PlaybackSession
 import com.roam.app.player.PlayerEngine
 import com.roam.app.player.Reporter
@@ -174,8 +179,15 @@ fun PlayerHost(
     }
     if (audioOnly) AllowNotifications()
     var failed by remember(manifest) { mutableStateOf<String?>(null) }
+    // The audio and subtitle tracks the file holds, as the player reports them (they appear once it has read the file).
+    var languages by remember(manifest) { mutableStateOf<LanguageChoices?>(null) }
+    var subtitlesOff by remember(manifest) { mutableStateOf(false) }
     DisposableEffect(player) {
         val listener = object : Player.Listener {
+            override fun onTracksChanged(tracks: androidx.media3.common.Tracks) {
+                languages = languageChoices(tracks, subtitlesOff)
+            }
+
             override fun onPlayerError(error: PlaybackException) {
                 failed = "This couldn't be played: ${error.errorCodeName.lowercase().replace('_', ' ')}."
             }
@@ -192,6 +204,8 @@ fun PlayerHost(
         PlaybackSession(manifest, engineFor(player), reporterFor?.invoke() ?: ApiReporter(graph.api, kind, id, graph.appScope), graph.clockMs, skipInsteadOfMute = false, keepsPlace = keepsPlace)
     }
     LaunchedEffect(player) {
+        // Start in this profile's languages when the file has them.
+        if (!audioOnly) manifest.languagePrefs?.let { applyLanguagePrefs(player, it.audio, it.subtitles) }
         val loc = locatePart(manifest.segments, startSeconds)
         begin(player, loc?.index ?: 0, ((loc?.localSeconds ?: 0.0) * 1000).toLong())
     }
@@ -239,6 +253,48 @@ fun PlayerHost(
         ui.offer?.let { offer ->
             Button(onClick = session::pressSkip, modifier = Modifier.align(Alignment.BottomEnd).padding(end = 32.dp, bottom = 96.dp).focusRequester(focus).testTag("skip")) { Text(offer.label) }
         }
+    }
+
+    var choosingLanguage by remember { mutableStateOf(false) }
+    val tracks = languages
+    if (!audioOnly && tracks != null && (tracks.audio.size > 1 || tracks.subtitles.isNotEmpty())) {
+        Box(Modifier.fillMaxSize()) {
+            TextButton(onClick = { choosingLanguage = true }, modifier = Modifier.align(Alignment.TopStart).padding(16.dp).background(Color(0x99000000)).testTag("languages")) { Text("Audio & subtitles", color = Color.White) }
+        }
+    }
+    if (choosingLanguage && tracks != null) {
+        AlertDialog(
+            onDismissRequest = { choosingLanguage = false },
+            title = { Text("Audio & subtitles") },
+            text = {
+                Column {
+                    if (tracks.audio.size > 1) {
+                        Text("Audio", style = MaterialTheme.typography.titleSmall)
+                        for (a in tracks.audio) TextButton(enabled = a.supported, onClick = {
+                            choosingLanguage = false
+                            chooseAudio(player, a)
+                            a.language?.takeIf { it != "und" }?.let { code -> graph.appScope.launch { runCatching { graph.api.rememberAudioLanguage(code) } } }
+                        }, modifier = Modifier.testTag("audio-${a.group}-${a.index}")) { Text((if (a.selected) "✓ " else "") + a.label) }
+                    }
+                    if (tracks.subtitles.isNotEmpty()) {
+                        Text("Subtitles", style = MaterialTheme.typography.titleSmall)
+                        TextButton(onClick = {
+                            choosingLanguage = false
+                            subtitlesOff = true
+                            chooseSubtitles(player, null)
+                            graph.appScope.launch { runCatching { graph.api.rememberSubtitleLanguage(null) } }
+                        }, modifier = Modifier.testTag("subtitles-off")) { Text((if (!tracks.subtitlesOn) "✓ " else "") + "Off") }
+                        for (s in tracks.subtitles) TextButton(enabled = s.supported, onClick = {
+                            choosingLanguage = false
+                            subtitlesOff = false
+                            chooseSubtitles(player, s)
+                            s.language?.takeIf { it != "und" }?.let { code -> graph.appScope.launch { runCatching { graph.api.rememberSubtitleLanguage(code) } } }
+                        }, modifier = Modifier.testTag("subtitle-${s.group}-${s.index}")) { Text((if (tracks.subtitlesOn && s.selected) "✓ " else "") + s.label) }
+                    }
+                }
+            },
+            confirmButton = { TextButton(onClick = { choosingLanguage = false }) { Text("Close") } },
+        )
     }
 
     var choosingQuality by remember { mutableStateOf(false) }
