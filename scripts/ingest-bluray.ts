@@ -15,6 +15,8 @@
  *
  * Options: --name "David (2025)" (default: the folder's name)  --rungs 720,480,360,240,144  --preset medium  --crf 23
  *          --subs <folder of NAME.<lang>.srt files> (cut: written into every part as text subtitles)
+ *          --night  (cut: the AAC versions get one more audio track, the first one with its loud parts evened out and mixed down to stereo,
+ *                   named "<language> (night mode)": it shows in the player's Audio choice, for watching quietly late at night)
  */
 import { spawn } from "node:child_process";
 import { copyFile, mkdir, readdir, rename, rm, stat, writeFile } from "node:fs/promises";
@@ -35,6 +37,9 @@ const name = flag("--name") ?? basename(src);
 const preset = flag("--preset") ?? "medium";
 const crf = Number(flag("--crf") ?? 23);
 const subsDir = flag("--subs");
+const night = args.includes("--night");
+/** Evens out loud and quiet parts (explosions against dialogue) and keeps peaks from clipping. */
+const NIGHT_FILTER = "acompressor=threshold=-24dB:ratio=4:attack=20:release=250:makeup=6dB,alimiter=limit=0.9";
 const wantedRungs = (flag("--rungs") ?? "720,480,360,240,144").split(",").map(Number);
 const work = join(out, "work");
 const final = join(out, "final", name);
@@ -201,11 +206,18 @@ async function cutOne(opts: {
   const window = ["-ss", String(from), ...(to === null ? [] : ["-to", String(to)])];
   const argv = ["-y", "-v", "error", "-stats", ...window, "-i", video, ...window, "-i", movie, "-i", meta];
   subs.forEach((s) => argv.push(...window, "-i", s.file));
-  argv.push("-map", "0:v:0", "-map", "1:a", "-map_chapters", "2");
+  argv.push("-map", "0:v:0", "-map", "1:a");
+  const withNight = night && mode === "aac" && audio.length > 0;
+  if (withNight) argv.push("-map", "1:a:0");
+  argv.push("-map_chapters", "2");
   subs.forEach((_, i) => argv.push("-map", `${3 + i}:0`));
   argv.push("-c:v", "copy");
   if (mode === "orig") argv.push("-c:a", "copy");
   else audio.forEach((s, i) => argv.push(`-c:a:${i}`, "aac", `-b:a:${i}`, `${aacBitrate(rung, s.channels ?? 2)}k`));
+  if (withNight) {
+    const n = audio.length;
+    argv.push(`-c:a:${n}`, "aac", `-b:a:${n}`, "128k", `-filter:a:${n}`, NIGHT_FILTER, `-ac:a:${n}`, "2", `-metadata:s:a:${n}`, `language=${audio[0].tags?.language ?? "und"}`, `-metadata:s:a:${n}`, `handler_name=${labelOf(audio[0]).replace(/ (5\.1|Stereo|Mono|\d+ch)$/, "")} (night mode)`, `-disposition:a:${n}`, "0");
+  }
   if (subs.length) argv.push("-c:s", "mov_text");
   argv.push("-map_metadata", "-1");
   audio.forEach((s, i) => argv.push(`-metadata:s:a:${i}`, `language=${s.tags?.language ?? "und"}`, `-metadata:s:a:${i}`, `handler_name=${labelOf(s)}`, `-disposition:a:${i}`, i === 0 ? "default" : "0"));
