@@ -27,6 +27,9 @@ import { SubtitleOverlay, type LoadedTrack } from "@/components/player/subtitles
 import { SettingsMenu } from "@/components/player/settings-menu";
 import { useDataSaverState } from "@/components/ui/data-saver-context";
 import { AUTOPLAY_SECONDS, readAutoplay, writeAutoplay } from "@/lib/player/autoplay";
+import { CastButton } from "@/components/player/cast-button";
+import { useCast } from "@/components/player/use-cast";
+import { airPlayUsable } from "@/lib/player/cast";
 import { useWatchTogether } from "@/components/player/use-watch-together";
 import { WatchTogetherButton } from "@/components/player/watch-together";
 import { rememberLanguage, useEmbeddedTracks } from "@/components/player/use-embedded-tracks";
@@ -856,6 +859,23 @@ export function SeamlessPlayer({
     },
     [currentGlobalTime, seekTo]
   );
+  // Casting: the picture goes to a Chromecast (and its place comes back here when it stops), or to an AirPlay screen in Safari.
+  const cast = useCast({
+    manifest,
+    enabled: mode === "full" && ownerKind !== "extra",
+    title,
+    getTime: currentGlobalTime,
+    pauseLocal: () => videoRefs.current.forEach((el) => el?.pause()),
+    resumeLocal: (at) => seekTo(Math.max(0, Math.min(at, (manifestRef.current?.durationSeconds ?? at) - 0.5))),
+  });
+  // While casting, where it got to is kept as the place (a quarter of a minute apart).
+  const castTime = cast.casting?.time ?? null;
+  const castSavedAt = useRef(0);
+  useEffect(() => {
+    if (castTime === null || Date.now() - castSavedAt.current < 15_000) return;
+    castSavedAt.current = Date.now();
+    saveProgress(castTime, false);
+  }, [castTime, saveProgress]);
   const together = useWatchTogether({
     roomId: mode === "full" ? roomId : null,
     getLocal: roomLocal,
@@ -1247,6 +1267,20 @@ export function SeamlessPlayer({
         </button>
       )}
 
+      {cast.casting && (
+        <div className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-4 bg-black/90 px-6 text-center" role="status" aria-label="Casting">
+          <p className="text-xl font-semibold text-white">Playing on {cast.casting.device}</p>
+          <p className="text-sm text-white/70">{formatTime(cast.casting.time)} of {formatTime(manifest?.durationSeconds ?? 0)}</p>
+          <div className="flex gap-3">
+            <Button variant="secondary" className="h-11 rounded-xl bg-white/10 px-5 hover:bg-white/20" onClick={cast.togglePause}>
+              {cast.casting.playing ? "Pause" : "Play"}
+            </Button>
+            <Button variant="secondary" className="h-11 rounded-xl bg-white/10 px-5 hover:bg-white/20" onClick={cast.stop}>
+              Stop casting
+            </Button>
+          </div>
+        </div>
+      )}
       {screenUp && !finished && (
         <div className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-4 bg-black/90 px-6 text-center" role="alertdialog" aria-label="Screen time">
           <p className="text-2xl font-semibold text-white">Time to take a break</p>
@@ -1473,6 +1507,15 @@ export function SeamlessPlayer({
             >
               <Flag className="size-5" />
             </Button>
+          )}
+          {mode === "full" && ownerKind !== "extra" && (
+            <CastButton
+              available={cast.available}
+              airPlay={airPlayUsable(manifest, typeof HTMLVideoElement === "undefined" ? null : (HTMLVideoElement.prototype as { webkitShowPlaybackTargetPicker?: unknown }))}
+              problem={cast.problem}
+              onCast={() => void cast.start()}
+              onAirPlay={() => (videoRefs.current[frontSlotRef.current] as unknown as { webkitShowPlaybackTargetPicker: () => void } | null)?.webkitShowPlaybackTargetPicker()}
+            />
           )}
           {mode === "full" && ownerKind !== "extra" && (
             <WatchTogetherButton roomId={roomId} watching={together.watching} ownerKind={ownerKind} ownerId={ownerId} notice={roomNotice} onStart={setRoomId} onLeave={() => setRoomId(null)} />
