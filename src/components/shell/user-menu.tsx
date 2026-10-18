@@ -4,8 +4,9 @@ import { setOfflineViewer } from "@/lib/offline/viewer";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
-import { Gauge, LayoutGrid, LogOut, Settings2, Users } from "lucide-react";
+import { Database, Gauge, LayoutGrid, LogOut, Settings2, Users } from "lucide-react";
 import { DataSaverDialog } from "@/components/shell/data-saver-dialog";
+import { YourDataDialog } from "@/components/shell/your-data-dialog";
 import { useDataSaverState } from "@/components/ui/data-saver-context";
 import { describeDataSaver } from "@/lib/player/data-saver-mode";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
@@ -19,16 +20,19 @@ import {
 } from "@/components/ui/dropdown-menu";
 
 export function UserMenu({
+  serverId,
   email,
   profileName,
   avatarKey,
 }: {
+  serverId: string;
   email: string;
   profileName: string;
   avatarKey: string;
 }) {
   const router = useRouter();
   const [saverOpen, setSaverOpen] = useState(false);
+  const [dataOpen, setDataOpen] = useState(false);
   const saver = useDataSaverState();
 
   async function signOut() {
@@ -74,6 +78,10 @@ export function UserMenu({
             <span className="block truncate text-xs text-muted-foreground">{describeDataSaver(saver.mode, saver.profileOn, saver.metered)}</span>
           </span>
         </DropdownMenuItem>
+        <DropdownMenuItem onClick={() => setDataOpen(true)} className="gap-2.5">
+          <Database className="size-4 text-muted-foreground" />
+          Your data
+        </DropdownMenuItem>
         <DropdownMenuSeparator />
         <DropdownMenuItem render={<Link href="/servers" />} className="gap-2.5">
           <LayoutGrid className="size-4 text-muted-foreground" />
@@ -86,6 +94,7 @@ export function UserMenu({
       </DropdownMenuContent>
     </DropdownMenu>
     <DataSaverDialog open={saverOpen} onOpenChange={setSaverOpen} />
+    <YourDataDialog serverId={serverId} open={dataOpen} onOpenChange={setDataOpen} />
     </>
   );
 }

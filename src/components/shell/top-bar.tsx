@@ -39,7 +39,7 @@ export function TopBar({
       </div>
 
       <NotificationBell />
-      <UserMenu email={email} profileName={profileName} avatarKey={avatarKey} />
+      <UserMenu serverId={serverId} email={email} profileName={profileName} avatarKey={avatarKey} />
     </header>
   );
 }
