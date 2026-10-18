@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { ArrowDown, Loader2 } from "lucide-react";
 import { PhotoScrubber } from "@/components/photos/photo-scrubber";
 import { PhotoTile } from "@/components/photos/photo-tile";
 import { PhotoViewer } from "@/components/photos/photo-viewer";
@@ -68,7 +69,7 @@ export function PhotoTimeline({
   const [zoom, setZoom] = useState<ZoomLevel>("month");
   const [buckets, setBuckets] = useState<MonthBucket[]>(initialBuckets);
   const [bucketsLevel, setBucketsLevel] = useState<ZoomLevel>("month");
-  const [months] = useState(() => initialBuckets.map((b) => b.key));
+  const [months, setMonths] = useState(() => initialBuckets.map((b) => b.key));
   // The first photos arrive with the page; a block they only partly fill is completed when it comes into view.
   const [loaded, setLoaded] = useState<Record<string, Loaded>>(() => {
     const seeded: Record<string, Loaded> = {};
@@ -93,6 +94,21 @@ export function PhotoTimeline({
   useEffect(() => {
     loadedRef.current = loaded;
   }, [loaded]);
+  const bucketsRef = useRef(buckets);
+  const bucketsLevelRef = useRef(bucketsLevel);
+  useEffect(() => {
+    bucketsRef.current = buckets;
+    bucketsLevelRef.current = bucketsLevel;
+  }, [buckets, bucketsLevel]);
+
+  // ── Looking for new photos: the library is checked from its newest photo forward when it opens and when it is pulled down ──
+  const canRefresh = view === "timeline" && !q;
+  const [refreshing, setRefreshing] = useState(false);
+  const [pull, setPull] = useState(0);
+  const refreshingRef = useRef(false);
+  /** Where the page was just before new photos were put in, so it can be put back (a block, and how far its top is above the line). */
+  const anchorRef = useRef<{ key: string; offset: number } | null>(null);
+  const [anchorTick, setAnchorTick] = useState(0);
 
   // ── Measuring: exact block heights need the list's width and how many tiles fit across ──
   useLayoutEffect(() => {
@@ -294,6 +310,108 @@ export function PhotoTimeline({
     [months, blockOf]
   );
 
+  // The block at the top of the screen, and how far into it the top is: what stays put when photos are added above.
+  const captureAnchor = useCallback((): { key: string; offset: number } | null => {
+    if (window.scrollY < 8) return null; // at the very top the new photos simply appear there
+    const root = listRef.current;
+    if (!root) return null;
+    for (const el of Array.from(root.querySelectorAll<HTMLElement>("[data-bucket]"))) {
+      const rect = el.getBoundingClientRect();
+      if (rect.top <= SCRUB_OFFSET && rect.bottom > SCRUB_OFFSET) return { key: el.dataset.bucket!, offset: SCRUB_OFFSET - rect.top };
+    }
+    return null;
+  }, []);
+
+  const refresh = useCallback(async () => {
+    if (!canRefresh || refreshingRef.current) return;
+    refreshingRef.current = true;
+    setRefreshing(true);
+    try {
+      const res = await fetch(`/api/libraries/${libraryId}/photos/refresh`, { method: "POST", credentials: "same-origin" });
+      if (!res.ok) return;
+      const body = (await res.json()) as { added: number };
+      if (!body.added) return;
+      // New photos: fetch the blocks as they are now, and put them in without moving what is on screen.
+      const gen = generation.current;
+      const level = bucketsLevelRef.current;
+      const [current, monthLevel] = await Promise.all([
+        fetch(`/api/libraries/${libraryId}/photos/months?level=${level}`, { credentials: "same-origin" }).then((r) => (r.ok ? r.json() : null)),
+        level === "month" ? null : fetch(`/api/libraries/${libraryId}/photos/months?level=month`, { credentials: "same-origin" }).then((r) => (r.ok ? r.json() : null)),
+      ]);
+      if (!current || gen !== generation.current) return;
+      const next = (current as { months: MonthBucket[] }).months;
+      const before = new Map(bucketsRef.current.map((b) => [b.key, b.count]));
+      anchorRef.current = captureAnchor();
+      // A block whose photo count changed fills again (keeping what it shows meanwhile); a new block fills when it comes into view.
+      setLoaded((cur) => Object.fromEntries(Object.entries(cur).map(([key, block]) => [key, before.get(key) === next.find((b) => b.key === key)?.count ? block : { ...block, complete: false }])));
+      setBuckets(next);
+      setMonths(((monthLevel ?? current) as { months: MonthBucket[] }).months.map((b) => b.key));
+      setAnchorTick((t) => t + 1);
+    } catch {
+      /* the next look tries again */
+    } finally {
+      refreshingRef.current = false;
+      setRefreshing(false);
+      pumpRef.current();
+    }
+  }, [canRefresh, libraryId, captureAnchor]);
+
+  // After new photos change the blocks' heights, put the page back where the viewer was.
+  useLayoutEffect(() => {
+    const anchor = anchorRef.current;
+    if (!anchor) return;
+    anchorRef.current = null;
+    const el = listRef.current?.querySelector<HTMLElement>(`[data-bucket="${anchor.key}"]`);
+    if (!el) return;
+    const wanted = SCRUB_OFFSET - anchor.offset;
+    const delta = el.getBoundingClientRect().top - wanted;
+    if (Math.abs(delta) > 0.5) window.scrollBy(0, delta);
+  }, [anchorTick]);
+
+  // Look once when the library opens (after the photos already known have been drawn).
+  useEffect(() => {
+    if (!canRefresh) return;
+    const t = setTimeout(() => void refresh(), 0);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- only on opening
+  }, []);
+
+  // Pulling down at the top of the page looks again. (The browser's own pull-to-reload is switched off here: it would reload everything.)
+  useEffect(() => {
+    if (!canRefresh) return;
+    const html = document.documentElement;
+    const previous = html.style.overscrollBehaviorY;
+    html.style.overscrollBehaviorY = "contain";
+    let startY: number | null = null;
+    let distance = 0;
+    const start = (e: TouchEvent) => {
+      startY = window.scrollY <= 0 && e.touches.length === 1 ? e.touches[0].clientY : null;
+      distance = 0;
+    };
+    const move = (e: TouchEvent) => {
+      if (startY === null) return;
+      distance = Math.max(0, Math.min(110, (e.touches[0].clientY - startY) * 0.5));
+      setPull(window.scrollY <= 0 ? distance : 0);
+    };
+    const end = () => {
+      if (startY !== null && distance >= 55) void refresh();
+      startY = null;
+      distance = 0;
+      setPull(0);
+    };
+    window.addEventListener("touchstart", start, { passive: true });
+    window.addEventListener("touchmove", move, { passive: true });
+    window.addEventListener("touchend", end, { passive: true });
+    window.addEventListener("touchcancel", end, { passive: true });
+    return () => {
+      html.style.overscrollBehaviorY = previous;
+      window.removeEventListener("touchstart", start);
+      window.removeEventListener("touchmove", move);
+      window.removeEventListener("touchend", end);
+      window.removeEventListener("touchcancel", end);
+    };
+  }, [canRefresh, refresh]);
+
   const chooseZoom = (level: ZoomLevel) => {
     setZoom(level);
     try {
@@ -389,6 +507,15 @@ export function PhotoTimeline({
 
   return (
     <div className="flex flex-col gap-6 pr-8">
+      {(refreshing || pull > 0) && (
+        <div className="pointer-events-none fixed inset-x-0 top-16 z-30 flex flex-col items-center" role="status" aria-live="polite" style={{ transform: refreshing ? undefined : `translateY(${pull * 0.6}px)` }}>
+          {refreshing && <div className="h-0.5 w-full animate-pulse bg-primary" />}
+          <div className="mt-2 flex items-center gap-2 rounded-full bg-black/80 px-3 py-1.5 text-xs text-white shadow-lg ring-1 ring-white/15">
+            {refreshing ? <Loader2 className="size-3.5 animate-spin" /> : <ArrowDown className="size-3.5 transition-transform" style={{ transform: pull >= 55 ? "rotate(180deg)" : undefined }} />}
+            {refreshing ? "Looking for new photos…" : pull >= 55 ? "Release to look for new photos" : "Pull to look for new photos"}
+          </div>
+        </div>
+      )}
       <div role="group" aria-label="Zoom" className="flex w-fit gap-1 rounded-xl bg-white/[0.05] p-1 ring-1 ring-white/[0.08]">
         {ZOOM_LEVELS.map((level) => (
           <button
