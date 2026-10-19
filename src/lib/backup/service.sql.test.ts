@@ -1,7 +1,7 @@
 /** Exporting a profile and importing a file: matched by TMDB id or name and year, only what the profile can see, never removing anything. */
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { and, eq } from "drizzle-orm";
-import { episodes, labelItems, labels, ratings, watchlistItems, watchState } from "@/lib/db/schema";
+import { episodes, labelItems, labels, mediaFiles, photoFavorites, ratings, watchlistItems, watchState } from "@/lib/db/schema";
 import { createTestDb, joinServer, makeAccount, makeLibrary, makeServer, makeShow, makeTitle, type TestDb } from "@/lib/playlists/test-db";
 import { parseImport, buildExport } from "./format";
 import { applyImport, exportProfile, type BackupScope } from "./service";
@@ -103,5 +103,33 @@ describe("matching a file from elsewhere", () => {
     await applyImport(db, w.scope, parsed.data);
     const [row] = await db.select().from(watchState).where(eq(watchState.ownerId, film.id));
     expect([row.finished, row.positionSeconds]).toEqual([true, 0]);
+  });
+});
+
+describe("favorite photos", () => {
+  it("are exported by where the picture is and hearted again on another profile, only for pictures that profile can see", async () => {
+    const w = await world("fav");
+    const photos = await makeLibrary(db, w.server.id, "photos", "everyone");
+    const secret = await makeLibrary(db, w.server.id, "photos", "restricted");
+    const mk = async (libraryId: string, filename: string, folder: string) => {
+      const t = await makeTitle(db, libraryId, { kind: "photo", boxFolderId: `file:${filename}${libraryId}`, folderPath: folder });
+      await db.insert(mediaFiles).values({ ownerKind: "title", ownerId: t.id, partIndex: 0, boxFileId: `b${filename}${libraryId}`, filename, sizeBytes: 5, container: "jpg", probeStatus: "ok" });
+      return t;
+    };
+    const a = await mk(photos.id, "IMG_1.JPG", "2019/Beach");
+    const b = await mk(photos.id, "IMG_2.JPG", "");
+    const hidden = await mk(secret.id, "IMG_3.JPG", "");
+    await db.insert(photoFavorites).values([{ viewerId: w.me.viewer.id, titleId: a.id }, { viewerId: w.me.viewer.id, titleId: hidden.id }]);
+    const data = await exportProfile(db, w.scope);
+    expect(data.photoFavorites).toEqual([{ library: expect.any(String), folder: "2019/Beach", filename: "IMG_1.JPG" }]);
+
+    const other = await makeAccount(db, "favother");
+    await joinServer(db, w.server.id, other.accountId);
+    const scope2: BackupScope = { ...w.scope, actor: { ...w.scope.actor, accountId: other.accountId }, viewerId: other.viewer.id };
+    const parsed = parseImport(buildExport(data, { profileName: "Ann", serverName: "S", now: new Date() }));
+    if (!parsed.ok) throw new Error("unreadable");
+    expect(await applyImport(db, scope2, parsed.data)).toMatchObject({ photoFavorites: 1, notFound: { total: 0 } });
+    expect((await db.select().from(photoFavorites).where(eq(photoFavorites.viewerId, other.viewer.id))).map((f) => f.titleId)).toEqual([a.id]);
+    void b;
   });
 });

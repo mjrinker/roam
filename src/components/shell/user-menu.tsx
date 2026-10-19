@@ -24,11 +24,13 @@ export function UserMenu({
   email,
   profileName,
   avatarKey,
+  isAdmin = false,
 }: {
   serverId: string;
   email: string;
   profileName: string;
   avatarKey: string;
+  isAdmin?: boolean;
 }) {
   const router = useRouter();
   const [saverOpen, setSaverOpen] = useState(false);
@@ -94,7 +96,7 @@ export function UserMenu({
       </DropdownMenuContent>
     </DropdownMenu>
     <DataSaverDialog open={saverOpen} onOpenChange={setSaverOpen} />
-    <YourDataDialog serverId={serverId} open={dataOpen} onOpenChange={setDataOpen} />
+    <YourDataDialog serverId={serverId} open={dataOpen} onOpenChange={setDataOpen} isAdmin={isAdmin} />
     </>
   );
 }

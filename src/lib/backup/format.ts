@@ -21,6 +21,24 @@ export interface EpisodeRef extends Omit<TitleRef, "kind"> {
 
 export type ItemRef = TitleRef | EpisodeRef;
 
+/** A photo or video in a photo library, named by where it is (the library, the folder in it, the file name), not by this server's ids. */
+export interface PhotoRef {
+  library: string;
+  folder: string;
+  filename: string;
+}
+
+export const photoKey = (p: PhotoRef) => `${p.library.toLowerCase()}\u0000${p.folder.toLowerCase()}\u0000${p.filename.toLowerCase()}`;
+
+export function photoRefFrom(raw: unknown): PhotoRef | null {
+  if (!raw || typeof raw !== "object") return null;
+  const r = raw as Record<string, unknown>;
+  const library = typeof r.library === "string" ? r.library.trim() : "";
+  const filename = typeof r.filename === "string" ? r.filename.trim() : "";
+  const folder = typeof r.folder === "string" ? r.folder.trim() : "";
+  return library && filename ? { library, folder, filename } : null;
+}
+
 export interface WatchedEntry {
   ref: ItemRef;
   finished: boolean;
@@ -35,9 +53,11 @@ export interface ProfileData {
   ratings: { ref: ItemRef; halfStars: number }[];
   labels: { name: string; titles: TitleRef[] }[];
   watchlist: TitleRef[];
+  /** The photos and videos this profile hearted. */
+  photoFavorites: PhotoRef[];
 }
 
-export const emptyData = (): ProfileData => ({ watched: [], ratings: [], labels: [], watchlist: [] });
+export const emptyData = (): ProfileData => ({ watched: [], ratings: [], labels: [], watchlist: [], photoFavorites: [] });
 
 export const FORMAT_NAME = "roam-profile";
 
@@ -102,6 +122,7 @@ export function parseRoamJson(text: string): ParseResult {
     if (name) data.labels.push({ name, titles: list(e.titles).map(titleRefFrom).filter((t): t is TitleRef => t !== null) });
   }
   data.watchlist = list(doc.watchlist).map(titleRefFrom).filter((t): t is TitleRef => t !== null);
+  data.photoFavorites = list(doc.photoFavorites).map(photoRefFrom).filter((p): p is PhotoRef => p !== null);
   return { ok: true, data, source: "Roam" };
 }
 

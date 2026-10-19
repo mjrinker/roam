@@ -1,11 +1,12 @@
 /** Building a profile's export from the database, and applying an import to it: only titles the profile may see on this server count. */
 import { and, eq, inArray } from "drizzle-orm";
 import type { PgDatabase, PgQueryResultHKT } from "drizzle-orm/pg-core";
-import { episodes, labelItems, labels, libraries, ratings, seasons, titles, watchlistItems, watchState } from "@/lib/db/schema";
+import { episodes, labelItems, labels, libraries, mediaFiles, photoFavorites, ratings, seasons, titles, watchlistItems, watchState } from "@/lib/db/schema";
+import { PHOTO_LIBRARY_KINDS } from "@/lib/libraries/profile";
 import { contentFilter, type AccessProfile } from "@/lib/content/access";
 import { libraryVisible, type LibraryActor } from "@/lib/content/library-access";
 import { createLabel, listLabels, setTitleLabel } from "@/lib/labels/service";
-import { emptyData, type ItemRef, type ProfileData, type TitleRef } from "./format";
+import { emptyData, photoKey, type ItemRef, type PhotoRef, type ProfileData, type TitleRef } from "./format";
 
 type Db = PgDatabase<PgQueryResultHKT, Record<string, unknown>>;
 
@@ -29,12 +30,28 @@ async function visibleTitles(ex: Db, s: BackupScope) {
 
 const titleRef = (t: { kind: string; name: string; year: number | null; tmdbId: number | null }): TitleRef => ({ kind: t.kind === "show" ? "show" : "movie", title: t.name, year: t.year, tmdbId: t.tmdbId });
 
-/** Everything this profile has watched, rated, labelled and means to watch, among what it can see on this server. */
+/** The pictures and clips in photo libraries on this server that the profile may see, each with where it is. */
+async function visiblePhotos(ex: Db, s: BackupScope) {
+  return ex
+    .select({ id: titles.id, library: libraries.name, folder: titles.folderPath, filename: mediaFiles.filename })
+    .from(titles)
+    .innerJoin(libraries, eq(libraries.id, titles.libraryId))
+    .innerJoin(mediaFiles, and(eq(mediaFiles.ownerKind, "title"), eq(mediaFiles.ownerId, titles.id), eq(mediaFiles.partIndex, 0)))
+    .where(and(eq(libraries.serverId, s.serverId), inArray(libraries.kind, [...PHOTO_LIBRARY_KINDS]), libraryVisible(ex, s.actor), contentFilter(s.viewer, titles.ratingAges), inArray(titles.kind, ["photo", "movie"])));
+}
+
+/** Everything this profile has watched, rated, labelled, hearted and means to watch, among what it can see on this server. */
 export async function exportProfile(ex: Db, s: BackupScope): Promise<ProfileData> {
   const all = await visibleTitles(ex, s);
   const byId = new Map(all.map((t) => [t.id, t]));
   const ids = all.map((t) => t.id);
   const data = emptyData();
+
+  const photos = await visiblePhotos(ex, s);
+  if (photos.length > 0) {
+    const hearts = new Set((await ex.select({ titleId: photoFavorites.titleId }).from(photoFavorites).where(eq(photoFavorites.viewerId, s.viewerId))).map((h) => h.titleId));
+    data.photoFavorites = photos.filter((p) => hearts.has(p.id)).map((p): PhotoRef => ({ library: p.library, folder: p.folder ?? "", filename: p.filename }));
+  }
   if (ids.length === 0) return data;
 
   const eps = await ex
@@ -78,6 +95,7 @@ export interface ImportResult {
   ratings: number;
   labels: number;
   watchlist: number;
+  photoFavorites: number;
   /** Things in the file that aren't on this server (or that this profile can't see): a few of them by name. */
   notFound: { total: number; sample: string[] };
 }
@@ -133,7 +151,7 @@ export async function applyImport(ex: Db, s: BackupScope, data: ProfileData, now
     return { kind: "episode", id: ep };
   };
 
-  const result: ImportResult = { watched: 0, ratings: 0, labels: 0, watchlist: 0, notFound: { total: 0, sample: [] } };
+  const result: ImportResult = { watched: 0, ratings: 0, labels: 0, watchlist: 0, photoFavorites: 0, notFound: { total: 0, sample: [] } };
   for (const w of data.watched) {
     const t = target(w.ref);
     if (!t) continue;
@@ -179,6 +197,18 @@ export async function applyImport(ex: Db, s: BackupScope, data: ProfileData, now
     if (!tid) continue;
     await ex.insert(watchlistItems).values({ viewerId: s.viewerId, titleId: tid }).onConflictDoNothing();
     result.watchlist++;
+  }
+  if (data.photoFavorites.length > 0) {
+    const byKey = new Map((await visiblePhotos(ex, s)).map((p) => [photoKey({ library: p.library, folder: p.folder ?? "", filename: p.filename }), p.id]));
+    for (const p of data.photoFavorites) {
+      const id = byKey.get(photoKey(p));
+      if (!id) {
+        missing.add(`${p.folder ? `${p.folder}/` : ""}${p.filename}`);
+        continue;
+      }
+      await ex.insert(photoFavorites).values({ viewerId: s.viewerId, titleId: id }).onConflictDoNothing();
+      result.photoFavorites++;
+    }
   }
   result.notFound = { total: missing.size, sample: [...missing].slice(0, 20) };
   return result;

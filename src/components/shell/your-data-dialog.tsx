@@ -11,11 +11,23 @@ interface ImportAnswer {
   ratings: number;
   labels: number;
   watchlist: number;
+  photoFavorites?: number;
   notFound: { total: number; sample: string[] };
 }
 
 /** Take this profile's watch history, ratings, labels and watch list away as a file, or bring a file in (from Roam, Letterboxd, or a plain CSV). */
-export function YourDataDialog({ serverId, open, onOpenChange }: { serverId: string; open: boolean; onOpenChange: (open: boolean) => void }) {
+interface PhotoAnswer {
+  people: number;
+  dates: number;
+  places: number;
+  tags: number;
+  dismissed: number;
+  waitingForFaces: number;
+  notFound: { total: number; sample: string[] };
+}
+
+export function YourDataDialog({ serverId, open, onOpenChange, isAdmin = false }: { serverId: string; open: boolean; onOpenChange: (open: boolean) => void; isAdmin?: boolean }) {
+  const [photoAnswer, setPhotoAnswer] = useState<PhotoAnswer | null>(null);
   const [busy, setBusy] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
   const [answer, setAnswer] = useState<ImportAnswer | null>(null);
@@ -69,6 +81,19 @@ export function YourDataDialog({ serverId, open, onOpenChange }: { serverId: str
     loadTrakt();
   }
 
+  async function choosePhotos(file: File | undefined) {
+    if (!file) return;
+    setBusy(true);
+    setProblem(null);
+    setPhotoAnswer(null);
+    const res = await fetch(`/api/import/photos?serverId=${serverId}`, { method: "POST", headers: { "Content-Type": "text/plain" }, body: await file.text() }).catch(() => null);
+    setBusy(false);
+    if (!res) return setProblem("Couldn't reach the server.");
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) return setProblem(typeof body.error === "string" ? body.error : "That didn't work.");
+    setPhotoAnswer(body as PhotoAnswer);
+  }
+
   async function choose(file: File | undefined) {
     if (!file) return;
     setBusy(true);
@@ -87,7 +112,7 @@ export function YourDataDialog({ serverId, open, onOpenChange }: { serverId: str
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle>Your data</DialogTitle>
-          <DialogDescription>For this profile on this server: what you have watched, your ratings, labels and watch list.</DialogDescription>
+          <DialogDescription>For this profile on this server: what you have watched, your ratings, labels, watch list and favorite photos.</DialogDescription>
         </DialogHeader>
         <div className="grid gap-4 text-sm">
           <div className="grid gap-1.5">
@@ -103,6 +128,22 @@ export function YourDataDialog({ serverId, open, onOpenChange }: { serverId: str
             </label>
             <p className="text-xs text-muted-foreground">A Roam export, or Letterboxd&apos;s <em>watched.csv</em> or <em>ratings.csv</em>, or a CSV with the columns type, title, year, season, episode, rating and watched. It adds to what is there and never removes anything.</p>
           </div>
+          {isAdmin && (
+            <div className="grid gap-1.5 border-t border-white/10 pt-3">
+              <p className="font-medium">Photo details (admin)</p>
+              <p className="text-xs text-muted-foreground">The people you have named and tagged, faces you dismissed, and dates and places you set by hand: for the whole server, not just this profile.</p>
+              <div className="flex flex-wrap gap-2">
+                <Button render={<a href={`/api/export/photos?serverId=${serverId}`} download />} variant="secondary" size="sm" className="gap-2">
+                  <Download className="size-4" /> Export
+                </Button>
+                <label className="inline-flex h-7 cursor-pointer items-center gap-2 rounded-[min(var(--radius-md),12px)] bg-secondary px-2.5 text-[0.8rem] font-medium text-secondary-foreground hover:bg-secondary/80">
+                  {busy ? <Loader2 className="size-4 animate-spin" /> : <Upload className="size-4" />} Import
+                  <input type="file" accept=".json,application/json" className="sr-only" aria-label="Photo file to import" disabled={busy} onChange={(e) => void choosePhotos(e.target.files?.[0])} />
+                </label>
+              </div>
+              <p className="text-xs text-muted-foreground">Faces are found again by running scan-faces on your computer; tags are then put back on the face at the same place in the picture. Importing adds to what is there and never removes anything.</p>
+            </div>
+          )}
           {trakt?.configured && (
             <div className="grid gap-1.5 border-t border-white/10 pt-3">
               <p className="font-medium">Trakt</p>
@@ -137,11 +178,28 @@ export function YourDataDialog({ serverId, open, onOpenChange }: { serverId: str
               {problem}
             </p>
           )}
+          {photoAnswer && (
+            <div role="status" className="rounded-lg bg-white/[0.04] p-3">
+              <p className="font-medium">Photo details brought in</p>
+              <p className="text-muted-foreground">
+                {photoAnswer.tags} tagged faces · {photoAnswer.people} new people · {photoAnswer.dates} dates · {photoAnswer.places} places{photoAnswer.dismissed > 0 ? ` · ${photoAnswer.dismissed} dismissed faces` : ""}
+              </p>
+              {photoAnswer.waitingForFaces > 0 && (
+                <p className="mt-2 text-xs text-muted-foreground">{photoAnswer.waitingForFaces} tags are waiting for their faces to be found. Run scan-faces, then bring this file in again.</p>
+              )}
+              {photoAnswer.notFound.total > 0 && (
+                <p className="mt-2 text-xs text-muted-foreground">
+                  {photoAnswer.notFound.total} pictures not on this server: {photoAnswer.notFound.sample.slice(0, 5).join(", ")}
+                  {photoAnswer.notFound.total > 5 ? "…" : ""}
+                </p>
+              )}
+            </div>
+          )}
           {answer && (
             <div role="status" className="rounded-lg bg-white/[0.04] p-3">
               <p className="font-medium">Brought in from {answer.source}</p>
               <p className="text-muted-foreground">
-                {answer.watched} watched · {answer.ratings} ratings · {answer.labels} labels · {answer.watchlist} on the watch list
+                {answer.watched} watched · {answer.ratings} ratings · {answer.labels} labels · {answer.watchlist} on the watch list{answer.photoFavorites ? ` · ${answer.photoFavorites} favorite photos` : ""}
               </p>
               {answer.notFound.total > 0 && (
                 <p className="mt-2 text-xs text-muted-foreground">

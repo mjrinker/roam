@@ -15,6 +15,7 @@ describe("a Roam export", () => {
       ratings: [{ ref: { kind: "show", title: "Lost", year: 2004, tmdbId: 4607 }, halfStars: 9 }],
       labels: [{ name: "Date night", titles: [{ kind: "movie", title: "Heat", year: 1995, tmdbId: 949 }] }],
       watchlist: [{ kind: "show", title: "Dark", year: 2017, tmdbId: null }],
+      photoFavorites: [{ library: "Photos", folder: "2019/Beach", filename: "IMG_0001.JPG" }],
     };
     const text = buildExport(data, { profileName: "Ann", serverName: "Home", now: new Date("2026-10-18T00:00:00Z") });
     const parsed = parseImport(text);
@@ -22,9 +23,11 @@ describe("a Roam export", () => {
     const broken = JSON.parse(text);
     broken.watched.push({ ref: { kind: "movie" } }, { ref: { kind: "episode", title: "X" } });
     broken.ratings.push({ ref: broken.watched[0].ref, halfStars: 99 });
+    broken.photoFavorites.push({ library: "", filename: "x.jpg" }, "nope");
     const again = parseImport(JSON.stringify(broken));
     expect(again.ok && again.data.watched).toHaveLength(2);
     expect(again.ok && again.data.ratings).toHaveLength(1);
+    expect(again.ok && again.data.photoFavorites).toHaveLength(1);
   });
   it("refuses JSON that isn't one, and text that isn't JSON", () => {
     expect(parseImport('{"format":"other"}')).toEqual({ ok: false, error: "That isn't a Roam export." });

@@ -13,11 +13,13 @@ export function TopBar({
   email,
   profileName,
   avatarKey,
+  isAdmin = false,
 }: {
   serverId: string;
   email: string;
   profileName: string;
   avatarKey: string;
+  isAdmin?: boolean;
 }) {
   const { setDrawerOpen } = useShell();
 
@@ -39,7 +41,7 @@ export function TopBar({
       </div>
 
       <NotificationBell />
-      <UserMenu serverId={serverId} email={email} profileName={profileName} avatarKey={avatarKey} />
+      <UserMenu serverId={serverId} email={email} profileName={profileName} avatarKey={avatarKey} isAdmin={isAdmin} />
     </header>
   );
 }

@@ -52,6 +52,7 @@ export default async function BrowseLayout({
             email={accountLabel(profile)}
             profileName={viewer.name}
             avatarKey={viewer.avatarKey}
+            isAdmin={role === "admin" && viewer.role !== "limited"}
           />
           <main className="flex-1">{children}</main>
           <footer className="px-4 py-8">
