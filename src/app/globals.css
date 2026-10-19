@@ -119,8 +119,12 @@
     touch-action: manipulation;
     -webkit-text-size-adjust: 100%;
     overscroll-behavior-y: none;
+    /* Nothing makes a page wider than the screen: a stray wide element must not let the page slide sideways under a finger. Carousels
+       scroll inside their own boxes and are not affected (clip, unlike hidden, leaves sticky headers working). */
+    overflow-x: clip;
   }
   body {
+    overflow-x: clip;
     -webkit-font-smoothing: antialiased;
     font-feature-settings: "cv11", "ss03";
   }
