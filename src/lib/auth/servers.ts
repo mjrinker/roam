@@ -2,6 +2,7 @@ import { count, eq, sql } from "drizzle-orm";
 import { db } from "@/lib/db/client";
 import { profiles, servers, serverMembers } from "@/lib/db/schema";
 import type { ServerRole } from "@/lib/auth/guards";
+import { LAST_SERVER_COOKIE } from "@/lib/auth/last-server";
 
 const MAX_SERVERS_PER_USER = Number(process.env.MAX_SERVERS_PER_USER ?? 3);
 
@@ -73,12 +74,28 @@ export async function listServerMemberships(
 /**
  * Where to send a profile right after sign-in (or after landing on `/`).
  * 0 memberships -> the servers hub (nothing else to do but create/join
- * one); exactly 1 -> straight into it; 2+ -> the hub, to pick one.
+ * one); exactly 1 -> straight into it; 2+ -> the server this browser was
+ * last in, else the hub, to pick one.
  */
-export async function resolveLandingPath(profileId: string): Promise<string> {
+export async function resolveLandingPath(profileId: string, lastServerId?: string | null): Promise<string> {
   const memberships = await listServerMemberships(profileId);
   if (memberships.length === 1) {
     return `/s/${memberships[0].serverId}/library`;
   }
+  // The server this browser was last in (see RememberServer), if the account is still a member of it: opening the app goes back there,
+  // and the servers page stays one tap away in the profile menu.
+  const last = lastServerId === undefined ? await rememberedServerId() : lastServerId;
+  if (last && memberships.some((m) => m.serverId === last)) return `/s/${last}/library`;
   return "/servers";
+}
+
+/** The server remembered in this browser's cookie, or null (also outside a request, where there are no cookies). */
+async function rememberedServerId(): Promise<string | null> {
+  try {
+    const { cookies } = await import("next/headers");
+    const value = (await cookies()).get(LAST_SERVER_COOKIE)?.value ?? "";
+    return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value) ? value : null;
+  } catch {
+    return null;
+  }
 }

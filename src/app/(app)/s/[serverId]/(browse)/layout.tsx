@@ -12,6 +12,7 @@ import { AppSidebar } from "@/components/shell/app-sidebar";
 import { PullToRefresh } from "@/components/shell/pull-to-refresh";
 import { ShellProvider } from "@/components/shell/shell-context";
 import { TopBar } from "@/components/shell/top-bar";
+import { RememberServer } from "@/components/shell/remember-server";
 import { DemoBanner } from "@/components/shell/demo-banner";
 import { TmdbAttribution } from "@/components/shell/tmdb-attribution";
 
@@ -36,6 +37,7 @@ export default async function BrowseLayout({
 
   return (
     <ShellProvider>
+      <RememberServer serverId={serverId} />
       <PullToRefresh />
       <div className="flex min-h-dvh">
         <AppSidebar

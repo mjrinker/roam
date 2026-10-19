@@ -38,7 +38,6 @@ import { SkipButton } from "@/components/player/skip-button";
 import { activeSkipButton, autoSkipNow, skipKey } from "@/lib/skipdb/active";
 import { readPreferredHeight, readQualityMode, writePreferredHeight, writeQualityMode, type QualityMode } from "@/lib/player/quality-preference";
 import { automaticHeight, conditionsNow } from "@/lib/player/automatic-quality";
-import { TouchProbe } from "@/components/player/touch-probe";
 import { applyLocalFiles, localVideoFor, offlineVideoManifest, openLocalFiles, type LocalFiles } from "@/lib/offline/local-playback";
 import { queueProgress } from "@/lib/offline/sync";
 import type { PlayManifest, PlayOwnerKind } from "@/lib/player/types";
@@ -294,10 +293,6 @@ export function SeamlessPlayer({
       vv?.removeEventListener("scroll", settle);
     };
   }, [mode]);
-  // A touch diagnostic, for a phone whose touches miss the controls: opened by pressing and holding the picture.
-  const [probe, setProbe] = useState(false);
-  const holdTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
-  const heldOpen = useRef(false);
   // Screen time: the seconds of watching left (from the manifest) run down while playing; at zero the picture stops.
   const [screenSpent, setScreenSpent] = useState<{ m: PlayManifest | null; n: number }>({ m: null, n: 0 });
   const screenLimit = manifest?.screenTime?.stopInSeconds ?? null;
@@ -1265,7 +1260,6 @@ export function SeamlessPlayer({
     <div
       ref={containerRef}
       onMouseMove={showControls}
-      data-player-root
       style={mode === "full" && shift !== 0 ? { transform: `translateY(${shift}px)` } : undefined}
       onPointerDown={(e) => {
         // A touch that finds the controls hidden only brings them back: it must not also press whatever was under the finger (play or pause).
@@ -1291,29 +1285,14 @@ export function SeamlessPlayer({
         />
       ))}
 
-      {probe && <TouchProbe onClose={() => setProbe(false)} />}
       {mode === "full" && cues && <SubtitleOverlay cues={cues} getTime={currentGlobalTime} offset={subOffset} lifted={controlsShown} />}
 
       {/* Click anywhere on the picture to play/pause; double-click for fullscreen. */}
       <div
         className="absolute inset-0"
-        onPointerDown={() => {
-          clearTimeout(holdTimer.current);
-          holdTimer.current = setTimeout(() => {
-            heldOpen.current = true;
-            setProbe((p) => !p);
-          }, 1600);
-        }}
-        onPointerUp={() => clearTimeout(holdTimer.current)}
-        onPointerMove={() => clearTimeout(holdTimer.current)}
-        onPointerCancel={() => clearTimeout(holdTimer.current)}
         onClick={
           manifest && !finished
             ? (e) => {
-                if (heldOpen.current) {
-                  heldOpen.current = false;
-                  return;
-                }
                 if (revealingTap.current) {
                   revealingTap.current = false;
                   return;
