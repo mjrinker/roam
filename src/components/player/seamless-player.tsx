@@ -264,6 +264,36 @@ export function SeamlessPlayer({
   const [cancelledFor, setCancelledFor] = useState<PlayManifest | null>(null);
   /** The touch now happening found the controls hidden: it only reveals them (see the container's pointer-down). */
   const revealingTap = useRef(false);
+  // An installed iPhone app turned to landscape can be left scrolled to a negative position (the page shifted down by the height of the
+  // status bar), so the player is drawn that far down and its bottom, the controls, are off the screen while touches still land on the
+  // screen: presses at the controls hit the progress bar above them. Put the page back at the top, and if it will not go, move the player by
+  // the shift (the visual viewport's offset) so it sits on the screen it is drawn on.
+  const [shift, setShift] = useState(0);
+  useEffect(() => {
+    if (mode !== "full") return;
+    const vv = window.visualViewport;
+    const settle = () => {
+      if (window.scrollY !== 0 || window.scrollX !== 0) window.scrollTo(0, 0);
+      const top = vv?.offsetTop ?? 0;
+      setShift(Math.abs(top) > 0.5 ? top : 0);
+    };
+    settle();
+    const later = () => {
+      for (const ms of [100, 350, 800]) window.setTimeout(settle, ms);
+    };
+    window.addEventListener("resize", settle);
+    window.addEventListener("scroll", settle, { passive: true });
+    window.addEventListener("orientationchange", later);
+    vv?.addEventListener("resize", settle);
+    vv?.addEventListener("scroll", settle);
+    return () => {
+      window.removeEventListener("resize", settle);
+      window.removeEventListener("scroll", settle);
+      window.removeEventListener("orientationchange", later);
+      vv?.removeEventListener("resize", settle);
+      vv?.removeEventListener("scroll", settle);
+    };
+  }, [mode]);
   // A touch diagnostic, for a phone whose touches miss the controls: opened by pressing and holding the picture.
   const [probe, setProbe] = useState(false);
   const holdTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
@@ -1236,6 +1266,7 @@ export function SeamlessPlayer({
       ref={containerRef}
       onMouseMove={showControls}
       data-player-root
+      style={mode === "full" && shift !== 0 ? { transform: `translateY(${shift}px)` } : undefined}
       onPointerDown={(e) => {
         // A touch that finds the controls hidden only brings them back: it must not also press whatever was under the finger (play or pause).
         revealingTap.current = e.pointerType === "touch" && !controlsShownRef.current;
