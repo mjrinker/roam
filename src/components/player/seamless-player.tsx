@@ -240,7 +240,9 @@ export function SeamlessPlayer({
   const segIndexRef = useRef(0);
   const preloadedForRef = useRef<number | null>(null);
   /** The browser wouldn't start the waiting element by itself, so every part plays on one element (see advanceToNextSegment). */
-  const singleElementRef = useRef(false); // segIndex we've already preloaded the *next* segment for
+  const singleElementRef = useRef(false);
+  /** Checks that a part which just took over is really playing (see advanceToNextSegment); cleared when the viewer pauses. */
+  const swapWatchRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined); // segIndex we've already preloaded the *next* segment for
   // Latches once per trimmed segment so its virtual end (see
   // crossedVirtualEnd in lib/player/timeline.ts) can only trigger ONE
   // advance/finish, even though onTimeUpdate keeps firing (and re-crossing
@@ -617,6 +619,28 @@ export function SeamlessPlayer({
     preloadedForRef.current = null;
     virtualEndFiredRef.current = false;
     setFrontSlot(newFrontSlot);
+    // A part that never starts (its file failed or crawled in, or the browser lost the play) must not leave the picture frozen until a
+    // refresh: if it hasn't moved a few seconds after taking over, load it afresh and play, a few times over.
+    clearTimeout(swapWatchRef.current);
+    const watch = (tries: number) => {
+      swapWatchRef.current = setTimeout(() => {
+        const slot = frontSlotRef.current;
+        const el = videoRefs.current[slot];
+        if (!el || segIndexRef.current !== next.index || document.hidden) return;
+        if (el.currentTime > toElementTime(next, 0) + 0.3 && !el.paused) return; // it is playing
+        if (tries <= 0) {
+          setBuffering(false);
+          setError("Playback stalled. Press play to try again.");
+          return;
+        }
+        el.src = next.url;
+        el.load();
+        el.currentTime = toElementTime(next, 0);
+        void el.play().catch(() => undefined);
+        watch(tries - 1);
+      }, 4000);
+    };
+    watch(3);
     // Not allowed to start: undo the swap and carry on with the element that is playing.
     started?.catch((err: unknown) => {
       if ((err as { name?: string } | null)?.name === "NotAllowedError") continueOnSameElement();
@@ -820,6 +844,7 @@ export function SeamlessPlayer({
   const togglePlay = useCallback(() => {
     const front = videoRefs.current[frontSlotRef.current];
     if (!front) return;
+    clearTimeout(swapWatchRef.current);
     if (front.paused) void front.play();
     else front.pause();
   }, []);
@@ -1244,9 +1269,9 @@ export function SeamlessPlayer({
                 // A press that landed on a control (a phone in landscape can send it to the picture instead) does what the control does,
                 // never play/pause.
                 if (controlsShownRef.current) {
-                  const hit = [...(containerRef.current?.querySelectorAll<HTMLElement>("[data-controls] button") ?? [])].find((b) => {
+                  const hit = [...(containerRef.current?.querySelectorAll<HTMLElement>("[data-controls] button, [data-controls] [role=slider], [data-top] button") ?? [])].find((b) => {
                     const r = b.getBoundingClientRect();
-                    return r.width > 0 && e.clientX >= r.left - 4 && e.clientX <= r.right + 4 && e.clientY >= r.top - 4 && e.clientY <= r.bottom + 4;
+                    return r.width > 0 && e.clientX >= r.left - 10 && e.clientX <= r.right + 10 && e.clientY >= r.top - 10 && e.clientY <= r.bottom + 10;
                   });
                   if (hit) {
                     hit.click();
@@ -1262,6 +1287,7 @@ export function SeamlessPlayer({
 
       {/* Top bar */}
       <div
+        data-top
         className={cn(
           "pointer-events-none absolute inset-x-0 top-0 flex items-start gap-3 bg-gradient-to-b from-black/85 via-black/40 to-transparent px-4 pt-4 pb-14 transition-opacity duration-300 sm:px-6",
           controlsShown ? "opacity-100" : "opacity-0"
