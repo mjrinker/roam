@@ -18,6 +18,7 @@ export function PhotoPageViewer({
   backHref,
   libraryId,
   words,
+  canEditDate,
 }: {
   current: ViewerItem;
   prev: ViewerItem | null;
@@ -27,6 +28,7 @@ export function PhotoPageViewer({
   backHref: string;
   libraryId: string;
   words: { add: string; remove: string };
+  canEditDate?: boolean;
 }) {
   const router = useRouter();
   return (
@@ -39,6 +41,8 @@ export function PhotoPageViewer({
       onPrev={() => prevHref && router.push(prevHref)}
       onNext={() => nextHref && router.push(nextHref)}
       onClose={() => router.push(backHref)}
+      canEditDate={canEditDate}
+      onDateChange={() => router.refresh()}
     />
   );
 }

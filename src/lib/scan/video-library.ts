@@ -208,8 +208,8 @@ export async function syncVideoDirectory(
             ...(profile.photoMeta
               ? {
                   // A date read from the picture itself is never replaced by Box's; a scan-time guess never replaces a date we already have.
-                  takenAt: sql`CASE WHEN ${titles.takenAtSource} = 'exif' THEN ${titles.takenAt} WHEN excluded.taken_at_source = 'scan' THEN COALESCE(${titles.takenAt}, excluded.taken_at) ELSE excluded.taken_at END`,
-                  takenAtSource: sql`CASE WHEN ${titles.takenAtSource} = 'exif' THEN 'exif' WHEN excluded.taken_at_source = 'scan' THEN COALESCE(${titles.takenAtSource}, 'scan') ELSE excluded.taken_at_source END`,
+                  takenAt: sql`CASE WHEN ${titles.takenAtSource} IN ('exif', 'name', 'manual') THEN ${titles.takenAt} WHEN excluded.taken_at_source = 'scan' THEN COALESCE(${titles.takenAt}, excluded.taken_at) ELSE excluded.taken_at END`,
+                  takenAtSource: sql`CASE WHEN ${titles.takenAtSource} IN ('exif', 'name', 'manual') THEN ${titles.takenAtSource} WHEN excluded.taken_at_source = 'scan' THEN COALESCE(${titles.takenAtSource}, 'scan') ELSE excluded.taken_at_source END`,
                 }
               : {}),
             ...(cycleId !== null ? { lastSeenCycle: cycleId } : {}),
@@ -279,7 +279,14 @@ export async function syncVideoDirectory(
       const { name, year } = titleFromFileName(profileFileName(profile, f.name));
       await tx
         .update(titles)
-        .set({ name, year, nameSource: "filename", posterUrl: null, ...(profile.photoMeta ? { takenAt: boxTakenAt(f, scannedAt).at, takenAtSource: boxTakenAt(f, scannedAt).source } : {}) })
+        .set({ name, year, nameSource: "filename", posterUrl: null, ...(profile.photoMeta
+            ? {
+                // A date set by hand stays with the picture; any other belongs to the old contents and is read again.
+                takenAt: sql`CASE WHEN ${titles.takenAtSource} = 'manual' THEN ${titles.takenAt} ELSE ${boxTakenAt(f, scannedAt).at.toISOString()}::timestamptz END`,
+                takenAtSource: sql`CASE WHEN ${titles.takenAtSource} = 'manual' THEN 'manual' ELSE ${boxTakenAt(f, scannedAt).source} END`,
+              }
+            : {}),
+        })
         .where(eq(titles.id, titleIdByKey.get(keyOf(f))!));
     }
     for (let i = 0; i < resetIds.length; i += CHUNK) {

@@ -163,6 +163,7 @@ describe("PhotoViewer", () => {
     zoomOriginal: true,
     details: [["Taken", "March 30, 2024 at 10:00 AM"], ["Size", "4000 × 3000"]],
     favorite: false,
+    takenInput: "2024-03-30T10:00",
     ...over,
   });
   const noop = () => undefined;

@@ -47,6 +47,7 @@ export function PhotoTimeline({
   words,
   emptyTitle = "No photos yet",
   emptyHint = "Photos and videos appear here once the first scan finishes.",
+  canEditDate = false,
 }: {
   serverId: string;
   libraryId: string;
@@ -62,6 +63,8 @@ export function PhotoTimeline({
   words: { add: string; remove: string };
   emptyTitle?: string;
   emptyHint?: string;
+  /** The server's admin may change when a picture was taken (from the viewer). */
+  canEditDate?: boolean;
 }) {
   const extraQuery = `${view === "favorites" ? "&view=favorites" : ""}${q ? `&q=${encodeURIComponent(q)}` : ""}`;
   const storeKey = `roam:photos:scroll:${libraryId}:${view}:${q}`;
@@ -455,8 +458,11 @@ export function PhotoTimeline({
     []
   );
   // Closing. Un-hearting while in the Favorites view removes the item now, not under your finger while viewing.
+  // A date changed in the viewer moves that picture to another place in the timeline: the list is loaded afresh once the viewer closes.
+  const dateChangedRef = useRef(false);
   const closed = useCallback(() => {
     setOpenId(null);
+    if (dateChangedRef.current) window.location.reload();
     if (view !== "favorites") return;
     setLoaded((current) => Object.fromEntries(Object.entries(current).map(([k, b]) => [k, { ...b, items: b.items.some((i) => !i.favorite) ? b.items.filter((i) => i.favorite) : b.items }])));
     setBuckets((current) => current.map((b) => ({ ...b, count: loadedRef.current[b.key]?.complete ? loadedRef.current[b.key].items.filter((i) => i.favorite).length : b.count })).filter((b) => b.count > 0));
@@ -567,6 +573,10 @@ export function PhotoTimeline({
           libraryId={libraryId}
           words={words}
           onFavoriteChange={setFavorite}
+          canEditDate={canEditDate}
+          onDateChange={() => {
+            dateChangedRef.current = true;
+          }}
         />
       )}
     </div>

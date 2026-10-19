@@ -11,6 +11,7 @@ import { mediaFiles, titles } from "@/lib/db/schema";
 import { StorageReauthRequiredError } from "@/lib/storage/reauth";
 import type { StorageProvider } from "@/lib/storage/provider";
 import { readImageMeta } from "@/lib/scan/image-meta";
+import { parseFilenameDate } from "@/lib/photos/filename-date";
 
 export const MAX_META_ATTEMPTS = 3;
 const BATCH = 100;
@@ -43,10 +44,18 @@ export async function readPhotoMetadata(provider: StorageProvider, libraryId: st
         try {
           const meta = await readImageMeta((s, e) => provider.fetchByteRange(t.fileId, s, e), t.size as number);
           const now = new Date();
+          // The picture's own date, else one in its file name (screenshots, chat apps and some phones name files by it), else Box's stays.
+          const dated = meta.takenAt ? { at: meta.takenAt, source: "exif" as const } : (() => { const named = parseFilenameDate(t.filename); return named ? { at: named, source: "name" as const } : null; })();
           await db
             .update(titles)
             .set({
-              ...(meta.takenAt ? { takenAt: meta.takenAt, takenAtSource: "exif" as const } : {}),
+              // A date set by hand while this was being read is not replaced.
+              ...(dated
+                ? {
+                    takenAt: sql`CASE WHEN ${titles.takenAtSource} = 'manual' THEN ${titles.takenAt} ELSE ${dated.at.toISOString()}::timestamptz END`,
+                    takenAtSource: sql`CASE WHEN ${titles.takenAtSource} = 'manual' THEN 'manual' ELSE ${dated.source} END`,
+                  }
+                : {}),
               width: meta.width,
               height: meta.height,
               metaAttemptedAt: now,

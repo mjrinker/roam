@@ -17,6 +17,8 @@ export interface ViewerItem {
   zoomOriginal: boolean;
   details: [string, string][];
   favorite: boolean;
+  /** When it was taken as a date-time field takes it ("2015-06-01T08:30", the wall-clock time stored), or null when unknown. */
+  takenInput: string | null;
 }
 
 export interface ViewerSource {
@@ -57,5 +59,6 @@ export function viewerItem(s: ViewerSource): ViewerItem {
     zoomOriginal: s.kind === "photo" && ["jpg", "jpeg", "png", "webp"].includes((s.container ?? "").toLowerCase()),
     details: rows.filter((r): r is [string, string] => r[1] !== null),
     favorite: s.favorite,
+    takenInput: taken && !Number.isNaN(taken.getTime()) ? taken.toISOString().slice(0, 16) : null,
   };
 }

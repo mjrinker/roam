@@ -49,6 +49,7 @@ All under `/api/v1/servers/{serverId}`. Lists are cut for the profile in use: li
 | `…/libraries/{id}/genres` | A grid library's genres with their counts (the same filters can be given). |
 | `…/titles/{id}` | A movie, show or audiobook (see below). |
 | `…/photos/{id}` | One picture or clip with its neighbours (`?from=timeline\|favorites\|album`): `{ id, type, name, takenAt, favorite, libraryId, folderPath, imagePath, prev, next }`. Fetch `imagePath` (relative to the server) with the token; set a favourite with `PUT`/`DELETE /api/photos/{id}/favorite`. |
+| `PUT /api/photos/{id}/date` | Admin only. Body `{ "takenAt": "2015-06-01T08:30" }` (wall-clock, no zone). Saves it as a manual date and, for a JPEG in Box, writes it into the file's EXIF as a new file version. Answers `{ takenAt, file }`, `file` being `written`, `not-box`, `not-jpeg`, `too-large` or `failed` (the date is saved in Roam in every case). |
 | `…/albums/{id}`, `…/artists/{id}` | An album with its songs in order; an artist with their albums. |
 | `…/search?q=` | `{ query, items }`: titles, books, audio files, albums and artists. |
 

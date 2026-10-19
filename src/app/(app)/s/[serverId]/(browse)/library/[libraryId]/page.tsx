@@ -132,6 +132,7 @@ export default async function LibraryDetailPage({
           view={photoView}
           initialItems={page.items}
           initialBuckets={buckets}
+          canEditDate={role === "admin" && viewer.role !== "limited"}
           {...(photoView === "favorites" ? { emptyTitle: words.empty, emptyHint: words.emptyHint } : {})}
         />
       </div>

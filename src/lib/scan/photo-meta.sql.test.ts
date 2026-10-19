@@ -146,6 +146,27 @@ describe("the metadata pass", () => {
     expect(h.reads.filter((id) => id === `${p}a`)).toHaveLength(1);
   });
 
+  it("takes the date from the file name when the picture has none, and a rescan, or a later read, never replaces it or a date set by hand", async () => {
+    const { lib, p } = await photoLibrary();
+    await sync(lib.id, [entry("IMG_20190314_142530.png", `${p}a`, { createdAt: BOX_DATE }), entry("IMG_1234.png", `${p}b`, { createdAt: BOX_DATE }), entry("IMG_20190314_142530.jpg", `${p}c`, { createdAt: BOX_DATE })]);
+    h.files.set(`${p}a`, buildPng(640, 480));
+    h.files.set(`${p}b`, buildPng(640, 480));
+    h.files.set(`${p}c`, EXIF_JPEG); // its own date wins over the name's
+    await run(lib.id);
+    expect(await byKey(`file:${p}a`)).toMatchObject({ takenAtSource: "name" });
+    expect((await byKey(`file:${p}a`)).takenAt?.toISOString()).toBe("2019-03-14T14:25:30.000Z");
+    expect(await byKey(`file:${p}b`)).toMatchObject({ takenAtSource: "box" });
+    expect(await byKey(`file:${p}c`)).toMatchObject({ takenAtSource: "exif" });
+    await db.update(titles).set({ takenAt: new Date("2001-01-01T00:00:00Z"), takenAtSource: "manual" }).where(eq(titles.boxFolderId, `file:${p}b`));
+    await sync(lib.id, [entry("IMG_20190314_142530.png", `${p}a`, { createdAt: BOX_DATE }), entry("IMG_1234.png", `${p}b`, { createdAt: BOX_DATE })]);
+    expect(await byKey(`file:${p}a`)).toMatchObject({ takenAtSource: "name" });
+    expect((await byKey(`file:${p}a`)).takenAt?.toISOString()).toBe("2019-03-14T14:25:30.000Z");
+    expect((await byKey(`file:${p}b`)).takenAt?.toISOString()).toBe("2001-01-01T00:00:00.000Z");
+    // The picture is replaced (new size): a date set by hand stays, any other is read again.
+    await sync(lib.id, [entry("IMG_1234.png", `${p}b`, { createdAt: BOX_DATE, sizeBytes: 6000 })]);
+    expect(await byKey(`file:${p}b`)).toMatchObject({ takenAtSource: "manual" });
+  });
+
   it("never reads a video, a picture in another kind of library, or a file without a known size", async () => {
     const { lib, p } = await photoLibrary();
     await sync(lib.id, [entry("v.mp4", `${p}v`), entry("nosize.jpg", `${p}n`, { sizeBytes: undefined })]);

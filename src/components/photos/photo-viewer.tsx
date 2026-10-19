@@ -48,6 +48,10 @@ export interface PhotoViewerProps {
   words: { add: string; remove: string };
   /** Told when the heart is changed, so a list behind the viewer can follow. */
   onFavoriteChange?: (id: string, favorite: boolean) => void;
+  /** The server's admin may change when a picture was taken. */
+  canEditDate?: boolean;
+  /** Told when a date was changed, so a list behind the viewer can follow. */
+  onDateChange?: (id: string) => void;
 }
 
 /**
@@ -57,7 +61,7 @@ export interface PhotoViewerProps {
  * start; iOS won't start one by itself) and swipe the same way. The arrow keys step and Escape closes.
  */
 export function PhotoViewer(props: PhotoViewerProps) {
-  const { current, prev, next, onPrev, onNext, onClose, libraryId, words, onFavoriteChange } = props;
+  const { current, prev, next, onPrev, onNext, onClose, libraryId, words, onFavoriteChange, canEditDate, onDateChange } = props;
   const [chrome, setChrome] = useState(true);
   const [panel, setPanel] = useState(false);
 
@@ -137,6 +141,7 @@ export function PhotoViewer(props: PhotoViewerProps) {
               </div>
             ))}
           </dl>
+          {canEditDate && current.kind === "photo" && <DateEditor key={current.id} item={current} onSaved={() => onDateChange?.(current.id)} />}
         </aside>
       )}
     </div>
@@ -514,6 +519,66 @@ function VideoStage({ id, name, posterUrl }: { id: string; name: string; posterU
         {state === "loading" ? <Loader2 className="size-7 animate-spin" /> : <Play className="size-7 translate-x-0.5 fill-current" />}
       </button>
       {state === "error" && <span className="pointer-events-none absolute bottom-24 rounded-full bg-black/70 px-4 py-2 text-sm">This video can&apos;t be played right now. Tap the button to try again.</span>}
+    </div>
+  );
+}
+
+const FILE_NOTES: Record<string, string> = {
+  written: "Saved in Roam and written into the file (Box keeps the earlier version of the file).",
+  "not-box": "Saved in Roam. This storage can't be written to from Roam, so the file itself is unchanged.",
+  "not-jpeg": "Saved in Roam. Only JPEG files can have their date written in, so the file itself is unchanged.",
+  "too-large": "Saved in Roam. The file is too large to rewrite, so the file itself is unchanged.",
+  failed: "Saved in Roam, but writing it into the file didn't work, so the file itself is unchanged.",
+};
+
+/** Admin only: change when this picture was taken. Saved in Roam, and written into the file where that is possible. */
+function DateEditor({ item, onSaved }: { item: ViewerItem; onSaved: () => void }) {
+  const [open, setOpen] = useState(false);
+  const [value, setValue] = useState(item.takenInput ?? "");
+  const [state, setState] = useState<"idle" | "saving" | "error">("idle");
+  const [note, setNote] = useState<string | null>(null);
+
+  async function save() {
+    if (!value) return;
+    setState("saving");
+    const res = await fetch(`/api/photos/${item.id}/date`, { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ takenAt: value }) }).catch(() => null);
+    if (!res || !res.ok) {
+      setState("error");
+      setNote("Couldn't save that date.");
+      return;
+    }
+    const data = (await res.json()) as { file: string };
+    setState("idle");
+    setNote(FILE_NOTES[data.file] ?? FILE_NOTES.failed);
+    setOpen(false);
+    onSaved();
+  }
+
+  return (
+    <div className="mt-4 border-t border-white/10 pt-3 text-sm">
+      {open ? (
+        <div className="space-y-2">
+          <label className="block text-white/60">
+            Date taken
+            <input type="datetime-local" value={value} max={new Date().toISOString().slice(0, 16)} onChange={(e) => setValue(e.target.value)} className="mt-1 block h-10 w-full rounded-lg bg-white/10 px-3 text-white [color-scheme:dark] focus:outline-none focus:ring-2 focus:ring-primary" />
+          </label>
+          <div className="flex gap-2">
+            <button type="button" onClick={() => void save()} disabled={!value || state === "saving"} className="flex h-9 items-center gap-2 rounded-lg bg-primary px-4 font-medium text-primary-foreground disabled:opacity-50">
+              {state === "saving" && <Loader2 className="size-4 animate-spin" />}
+              Save
+            </button>
+            <button type="button" onClick={() => setOpen(false)} className="h-9 rounded-lg px-3 hover:bg-white/10">
+              Cancel
+            </button>
+          </div>
+          {state === "error" && note && <p role="alert" className="text-red-300">{note}</p>}
+        </div>
+      ) : (
+        <button type="button" onClick={() => setOpen(true)} className="rounded-lg bg-white/10 px-3 py-1.5 hover:bg-white/20">
+          Change date…
+        </button>
+      )}
+      {!open && note && <p role="status" className="mt-2 text-white/60">{note}</p>}
     </div>
   );
 }
