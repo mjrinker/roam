@@ -38,6 +38,7 @@ import { SkipButton } from "@/components/player/skip-button";
 import { activeSkipButton, autoSkipNow, skipKey } from "@/lib/skipdb/active";
 import { readPreferredHeight, readQualityMode, writePreferredHeight, writeQualityMode, type QualityMode } from "@/lib/player/quality-preference";
 import { automaticHeight, conditionsNow } from "@/lib/player/automatic-quality";
+import { TouchProbe } from "@/components/player/touch-probe";
 import { applyLocalFiles, localVideoFor, offlineVideoManifest, openLocalFiles, type LocalFiles } from "@/lib/offline/local-playback";
 import { queueProgress } from "@/lib/offline/sync";
 import type { PlayManifest, PlayOwnerKind } from "@/lib/player/types";
@@ -263,6 +264,10 @@ export function SeamlessPlayer({
   const [cancelledFor, setCancelledFor] = useState<PlayManifest | null>(null);
   /** The touch now happening found the controls hidden: it only reveals them (see the container's pointer-down). */
   const revealingTap = useRef(false);
+  // A touch diagnostic, for a phone whose touches miss the controls: opened by pressing and holding the picture.
+  const [probe, setProbe] = useState(false);
+  const holdTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const heldOpen = useRef(false);
   // Screen time: the seconds of watching left (from the manifest) run down while playing; at zero the picture stops.
   const [screenSpent, setScreenSpent] = useState<{ m: PlayManifest | null; n: number }>({ m: null, n: 0 });
   const screenLimit = manifest?.screenTime?.stopInSeconds ?? null;
@@ -1230,6 +1235,7 @@ export function SeamlessPlayer({
     <div
       ref={containerRef}
       onMouseMove={showControls}
+      data-player-root
       onPointerDown={(e) => {
         // A touch that finds the controls hidden only brings them back: it must not also press whatever was under the finger (play or pause).
         revealingTap.current = e.pointerType === "touch" && !controlsShownRef.current;
@@ -1254,14 +1260,29 @@ export function SeamlessPlayer({
         />
       ))}
 
+      {probe && <TouchProbe onClose={() => setProbe(false)} />}
       {mode === "full" && cues && <SubtitleOverlay cues={cues} getTime={currentGlobalTime} offset={subOffset} lifted={controlsShown} />}
 
       {/* Click anywhere on the picture to play/pause; double-click for fullscreen. */}
       <div
         className="absolute inset-0"
+        onPointerDown={() => {
+          clearTimeout(holdTimer.current);
+          holdTimer.current = setTimeout(() => {
+            heldOpen.current = true;
+            setProbe((p) => !p);
+          }, 1600);
+        }}
+        onPointerUp={() => clearTimeout(holdTimer.current)}
+        onPointerMove={() => clearTimeout(holdTimer.current)}
+        onPointerCancel={() => clearTimeout(holdTimer.current)}
         onClick={
           manifest && !finished
             ? (e) => {
+                if (heldOpen.current) {
+                  heldOpen.current = false;
+                  return;
+                }
                 if (revealingTap.current) {
                   revealingTap.current = false;
                   return;
@@ -1269,10 +1290,18 @@ export function SeamlessPlayer({
                 // A press that landed on a control (a phone in landscape can send it to the picture instead) does what the control does,
                 // never play/pause.
                 if (controlsShownRef.current) {
-                  const hit = [...(containerRef.current?.querySelectorAll<HTMLElement>("[data-controls] button, [data-controls] [role=slider], [data-top] button") ?? [])].find((b) => {
+                  // The closest button within reach wins (the scrubber is not one: it takes its own presses).
+                  let hit: HTMLElement | null = null;
+                  let nearest = Infinity;
+                  for (const b of containerRef.current?.querySelectorAll<HTMLElement>("[data-controls] button, [data-top] button") ?? []) {
                     const r = b.getBoundingClientRect();
-                    return r.width > 0 && e.clientX >= r.left - 10 && e.clientX <= r.right + 10 && e.clientY >= r.top - 10 && e.clientY <= r.bottom + 10;
-                  });
+                    if (r.width === 0 || e.clientX < r.left - 10 || e.clientX > r.right + 10 || e.clientY < r.top - 10 || e.clientY > r.bottom + 10) continue;
+                    const d = Math.hypot(e.clientX - (r.left + r.right) / 2, e.clientY - (r.top + r.bottom) / 2);
+                    if (d < nearest) {
+                      nearest = d;
+                      hit = b;
+                    }
+                  }
                   if (hit) {
                     hit.click();
                     return;
