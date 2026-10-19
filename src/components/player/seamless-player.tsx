@@ -238,7 +238,9 @@ export function SeamlessPlayer({
   const frontSlotRef = useRef<0 | 1>(0);
   // Index into manifest.segments that the front element is currently playing.
   const segIndexRef = useRef(0);
-  const preloadedForRef = useRef<number | null>(null); // segIndex we've already preloaded the *next* segment for
+  const preloadedForRef = useRef<number | null>(null);
+  /** The browser wouldn't start the waiting element by itself, so every part plays on one element (see advanceToNextSegment). */
+  const singleElementRef = useRef(false); // segIndex we've already preloaded the *next* segment for
   // Latches once per trimmed segment so its virtual end (see
   // crossedVirtualEnd in lib/player/timeline.ts) can only trigger ONE
   // advance/finish, even though onTimeUpdate keeps firing (and re-crossing
@@ -542,6 +544,8 @@ export function SeamlessPlayer({
     const seg = m.segments[segIndex];
     const next = m.segments[segIndex + 1];
     if (!next) return;
+    // A browser that won't let the second element start by itself (iPhones) plays every part on the one element: nothing to ready.
+    if (singleElementRef.current) return;
     if (preloadedForRef.current === segIndex) return;
     const remaining = remainingInSegment(seg, front.currentTime, front.duration);
     if (!Number.isFinite(remaining) || remaining > PRELOAD_THRESHOLD_SECONDS) return;
@@ -575,6 +579,28 @@ export function SeamlessPlayer({
     const old = videoRefs.current[oldFrontSlot];
     if (!back) return;
 
+    // Some browsers (iPhones and iPads) only let an element start playing from a press on it, or once it has been started that way. The
+    // element that was waiting never was, so it can't take over by itself and the picture would stop at the end of every part. When
+    // that happens the next part plays on the element that is already playing instead (a short gap, but it carries on), and from then
+    // on every part does.
+    const continueOnSameElement = () => {
+      if (!old) return;
+      singleElementRef.current = true;
+      old.src = next.url;
+      old.load();
+      old.currentTime = toElementTime(next, 0);
+      old.play().catch(() => {
+        // Nothing may start without a press: say so, and the Play button does it.
+        setPlaying(false);
+      });
+      segIndexRef.current = next.index;
+      frontSlotRef.current = oldFrontSlot;
+      preloadedForRef.current = null;
+      virtualEndFiredRef.current = false;
+      setFrontSlot(oldFrontSlot);
+    };
+    if (singleElementRef.current) return continueOnSameElement();
+
     // If the back element wasn't preloaded in time (slow network), fall
     // back to pointing it at the segment directly — a brief stall is far
     // better than getting stuck.
@@ -583,7 +609,7 @@ export function SeamlessPlayer({
       back.load();
     }
     back.currentTime = toElementTime(next, 0);
-    void back.play();
+    const started = back.play();
 
     old?.pause();
     segIndexRef.current = next.index;
@@ -591,6 +617,10 @@ export function SeamlessPlayer({
     preloadedForRef.current = null;
     virtualEndFiredRef.current = false;
     setFrontSlot(newFrontSlot);
+    // Not allowed to start: undo the swap and carry on with the element that is playing.
+    started?.catch((err: unknown) => {
+      if ((err as { name?: string } | null)?.name === "NotAllowedError") continueOnSameElement();
+    });
   }, [saveProgress]);
 
   // ── Wire up event listeners for both video elements ─────────────────────
@@ -1206,10 +1236,22 @@ export function SeamlessPlayer({
         className="absolute inset-0"
         onClick={
           manifest && !finished
-            ? () => {
+            ? (e) => {
                 if (revealingTap.current) {
                   revealingTap.current = false;
                   return;
+                }
+                // A press that landed on a control (a phone in landscape can send it to the picture instead) does what the control does,
+                // never play/pause.
+                if (controlsShownRef.current) {
+                  const hit = [...(containerRef.current?.querySelectorAll<HTMLElement>("[data-controls] button") ?? [])].find((b) => {
+                    const r = b.getBoundingClientRect();
+                    return r.width > 0 && e.clientX >= r.left - 4 && e.clientX <= r.right + 4 && e.clientY >= r.top - 4 && e.clientY <= r.bottom + 4;
+                  });
+                  if (hit) {
+                    hit.click();
+                    return;
+                  }
                 }
                 togglePlay();
               }
@@ -1377,6 +1419,7 @@ export function SeamlessPlayer({
 
       {/* Bottom controls */}
       <div
+        data-controls
         className={cn(
           "pointer-events-none absolute inset-x-0 bottom-0 flex flex-col gap-1 bg-gradient-to-t from-black/90 via-black/55 to-transparent px-4 pt-20 pb-4 transition-opacity duration-300 sm:px-6",
           controlsShown ? "opacity-100" : "opacity-0",

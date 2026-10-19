@@ -72,7 +72,7 @@ export function useEmbeddedTracks({ manifest, ownerKind, ownerId, segment, globa
       const fileId = seg.fileId;
       void fetch(tracksUrl(ownerKind, ownerId, fileId))
         .then((r) => (r.ok ? (r.json() as Promise<FileTracks>) : null))
-        .then((t) => live && t && setInfo((all) => ({ ...all, [fileId]: t })))
+        .then((t) => live && t && Array.isArray(t.audioTracks) && Array.isArray(t.textTracks) && setInfo((all) => ({ ...all, [fileId]: t })))
         .catch(() => undefined);
     }
     return () => {
