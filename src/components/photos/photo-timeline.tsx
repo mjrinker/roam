@@ -25,6 +25,10 @@ interface Loaded {
 }
 
 const MAX_CONCURRENT = 3;
+/** Loading waits this long after the blocks near the screen stop changing (a fling or a scrub). */
+const SETTLE_MS = 180;
+/** Blocks kept drawn once they are off screen, nearest first. */
+const KEEP_LOADED_AWAY = 8;
 /** The top of a block sits this far below the top of the screen when scrolled to (under the top bar and its heading). */
 const SCRUB_OFFSET = 72;
 /** A block is read in pages of 500 until complete; this many pages is far more than any real day, month or year holds. */
@@ -176,6 +180,8 @@ export function PhotoTimeline({
           if (!res.ok) throw new Error(String(res.status));
           const body = (await res.json()) as { items: TimelineItem[]; next: string | null };
           if (gen !== generation.current) return;
+          // Scrolled far away while this was loading: stop here (what arrived is kept) rather than fetch the rest of a block nobody is looking at.
+          if (page > 0 && !visible.current.has(key)) break;
           const have = new Set(items.map((i) => i.id));
           items = [...items, ...body.items.filter((i) => !have.has(i.id))];
           after = body.next;
@@ -204,10 +210,38 @@ export function PhotoTimeline({
     pumpRef.current = pump;
   }, [pump]);
 
+  // Photos far from the screen are let go (their blocks keep their height, so nothing moves): a long scrub through a big library would
+  // otherwise keep thousands of pictures drawn, which is what runs a phone out of memory.
+  const openIdRef = useRef(openId);
+  useEffect(() => {
+    openIdRef.current = openId;
+  }, [openId]);
+  const evictFarBlocks = useCallback(() => {
+    if (openIdRef.current) return; // the viewer steps through what is loaded
+    const order = bucketsRef.current.map((b) => b.key);
+    const near = order.map((k, i) => (visible.current.has(k) ? i : -1)).filter((i) => i >= 0);
+    if (near.length === 0) return;
+    const distance = (key: string) => {
+      const i = order.indexOf(key);
+      return Math.min(...near.map((n) => Math.abs(n - i)));
+    };
+    const away = Object.keys(loadedRef.current).filter((k) => !visible.current.has(k) && !inFlight.current.has(k));
+    if (away.length <= KEEP_LOADED_AWAY) return;
+    const drop = new Set(away.sort((a, b) => distance(b) - distance(a)).slice(0, away.length - KEEP_LOADED_AWAY));
+    setLoaded((current) => Object.fromEntries(Object.entries(current).filter(([k]) => !drop.has(k))));
+  }, []);
+
   // Watch the blocks: those near the screen (a page and a half either way) are the ones to fill.
   useEffect(() => {
     const root = listRef.current;
     if (!root || !layout) return;
+    // Blocks flash past while the page is flung or the scrubber is dragged: loading waits until what is near the screen has stopped changing,
+    // so a fast scrub fetches (and draws) only the place it ends at, not every month it passed.
+    let timer: number | undefined;
+    const settle = () => {
+      pump();
+      evictFarBlocks();
+    };
     const observer = new IntersectionObserver(
       (entries) => {
         for (const e of entries) {
@@ -216,17 +250,19 @@ export function PhotoTimeline({
           if (e.isIntersecting) visible.current.add(key);
           else visible.current.delete(key);
         }
-        pump();
+        window.clearTimeout(timer);
+        timer = window.setTimeout(settle, SETTLE_MS);
       },
       { rootMargin: "1500px 0px" }
     );
     root.querySelectorAll("[data-bucket]").forEach((el) => observer.observe(el));
     const seen = visible.current;
     return () => {
+      window.clearTimeout(timer);
       observer.disconnect();
       seen.clear();
     };
-  }, [layout, buckets, pump]);
+  }, [layout, buckets, pump, evictFarBlocks]);
 
   // ── Staying put: remember the scroll position for a return to this page, and restore it once the blocks have their heights ──
   const restored = useRef(false);
@@ -264,10 +300,12 @@ export function PhotoTimeline({
   }, [storeKey]);
 
   // Which month is at the top of the screen, for the scrubber (one lookup per frame while scrolling).
+  const scrubbingRef = useRef(false);
   useEffect(() => {
     let frame = 0;
     const update = () => {
       frame = 0;
+      if (scrubbingRef.current) return; // the rail shows the finger, not the page, while it is pressed
       const el = document.elementFromPoint(Math.min(window.innerWidth - 60, 80), 150)?.closest("[data-bucket]");
       const key = el?.getAttribute("data-bucket");
       if (!el || !key) return;
@@ -561,7 +599,16 @@ export function PhotoTimeline({
           );
         })}
       </div>
-      <PhotoScrubber keys={months} position={position} onScrub={scrub} onJump={jump} />
+      <PhotoScrubber
+        keys={months}
+        position={position}
+        onScrub={scrub}
+        onJump={jump}
+        onActive={(active) => {
+          scrubbingRef.current = active;
+          if (!active) window.dispatchEvent(new Event("scroll")); // the marker takes up where the page ended
+        }}
+      />
       {viewerItems && viewerItems[1] && (
         <PhotoViewer
           current={viewerItems[1]}

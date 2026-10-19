@@ -15,6 +15,7 @@ export function PhotoScrubber({
   position,
   onScrub,
   onJump,
+  onActive,
 }: {
   keys: string[];
   /** Where the page is now, as a month number with a fraction (2.5 is halfway through the third month), or null. */
@@ -23,6 +24,8 @@ export function PhotoScrubber({
   onScrub: (index: number, within: number) => void;
   /** Go to the start of a month (the keyboard). */
   onJump: (key: string) => void;
+  /** The rail is pressed (true) or let go (false). */
+  onActive?: (active: boolean) => void;
 }) {
   const rail = useRef<HTMLDivElement>(null);
   const frame = useRef(0);
@@ -77,6 +80,7 @@ export function PhotoScrubber({
       className="fixed bottom-6 right-0 top-28 z-20 w-10 touch-none select-none overscroll-none"
       onPointerDown={(e) => {
         e.currentTarget.setPointerCapture(e.pointerId);
+        onActive?.(true);
         scrubTo(fractionAt(e.clientY));
       }}
       onPointerMove={(e) => {
@@ -85,10 +89,12 @@ export function PhotoScrubber({
       onPointerUp={() => {
         latest.current = null;
         setFinger(null);
+        onActive?.(false);
       }}
       onPointerCancel={() => {
         latest.current = null;
         setFinger(null);
+        onActive?.(false);
       }}
       onKeyDown={(e) => {
         if (e.key === "ArrowDown" || e.key === "PageDown") {
