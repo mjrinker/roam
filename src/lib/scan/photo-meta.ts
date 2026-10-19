@@ -56,6 +56,14 @@ export async function readPhotoMetadata(provider: StorageProvider, libraryId: st
                     takenAtSource: sql`CASE WHEN ${titles.takenAtSource} = 'manual' THEN 'manual' ELSE ${dated.source} END`,
                   }
                 : {}),
+              ...(meta.gps
+                ? {
+                    // A place set by hand while this was being read is not replaced.
+                    latitude: sql`CASE WHEN ${titles.placeSource} = 'manual' THEN ${titles.latitude} ELSE ${meta.gps.latitude} END`,
+                    longitude: sql`CASE WHEN ${titles.placeSource} = 'manual' THEN ${titles.longitude} ELSE ${meta.gps.longitude} END`,
+                    placeSource: sql`CASE WHEN ${titles.placeSource} = 'manual' THEN 'manual' ELSE 'exif' END`,
+                  }
+                : {}),
               width: meta.width,
               height: meta.height,
               metaAttemptedAt: now,

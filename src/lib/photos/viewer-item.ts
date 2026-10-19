@@ -17,6 +17,8 @@ export interface ViewerItem {
   zoomOriginal: boolean;
   details: [string, string][];
   favorite: boolean;
+  /** Where it was taken, when known. */
+  place: { latitude: number; longitude: number; name: string | null } | null;
   /** When it was taken as a date-time field takes it ("2015-06-01T08:30", the wall-clock time stored), or null when unknown. */
   takenInput: string | null;
 }
@@ -35,6 +37,7 @@ export interface ViewerSource {
   sizeBytes: number | null;
   container: string | null;
   folderPath: string;
+  place?: { latitude: number; longitude: number; name: string | null };
 }
 
 const takenFormat = new Intl.DateTimeFormat("en-US", { dateStyle: "long", timeStyle: "short", timeZone: "UTC" });
@@ -47,6 +50,7 @@ export function viewerItem(s: ViewerSource): ViewerItem {
     ["Length", s.kind === "movie" ? formatRuntime(s.runtimeSeconds) : null],
     ["File", s.filename],
     ["File size", formatFileSize(s.sizeBytes)],
+    ["Place", s.place ? s.place.name ?? `${s.place.latitude.toFixed(4)}, ${s.place.longitude.toFixed(4)}` : null],
     ["Album", s.folderPath || null],
   ];
   return {
@@ -59,6 +63,7 @@ export function viewerItem(s: ViewerSource): ViewerItem {
     zoomOriginal: s.kind === "photo" && ["jpg", "jpeg", "png", "webp"].includes((s.container ?? "").toLowerCase()),
     details: rows.filter((r): r is [string, string] => r[1] !== null),
     favorite: s.favorite,
+    place: s.place ?? null,
     takenInput: taken && !Number.isNaN(taken.getTime()) ? taken.toISOString().slice(0, 16) : null,
   };
 }

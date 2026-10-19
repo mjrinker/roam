@@ -164,6 +164,7 @@ describe("PhotoViewer", () => {
     details: [["Taken", "March 30, 2024 at 10:00 AM"], ["Size", "4000 × 3000"]],
     favorite: false,
     takenInput: "2024-03-30T10:00",
+    place: null,
     ...over,
   });
   const noop = () => undefined;
@@ -218,5 +219,15 @@ describe("PhotoViewer", () => {
     const play = html.match(/<button[^>]*aria-label="Play video Clip"[^>]*>/)![0];
     expect(play).toContain("size-16"); // the circle, not the whole screen
     expect(play).not.toContain("inset-0");
+  });
+});
+
+describe("typed coordinates", () => {
+  it("reads a latitude and longitude however they are separated, and nothing that isn't one", async () => {
+    const { parseCoordinates } = await import("@/components/photos/photo-viewer");
+    expect(parseCoordinates("37.7749, -122.4194")).toEqual({ latitude: 37.7749, longitude: -122.4194 });
+    expect(parseCoordinates("37.7749 -122.4194")).toEqual({ latitude: 37.7749, longitude: -122.4194 });
+    expect(parseCoordinates(" -33.9;151.2 ")).toEqual({ latitude: -33.9, longitude: 151.2 });
+    for (const bad of ["Lake Tahoe", "91, 10", "10, 181", "37.7749", "1,2,3", ""]) expect(parseCoordinates(bad), bad).toBeNull();
   });
 });

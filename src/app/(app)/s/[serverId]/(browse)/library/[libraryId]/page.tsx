@@ -29,6 +29,8 @@ import { parseSearch } from "@/lib/photos/search";
 import { listMonths, listTimeline } from "@/lib/photos/timeline";
 import { favoriteWords } from "@/lib/photos/favorite-word";
 import { PhotoTimeline } from "@/components/photos/photo-timeline";
+import { PeopleGrid } from "@/components/photos/people-grid";
+import { peopleInLibrary } from "@/lib/faces/service";
 import { decodeCursor, encodeCursor } from "@/lib/playlists/http";
 import { ratingsOf } from "@/lib/ratings/service";
 import { labelIdsByTitle, listLabels } from "@/lib/labels/service";
@@ -46,9 +48,9 @@ const KIND_LABEL = { movies: "Movies", shows: "TV Shows", audiobooks: "Audiobook
 const folderCursorSchema = z.object({ key: z.string().max(1000).regex(/^[^\u0000]*$/), id: z.string().uuid() });
 
 /** Timeline | Albums, for a photo library. */
-function PhotoViewTabs({ serverId, libraryId, active, favoritesLabel }: { serverId: string; libraryId: string; active: "timeline" | "albums" | "favorites"; favoritesLabel: string }) {
+function PhotoViewTabs({ serverId, libraryId, active, favoritesLabel }: { serverId: string; libraryId: string; active: "timeline" | "albums" | "favorites" | "people"; favoritesLabel: string }) {
   const base = `/s/${serverId}/library/${libraryId}`;
-  const tab = (view: "timeline" | "albums" | "favorites", label: string) => (
+  const tab = (view: "timeline" | "albums" | "favorites" | "people", label: string) => (
     <Link
       href={view === "timeline" ? base : `${base}?view=${view}`}
       aria-current={active === view ? "page" : undefined}
@@ -62,6 +64,7 @@ function PhotoViewTabs({ serverId, libraryId, active, favoritesLabel }: { server
       {tab("timeline", "Timeline")}
       {tab("albums", "Albums")}
       {tab("favorites", favoritesLabel)}
+      {tab("people", "People")}
     </nav>
   );
 }
@@ -85,8 +88,19 @@ export default async function LibraryDetailPage({
   if (!library) notFound();
 
   // A photo library opens to its timeline (newest first, by month), with an Albums tab for its folders.
-  const photoView = isPhotoLibraryKind(library.kind) ? (query.view === "albums" ? "albums" : query.view === "favorites" ? "favorites" : "timeline") : null;
+  const photoView = isPhotoLibraryKind(library.kind) ? (query.view === "albums" ? "albums" : query.view === "favorites" ? "favorites" : query.view === "people" ? "people" : "timeline") : null;
   const words = favoriteWords(viewer.locale);
+  if (photoView === "people") {
+    const people = await peopleInLibrary(db, libraryId);
+    return (
+      <div className="flex flex-col gap-6 px-4 py-8 sm:px-8">
+        <Breadcrumbs serverId={serverId} trail={[{ label: library.name }]} className="-mb-2" />
+        <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">{library.name}</h1>
+        <PhotoViewTabs serverId={serverId} libraryId={libraryId} active="people" favoritesLabel={words.plural} />
+        <PeopleGrid serverId={serverId} libraryId={libraryId} people={people} canEdit={role === "admin" && viewer.role !== "limited"} />
+      </div>
+    );
+  }
   if (photoView === "timeline" || photoView === "favorites") {
     const search = parseSearch(typeof query.q === "string" ? query.q : null);
     const narrowing = { actor: lib, viewer, viewerId: viewer.id, libraryId, favoritesOnly: photoView === "favorites", search };
@@ -117,7 +131,7 @@ export default async function LibraryDetailPage({
               name="q"
               defaultValue={search?.text ?? ""}
               maxLength={64}
-              placeholder="Search names or dates"
+              placeholder="Search names, people, places or dates"
               aria-label="Search this library"
               className="h-9 min-w-0 flex-1 rounded-xl bg-white/[0.06] px-3 text-sm ring-1 ring-white/[0.08] placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary"
             />

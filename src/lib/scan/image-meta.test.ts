@@ -30,7 +30,7 @@ describe("parseExif", () => {
   it("reads little- and big-endian TIFF alike: the three dates, orientation and pixel size", () => {
     for (const little of [true, false]) {
       const t = Uint8Array.from(buildTiff({ little, orientation: 6, dateTimeOriginal: "2019:05:06 07:08:09", dateTime: "2020:01:01 00:00:00", pixelX: 4000, pixelY: 3000 }));
-      expect(parseExif(t), String(little)).toEqual({ takenAt: NOON, orientation: 6, width: 4000, height: 3000 });
+      expect(parseExif(t), String(little)).toEqual({ takenAt: NOON, orientation: 6, width: 4000, height: 3000, gps: null });
     }
   });
   it("prefers the shutter time, then the digitized time, then the file-written time; nothing when none is a real date", () => {
@@ -50,8 +50,34 @@ describe("parseExif", () => {
   });
 });
 
+describe("GPS position", () => {
+  const gps = { latRef: "N", lat: [37, 46, 3000] as [number, number, number], lonRef: "W", lon: [122, 25, 1500] as [number, number, number] };
+  it("reads latitude and longitude, south and west negative, little- and big-endian", () => {
+    for (const little of [true, false]) {
+      const g = parseExif(Uint8Array.from(buildTiff({ little, gps }))).gps!;
+      expect(g.latitude).toBeCloseTo(37.775, 5);
+      expect(g.longitude).toBeCloseTo(-122.42083, 4);
+    }
+    const south = parseExif(Uint8Array.from(buildTiff({ gps: { latRef: "S", lat: [33, 51, 0], lonRef: "E", lon: [151, 12, 0] } }))).gps!;
+    expect(south.latitude).toBeCloseTo(-33.85, 5);
+    expect(south.longitude).toBeCloseTo(151.2, 5);
+  });
+  it("reads none for a file with none, a missing hemisphere, 0,0 (no fix), or an impossible position", () => {
+    expect(parseExif(Uint8Array.from(buildTiff({ dateTime: "2019:05:06 07:08:09" }))).gps).toBeNull();
+    expect(parseExif(Uint8Array.from(buildTiff({ gps: { ...gps, latRef: "X" } }))).gps).toBeNull();
+    expect(parseExif(Uint8Array.from(buildTiff({ gps: { latRef: "N", lat: [0, 0, 0], lonRef: "E", lon: [0, 0, 0] } }))).gps).toBeNull();
+    expect(parseExif(Uint8Array.from(buildTiff({ gps: { latRef: "N", lat: [95, 0, 0], lonRef: "E", lon: [10, 0, 0] } }))).gps).toBeNull();
+  });
+  it("comes through a JPEG's metadata, beside its date", async () => {
+    const jpeg = buildJpeg({ width: 40, height: 30, tiff: buildTiff({ dateTimeOriginal: "2019:05:06 07:08:09", gps }) });
+    const m = await meta(jpeg);
+    expect(m.takenAt).toEqual(NOON);
+    expect(m.gps?.latitude).toBeCloseTo(37.775, 5);
+  });
+});
+
 describe("hostile TIFF", () => {
-  const nothing = { takenAt: null, orientation: null, width: null, height: null };
+  const nothing = { takenAt: null, orientation: null, width: null, height: null, gps: null };
   it("never throws on empty, tiny, wrong-magic or wrong-version data", () => {
     for (const bytes of [[], [0x49], [0x49, 0x49, 42, 0], [0x49, 0x49, 42, 0, 8, 0, 0, 0], [1, 2, 3, 4, 5, 6, 7, 8, 9], [0x49, 0x49, 43, 0, 8, 0, 0, 0, 0, 0]]) {
       expect(parseExif(Uint8Array.from(bytes)), JSON.stringify(bytes)).toEqual(nothing);

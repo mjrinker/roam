@@ -435,6 +435,13 @@ export const titles = pgTable(
     takenAtSource: text("taken_at_source").$type<"box" | "exif" | "scan" | "name" | "manual">(),
     width: integer("width"),
     height: integer("height"),
+    // Photo libraries, where it was taken: read from the picture's GPS, or set by an admin (placeSource 'manual', which a scan never replaces).
+    latitude: doublePrecision("latitude"),
+    longitude: doublePrecision("longitude"),
+    placeName: text("place_name"),
+    placeSource: text("place_source").$type<"exif" | "manual">(),
+    // Photo libraries, finding faces (lib/faces): when this picture was last searched.
+    facesScannedAt: timestamp("faces_scanned_at", { withTimezone: true }),
     // Reading the image's own metadata (EXIF, dimensions); separate from the MP4/ID3 tag counters above
     // so a photo is never fed to a video tag parser.
     metaAttemptedAt: timestamp("meta_attempted_at", { withTimezone: true }),
@@ -1633,4 +1640,43 @@ export const viewerLibrarySpeeds = pgTable(
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [primaryKey({ columns: [t.viewerId, t.libraryId] })]
+).enableRLS();
+
+// ── photo_people / photo_faces ───────────────────────────────────────────
+// Faces in photos. A person is a name a server's admin gave (people belong to the SERVER, not a profile). A face is a box on one picture with a
+// numeric fingerprint (a 128-number vector, normalised, stored as 512 bytes) made on the admin's computer by scripts/scan-faces.ts. A face is
+// tagged when person_id is set by a person; the machine only ever SUGGESTS (suggested_person_id), until someone confirms it.
+export const photoPeople = pgTable(
+  "photo_people",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    serverId: uuid("server_id").notNull().references(() => servers.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex("photo_people_server_name_idx").on(t.serverId, sql`lower(${t.name})`)]
+).enableRLS();
+
+export const photoFaces = pgTable(
+  "photo_faces",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    titleId: uuid("title_id").notNull().references(() => titles.id, { onDelete: "cascade" }),
+    // The box on the picture as shown (turned upright), as fractions of its width and height from the top left.
+    x: real("x").notNull(),
+    y: real("y").notNull(),
+    w: real("w").notNull(),
+    h: real("h").notNull(),
+    score: real("score").notNull(),
+    embedding: bytea("embedding").notNull(),
+    // A small square JPEG of the face, for lists of people and the viewer's panel.
+    thumb: bytea("thumb").notNull(),
+    personId: uuid("person_id").references(() => photoPeople.id, { onDelete: "set null" }),
+    suggestedPersonId: uuid("suggested_person_id").references(() => photoPeople.id, { onDelete: "set null" }),
+    suggestedScore: real("suggested_score"),
+    // Marked "not a face" (or not wanted) by an admin: never offered again.
+    ignored: boolean("ignored").notNull().default(false),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("photo_faces_title_idx").on(t.titleId), index("photo_faces_person_idx").on(t.personId), index("photo_faces_suggested_idx").on(t.suggestedPersonId)]
 ).enableRLS();

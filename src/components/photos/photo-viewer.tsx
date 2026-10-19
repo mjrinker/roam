@@ -50,6 +50,8 @@ export interface PhotoViewerProps {
   onFavoriteChange?: (id: string, favorite: boolean) => void;
   /** The server's admin may change when a picture was taken. */
   canEditDate?: boolean;
+  /** The server's admin may also change where it was taken. Needs the server, for the place search. */
+  serverId?: string;
   /** Told when a date was changed, so a list behind the viewer can follow. */
   onDateChange?: (id: string) => void;
 }
@@ -61,7 +63,7 @@ export interface PhotoViewerProps {
  * start; iOS won't start one by itself) and swipe the same way. The arrow keys step and Escape closes.
  */
 export function PhotoViewer(props: PhotoViewerProps) {
-  const { current, prev, next, onPrev, onNext, onClose, libraryId, words, onFavoriteChange, canEditDate, onDateChange } = props;
+  const { current, prev, next, onPrev, onNext, onClose, libraryId, words, onFavoriteChange, canEditDate, onDateChange, serverId } = props;
   const [chrome, setChrome] = useState(true);
   const [panel, setPanel] = useState(false);
 
@@ -141,7 +143,19 @@ export function PhotoViewer(props: PhotoViewerProps) {
               </div>
             ))}
           </dl>
+          {current.kind === "photo" && <PeopleSection key={`people:${current.id}`} id={current.id} />}
+          {current.place && (
+            <a
+              href={`https://www.openstreetmap.org/?mlat=${current.place.latitude}&mlon=${current.place.longitude}#map=15/${current.place.latitude}/${current.place.longitude}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="mt-2 inline-block text-sm text-primary hover:underline"
+            >
+              Open on a map
+            </a>
+          )}
           {canEditDate && current.kind === "photo" && <DateEditor key={current.id} item={current} onSaved={() => onDateChange?.(current.id)} />}
+          {canEditDate && serverId && current.kind === "photo" && <PlaceEditor key={`place:${current.id}`} item={current} serverId={serverId} onSaved={() => onDateChange?.(current.id)} />}
         </aside>
       )}
     </div>
@@ -579,6 +593,235 @@ function DateEditor({ item, onSaved }: { item: ViewerItem; onSaved: () => void }
         </button>
       )}
       {!open && note && <p role="status" className="mt-2 text-white/60">{note}</p>}
+    </div>
+  );
+}
+
+interface Candidate {
+  latitude: number;
+  longitude: number;
+  name: string;
+}
+
+/** "37.7749, -122.4194" (or with a space, or a semicolon) as a position; null for anything else. */
+export function parseCoordinates(text: string): { latitude: number; longitude: number } | null {
+  const m = /^\s*(-?\d{1,2}(?:\.\d+)?)\s*[,;\s]\s*(-?\d{1,3}(?:\.\d+)?)\s*$/.exec(text);
+  if (!m) return null;
+  const latitude = Number(m[1]);
+  const longitude = Number(m[2]);
+  return Math.abs(latitude) <= 90 && Math.abs(longitude) <= 180 ? { latitude, longitude } : null;
+}
+
+/** Admin only: change where this picture was taken, from a place search or typed coordinates, or take the place away. */
+function PlaceEditor({ item, serverId, onSaved }: { item: ViewerItem; serverId: string; onSaved: () => void }) {
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState("");
+  const [results, setResults] = useState<Candidate[] | null>(null);
+  const [state, setState] = useState<"idle" | "searching" | "saving" | "error">("idle");
+  const [note, setNote] = useState<string | null>(null);
+
+  async function search() {
+    const typed = parseCoordinates(query);
+    if (typed) {
+      setResults([{ ...typed, name: "" }]);
+      return;
+    }
+    if (query.trim().length < 2) return;
+    setState("searching");
+    const res = await fetch(`/api/photos/places?serverId=${encodeURIComponent(serverId)}&q=${encodeURIComponent(query.trim())}`).catch(() => null);
+    if (!res || !res.ok) {
+      setState("error");
+      setNote("The place search isn't answering. You can type coordinates instead, like 37.7749, -122.4194.");
+      return;
+    }
+    setState("idle");
+    setNote(null);
+    setResults(((await res.json()) as { results: Candidate[] }).results);
+  }
+
+  async function save(place: Candidate | null) {
+    setState("saving");
+    const res = await fetch(`/api/photos/${item.id}/place`, {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ place: place && { latitude: place.latitude, longitude: place.longitude, name: place.name || null } }),
+    }).catch(() => null);
+    if (!res || !res.ok) {
+      setState("error");
+      setNote("Couldn't save that place.");
+      return;
+    }
+    const data = (await res.json()) as { file: string };
+    setState("idle");
+    setNote((FILE_NOTES[data.file] ?? FILE_NOTES.failed).replace("written into the file", place ? "written into the file" : "erased from the file"));
+    setOpen(false);
+    setResults(null);
+    onSaved();
+  }
+
+  return (
+    <div className="mt-4 border-t border-white/10 pt-3 text-sm">
+      {open ? (
+        <div className="space-y-2">
+          <label className="block text-white/60">
+            Search for a place, or type coordinates
+            <span className="mt-1 flex gap-2">
+              <input
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && void search()}
+                placeholder="Lake Tahoe, or 37.7749, -122.4194"
+                className="h-10 min-w-0 flex-1 rounded-lg bg-white/10 px-3 text-white focus:outline-none focus:ring-2 focus:ring-primary"
+              />
+              <button type="button" onClick={() => void search()} disabled={state === "searching"} className="h-10 rounded-lg bg-white/10 px-3 hover:bg-white/20">
+                {state === "searching" ? <Loader2 className="size-4 animate-spin" /> : "Search"}
+              </button>
+            </span>
+          </label>
+          {results && results.length === 0 && <p className="text-white/60">Nothing found.</p>}
+          {results && results.length > 0 && (
+            <ul className="space-y-1">
+              {results.map((r) => (
+                <li key={`${r.latitude},${r.longitude}`}>
+                  <button type="button" onClick={() => void save(r)} disabled={state === "saving"} className="w-full rounded-lg bg-white/[0.06] px-3 py-2 text-left hover:bg-white/15">
+                    {r.name || `${r.latitude}, ${r.longitude}`}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+          <div className="flex gap-2">
+            {item.place && (
+              <button type="button" onClick={() => void save(null)} disabled={state === "saving"} className="h-9 rounded-lg px-3 text-red-300 hover:bg-white/10">
+                Remove place
+              </button>
+            )}
+            <button type="button" onClick={() => setOpen(false)} className="h-9 rounded-lg px-3 hover:bg-white/10">
+              Cancel
+            </button>
+          </div>
+          {state === "error" && note && <p role="alert" className="text-red-300">{note}</p>}
+        </div>
+      ) : (
+        <button type="button" onClick={() => setOpen(true)} className="rounded-lg bg-white/10 px-3 py-1.5 hover:bg-white/20">
+          Change place…
+        </button>
+      )}
+      {!open && note && <p role="status" className="mt-2 text-white/60">{note}</p>}
+    </div>
+  );
+}
+
+interface FaceInfo {
+  id: string;
+  person: { id: string; name: string } | null;
+  suggestion: { id: string; name: string; score: number } | null;
+}
+
+/** The people found in this picture: names for everyone, and for the server's admin the means to name faces and confirm suggestions. */
+function PeopleSection({ id }: { id: string }) {
+  const [data, setData] = useState<{ faces: FaceInfo[]; canEdit: boolean; people?: { id: string; name: string }[] } | null>(null);
+  const [typed, setTyped] = useState<Record<string, string>>({});
+  const [busy, setBusy] = useState<string | null>(null);
+  const [failed, setFailed] = useState(false);
+
+  const [version, setVersion] = useState(0);
+  useEffect(() => {
+    let live = true;
+    void fetch(`/api/photos/${id}/faces`)
+      .then((res) => (res.ok ? res.json() : null))
+      .then((body) => live && body && setData(body))
+      .catch(() => undefined);
+    return () => {
+      live = false;
+    };
+  }, [id, version]);
+
+  async function change(faceId: string, body: object) {
+    setBusy(faceId);
+    setFailed(false);
+    const res = await fetch(`/api/faces/${faceId}`, { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }).catch(() => null);
+    setBusy(null);
+    if (!res || !res.ok) {
+      setFailed(true);
+      return;
+    }
+    setTyped((t) => ({ ...t, [faceId]: "" }));
+    setVersion((v) => v + 1);
+  }
+
+  if (!data || data.faces.length === 0) return null;
+  const named = data.faces.filter((f) => f.person);
+  const open = data.faces.filter((f) => !f.person);
+  if (!data.canEdit && named.length === 0) return null;
+  const options = data.people ?? [];
+
+  const thumb = (faceId: string) => (
+    // eslint-disable-next-line @next/next/no-img-element
+    <img src={`/api/faces/${faceId}/thumb`} alt="" className="size-11 shrink-0 rounded-full object-cover ring-1 ring-white/20" loading="lazy" />
+  );
+  return (
+    <div className="mt-4 border-t border-white/10 pt-3 text-sm">
+      <h3 className="mb-2 font-semibold">People</h3>
+      <ul className="space-y-2">
+        {named.map((f) => (
+          <li key={f.id} className="flex items-center gap-3">
+            {thumb(f.id)}
+            <span className="min-w-0 flex-1 truncate">{f.person!.name}</span>
+            {data.canEdit && (
+              <button type="button" onClick={() => void change(f.id, { person: null })} disabled={busy === f.id} className="rounded-lg px-2 py-1 text-white/60 hover:bg-white/10">
+                Not them
+              </button>
+            )}
+          </li>
+        ))}
+        {data.canEdit &&
+          open.map((f) => (
+            <li key={f.id} className="flex items-center gap-3">
+              {thumb(f.id)}
+              <div className="min-w-0 flex-1 space-y-1.5">
+                {f.suggestion && (
+                  <div className="flex items-center gap-2">
+                    <span className="min-w-0 flex-1 truncate text-white/80">Is this {f.suggestion.name}?</span>
+                    <button type="button" onClick={() => void change(f.id, { confirm: true })} disabled={busy === f.id} aria-label={`Yes, ${f.suggestion.name}`} className="rounded-lg bg-primary px-2.5 py-1 font-medium text-primary-foreground">
+                      Yes
+                    </button>
+                  </div>
+                )}
+                <form
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    const name = (typed[f.id] ?? "").trim();
+                    const existing = options.find((p) => p.name.toLowerCase() === name.toLowerCase());
+                    if (name) void change(f.id, existing ? { person: existing.id } : { newPerson: name });
+                  }}
+                  className="flex gap-2"
+                >
+                  <input
+                    list={`people-${id}`}
+                    value={typed[f.id] ?? ""}
+                    onChange={(e) => setTyped((t) => ({ ...t, [f.id]: e.target.value }))}
+                    placeholder={f.suggestion ? "Someone else…" : "Who is this?"}
+                    maxLength={80}
+                    className="h-9 min-w-0 flex-1 rounded-lg bg-white/10 px-2.5 text-white focus:outline-none focus:ring-2 focus:ring-primary"
+                  />
+                  <button type="submit" disabled={busy === f.id || !(typed[f.id] ?? "").trim()} className="h-9 rounded-lg bg-white/10 px-3 hover:bg-white/20 disabled:opacity-50">
+                    Save
+                  </button>
+                  <button type="button" onClick={() => void change(f.id, { ignore: true })} disabled={busy === f.id} aria-label="Not a face" title="Not a face" className="h-9 rounded-lg px-2 text-white/50 hover:bg-white/10">
+                    <X className="size-4" />
+                  </button>
+                </form>
+              </div>
+            </li>
+          ))}
+      </ul>
+      <datalist id={`people-${id}`}>
+        {options.map((p) => (
+          <option key={p.id} value={p.name} />
+        ))}
+      </datalist>
+      {failed && <p role="alert" className="mt-2 text-red-300">Couldn&apos;t save that.</p>}
     </div>
   );
 }

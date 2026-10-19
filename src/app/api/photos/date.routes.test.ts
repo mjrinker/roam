@@ -35,6 +35,8 @@ import { mediaFiles, profiles, titles, viewers } from "@/lib/db/schema";
 import { addMember, joinServer, makeAccount, makeLibrary, makeServer, makeTitle, type TestDb } from "@/lib/playlists/test-db";
 import { readImageMeta } from "@/lib/scan/image-meta";
 import { PUT } from "./[id]/date/route";
+import { PUT as PUT_PLACE } from "./[id]/place/route";
+import { GET as SEARCH } from "./places/route";
 
 let db: TestDb;
 beforeAll(() => {
@@ -69,6 +71,7 @@ async function world() {
   const library = await makeLibrary(db, server.id, "photos", "everyone");
   return { owner, member, library, jpg: await photo(library.id, "jpg"), heic: await photo(library.id, "heic"), other: await photo(library.id, "jpg", "cn_00000000-0000-4000-8000-000000000001:abc") };
 }
+const putPlace = (id: string, body: unknown) => PUT_PLACE(new Request("http://x", { method: "PUT", body: JSON.stringify(body) }), ctx(id));
 const row = async (id: string) => (await db.select({ at: titles.takenAt, source: titles.takenAtSource }).from(titles).where(eq(titles.id, id)))[0];
 
 describe("PUT /api/photos/[id]/date", () => {
@@ -120,5 +123,73 @@ describe("PUT /api/photos/[id]/date", () => {
       expect((await put(w.jpg.id, { takenAt })).status).toBe(400);
     }
     expect((await row(w.jpg.id)).source).toBe("box");
+  });
+});
+
+describe("PUT /api/photos/[id]/place", () => {
+  const SF = { latitude: 37.7749, longitude: -122.4194, name: "San Francisco, California" };
+  const placeOf = async (id: string) => (await db.select({ lat: titles.latitude, lon: titles.longitude, name: titles.placeName, source: titles.placeSource }).from(titles).where(eq(titles.id, id)))[0];
+
+  it("is for the admin only", async () => {
+    const w = await world();
+    await signInAs(w.member.accountId);
+    expect((await putPlace(w.jpg.id, { place: SF })).status).toBe(404);
+    expect((await placeOf(w.jpg.id)).source).toBeNull();
+    expect(h.uploads).toEqual([]);
+  });
+
+  it("saves the place as a manual one and writes the position into a Box JPEG", async () => {
+    const w = await world();
+    await signInAs(w.owner.accountId);
+    const r = await putPlace(w.jpg.id, { place: SF });
+    expect(await r.json()).toEqual({ place: SF, file: "written" });
+    expect(await placeOf(w.jpg.id)).toEqual({ lat: SF.latitude, lon: SF.longitude, name: SF.name, source: "manual" });
+    const sent = h.uploads[0].bytes;
+    const gps = (await readImageMeta(async (s, e) => sent.slice(s, e + 1).buffer as ArrayBuffer, sent.length)).gps!;
+    expect(gps.latitude).toBeCloseTo(SF.latitude, 4);
+    expect(gps.longitude).toBeCloseTo(SF.longitude, 4);
+  });
+
+  it("removes a place, keeping it removed (a manual mark, so a scan reading the file again can't bring one back)", async () => {
+    const w = await world();
+    await signInAs(w.owner.accountId);
+    await putPlace(w.heic.id, { place: SF });
+    const r = await putPlace(w.heic.id, { place: null });
+    expect(await r.json()).toEqual({ place: null, file: "not-jpeg" });
+    expect(await placeOf(w.heic.id)).toEqual({ lat: null, lon: null, name: null, source: "manual" });
+  });
+
+  it("keeps it in Roam only for a format or storage it can't write to, and refuses nonsense", async () => {
+    const w = await world();
+    await signInAs(w.owner.accountId);
+    expect(await (await putPlace(w.other.id, { place: SF })).json()).toMatchObject({ file: "not-box" });
+    for (const place of [{ latitude: 91, longitude: 0 }, { latitude: 0, longitude: 181 }, { latitude: "1", longitude: 2 }, "Paris", 5, undefined]) {
+      expect((await putPlace(w.jpg.id, { place })).status, JSON.stringify(place)).toBe(400);
+    }
+    expect((await putPlace(w.jpg.id, {})).status).toBe(400);
+    expect((await placeOf(w.jpg.id)).source).toBeNull();
+  });
+});
+
+describe("GET /api/photos/places", () => {
+  const search = (serverId: string, q: string) => SEARCH(new Request(`http://x/api/photos/places?serverId=${serverId}&q=${encodeURIComponent(q)}`));
+  it("looks a name up for the admin only, and passes on nothing but the typed text", async () => {
+    const w = await world();
+    const seen: string[] = [];
+    vi.stubGlobal("fetch", async (url: string) => {
+      seen.push(String(url));
+      return Response.json([{ lat: "39.0968", lon: "-120.0324", display_name: "Lake Tahoe, California, United States" }, { lat: "bad", lon: "1", display_name: "x" }]);
+    });
+    await signInAs(w.member.accountId);
+    expect((await search(w.library.serverId, "Lake Tahoe")).status).toBe(404);
+    expect(seen).toEqual([]);
+    await signInAs(w.owner.accountId);
+    const r = await search(w.library.serverId, "Lake Tahoe");
+    expect(await r.json()).toEqual({ results: [{ latitude: 39.0968, longitude: -120.0324, name: "Lake Tahoe, California, United States" }] });
+    expect(seen).toHaveLength(1);
+    expect(seen[0]).toContain("nominatim.openstreetmap.org/search");
+    expect(seen[0]).toContain("q=Lake%20Tahoe");
+    expect(await (await search(w.library.serverId, "a")).json()).toEqual({ results: [] }); // too short to look up
+    expect(seen).toHaveLength(1);
   });
 });

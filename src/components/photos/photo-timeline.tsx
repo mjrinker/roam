@@ -574,6 +574,7 @@ export function PhotoTimeline({
           words={words}
           onFavoriteChange={setFavorite}
           canEditDate={canEditDate}
+          serverId={serverId}
           onDateChange={() => {
             dateChangedRef.current = true;
           }}

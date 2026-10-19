@@ -1,0 +1,1 @@
+ALTER TABLE "photo_faces" ADD COLUMN "thumb" "bytea" NOT NULL;

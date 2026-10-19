@@ -13,7 +13,7 @@ import type { PgDatabase, PgQueryResultHKT } from "drizzle-orm/pg-core";
 import { z } from "zod";
 import { contentFilter, type AccessProfile } from "@/lib/content/access";
 import { libraryVisible, type LibraryActor } from "@/lib/content/library-access";
-import { libraries, photoFavorites, titles } from "@/lib/db/schema";
+import { libraries, photoFavorites, photoFaces, photoPeople, titles } from "@/lib/db/schema";
 import { PHOTO_LIBRARY_KINDS } from "@/lib/libraries/profile";
 import { bucketRange, type ZoomLevel } from "@/lib/photos/months";
 import { escapeLike, type SearchSpec } from "@/lib/photos/search";
@@ -45,6 +45,8 @@ export interface TimelineItem {
   sizeBytes: number | null;
   container: string | null;
   folderPath: string;
+  /** Where it was taken, when known. */
+  place?: { latitude: number; longitude: number; name: string | null };
 }
 
 export interface TimelinePage {
@@ -94,10 +96,15 @@ function narrowed(
   args: { actor: LibraryActor; viewer: AccessProfile; viewerId?: string; libraryId: string; favoritesOnly?: boolean; search?: SearchSpec | null }
 ): SQL | undefined {
   const heart = args.viewerId ? sql`EXISTS (SELECT 1 FROM ${photoFavorites} f WHERE f.title_id = ${titles.id} AND f.viewer_id = ${args.viewerId})` : sql`false`;
+  // A name matches the picture's file name, the place it was taken, or a person tagged in it.
+  const like = args.search ? `%${escapeLike(args.search.text)}%` : "";
+  const nameMatch = args.search
+    ? sql`(${titles.name} ILIKE ${like} ESCAPE '\\' OR ${titles.placeName} ILIKE ${like} ESCAPE '\\' OR EXISTS (SELECT 1 FROM ${photoFaces} pf JOIN ${photoPeople} pp ON pp.id = pf.person_id WHERE pf.title_id = ${titles.id} AND pf.ignored = false AND pp.name ILIKE ${like} ESCAPE '\\'))`
+    : undefined;
   const search = args.search
     ? args.search.range
-      ? or(sql`${titles.name} ILIKE ${"%" + escapeLike(args.search.text) + "%"} ESCAPE '\\'`, and(sql`${titles.takenAt} >= ${args.search.range.from.toISOString()}::timestamptz`, sql`${titles.takenAt} < ${args.search.range.to.toISOString()}::timestamptz`))
-      : sql`${titles.name} ILIKE ${"%" + escapeLike(args.search.text) + "%"} ESCAPE '\\'`
+      ? or(nameMatch, and(sql`${titles.takenAt} >= ${args.search.range.from.toISOString()}::timestamptz`, sql`${titles.takenAt} < ${args.search.range.to.toISOString()}::timestamptz`))
+      : nameMatch
     : undefined;
   return and(visibleItems(ex, args), args.favoritesOnly ? heart : undefined, search);
 }
@@ -162,6 +169,9 @@ export async function listTimeline(
       kind: titles.kind,
       name: titles.name,
       takenAt: titles.takenAt,
+      latitude: titles.latitude,
+      longitude: titles.longitude,
+      placeName: titles.placeName,
       width: titles.width,
       height: titles.height,
       posterUrl: titles.posterUrl,
@@ -203,6 +213,7 @@ export async function listTimeline(
     sizeBytes: r.sizeBytes === null ? null : Number(r.sizeBytes),
     container: r.container,
     folderPath: r.folderPath ?? "",
+    ...(r.latitude !== null && r.longitude !== null ? { place: { latitude: r.latitude, longitude: r.longitude, name: r.placeName } } : {}),
   });
   const cursorOf = (r: { takenAt: Date | null; id: string }): TimelineCursor => ({ t: r.takenAt ? Math.floor(r.takenAt.getTime() / 1000) : null, id: r.id });
   const items = page.map(toItem);
@@ -230,6 +241,7 @@ export interface PhotoDetail {
   height: number | null;
   folderPath: string;
   sortKey: string;
+  place?: { latitude: number; longitude: number; name: string | null };
 }
 
 /** One picture's or video's details, or null when it doesn't exist, isn't one in a photo library, or isn't visible to this viewer. */
@@ -248,6 +260,9 @@ export async function loadPhoto(ex: Db, args: { actor: LibraryActor; viewer: Acc
       libraryName: libraries.name,
       name: titles.name,
       takenAt: titles.takenAt,
+      latitude: titles.latitude,
+      longitude: titles.longitude,
+      placeName: titles.placeName,
       width: titles.width,
       height: titles.height,
       folderPath: titles.folderPath,
@@ -258,7 +273,15 @@ export async function loadPhoto(ex: Db, args: { actor: LibraryActor; viewer: Acc
     .where(and(eq(titles.id, args.id), inArray(titles.kind, ["photo", "movie"]), inArray(libraries.kind, [...PHOTO_LIBRARY_KINDS]), libraryVisible(ex, args.actor), contentFilter(args.viewer, titles.ratingAges)))
     .limit(1);
   if (!row) return null;
-  return { ...row, favorite: row.favorite === true, kind: row.kind === "movie" ? "movie" : "photo", sizeBytes: row.sizeBytes === null ? null : Number(row.sizeBytes), folderPath: row.folderPath ?? "" };
+  const { latitude, longitude, placeName, ...rest } = row;
+  return {
+    ...rest,
+    favorite: row.favorite === true,
+    kind: row.kind === "movie" ? "movie" : "photo",
+    sizeBytes: row.sizeBytes === null ? null : Number(row.sizeBytes),
+    folderPath: row.folderPath ?? "",
+    ...(latitude !== null && longitude !== null ? { place: { latitude, longitude, name: placeName } } : {}),
+  };
 }
 
 /** The item before or after a photo in the viewer: a picture or a video. */

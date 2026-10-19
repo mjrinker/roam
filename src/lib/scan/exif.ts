@@ -4,7 +4,8 @@
  * read is range-checked, only the two directories that matter are visited (no chain of "next" pointers
  * to loop on), and entry counts are capped. Never throws: whatever can't be read safely is null.
  *
- * Deliberately reads NO location data: the GPS directory is never opened.
+ * Location: only the latitude and longitude of the picture (the GPS directory's four position tags: altitude, speed, direction and the rest are
+ * never read).
  */
 
 export interface ExifData {
@@ -15,9 +16,11 @@ export interface ExifData {
   /** Pixel size the file declares (stored, not yet turned by `orientation`). */
   width: number | null;
   height: number | null;
+  /** Where it was taken, in degrees (north and east positive), or null when the file has no usable position. */
+  gps: { latitude: number; longitude: number } | null;
 }
 
-const NOTHING: ExifData = { takenAt: null, orientation: null, width: null, height: null };
+const NOTHING: ExifData = { takenAt: null, orientation: null, width: null, height: null, gps: null };
 const MAX_ENTRIES = 512;
 const EARLIEST_YEAR = 1826; // the oldest photograph
 const FUTURE_SLACK_MS = 24 * 60 * 60 * 1000;
@@ -44,7 +47,7 @@ interface Entry {
   at: number;
 }
 
-const TYPE_SIZE: Record<number, number> = { 1: 1, 2: 1, 3: 2, 4: 4 };
+const TYPE_SIZE: Record<number, number> = { 1: 1, 2: 1, 3: 2, 4: 4, 5: 8 };
 
 /** `tiff` starts at the TIFF header ("II*\0" or "MM\0*"). */
 export function parseExif(tiff: Uint8Array, now = Date.now()): ExifData {
@@ -100,6 +103,20 @@ function read(t: Uint8Array, now: number): ExifData {
     return s;
   };
 
+  // Degrees, minutes and seconds (three rationals) to degrees.
+  const degrees = (e: Entry | undefined): number | null => {
+    if (!e || e.type !== 5 || e.count !== 3) return null;
+    const parts: number[] = [];
+    for (let i = 0; i < 3; i++) {
+      const num = u32(e.at + i * 8);
+      const den = u32(e.at + i * 8 + 4);
+      if (num === undefined || den === undefined || den === 0) return null;
+      parts.push(num / den);
+    }
+    const value = parts[0] + parts[1] / 60 + parts[2] / 3600;
+    return Number.isFinite(value) ? value : null;
+  };
+
   const ifd0 = directory(u32(4));
   const pointer = number(ifd0.get(0x8769));
   const exifIfd = pointer === null ? new Map<number, Entry>() : directory(pointer);
@@ -110,6 +127,20 @@ function read(t: Uint8Array, now: number): ExifData {
       .map((s) => (s === null ? null : parseExifDate(s, now)))
       .find((d) => d !== null) ?? null;
 
+  const gpsPointer = number(ifd0.get(0x8825));
+  const gpsIfd = gpsPointer === null ? new Map<number, Entry>() : directory(gpsPointer);
+  const lat = degrees(gpsIfd.get(2));
+  const lon = degrees(gpsIfd.get(4));
+  const latRef = text(gpsIfd.get(1));
+  const lonRef = text(gpsIfd.get(3));
+  const latitude = lat === null || (latRef !== "N" && latRef !== "S") ? null : latRef === "S" ? -lat : lat;
+  const longitude = lon === null || (lonRef !== "E" && lonRef !== "W") ? null : lonRef === "W" ? -lon : lon;
+  // A camera with no fix often writes 0,0 (a point in the sea): that is no position.
+  const gps =
+    latitude !== null && longitude !== null && Math.abs(latitude) <= 90 && Math.abs(longitude) <= 180 && !(latitude === 0 && longitude === 0)
+      ? { latitude, longitude }
+      : null;
+
   const o = number(ifd0.get(0x0112));
   const width = number(exifIfd.get(0xa002));
   const height = number(exifIfd.get(0xa003));
@@ -118,5 +149,6 @@ function read(t: Uint8Array, now: number): ExifData {
     orientation: o !== null && o >= 1 && o <= 8 ? o : null,
     width: validDimension(width) ? width : null,
     height: validDimension(height) ? height : null,
+    gps,
   };
 }

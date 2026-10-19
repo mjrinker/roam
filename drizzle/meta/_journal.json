@@ -519,6 +519,20 @@
       "when": 1792348174110,
       "tag": "0073_watch_rooms",
       "breakpoints": true
+    },
+    {
+      "idx": 74,
+      "version": "7",
+      "when": 1792422870413,
+      "tag": "0074_photo_places_faces",
+      "breakpoints": true
+    },
+    {
+      "idx": 75,
+      "version": "7",
+      "when": 1792423384210,
+      "tag": "0075_photo_faces_thumb",
+      "breakpoints": true
     }
   ]
 }

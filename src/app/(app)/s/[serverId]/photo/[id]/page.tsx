@@ -56,6 +56,7 @@ export default async function PhotoPage({ params, searchParams }: PageProps<"/s/
       libraryId={photo.libraryId}
       words={{ add: words.add, remove: words.remove }}
       canEditDate={role === "admin" && viewer.role !== "limited"}
+      serverId={serverId}
     />
   );
 }

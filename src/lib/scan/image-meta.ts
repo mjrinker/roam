@@ -14,6 +14,8 @@ import { EXIF_ITEM_MAX, parseHeif, tiffOfExifItem } from "@/lib/scan/heif-meta";
 export interface ImageMeta {
   /** Wall-clock time the picture was taken (UTC terms, see exif.ts), or null when the file doesn't say. */
   takenAt: Date | null;
+  /** Where it was taken, from the file's GPS, when it has one. */
+  gps?: { latitude: number; longitude: number };
   width: number | null;
   height: number | null;
 }
@@ -70,7 +72,7 @@ function jpegMeta(b: Uint8Array): ImageMeta {
   const useSof = sof !== null && validDimension(sof.width) && validDimension(sof.height);
   const w = useSof ? sof.width : (exif?.width ?? null);
   const h = useSof ? sof.height : (exif?.height ?? null);
-  return { takenAt: exif?.takenAt ?? null, ...oriented(w, h, exif?.orientation ?? null) };
+  return { takenAt: exif?.takenAt ?? null, ...(exif?.gps ? { gps: exif.gps } : {}), ...oriented(w, h, exif?.orientation ?? null) };
 }
 
 function pngMeta(b: Uint8Array): ImageMeta {
@@ -110,6 +112,7 @@ function webpMeta(b: Uint8Array): ImageMeta {
 async function heicMeta(b: Uint8Array, fetchRange: FetchRange, size: number): Promise<ImageMeta> {
   const info = parseHeif(b);
   let takenAt: Date | null = null;
+  let gps: ImageMeta["gps"];
   if (info.exif && info.exif.offset + info.exif.length <= size) {
     const { offset, length } = info.exif;
     // Usually just beyond what we read; ask for exactly the block (bounded at parse time).
@@ -118,10 +121,14 @@ async function heicMeta(b: Uint8Array, fetchRange: FetchRange, size: number): Pr
         ? b.subarray(offset, offset + length)
         : new Uint8Array(await fetchRange(offset, offset + Math.min(length, EXIF_ITEM_MAX) - 1));
     const tiff = tiffOfExifItem(item);
-    if (tiff) takenAt = parseExif(tiff).takenAt;
+    if (tiff) {
+      const exif = parseExif(tiff);
+      takenAt = exif.takenAt;
+      gps = exif.gps ?? undefined;
+    }
   }
   // A HEIC's rotation lives in its own `irot` (already applied by parseHeif); its EXIF orientation is not applied again.
-  return { takenAt, ...oriented(info.width, info.height, null) };
+  return { takenAt, ...(gps ? { gps } : {}), ...oriented(info.width, info.height, null) };
 }
 
 /**

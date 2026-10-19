@@ -1,14 +1,19 @@
 /**
- * Sets the "taken" date inside a JPEG's EXIF block (DateTimeOriginal, DateTimeDigitized and DateTime), leaving everything else in the file
- * exactly as it is: the picture's compressed data is never touched, and the rest of the EXIF (orientation, camera, location, maker notes) is
+ * Sets the "taken" date and/or the GPS position inside a JPEG's EXIF block (DateTimeOriginal, DateTimeDigitized and DateTime; the GPS
+ * directory), leaving everything else in the file exactly as it is: the picture's compressed data is never touched, and the rest of the EXIF (orientation, camera, location, maker notes) is
  * kept. The edit only appends to the EXIF block: new copies of the two directories that change go at its end, and the header is pointed at
  * them, so every offset already in the block stays valid. A file with no EXIF gets a small block of its own.
+ *
+ * A position that is replaced or removed is erased from the file, not just unlinked: the old GPS directory and its numbers are overwritten
+ * with zeros, so a removed location can't be read back out of the file.
  *
  * Throws for anything that isn't a JPEG, or whose EXIF is too damaged or too big to extend: the caller then leaves the file as it is.
  */
 const EXIF_PREFIX = [0x45, 0x78, 0x69, 0x66, 0, 0]; // "Exif\0\0"
 const TAG_DATETIME = 0x0132;
 const TAG_EXIF_POINTER = 0x8769;
+const TAG_GPS_POINTER = 0x8825;
+const TYPE_BYTES: Record<number, number> = { 1: 1, 2: 1, 3: 2, 4: 4, 5: 8, 7: 1, 9: 4, 10: 8 };
 const TAG_DATETIME_ORIGINAL = 0x9003;
 const TAG_DATETIME_DIGITIZED = 0x9004;
 const MAX_ENTRIES = 512;
@@ -26,9 +31,21 @@ function isExifSegment(b: Uint8Array, at: number, length: number) {
   return length >= 8 && EXIF_PREFIX.every((v, i) => b[at + 4 + i] === v);
 }
 
-export function setJpegTakenAt(jpeg: Uint8Array, takenAt: Date): Uint8Array {
+export interface ExifEdit {
+  /** The new date taken; absent: unchanged. */
+  takenAt?: Date;
+  /** The new position; null: remove it; absent: unchanged. */
+  gps?: { latitude: number; longitude: number } | null;
+}
+
+export const setJpegTakenAt = (jpeg: Uint8Array, takenAt: Date) => editJpegExif(jpeg, { takenAt });
+
+export function editJpegExif(jpeg: Uint8Array, edit: ExifEdit): Uint8Array {
   if (jpeg.length < 4 || jpeg[0] !== 0xff || jpeg[1] !== 0xd8) throw new Error("Not a JPEG.");
-  if (Number.isNaN(takenAt.getTime())) throw new Error("No date.");
+  const takenAt = edit.takenAt;
+  if (takenAt && Number.isNaN(takenAt.getTime())) throw new Error("No date.");
+  const gpsEdit = edit.gps;
+  if (gpsEdit && !(Math.abs(gpsEdit.latitude) <= 90 && Math.abs(gpsEdit.longitude) <= 180)) throw new Error("No such place.");
 
   // The segments before the picture data: where the EXIF one is (or would go).
   let at = 2;
@@ -85,15 +102,59 @@ export function setJpegTakenAt(jpeg: Uint8Array, takenAt: Date): Uint8Array {
   const valueOf = (e: RawEntry) => (little ? (e.bytes[8] | (e.bytes[9] << 8) | (e.bytes[10] << 16) | (e.bytes[11] << 24)) >>> 0 : ((e.bytes[8] << 24) | (e.bytes[9] << 16) | (e.bytes[10] << 8) | e.bytes[11]) >>> 0);
   const exifIfd = exifPointer ? readIfd(valueOf(exifPointer)) : { entries: [], next: 0 };
 
-  const text = [...Buffer.from(`${exifDateString(takenAt)}\0`, "ascii")];
-  const dateAt = append(text);
-  const exifEntries = exifIfd.entries
-    .filter((e) => e.tag !== TAG_DATETIME_ORIGINAL && e.tag !== TAG_DATETIME_DIGITIZED)
-    .concat([entry(TAG_DATETIME_ORIGINAL, 2, 20, dateAt), entry(TAG_DATETIME_DIGITIZED, 2, 20, dateAt)]);
-  const exifIfdAt = writeIfd(exifEntries, exifIfd.next);
-  const ifd0Entries = ifd0.entries
-    .filter((e) => e.tag !== TAG_EXIF_POINTER && e.tag !== TAG_DATETIME)
-    .concat([entry(TAG_EXIF_POINTER, 4, 1, exifIfdAt), entry(TAG_DATETIME, 2, 20, dateAt)]);
+  let ifd0Entries = ifd0.entries;
+  if (takenAt) {
+    const dateAt = append([...Buffer.from(`${exifDateString(takenAt)}\0`, "ascii")]);
+    const exifEntries = exifIfd.entries
+      .filter((e) => e.tag !== TAG_DATETIME_ORIGINAL && e.tag !== TAG_DATETIME_DIGITIZED)
+      .concat([entry(TAG_DATETIME_ORIGINAL, 2, 20, dateAt), entry(TAG_DATETIME_DIGITIZED, 2, 20, dateAt)]);
+    const exifIfdAt = writeIfd(exifEntries, exifIfd.next);
+    ifd0Entries = ifd0Entries.filter((e) => e.tag !== TAG_EXIF_POINTER && e.tag !== TAG_DATETIME).concat([entry(TAG_EXIF_POINTER, 4, 1, exifIfdAt), entry(TAG_DATETIME, 2, 20, dateAt)]);
+  }
+  if (gpsEdit !== undefined) {
+    // Erase the old position where it lies in the block (the directory, and the numbers its entries point to).
+    const old = ifd0Entries.find((e) => e.tag === TAG_GPS_POINTER);
+    if (old) {
+      const at = valueOf(old);
+      const gps = readIfd(at);
+      for (const e of gps.entries) {
+        const type = (little ? e.bytes[2] | (e.bytes[3] << 8) : (e.bytes[2] << 8) | e.bytes[3]) as number;
+        const count = little ? (e.bytes[4] | (e.bytes[5] << 8) | (e.bytes[6] << 16) | (e.bytes[7] << 24)) >>> 0 : ((e.bytes[4] << 24) | (e.bytes[5] << 16) | (e.bytes[6] << 8) | e.bytes[7]) >>> 0;
+        const size = (TYPE_BYTES[type] ?? 0) * count;
+        if (size > 4) {
+          const from = valueOf(e);
+          if (from + size <= out.length) out.fill(0, from, from + size);
+        }
+      }
+      out.fill(0, at, at + 2 + gps.entries.length * 12 + 4);
+    }
+    ifd0Entries = ifd0Entries.filter((e) => e.tag !== TAG_GPS_POINTER);
+    if (gpsEdit) {
+      const dms = (value: number): number[] => {
+        const v = Math.abs(value);
+        const d = Math.floor(v);
+        const m = Math.floor((v - d) * 60);
+        const seconds = Math.min(Math.round(((v - d) * 60 - m) * 60 * 10000), 599999);
+        return [...put32(d), ...put32(1), ...put32(m), ...put32(1), ...put32(seconds), ...put32(10000)];
+      };
+      const latAt = append(dms(gpsEdit.latitude));
+      const lonAt = append(dms(gpsEdit.longitude));
+      const ref = (letter: string) => [letter.charCodeAt(0), 0, 0, 0];
+      const raw = (tag: number, type: number, count: number, value: number[]): RawEntry => ({ tag, bytes: Uint8Array.from([...put16(tag), ...put16(type), ...put32(count), ...value]) });
+      const gpsIfdAt = writeIfd(
+        [
+          raw(0, 1, 4, [2, 3, 0, 0]),
+          raw(1, 2, 2, ref(gpsEdit.latitude < 0 ? "S" : "N")),
+          raw(2, 5, 3, put32(latAt)),
+          raw(3, 2, 2, ref(gpsEdit.longitude < 0 ? "W" : "E")),
+          raw(4, 5, 3, put32(lonAt)),
+        ],
+        0
+      );
+      ifd0Entries = ifd0Entries.concat([entry(TAG_GPS_POINTER, 4, 1, gpsIfdAt)]);
+    }
+  }
+  if ((!takenAt && gpsEdit === undefined) || (!tiff && !takenAt && !gpsEdit)) return jpeg;
   const ifd0At = writeIfd(ifd0Entries, ifd0.next);
   setU32(4, ifd0At);
 

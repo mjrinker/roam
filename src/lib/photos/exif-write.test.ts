@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { parseExif } from "@/lib/scan/exif";
 import { readImageMeta } from "@/lib/scan/image-meta";
-import { setJpegTakenAt } from "./exif-write";
+import { buildJpeg as realJpeg, buildTiff as realTiff } from "@/lib/scan/test-images";
+import { editJpegExif, setJpegTakenAt } from "./exif-write";
 
 /** A TIFF block with IFD0 (orientation, make, and a pointer to an Exif IFD holding a date unless `date` is null, and a made-up tag 0x927c). */
 function tiff(little: boolean, date: string | null): number[] {
@@ -86,5 +87,51 @@ describe("setting the taken date inside a JPEG", () => {
     expect(() => setJpegTakenAt(Uint8Array.from([0x89, 0x50, 0x4e, 0x47]), NEW)).toThrow();
     const broken = jpeg([0x49, 0x49, 0x2a, 0, 0xff, 0xff, 0xff, 0x7f, 0, 0, 0, 0]);
     expect(() => setJpegTakenAt(broken, NEW)).toThrow();
+  });
+});
+
+describe("setting and erasing the GPS position inside a JPEG", () => {
+  const gps = { latRef: "N", lat: [37, 46, 3000] as [number, number, number], lonRef: "W", lon: [122, 25, 1500] as [number, number, number] };
+  const withGps = (little: boolean) => realJpeg({ width: 40, height: 30, tiff: realTiff({ little, orientation: 6, dateTimeOriginal: "2019:05:06 07:08:09", gps }) });
+  const gpsOf = async (b: Uint8Array) => (await meta(b)).gps;
+  // The latitude numbers as the file stores them: 37, 46 and 30.00 seconds, as fractions (little-endian).
+  const oldLat = Buffer.from([37, 0, 0, 0, 1, 0, 0, 0, 46, 0, 0, 0, 1, 0, 0, 0, 0xb8, 0x0b, 0, 0, 100, 0, 0, 0]);
+
+  it("adds a position to a JPEG with none, in the southern and western hemispheres too", async () => {
+    const out = editJpegExif(jpeg(null), { gps: { latitude: -33.8568, longitude: 151.2153 } });
+    const g = (await gpsOf(out))!;
+    expect(g.latitude).toBeCloseTo(-33.8568, 4);
+    expect(g.longitude).toBeCloseTo(151.2153, 4);
+    const w = (await gpsOf(editJpegExif(jpeg(tiff(false, "2001:02:03 04:05:06")), { gps: { latitude: 48.8584, longitude: -2.2945 } })))!;
+    expect(w.longitude).toBeCloseTo(-2.2945, 4);
+  });
+  it("replaces a position and erases the old numbers from the file, keeping the date and orientation", async () => {
+    const original = withGps(true);
+    expect(Buffer.from(original).includes(oldLat)).toBe(true);
+    const out = editJpegExif(original, { gps: { latitude: 10.5, longitude: 20.25 } });
+    const g = (await gpsOf(out))!;
+    expect(g.latitude).toBeCloseTo(10.5, 5);
+    expect(Buffer.from(out).includes(oldLat)).toBe(false);
+    expect((await meta(out)).takenAt?.toISOString()).toBe("2019-05-06T07:08:09.000Z");
+    expect(parseExif(exifOf(out)).orientation).toBe(6);
+  });
+  it("removes a position completely: nothing to read, nothing left in the file", async () => {
+    for (const little of [true, false]) {
+      const out = editJpegExif(withGps(little), { gps: null });
+      expect(await gpsOf(out)).toBeUndefined();
+      expect(Buffer.from(out).includes(oldLat)).toBe(false);
+      expect((await meta(out)).takenAt?.toISOString()).toBe("2019-05-06T07:08:09.000Z");
+    }
+    const bare = jpeg(null);
+    expect(editJpegExif(bare, { gps: null })).toBe(bare); // no EXIF, nothing to remove: the file is returned as it was
+  });
+  it("can change the date and the position together", async () => {
+    const out = editJpegExif(withGps(true), { takenAt: NEW, gps: { latitude: 1.5, longitude: 2.5 } });
+    const m = await meta(out);
+    expect(m.takenAt?.toISOString()).toBe(NEW.toISOString());
+    expect(m.gps?.latitude).toBeCloseTo(1.5, 5);
+  });
+  it("refuses a position that isn't on Earth", () => {
+    expect(() => editJpegExif(jpeg(null), { gps: { latitude: 91, longitude: 0 } })).toThrow();
   });
 });

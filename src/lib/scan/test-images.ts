@@ -13,6 +13,8 @@ export interface TiffOptions {
   dateTime?: string;
   pixelX?: number;
   pixelY?: number;
+  /** A GPS position: hemisphere letters and degrees, minutes, seconds (whole numbers, seconds in hundredths). */
+  gps?: { latRef: string; lat: [number, number, number]; lonRef: string; lon: [number, number, number] };
   /** Entries to add to IFD0 as-is (hostile cases). */
   rawIfd0?: { tag: number; type: number; count: number; value: number }[];
 }
@@ -36,14 +38,26 @@ export function buildTiff(o: TiffOptions = {}): number[] {
   if (o.orientation !== undefined) ifd0.push({ tag: 0x0112, type: 3, count: 1, inline: [...w16(o.orientation), 0, 0] });
   if (o.dateTime !== undefined) ifd0.push({ tag: 0x0132, type: 2, count: o.dateTime.length + 1, data: asciiData(o.dateTime) });
   for (const r of o.rawIfd0 ?? []) ifd0.push({ tag: r.tag, type: r.type, count: r.count, inline: w32(r.value) });
+  const rationals = (dms: [number, number, number]) => [...w32(dms[0]), ...w32(1), ...w32(dms[1]), ...w32(1), ...w32(dms[2]), ...w32(100)];
+  const gpsEntries: Entry[] = o.gps
+    ? [
+        { tag: 1, type: 2, count: 2, data: asciiData(o.gps.latRef) },
+        { tag: 2, type: 5, count: 3, data: rationals(o.gps.lat) },
+        { tag: 3, type: 2, count: 2, data: asciiData(o.gps.lonRef) },
+        { tag: 4, type: 5, count: 3, data: rationals(o.gps.lon) },
+      ]
+    : [];
   const hasExif = exifEntries.length > 0;
+  const hasGps = gpsEntries.length > 0;
   if (hasExif) ifd0.push({ tag: 0x8769, type: 4, count: 1, inline: [0, 0, 0, 0] }); // pointer patched below
+  if (hasGps) ifd0.push({ tag: 0x8825, type: 4, count: 1, inline: [0, 0, 0, 0] });
   ifd0.sort((a, b) => a.tag - b.tag);
 
   const size = (n: number) => 2 + 12 * n + 4;
   const ifd0At = 8;
   const exifAt = ifd0At + size(ifd0.length);
-  let dataAt = exifAt + (hasExif ? size(exifEntries.length) : 0);
+  const gpsAt = exifAt + (hasExif ? size(exifEntries.length) : 0);
+  const dataAt = gpsAt + (hasGps ? size(gpsEntries.length) : 0);
   const data: number[] = [];
   const serialize = (entries: Entry[]) => {
     const out = [...w16(entries.length)];
@@ -60,11 +74,14 @@ export function buildTiff(o: TiffOptions = {}): number[] {
     out.push(0, 0, 0, 0); // no next IFD
     return out;
   };
-  for (const e of ifd0) if (e.tag === 0x8769) e.inline = w32(exifAt);
+  for (const e of ifd0) {
+    if (e.tag === 0x8769) e.inline = w32(exifAt);
+    if (e.tag === 0x8825) e.inline = w32(gpsAt);
+  }
   const ifd0Bytes = serialize(ifd0);
   const exifBytes = hasExif ? serialize(exifEntries) : [];
-  dataAt = exifAt + exifBytes.length; // (unchanged value; recomputed for clarity)
-  return [...(little ? [0x49, 0x49, 42, 0] : [0x4d, 0x4d, 0, 42]), ...w32(ifd0At), ...ifd0Bytes, ...exifBytes, ...data];
+  const gpsBytes = hasGps ? serialize(gpsEntries) : [];
+  return [...(little ? [0x49, 0x49, 42, 0] : [0x4d, 0x4d, 0, 42]), ...w32(ifd0At), ...ifd0Bytes, ...exifBytes, ...gpsBytes, ...data];
 }
 
 const segment = (marker: number, body: number[]) => [0xff, marker, ...be16(body.length + 2), ...body];

@@ -19,6 +19,7 @@ export function PhotoPageViewer({
   libraryId,
   words,
   canEditDate,
+  serverId,
 }: {
   current: ViewerItem;
   prev: ViewerItem | null;
@@ -29,6 +30,7 @@ export function PhotoPageViewer({
   libraryId: string;
   words: { add: string; remove: string };
   canEditDate?: boolean;
+  serverId?: string;
 }) {
   const router = useRouter();
   return (
@@ -42,6 +44,7 @@ export function PhotoPageViewer({
       onNext={() => nextHref && router.push(nextHref)}
       onClose={() => router.push(backHref)}
       canEditDate={canEditDate}
+      serverId={serverId}
       onDateChange={() => router.refresh()}
     />
   );
