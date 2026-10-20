@@ -3,6 +3,7 @@
  * errors, movies and shows with nothing to play, files that couldn't be read, titles still to be matched, and what looks like the same
  * title twice. Read-only: it only looks, and the settings page says where to fix each.
  */
+import { splitScanMessages } from "@/lib/scan/notices";
 import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import type { PgDatabase, PgQueryResultHKT } from "drizzle-orm/pg-core";
 import { libraries, mediaFiles, scanRuns, storageConnections, titles } from "@/lib/db/schema";
@@ -48,7 +49,7 @@ export async function serverHealth(ex: Db, serverId: string, now: Date = new Dat
 
   // The latest scan of each library, for its errors.
   const lastScans = libIds.length ? await ex.selectDistinctOn([scanRuns.libraryId], { libraryId: scanRuns.libraryId, errors: scanRuns.errors }).from(scanRuns).where(inArray(scanRuns.libraryId, libIds)).orderBy(scanRuns.libraryId, desc(scanRuns.startedAt)) : [];
-  const errorsOf = new Map(lastScans.map((s) => [s.libraryId, s.errors ?? []]));
+  const errorsOf = new Map(lastScans.map((s) => [s.libraryId, splitScanMessages(s.errors ?? []).errors]));
   const libraryProblems: ServerHealth["libraries"] = [];
   for (const l of libs) {
     const errors = errorsOf.get(l.id) ?? [];

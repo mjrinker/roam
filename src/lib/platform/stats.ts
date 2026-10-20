@@ -1,4 +1,5 @@
 /** The numbers and problems on the platform admin page, for every server at once. Read-only. */
+import { splitScanMessages } from "@/lib/scan/notices";
 import { and, count, countDistinct, desc, eq, gt, isNotNull, isNull, lt, min, ne, sql, sum } from "drizzle-orm";
 import type { PgDatabase, PgQueryResultHKT } from "drizzle-orm/pg-core";
 import {
@@ -160,7 +161,7 @@ export async function loadPlatformStats(ex: Db, now: Date = new Date()): Promise
     .selectDistinctOn([scanRuns.libraryId], { libraryId: scanRuns.libraryId, errors: scanRuns.errors, finishedAt: scanRuns.finishedAt })
     .from(scanRuns)
     .orderBy(scanRuns.libraryId, desc(scanRuns.startedAt));
-  const withErrors = latest.filter((l) => (l.errors ?? []).length > 0);
+  const withErrors = latest.map((l) => ({ ...l, errors: splitScanMessages(l.errors ?? []).errors })).filter((l) => l.errors.length > 0);
   const libNames = await ex.select({ id: libraries.id, name: libraries.name, serverName: servers.name, lastScannedAt: libraries.lastScannedAt }).from(libraries).innerJoin(servers, eq(libraries.serverId, servers.id));
   const byId = new Map(libNames.map((l) => [l.id, l]));
   const scanErrors = withErrors
