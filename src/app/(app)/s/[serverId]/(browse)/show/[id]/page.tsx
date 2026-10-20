@@ -29,6 +29,8 @@ import { AddToPlaylistMenu } from "@/components/playlists/add-to-playlist-menu";
 import { Breadcrumbs } from "@/components/shell/breadcrumbs";
 import { loadTitleCast, loadTitleCrew } from "@/lib/cast/queries";
 import { CastRow } from "@/components/library/cast-row";
+import { ExtrasSection } from "@/components/library/extras-section";
+import { loadTitleExtras } from "@/lib/extras/load";
 import { OwnershipSection } from "@/components/ownership/ownership-section";
 import { CrewRow } from "@/components/library/crew-row";
 import { SeasonEpisodes, type EpisodeRowData } from "@/components/library/season-episodes";
@@ -177,6 +179,7 @@ export default async function ShowDetailPage({
   const average = (await averageOf(db, "title", [show.id])).get(show.id) ?? null;
   const similar = await similarTitles(db, { actor: libraryActor({ profile, role }, serverId), viewer, titleId: show.id });
   const cast = await loadTitleCast(db, show.id);
+  const extras = await loadTitleExtras(db, show.id);
   const crew = await loadTitleCrew(db, show.id);
 
   return (
@@ -240,6 +243,7 @@ export default async function ShowDetailPage({
         <OwnershipSection serverId={serverId} titleId={show.id} libraryKind="shows" accountId={profile.id} viewerId={viewer.id} isAdmin={role === "admin"} limited={viewer.role === "limited"} />
         <CastRow serverId={serverId} cast={cast} />
         <CrewRow serverId={serverId} crew={crew} />
+        <ExtrasSection serverId={serverId} groups={extras} />
         <TitleShelf serverId={serverId} title="More like this" items={similar} />
       </div>
     </div>

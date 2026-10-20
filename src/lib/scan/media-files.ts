@@ -31,7 +31,8 @@ export type Db = PgDatabase<PgQueryResultHKT, Record<string, unknown>>;
 export async function upsertMediaSegments(
   ownerKind: "title" | "episode",
   ownerId: string,
-  files: StorageEntry[]
+  files: StorageEntry[],
+  labelOf: (fileName: string) => string = versionLabelOf
 ) {
   if (files.length === 0) return;
   const currentIds = files.map((f) => f.id);
@@ -53,7 +54,7 @@ export async function upsertMediaSegments(
 
     const nextPart = new Map<string, number>();
     for (const file of files) {
-      const versionLabel = versionLabelOf(file.name);
+      const versionLabel = labelOf(file.name);
       const i = nextPart.get(versionLabel) ?? 0;
       nextPart.set(versionLabel, i + 1);
       await tx

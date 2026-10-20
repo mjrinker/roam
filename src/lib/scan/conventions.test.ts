@@ -35,6 +35,7 @@ describe("parseTitleFolderName", () => {
       year: 1999,
       tmdbId: null,
       imdbId: null,
+      tvdbId: null,
       edition: null,
     });
   });
@@ -45,6 +46,7 @@ describe("parseTitleFolderName", () => {
       year: null,
       tmdbId: null,
       imdbId: null,
+      tvdbId: null,
       edition: null,
     });
   });
@@ -55,6 +57,7 @@ describe("parseTitleFolderName", () => {
       year: 1999,
       tmdbId: null,
       imdbId: null,
+      tvdbId: null,
       edition: null,
     });
   });
@@ -65,6 +68,7 @@ describe("parseTitleFolderName", () => {
       year: 1995,
       tmdbId: null,
       imdbId: null,
+      tvdbId: null,
       edition: null,
     });
   });
@@ -75,6 +79,7 @@ describe("parseTitleFolderName", () => {
       year: 1999,
       tmdbId: 603,
       imdbId: null,
+      tvdbId: null,
       edition: null,
     });
   });
@@ -85,6 +90,7 @@ describe("parseTitleFolderName", () => {
       year: null,
       tmdbId: 15114,
       imdbId: null,
+      tvdbId: null,
       edition: null,
     });
   });
@@ -95,6 +101,7 @@ describe("parseTitleFolderName", () => {
       year: 1999,
       tmdbId: null,
       imdbId: "tt0133093",
+      tvdbId: null,
       edition: null,
     });
   });
@@ -105,16 +112,18 @@ describe("parseTitleFolderName", () => {
       year: 1999,
       tmdbId: null,
       imdbId: null,
+      tvdbId: null,
       edition: null,
     });
   });
 
-  it("strips {tvdb-...} tags without resolving them", () => {
+  it("reads {tvdb-...} tags and strips them from the name", () => {
     expect(parseTitleFolderName("The Matrix (1999) {tvdb-1}")).toEqual({
       name: "The Matrix",
       year: 1999,
       tmdbId: null,
       imdbId: null,
+      tvdbId: 1,
       edition: null,
     });
     expect(parseTitleFolderName("John Adams (2008) {tvdb-81547}")).toEqual({
@@ -122,6 +131,7 @@ describe("parseTitleFolderName", () => {
       year: 2008,
       tmdbId: null,
       imdbId: null,
+      tvdbId: 81547,
       edition: null,
     });
   });
@@ -134,6 +144,7 @@ describe("parseTitleFolderName", () => {
       year: 1977,
       tmdbId: null,
       imdbId: null,
+      tvdbId: null,
       edition: "Original Theatrical Release",
     });
   });
@@ -146,6 +157,7 @@ describe("parseTitleFolderName", () => {
       year: 1999,
       tmdbId: 603,
       imdbId: null,
+      tvdbId: null,
       edition: "Extended Cut",
     });
   });
@@ -163,7 +175,8 @@ describe("parseSeasonFolderName", () => {
 
   it("returns null for non-matching folder names", () => {
     expect(parseSeasonFolderName("Extras")).toBeNull();
-    expect(parseSeasonFolderName("Specials")).toBeNull();
+    expect(parseSeasonFolderName("Trailers")).toBeNull();
+    expect(parseSeasonFolderName("Season")).toBeNull();
   });
 });
 
@@ -268,15 +281,11 @@ describe("parseEpisodeFileName", () => {
     expect(parseEpisodeFileName(input)).toEqual({ ...expected, episode: expected.episodes[0], version: "" });
   });
 
-  it.each(["Show - S01E05E06.mp4", "Show - S01E05 E06.mp4"])(
-    // Not real Plex forms (no separator, or a space instead of "-"), so
-    // there's no valid continuation and the whole match fails — dropped
-    // entirely, same as before this feature.
-    "does not treat %s as a valid episode file",
-    (input) => {
-      expect(parseEpisodeFileName(input)).toBeNull();
-    }
-  );
+  it("reads the glued form of a multi-episode file, and takes no second number from a space-separated one", () => {
+    expect(parseEpisodeFileName("Show - S01E05E06.mp4")).toMatchObject({ season: 1, episodes: [5, 6] });
+    expect(parseEpisodeFileName("Show - S01E05E06E07.mp4")).toMatchObject({ episodes: [5, 6, 7] });
+    expect(parseEpisodeFileName("Show - S01E05 E06.mp4")).toMatchObject({ season: 1, episodes: [5] });
+  });
 });
 
 describe("orderMediaSegments", () => {

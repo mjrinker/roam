@@ -15,6 +15,20 @@ import type { StorageEntry, StorageProvider } from "@/lib/storage/provider";
 
 export { subtitleFileParts };
 
+/** A folder named "Subs" or "Subtitles" beside the videos holds their subtitle files (Plex 1.41): its files are listed with the folder's own. */
+export async function withSubtitleFolders(provider: Pick<StorageProvider, "listFolder">, children: StorageEntry[]): Promise<StorageEntry[]> {
+  const more: StorageEntry[] = [];
+  for (const folder of children) {
+    if (folder.kind !== "folder" || !/^(?:subs|subtitles)$/i.test(folder.name)) continue;
+    try {
+      more.push(...(await provider.listFolder(folder.id)).filter((e) => e.kind === "file"));
+    } catch (err) {
+      if (err instanceof StorageReauthRequiredError) throw err;
+    }
+  }
+  return more.length > 0 ? [...children, ...more] : children;
+}
+
 const ENGLISH = new Set(["en", "eng", "en-us", "en-gb"]);
 const baseName = (fileName: string) => fileName.replace(/\.[^.]+$/, "").toLowerCase();
 

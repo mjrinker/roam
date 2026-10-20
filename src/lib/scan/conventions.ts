@@ -12,43 +12,35 @@
  *   Shows:   Show Name (2010) {tmdb-456}/Season 01/Show Name - s01e01 - Title.mp4
  *            .../Show Name - s01e01 - pt1.mp4, - pt2.mp4 (multi-part episode)
  *
- * Known gaps vs. real Plex support (documented rather than silently wrong):
+ * What it covers (see plex-naming.test.ts, which holds Plex's own examples) and what it does not:
  * - Roam requires pre-converted H.264/AAC video (.mp4/.m4v/.mov) — unlike
  *   Plex, there's no server-side transcoding, so .mkv/.avi/etc. aren't
- *   scanned even though Plex itself would accept them.
- * - {tvdb-...} id tags are recognized and stripped from the parsed title
- *   (so they don't corrupt the name/year match) but aren't resolved to
- *   metadata — Roam only integrates with TMDB. {tmdb-...} and {imdb-...}
- *   tags force the match to that exact title (see scanner.ts), overriding
- *   an earlier wrong match.
- * - Multiple editions in ONE folder (Plex's file-level {edition-...} tag)
- *   are recognized well enough not to corrupt playback — only one edition's
- *   files are used as the movie's segments, the rest are skipped — but
- *   there's no version-switcher UI. Plex's directory-level convention (one
- *   folder per edition) needs no special handling at all: each folder is
- *   already its own title here.
- * - A multi-episode file ("S01E05-E06", or the shorthand "S01E05-06") is
- *   recognized and attached to EVERY episode number it spans (capped at
- *   MAX_EPISODES_PER_FILE) — each gets its own row, and each plays an
- *   estimated slice of the shared file (see lib/scan/episode-split.ts).
- *   A standalone file for one of those numbers always wins over a
- *   combined file's claim on it (see groupEpisodeFiles).
+ *   scanned (see isUnplayableVideo: they are counted and reported).
+ * - {tvdb-...} on a show is looked up on TMDB (find by external id); {tmdb-...}
+ *   and {imdb-...} force the match to that exact title (see scanner.ts).
+ * - Editions ({edition-...}) are separate titles, whether set on the folder or on
+ *   files sharing one; versions are the text after "(Year)" (movieVersionLabel).
+ * - Multi-episode files ("S01E05-E06", "S01E05-06", "S01E05E06") attach to every
+ *   episode they span (capped at MAX_EPISODES_PER_FILE), each playing an
+ *   estimated slice of the shared file (lib/scan/episode-split.ts); a
+ *   standalone file for one of those numbers always wins (groupEpisodeFiles).
+ * - Episode numbers also come from .plexmatch hints (plexmatch.ts) and, for
+ *   date-named files, from the air date (parseEpisodeAirDate).
  */
 
 import { compareNames } from "./cursor";
 
 const TITLE_YEAR_RE = /^(.*?)\s*\((\d{4})\)\s*$/;
 const SEASON_FOLDER_RE = /season\s*0*(\d+)/i;
-// Group 3 greedily collects every "-e?NN" continuation directly after the
-// first episode number (Plex's multi-episode form: "-E06", "-E06-E07", or
-// the bare shorthand "-06" — never space- or no-separator-joined, which
-// isn't a real Plex convention). Group 4 is the trailing " - Title" part,
-// same as before.
-const EPISODE_FILE_RE = /s0*(\d+)e0*(\d+)((?:-e?\d+(?=[-.\s]|$))*)(?:\s*-\s*(.+?))?(?:\.[^.]+)?$/i;
-// One "-e?NN" continuation token, captured separately from the main regex
-// above so a multi-episode file's episode list can be pulled out of its
-// (variable-length) group 3 blob.
-const EPISODE_CONTINUATION_RE = /-(e?)(\d+)/gi;
+// "S01" or "Series 2" on their own (common in libraries Plex reads), and Plex's own name for season zero.
+const SHORT_SEASON_FOLDER_RE = /^(?:s|series)[\s._-]*0*(\d+)$/i;
+const SPECIALS_FOLDER_RE = /^specials?$/i;
+// The episode marker: "s02e17", and the looser forms of libraries Plex reads ("S02.E17", "S02 E17", "S02_E17"). Group 3 collects every
+// continuation after the first episode number: Plex's "-e19" and "-e19-e20", the bare shorthand "-19", and the glued "e19" ("s02e18e19").
+const EPISODE_MARKER_RE = /s0*(\d+)[\s._-]?e0*(\d+)((?:(?:-e?|e)\d+(?=[-.\s_[]|e\d|$))*)/i;
+// "1x02", for libraries that number episodes that way (not a picture size: no digit before it or after the episode number).
+const X_EPISODE_RE = /(?<![\d.])0*(\d{1,2})x0*(\d{2,3})(?![\d.]*\d)(?![xp\d])/i;
+const EPISODE_CONTINUATION_RE = /(?:-e?|e)(\d+)/gi;
 /**
  * How many consecutive episodes one physical file may span, at most. This
  * is NOT the real sanity check — that's clampEpisodesToKnown, comparing
@@ -88,6 +80,8 @@ export interface ParsedTitleFolder {
   tmdbId: number | null;
   /** From an {imdb-tt0167260} tag, if present — resolved to a TMDB id via TMDB's find-by-external-id. */
   imdbId: string | null;
+  /** From a {tvdb-81547} tag, if present (a show's TheTVDB id, resolved to TMDB's through its find endpoint). */
+  tvdbId: number | null;
   /** From a directory-level {edition-...} tag, if present. */
   edition: string | null;
 }
@@ -102,10 +96,12 @@ export function parseTitleFolderName(folderName: string): ParsedTitleFolder {
 
   let tmdbId: number | null = null;
   let imdbId: string | null = null;
+  let tvdbId: number | null = null;
   working = working.replace(ID_TAG_RE, (_m, tag: string, id: string) => {
     const kind = tag.toLowerCase();
     if (kind === "tmdb" && /^\d+$/.test(id)) tmdbId = Number(id);
     else if (kind === "imdb" && /^tt\d+$/i.test(id)) imdbId = id.toLowerCase();
+    else if (kind === "tvdb" && /^\d+$/.test(id)) tvdbId = Number(id);
     return " ";
   });
 
@@ -119,9 +115,31 @@ export function parseTitleFolderName(folderName: string): ParsedTitleFolder {
 
   const match = TITLE_YEAR_RE.exec(working);
   if (match) {
-    return { name: match[1].trim(), year: Number(match[2]), tmdbId, imdbId, edition };
+    return { name: match[1].trim(), year: Number(match[2]), tmdbId, imdbId, tvdbId, edition };
   }
-  return { name: working, year: null, tmdbId, imdbId, edition };
+  return { name: working, year: null, tmdbId, imdbId, tvdbId, edition };
+}
+
+/**
+ * The title a movie FILE names when it is not in a folder of its own ("Avatar (2009).mkv", "Blade Runner (1982) {edition-Final Cut}.mp4",
+ * "Pulp Fiction (1994) - 1080p.mkv", "Avatar.mkv"): everything up to and including "(Year)" is the title, whatever follows is the version, a
+ * part marker or tags. Without a year the title is what comes before the first " - ".
+ */
+export function parseMovieFileTitle(fileName: string): ParsedTitleFolder {
+  const name = normalizeDashes(fileName.trim());
+  const dot = name.lastIndexOf(".");
+  const base = dot > 0 && name.length - dot <= 6 ? name.slice(0, dot) : name;
+  const tags = [...base.matchAll(/\{[^}]*\}/g)].map((m) => m[0]).join(" ");
+  const bare = base.replace(/\{[^}]*\}/g, " ").replace(/\s{2,}/g, " ").trim();
+  const years = [...bare.matchAll(/\(\d{4}\)/g)];
+  const year = years[years.length - 1];
+  let head: string;
+  if (year) head = bare.slice(0, year.index + year[0].length);
+  else {
+    const sep = bare.indexOf(" - ");
+    head = (sep === -1 ? bare : bare.slice(0, sep)).replace(SPLIT_TAIL_RE, "");
+  }
+  return parseTitleFolderName(`${head} ${tags}`.trim());
 }
 
 const ANY_ID_TAG_RE = /\s*\{\s*(?:tmdb|imdb)[-\s]+[a-z0-9]+\s*\}/gi;
@@ -188,7 +206,10 @@ export function fileNameWithTmdbId(fileName: string, tmdbId: number, year: numbe
 
 /** Parses "Season 01", "Season 1" -> 1. Returns null if it doesn't match. */
 export function parseSeasonFolderName(folderName: string): number | null {
-  const match = SEASON_FOLDER_RE.exec(folderName.trim());
+  const name = folderName.trim();
+  // Plex files "specials" under season zero, in a folder named Season 00 or Specials.
+  if (SPECIALS_FOLDER_RE.test(name)) return 0;
+  const match = SEASON_FOLDER_RE.exec(name) ?? SHORT_SEASON_FOLDER_RE.exec(name);
   return match ? Number(match[1]) : null;
 }
 
@@ -225,7 +246,7 @@ export interface ParsedEpisodeFile {
  *     as a valid range.
  */
 function expandEpisodeRange(start: number, continuationBlob: string): number[] {
-  const tokens = [...continuationBlob.matchAll(EPISODE_CONTINUATION_RE)].map((m) => Number(m[2]));
+  const tokens = [...continuationBlob.matchAll(EPISODE_CONTINUATION_RE)].map((m) => Number(m[1]));
   if (tokens.length === 0) return [start];
 
   let end: number;
@@ -253,15 +274,55 @@ function expandEpisodeRange(start: number, continuationBlob: string): number[] {
  */
 export function parseEpisodeFileName(fileName: string): ParsedEpisodeFile | null {
   // A resolution label ("Show - s01e01 - 1080p") is not part of the episode's title.
-  const { label: version, rest } = splitVersionLabel(fileName.trim());
-  const match = EPISODE_FILE_RE.exec(rest);
-  if (!match) return null;
-  const season = Number(match[1]);
-  const episode = Number(match[2]);
-  const episodes = expandEpisodeRange(episode, match[3] ?? "");
-  let name = match[4]?.trim() || null;
+  const { label: version, rest } = splitVersionLabel(normalizeDashes(fileName.trim()));
+  const base = rest.replace(/\.[A-Za-z0-9]{1,5}$/, "");
+  const marker = EPISODE_MARKER_RE.exec(base);
+  let season: number;
+  let episode: number;
+  let episodes: number[];
+  let after: string;
+  if (marker) {
+    season = Number(marker[1]);
+    episode = Number(marker[2]);
+    episodes = expandEpisodeRange(episode, marker[3] ?? "");
+    // A continuation that isn't a real range (a year, a typo) is not part of the marker: the text after the first number stays the title's.
+    const used = episodes.length > 1 || !marker[3] ? marker[0].length : marker[0].length - marker[3].length;
+    after = base.slice(marker.index + used);
+  } else {
+    const x = X_EPISODE_RE.exec(base);
+    if (!x) return null;
+    season = Number(x[1]);
+    episode = Number(x[2]);
+    episodes = [episode];
+    after = base.slice(x.index + x[0].length);
+  }
+  // A title only when a dash sets it off; anything else after the marker ("Show.S02E17.720p.mkv") is optional info, and bracketed info is ignored (Plex: put info you want ignored in brackets).
+  const titled = /^\s*-\s*(.+?)\s*$/.exec(after.replace(/\s*\[[^\]]*\]/g, ""));
+  let name = titled?.[1]?.trim() || null;
   if (name && SUPPRESSED_TITLE_RE.test(name)) name = null;
   return { season, episode, episodes, name, version };
+}
+
+/**
+ * A date-based episode's air date from its name ("Show - 2011-11-15 - Guest.mp4", "Show - 15-11-2011.mp4"; dashes, periods or spaces between the
+ * parts, year first or last as Plex allows), as "YYYY-MM-DD", or null when the name has none (or an impossible one). Names that carry an
+ * s01e01 marker are numbered by it and never read as dated.
+ */
+export function parseEpisodeAirDate(fileName: string): string | null {
+  const base = normalizeDashes(fileName).replace(/\.[A-Za-z0-9]{1,5}$/, "");
+  if (EPISODE_MARKER_RE.test(base)) return null;
+  const iso = /(?<!\d)((?:19|20)\d{2})[-. ](\d{2})[-. ](\d{2})(?!\d)/.exec(base);
+  const dmy = iso ? null : /(?<!\d)(\d{2})[-. ](\d{2})[-. ]((?:19|20)\d{2})(?!\d)/.exec(base);
+  const [y, m, d] = iso ? [iso[1], iso[2], iso[3]] : dmy ? [dmy[3], dmy[2], dmy[1]] : [null, null, null];
+  if (!y || !m || !d) return null;
+  const date = new Date(Date.UTC(Number(y), Number(m) - 1, Number(d)));
+  if (date.getUTCFullYear() !== Number(y) || date.getUTCMonth() !== Number(m) - 1 || date.getUTCDate() !== Number(d)) return null;
+  return `${y}-${m}-${d}`;
+}
+
+/** Plex's examples are written with en and em dashes between the parts of a name; they mean the plain hyphen. */
+export function normalizeDashes(text: string): string {
+  return text.replace(/[\u2013\u2014]/g, "-");
 }
 
 /**
@@ -343,12 +404,14 @@ export function clampEpisodesToKnown(
  */
 export function groupEpisodeFiles<T extends { name: string }>(
   files: T[],
-  knownEpisodeNumbers: Set<number> | null = null
+  knownEpisodeNumbers: Set<number> | null = null,
+  // Numbers a file by something other than its name (a .plexmatch hint, an air date); null leaves it to the name.
+  override?: (file: T) => ParsedEpisodeFile | null
 ): Map<number, EpisodeFileGroup<T>> {
   const singles = new Map<number, T[]>();
   const combos = new Map<number, Map<string, T[]>>();
   for (const file of files) {
-    const parsed = parseEpisodeFileName(file.name);
+    const parsed = override?.(file) ?? parseEpisodeFileName(file.name);
     if (!parsed) continue;
     const episodes = clampEpisodesToKnown(parsed.episodes, knownEpisodeNumbers);
     if (episodes.length === 1) {
@@ -410,6 +473,38 @@ export function splitVersionLabel(fileName: string): { label: string; rest: stri
     }
   }
   return { label: "", rest: fileName };
+}
+
+/**
+ * What tells one file of a movie from another: Plex's "Movie (2020) - ArbitraryText.ext" (the text is anything useful to the owner: "1080p",
+ * "hevc", "mobile", "Theatrical"), also written with dots ("Movie (2020).1080p.h264 {edition-Cut}.mp4"). It is the text after "(Year)", without
+ * {tags}, a part marker or brackets, lower case with single spaces; "" for the plain file. A name with no "(Year)" can only be told apart
+ * by a resolution word, as before.
+ */
+export function movieVersionLabel(fileName: string): string {
+  const name = normalizeDashes(fileName);
+  const dot = name.lastIndexOf(".");
+  const base = (dot > 0 && name.length - dot <= 6 ? name.slice(0, dot) : name).replace(/\{[^}]*\}/g, " ");
+  const years = [...base.matchAll(/\(\d{4}\)/g)];
+  const year = years[years.length - 1];
+  if (!year) return splitVersionLabel(fileName).label;
+  const tail = base
+    .slice(year.index + year[0].length)
+    .replace(SPLIT_TAIL_RE, "")
+    .replace(/[[\]()]/g, " ");
+  const label = tail.replace(/[\s._-]+/g, " ").trim().toLowerCase();
+  // A bare part marker ("pt1", "cd2") is the order of the parts, not a version.
+  return /^(?:cd|disc|disk|dvd|part|pt)\s*\d+$/.test(label) ? "" : label;
+}
+
+/** Groups a movie folder's files by version (see movieVersionLabel), plain first; each group is all the parts of one version. */
+export function groupMovieVersions<T extends { name: string }>(files: T[]): Map<string, T[]> {
+  const groups = new Map<string, T[]>();
+  for (const file of files) {
+    const label = movieVersionLabel(file.name);
+    groups.set(label, [...(groups.get(label) ?? []), file]);
+  }
+  return new Map([...groups.entries()].sort(([a], [b]) => (a === "" ? -1 : b === "" ? 1 : a.localeCompare(b))));
 }
 
 /** The resolution label in a file's name ("1080p", "4k"), or "" when it names none. */
@@ -495,6 +590,17 @@ export function isVideoFile(fileName: string): boolean {
   return VIDEO_EXTENSIONS.has(fileName.slice(dot).toLowerCase());
 }
 
+/**
+ * Video formats Plex plays (it transcodes) that a browser can't: a library from Plex is full of them. Roam plays MP4, M4V and MOV with
+ * H.264/AAC, so these are skipped with a note, and can be converted (see the remux scripts) to be played.
+ */
+const UNPLAYABLE_VIDEO_EXTENSIONS = new Set([".mkv", ".avi", ".wmv", ".ts", ".m2ts", ".mts", ".flv", ".mpg", ".mpeg", ".vob", ".divx", ".ogm", ".asf", ".rm", ".rmvb", ".3gp"]);
+
+export function isUnplayableVideo(fileName: string): boolean {
+  const dot = fileName.lastIndexOf(".");
+  return dot !== -1 && UNPLAYABLE_VIDEO_EXTENSIONS.has(fileName.slice(dot).toLowerCase());
+}
+
 const IMAGE_EXTENSIONS = new Set([".jpg", ".jpeg", ".png", ".webp", ".gif", ".heic", ".heif"]);
 
 /** A picture Roam shows in a photo library (HEIC and HEIF are shown through Box's own preview). */
@@ -517,7 +623,8 @@ const EXTRA_SUFFIXES = [
   "trailer",
   "other",
 ];
-const EXTRA_SUFFIX_RE = new RegExp(`-(?:${EXTRA_SUFFIXES.join("|")})\\.[^.]+$`, "i");
+// An episode may have several extras of one type: "-deleted1", "-deleted2" (Plex adds a number to the suffix).
+const EXTRA_SUFFIX_RE = new RegExp(`-(?:${EXTRA_SUFFIXES.join("|")})\\d*\\.[^.]+$`, "i");
 
 /**
  * A movie folder's video files are otherwise all treated as playback

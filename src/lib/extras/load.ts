@@ -1,4 +1,4 @@
-import { and, asc, eq } from "drizzle-orm";
+import { and, asc, eq, inArray } from "drizzle-orm";
 import { libraryVisible, type LibraryActor } from "@/lib/content/library-access";
 import type { PgDatabase, PgQueryResultHKT } from "drizzle-orm/pg-core";
 import { libraries, mediaFiles, titleExtras, titles } from "@/lib/db/schema";
@@ -14,7 +14,7 @@ export interface ExtraItem {
   durationSeconds: number;
 }
 
-/** A movie's extras that are ready to play (their length is known, and in a format browsers play), grouped by type in the usual order, each group A to Z. */
+/** A movie's (or show's) extras that are ready to play (their length is known, and in a format browsers play), grouped by type in the usual order, each group A to Z. */
 export async function loadTitleExtras(ex: Db, titleId: string): Promise<{ category: ExtraCategory; items: ExtraItem[] }[]> {
   const rows = await ex
     .select({ id: titleExtras.id, name: titleExtras.name, category: titleExtras.category, durationSeconds: mediaFiles.durationSeconds, videoCodec: mediaFiles.videoCodec, audioCodec: mediaFiles.audioCodec })
@@ -26,14 +26,14 @@ export async function loadTitleExtras(ex: Db, titleId: string): Promise<{ catego
   return EXTRA_CATEGORIES.map((category) => ({ category, items: ready.filter((r) => r.category === category) })).filter((g) => g.items.length > 0);
 }
 
-/** One extra with its movie, for the watch page - only when the movie is a movie in a library this actor can see. */
+/** One extra with its movie or show, for the watch page - only when it is in a library this actor can see. */
 export async function loadExtraForWatch(ex: Db, actor: LibraryActor, extraId: string) {
   const [row] = await ex
     .select({ extra: titleExtras, movie: titles })
     .from(titleExtras)
     .innerJoin(titles, eq(titleExtras.titleId, titles.id))
     .innerJoin(libraries, eq(titles.libraryId, libraries.id))
-    .where(and(eq(titleExtras.id, extraId), eq(titles.kind, "movie"), libraryVisible(ex, actor)))
+    .where(and(eq(titleExtras.id, extraId), inArray(titles.kind, ["movie", "show"]), libraryVisible(ex, actor)))
     .limit(1);
   return row ?? null;
 }

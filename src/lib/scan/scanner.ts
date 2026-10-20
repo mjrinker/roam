@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { and, eq, inArray, isNull, lt, notInArray, or, sql } from "drizzle-orm";
+import { and, eq, inArray, isNull, like, lt, notInArray, or, sql } from "drizzle-orm";
 import { db } from "@/lib/db/client";
 import {
   entriesAfterCursor,
@@ -17,10 +17,13 @@ import {
   titles,
   type TitleKind,
 } from "@/lib/db/schema";
-import { findExtras, syncTitleExtras } from "@/lib/scan/title-extras";
+import { findExtras, syncTitleExtras, type FoundExtra } from "@/lib/scan/title-extras";
 import { syncChapterFiles } from "@/lib/scan/chapter-files";
 import { syncContentFilterFiles } from "@/lib/scan/content-filter-files";
-import { syncSubtitleFiles } from "@/lib/scan/subtitle-files";
+import { syncSubtitleFiles, withSubtitleFolders } from "@/lib/scan/subtitle-files";
+import { MOVIE_POSTER_NAMES, posterFile, SHOW_POSTER_NAMES, syncLocalPoster } from "@/lib/scan/local-artwork";
+import { decodeSubtitleBytes } from "@/lib/subtitles/cues";
+import { emptyPlexMatch, hintForFile, parsePlexMatch, type PlexMatch } from "@/lib/scan/plexmatch";
 import { syncSidecarTracks } from "@/lib/subtitles/tracks";
 import { createStorageForServer } from "@/lib/storage/server-storage";
 import { StorageReauthRequiredError } from "@/lib/storage/reauth";
@@ -28,14 +31,20 @@ import type { StorageEntry, StorageProvider } from "@/lib/storage/provider";
 import {
   groupByVersion,
   groupEpisodeFiles,
+  groupMovieVersions,
   isBrowserFriendlyVariant,
   isExtraFile,
+  isUnplayableVideo,
   isVideoFile,
+  movieVersionLabel,
   orderMediaSegments,
   parseEditionTag,
+  parseEpisodeAirDate,
   parseEpisodeFileName,
+  parseMovieFileTitle,
   parseSeasonFolderName,
   parseTitleFolderName,
+  splitVersionLabel,
 } from "@/lib/scan/conventions";
 import {
   enrichPendingAudiobooks,
@@ -61,7 +70,7 @@ import {
   upsertMediaSegments,
   variantScope,
 } from "@/lib/scan/media-files";
-import { searchMovie, findTmdbIdByImdbId, searchTvShow, tmdbImageUrl } from "@/lib/tmdb/client";
+import { searchMovie, findTmdbIdByImdbId, findTmdbShowIdByTvdbId, searchTvShow, tmdbImageUrl } from "@/lib/tmdb/client";
 // Details come through the shared cache: fetched from TMDB once for every server, and refreshed there (see lib/tmdb/cache).
 import { getMovieDetails, getSeasonEpisodes, getTvShowDetails, refreshEntry } from "@/lib/tmdb/cache";
 import { collectionColumnsOnMatch } from "@/lib/tmdb/project";
@@ -212,6 +221,18 @@ export async function scanLibrary(
         }
       }
 
+      // A movies library may also have its films loose in the top folder, with no folder each (Plex allows it): synced once per cycle, up front.
+      if (library.kind === "movies" && plan.mode === "full") {
+        for (const listing of listings) {
+          try {
+            titlesAdded += await syncStandaloneMovies(provider, library.id, listing.entries, (n) => (unsupportedSkipped += n));
+          } catch (err) {
+            if (err instanceof StorageReauthRequiredError) throw err;
+            errors.push(`(library root): ${(err as Error).message}`);
+          }
+        }
+      }
+
       let processed = 0;
       let loopFinished = true;
       for (const folder of titleFolders) {
@@ -227,13 +248,13 @@ export async function scanLibrary(
         try {
           switch (library.kind) {
             case "movies": {
-              const added = await syncMovieFolder(provider, library.id, folder);
+              const added = await syncMovieFolder(provider, library.id, folder, (n) => (unsupportedSkipped += n));
               if (added) titlesAdded++;
               filesSeen += 1;
               break;
             }
             case "shows": {
-              const added = await syncShowFolder(provider, library.id, folder);
+              const added = await syncShowFolder(provider, library.id, folder, (n) => (unsupportedSkipped += n));
               if (added) titlesAdded++;
               break;
             }
@@ -367,7 +388,7 @@ export async function scanLibrary(
     }
   }
 
-  const skippedNote = unsupportedSummary(unsupportedSkipped, treeProfile ?? undefined);
+  const skippedNote = unsupportedSummary(unsupportedSkipped, treeProfile ?? MOVIES_SHOWS_HINT);
   if (skippedNote) errors.push(skippedNote);
   await db
     .update(scanRuns)
@@ -539,98 +560,153 @@ async function resolveForcedTmdbId(
 
 // ── Movies ───────────────────────────────────────────────────────────────
 
-async function syncMovieFolder(
+interface MovieGroup {
+  /** The title's unique key (titles.boxFolderId): the folder's id, or a name made from it for an extra edition, or a name for a loose file. */
+  key: string;
+  name: string;
+  year: number | null;
+  edition: string | null;
+  tmdbId: number | null;
+  imdbId: string | null;
+  files: StorageEntry[];
+  /** The movie has a folder of its own, where poster.jpg and the like belong to it (loose files share their listing with other movies). */
+  posterFolder?: boolean;
+}
+
+// Plex libraries are full of .mkv and .avi, which a browser can't play; they are counted and reported, never silently left out.
+const MOVIES_SHOWS_HINT = { supportedHint: "Roam plays .mp4, .m4v and .mov with H.264 video and AAC audio; .mkv, .avi and the like need converting first" };
+
+const slug = (text: string) => text.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+
+/** Records one movie (or one edition of one): its title, its files as ordered parts of versions, and what its metadata and side files say. */
+async function syncMovieGroup(
   provider: StorageProvider,
   libraryId: string,
-  folder: StorageEntry
-): Promise<boolean> {
-  const { name, year, tmdbId, imdbId, edition } = parseTitleFolderName(folder.name);
-  // Plex's directory-level {edition-...} convention gives each edition its
-  // own folder, which already becomes its own separate title here — fold
-  // the edition into the display name so two same-named titles are still
-  // distinguishable in the UI.
-  const displayName = edition ? `${name} (${edition})` : name;
-
-  const [existing] = await db
-    .select({ id: titles.id })
-    .from(titles)
-    .where(eq(titles.boxFolderId, folder.id))
-    .limit(1);
-
+  g: MovieGroup,
+  side: { listing: StorageEntry[]; variants: StorageEntry[]; sideFiles: boolean }
+): Promise<{ id: string; added: boolean }> {
+  // An edition is part of what the movie is called, so two cuts of one film are told apart in the library.
+  const displayName = g.edition ? `${g.name} (${g.edition})` : g.name;
+  const [existing] = await db.select({ id: titles.id }).from(titles).where(eq(titles.boxFolderId, g.key)).limit(1);
   const [title] = await db
     .insert(titles)
-    .values({
-      libraryId,
-      kind: "movie",
-      name: displayName,
-      year,
-      boxFolderId: folder.id,
-    })
-    .onConflictDoUpdate({
-      target: titles.boxFolderId,
-      set: { name: displayName, year, updatedAt: new Date() },
-    })
+    .values({ libraryId, kind: "movie", name: displayName, year: g.year, boxFolderId: g.key })
+    .onConflictDoUpdate({ target: titles.boxFolderId, set: { name: displayName, year: g.year, updatedAt: new Date() } })
     .returning();
 
-  const children = await provider.listFolder(folder.id);
-  const allVideo = children.filter((c) => c.kind === "file" && isVideoFile(c.name) && !isExtraFile(c.name));
-  // Remuxed audio variants must be split out BEFORE any segment/edition
-  // logic, or they'd be appended to the movie as extra parts.
-  const candidateFiles = allVideo.filter((c) => !isBrowserFriendlyVariant(c.name));
-  const variantFiles = allVideo.filter((c) => isBrowserFriendlyVariant(c.name));
-  // Each resolution version ("- 1080p", "- 4K") is its own ordered set of parts, never appended to another's.
-  const videoFiles = [...groupByVersion(selectPrimaryEdition(candidateFiles)).values()].flatMap((group) => orderMediaSegments(group));
+  // Each version ("- 1080p", "- hevc", "- Theatrical": Plex lets it be any text) is its own ordered set of parts, never appended to another's.
+  const videoFiles = [...groupMovieVersions(g.files).values()].flatMap((group) => orderMediaSegments(group));
+  await upsertMediaSegments("title", title.id, videoFiles, movieVersionLabel);
+  await linkVariantFiles("title", [title.id], videoFiles, side.variants);
+  if (side.sideFiles) {
+    // Chapter files beside the film ("Film (2020).chapters.xml"); a failure here never fails the film's own scan.
+    await syncChapterFiles(provider, side.listing).catch((err) => {
+      if (err instanceof StorageReauthRequiredError) throw err;
+      console.error(`chapter files for ${title.id}:`, err);
+    });
+    await syncContentFilterFiles(provider, side.listing).catch((err) => {
+      if (err instanceof StorageReauthRequiredError) throw err;
+      console.error(`content filter files for ${title.id}:`, err);
+    });
+    const withSubs = await withSubtitleFolders(provider, side.listing);
+    await syncSubtitleFiles(provider, withSubs).catch((err) => {
+      if (err instanceof StorageReauthRequiredError) throw err;
+      console.error(`subtitle files for ${title.id}:`, err);
+    });
+    await syncSidecarTracks(db, withSubs).catch((err) => console.error(`subtitle tracks for ${title.id}:`, err));
+  }
+  await enrichMovieMetadataIfNeeded(title.id, g.name, g.year, { tmdbId: g.tmdbId, imdbId: g.imdbId });
+  // A poster beside the film (poster.jpg and the like in its folder, or a picture named like it) wins over the one TMDB gave.
+  if (side.sideFiles) await syncLocalPoster(provider, title.id, posterFile(side.listing, g.posterFolder ? MOVIE_POSTER_NAMES : [], g.files.map((f) => f.name.replace(/\.[^.]+$/, ""))));
+  return { id: title.id, added: !existing };
+}
 
-  await upsertMediaSegments("title", title.id, videoFiles);
-  await linkVariantFiles("title", [title.id], videoFiles, variantFiles);
-  // Chapter files beside the film ("Film (2020).chapters.xml"); a failure here never fails the film's own scan.
-  await syncChapterFiles(provider, children).catch((err) => {
-    if (err instanceof StorageReauthRequiredError) throw err;
-    console.error(`chapter files for ${title.id}:`, err);
-  });
-  await syncContentFilterFiles(provider, children).catch((err) => {
-    if (err instanceof StorageReauthRequiredError) throw err;
-    console.error(`content filter files for ${title.id}:`, err);
-  });
-  await syncSubtitleFiles(provider, children).catch((err) => {
-    if (err instanceof StorageReauthRequiredError) throw err;
-    console.error(`subtitle files for ${title.id}:`, err);
-  });
-  await syncSidecarTracks(db, children).catch((err) => console.error(`subtitle tracks for ${title.id}:`, err));
-  await enrichMovieMetadataIfNeeded(title.id, name, year, { tmdbId, imdbId });
+/** The video files in a listing that can be a movie's (not extras, not remuxed audio variants), and the variants apart. */
+function movieVideoFiles(entries: StorageEntry[], skipped?: (n: number) => void) {
+  const files = entries.filter((c) => c.kind === "file");
+  skipped?.(files.filter((c) => isUnplayableVideo(c.name)).length);
+  const allVideo = files.filter((c) => isVideoFile(c.name) && !isExtraFile(c.name));
+  // Remuxed audio variants must be split out BEFORE any segment/edition logic, or they'd be appended to the movie as extra parts.
+  return { candidates: allVideo.filter((c) => !isBrowserFriendlyVariant(c.name)), variants: allVideo.filter((c) => isBrowserFriendlyVariant(c.name)) };
+}
+
+export async function syncMovieFolder(
+  provider: StorageProvider,
+  libraryId: string,
+  folder: StorageEntry,
+  skipped?: (n: number) => void
+): Promise<boolean> {
+  const { name, year, tmdbId, imdbId, edition: folderEdition } = parseTitleFolderName(folder.name);
+  const children = await provider.listFolder(folder.id);
+  const { candidates, variants } = movieVideoFiles(children, skipped);
+
+  // Plex: each edition is its own item. A folder can hold several, each file tagged {edition-...} (an edition set on the folder name counts
+  // for untagged files); the one that is the folder's own edition (or the first, with none) is the folder's title, the rest get titles of their own.
+  const byEdition = new Map<string, StorageEntry[]>();
+  for (const file of candidates) {
+    const e = parseEditionTag(file.name) ?? folderEdition ?? "";
+    byEdition.set(e, [...(byEdition.get(e) ?? []), file]);
+  }
+  if (byEdition.size === 0) byEdition.set(folderEdition ?? "", []);
+  const editions = [...byEdition.keys()].sort((a, b) => a.localeCompare(b));
+  const main = byEdition.has(folderEdition ?? "") ? (folderEdition ?? "") : editions[0];
+
+  let mainResult: { id: string; added: boolean } | null = null;
+  const keptKeys: string[] = [];
+  for (const e of [main, ...editions.filter((x) => x !== main)]) {
+    const key = e === main ? folder.id : `${folder.id}#ed:${slug(e)}`;
+    keptKeys.push(key);
+    const result = await syncMovieGroup(
+      provider,
+      libraryId,
+      { key, name, year, edition: e || null, tmdbId, imdbId, files: byEdition.get(e) ?? [], posterFolder: true },
+      { listing: children, variants, sideFiles: e === main }
+    );
+    if (e === main) mainResult = result;
+  }
+
+  // Editions that are no longer in the folder go, with their files' records.
+  const stale = await db
+    .select({ id: titles.id })
+    .from(titles)
+    .where(and(eq(titles.libraryId, libraryId), like(titles.boxFolderId, `${folder.id}#ed:%`), notInArray(titles.boxFolderId, keptKeys)));
+  if (stale.length > 0) {
+    const ids = stale.map((t) => t.id);
+    await db.delete(mediaFiles).where(and(eq(mediaFiles.ownerKind, "title"), inArray(mediaFiles.ownerId, ids)));
+    await db.delete(titles).where(inArray(titles.id, ids));
+  }
+
   // Trailers, featurettes and the like (Plex's naming) sit beside the film; a failure here never fails the film's own scan.
   try {
     const extras = await findExtras(provider, children);
-    await syncTitleExtras(title.id, extras.found, extras.complete);
+    await syncTitleExtras(mainResult!.id, extras.found, extras.complete);
   } catch (err) {
-    console.error(`extras for ${title.id}:`, err);
+    console.error(`extras for ${mainResult!.id}:`, err);
   }
-
-  return !existing;
+  return mainResult!.added;
 }
 
 /**
- * Plex allows multiple full-length editions of a movie to sit in one
- * folder, each file tagged with a file-level {edition-...} suffix. Roam
- * has no concept of alternate versions of a title — only ordered SEGMENTS
- * of one continuous playback — so naively treating every file as a segment
- * would concatenate two unrelated cuts of the movie back-to-back. Pick one
- * edition's files (the untagged/default group if one exists, otherwise the
- * alphabetically-first tagged edition) and ignore the rest.
+ * Movie files loose in the library's top folder ("Avatar (2009).mkv", "Blade Runner (1982) {edition-Final Cut}.mp4"): Plex allows them beside
+ * each other with no folder of their own. Files naming the same movie (and edition) are its versions and parts. Returns how many movies were new.
  */
-function selectPrimaryEdition(files: StorageEntry[]): StorageEntry[] {
-  const groups = new Map<string, StorageEntry[]>();
-  for (const file of files) {
-    const edition = parseEditionTag(file.name) ?? "";
-    const list = groups.get(edition) ?? [];
-    list.push(file);
-    groups.set(edition, list);
+export async function syncStandaloneMovies(provider: StorageProvider, libraryId: string, entries: StorageEntry[], skipped?: (n: number) => void): Promise<number> {
+  const { candidates, variants } = movieVideoFiles(entries, skipped);
+  const groups = new Map<string, MovieGroup>();
+  for (const file of candidates) {
+    const parsed = parseMovieFileTitle(file.name);
+    const edition = parseEditionTag(file.name) ?? parsed.edition;
+    const key = `standalone:${libraryId}:${slug(parsed.name)}:${parsed.year ?? ""}:${slug(edition ?? "")}`;
+    const group = groups.get(key) ?? { key, name: parsed.name, year: parsed.year, edition: edition ?? null, tmdbId: parsed.tmdbId, imdbId: parsed.imdbId, files: [] };
+    group.files.push(file);
+    groups.set(key, group);
   }
-  if (groups.size <= 1) return files;
-  const defaultGroup = groups.get("");
-  if (defaultGroup) return defaultGroup;
-  const firstKey = [...groups.keys()].sort()[0];
-  return groups.get(firstKey)!;
+  let added = 0;
+  for (const group of groups.values()) {
+    const result = await syncMovieGroup(provider, libraryId, group, { listing: entries, variants, sideFiles: true });
+    if (result.added) added++;
+  }
+  return added;
 }
 
 async function enrichMovieMetadataIfNeeded(
@@ -696,12 +772,48 @@ async function enrichMovieMetadataIfNeeded(
 
 // ── Shows ────────────────────────────────────────────────────────────────
 
-async function syncShowFolder(
+/** Reads a folder's ".plexmatch" (Plex's match hints), if it has one. */
+async function readPlexMatch(provider: Pick<StorageProvider, "fetchByteRange">, children: StorageEntry[]): Promise<PlexMatch> {
+  const file = children.find((c) => c.kind === "file" && c.name.toLowerCase() === ".plexmatch");
+  if (!file) return emptyPlexMatch();
+  try {
+    const size = Math.min(file.sizeBytes ?? 65_536, 65_536);
+    if (size <= 0) return emptyPlexMatch();
+    return parsePlexMatch(decodeSubtitleBytes(new Uint8Array(await provider.fetchByteRange(file.id, 0, size - 1))));
+  } catch (err) {
+    if (err instanceof StorageReauthRequiredError) throw err;
+    return emptyPlexMatch();
+  }
+}
+
+/** Where a season's files are read from: its folder, or the show folder itself for episodes kept loose in it. */
+interface SeasonSource {
+  number: number;
+  /** seasons.boxFolderId: the season folder's id, or a name made from the show folder's for loose episodes. */
+  key: string;
+  /** What episodes record as their folder. */
+  folderId: string;
+  children: StorageEntry[];
+  hints: PlexMatch;
+  /** Hints from the show folder's .plexmatch that reach the files here, by path from the show folder. */
+  prefix: string;
+}
+
+export async function syncShowFolder(
   provider: StorageProvider,
   libraryId: string,
-  folder: StorageEntry
+  folder: StorageEntry,
+  skipped?: (n: number) => void
 ): Promise<boolean> {
-  const { name, year, tmdbId, imdbId } = parseTitleFolderName(folder.name);
+  const rootChildren = await provider.listFolder(folder.id);
+  // A .plexmatch in the show folder can name the series (title, year, ids) when the folder's own name is no help.
+  const showHints = await readPlexMatch(provider, rootChildren);
+  const parsedFolder = parseTitleFolderName(folder.name);
+  const name = showHints.title ?? parsedFolder.name;
+  const year = showHints.year ?? parsedFolder.year;
+  const tmdbId = showHints.tmdbId ?? parsedFolder.tmdbId;
+  const imdbId = showHints.imdbId ?? parsedFolder.imdbId;
+  const tvdbId = showHints.tvdbId ?? parsedFolder.tvdbId;
 
   const [existing] = await db
     .select({ id: titles.id })
@@ -719,10 +831,11 @@ async function syncShowFolder(
     .returning();
 
   let tmdbShowId: number | null = null;
-  // An id tag pins the show even after it was matched (see the movie path).
-  const forcedId = await resolveForcedTmdbId("show", { tmdbId, imdbId }, title);
+  // An id tag pins the show even after it was matched (see the movie path). A TheTVDB id is looked up once, while the show has no match.
+  let forcedId = await resolveForcedTmdbId("show", { tmdbId, imdbId }, title);
+  if (forcedId === null && tvdbId && !title.tmdbId) forcedId = await findTmdbShowIdByTvdbId(tvdbId).catch(() => null);
   const rematch = !!existing && forcedId !== null && forcedId !== title.tmdbId;
-  if (!existing || rematch) {
+  if (!existing || rematch || (forcedId !== null && !title.tmdbId)) {
     // A folder id tag lets us skip fuzzy search entirely; fall
     // back to search if the tagged id turns out to be stale/wrong.
     const wantedId = forcedId ?? tmdbId;
@@ -762,17 +875,40 @@ async function syncShowFolder(
   }
   if (tmdbShowId === null) tmdbShowId = title.tmdbId;
 
-  const seasonFolders = (await provider.listFolder(folder.id)).filter(
-    (e) => e.kind === "folder"
-  );
+  // Where the seasons are: season folders (Season 01, Season 1, S01, Specials), and episodes kept loose in the show folder, which Plex numbers by
+  // their names (and a .plexmatch can number any file at all).
+  const sources = new Map<number, SeasonSource>();
+  for (const seasonFolder of rootChildren.filter((e) => e.kind === "folder")) {
+    const children = await provider.listFolder(seasonFolder.id);
+    const hints = await readPlexMatch(provider, children);
+    const number = hints.season ?? parseSeasonFolderName(seasonFolder.name);
+    if (number === null) continue;
+    const had = sources.get(number);
+    if (had) had.children = [...had.children, ...children];
+    else sources.set(number, { number, key: seasonFolder.id, folderId: seasonFolder.id, children, hints, prefix: `${seasonFolder.name}/` });
+  }
+  const looseVideo = rootChildren.filter((c) => c.kind === "file" && isVideoFile(c.name) && !isExtraFile(c.name));
+  if (looseVideo.length > 0) {
+    const loose = new Map<number, StorageEntry[]>();
+    for (const file of looseVideo) {
+      const hinted = hintForFile(showHints, file.name);
+      const season = hinted?.season ?? parseEpisodeFileName(file.name)?.season ?? (hinted || showHints.season !== null ? showHints.season ?? 1 : null);
+      if (season === null) continue;
+      loose.set(season, [...(loose.get(season) ?? []), file]);
+    }
+    for (const [number, files] of loose) {
+      const had = sources.get(number);
+      if (had) had.children = [...had.children, ...files];
+      else sources.set(number, { number, key: `${folder.id}#s${number}`, folderId: folder.id, children: [...files, ...rootChildren.filter((c) => c.kind === "file" && !isVideoFile(c.name))], hints: emptyPlexMatch(), prefix: "" });
+    }
+  }
+  skipped?.([...sources.values()].reduce((n, s) => n + s.children.filter((c) => c.kind === "file" && isUnplayableVideo(c.name)).length, 0) + rootChildren.filter((c) => c.kind === "file" && isUnplayableVideo(c.name)).length);
 
-  for (const seasonFolder of seasonFolders) {
-    const seasonNumber = parseSeasonFolderName(seasonFolder.name);
-    if (seasonNumber === null) continue;
-
+  for (const src of [...sources.values()].sort((a, b) => a.number - b.number)) {
+    const seasonNumber = src.number;
     const [season] = await db
       .insert(seasons)
-      .values({ titleId: title.id, number: seasonNumber, boxFolderId: seasonFolder.id })
+      .values({ titleId: title.id, number: seasonNumber, boxFolderId: src.key })
       .onConflictDoUpdate({
         target: seasons.boxFolderId,
         set: { number: seasonNumber },
@@ -783,7 +919,7 @@ async function syncShowFolder(
       ? await getSeasonEpisodes(tmdbShowId, seasonNumber).catch(() => [])
       : [];
 
-    const seasonChildren = await provider.listFolder(seasonFolder.id);
+    const seasonChildren = src.children;
     const seasonVideo = seasonChildren.filter(
       (e) => e.kind === "file" && isVideoFile(e.name) && !isExtraFile(e.name)
     );
@@ -801,6 +937,22 @@ async function syncShowFolder(
     const knownEpisodeNumbers =
       tmdbEpisodes.length > 0 ? new Set(tmdbEpisodes.map((e) => e.episode_number)) : null;
 
+    // Files numbered by something other than an sXXeYY in the name: a .plexmatch hint (this folder's, or the show folder's by path), or, for a
+    // date-named file ("Show - 2011-11-15 - Guest.mp4"), the episode TMDB says aired that day.
+    const byAirDate = new Map(tmdbEpisodes.filter((e) => e.air_date).map((e) => [e.air_date as string, e]));
+    const numberedOtherwise = (file: StorageEntry) => {
+      const hinted = hintForFile(src.hints, file.name) ?? (src.prefix ? hintForFile(showHints, `${src.prefix}${file.name}`) : hintForFile(showHints, file.name));
+      if (hinted && hinted.episodes.length > 0) {
+        const first = hinted.episodes[0];
+        const own = parseEpisodeFileName(file.name);
+        return { season: hinted.season ?? seasonNumber, episode: first, episodes: hinted.episodes, name: own?.name ?? null, version: own?.version ?? "" };
+      }
+      if (parseEpisodeFileName(file.name)) return null;
+      const aired = parseEpisodeAirDate(file.name);
+      const ep = aired ? byAirDate.get(aired) : undefined;
+      return ep ? { season: seasonNumber, episode: ep.episode_number, episodes: [ep.episode_number], name: null, version: splitVersionLabel(file.name).label } : null;
+    };
+
     // Group files by episode number first (mirroring how a movie's segments
     // are grouped) rather than upserting per-file. Processing one file at a
     // time here would (a) let a second part's upsert delete the first
@@ -809,13 +961,13 @@ async function syncShowFolder(
     // a missing file just never appears in the loop at all. A multi-episode
     // file ("S01E05-E06") attaches to every episode number it spans — see
     // groupEpisodeFiles.
-    const episodeGroups = groupEpisodeFiles(episodeFiles, knownEpisodeNumbers);
+    const episodeGroups = groupEpisodeFiles(episodeFiles, knownEpisodeNumbers, numberedOtherwise);
 
     const currentEpisodeRows: { id: string }[] = [];
 
     for (const [episodeNumber, { files, combined }] of episodeGroups) {
       const orderedFiles = [...groupByVersion(files).values()].flatMap((group) => orderMediaSegments(group));
-      const parsed = parseEpisodeFileName(orderedFiles[0].name);
+      const parsed = numberedOtherwise(orderedFiles[0]) ?? parseEpisodeFileName(orderedFiles[0].name);
       const tmdbEp = tmdbEpisodes.find((e) => e.episode_number === episodeNumber);
       // A combined file's title describes the whole block, not one episode:
       // prefer TMDB's per-episode name, falling back to the file's own title
@@ -831,7 +983,7 @@ async function syncShowFolder(
           seasonId: season.id,
           number: episodeNumber,
           name,
-          boxFolderId: seasonFolder.id,
+          boxFolderId: src.folderId,
           tmdbId: tmdbEp?.id ?? null,
           overview: tmdbEp?.overview ?? null,
           stillUrl: tmdbImageUrl(tmdbEp?.still_path, "w500"),
@@ -889,11 +1041,30 @@ async function syncShowFolder(
       if (err instanceof StorageReauthRequiredError) throw err;
       console.error(`content filter files for season ${season.id}:`, err);
     });
-    await syncSubtitleFiles(provider, seasonChildren).catch((err) => {
+    const withSubs = await withSubtitleFolders(provider, seasonChildren);
+    await syncSubtitleFiles(provider, withSubs).catch((err) => {
       if (err instanceof StorageReauthRequiredError) throw err;
       console.error(`subtitle files for season ${season.id}:`, err);
     });
-    await syncSidecarTracks(db, seasonChildren).catch((err) => console.error(`subtitle tracks for season ${season.id}:`, err));
+    await syncSidecarTracks(db, withSubs).catch((err) => console.error(`subtitle tracks for season ${season.id}:`, err));
+  }
+
+  // A poster in the show folder ("poster.jpg", "folder.jpg", "show.jpg") wins over the one TMDB gave.
+  await syncLocalPoster(provider, title.id, posterFile(rootChildren, SHOW_POSTER_NAMES));
+
+  // The show's trailers, featurettes and the like: in folders named for the type in the show folder or a season folder, or beside an episode
+  // with a type suffix ("Show - S01E01 - Title-deleted1.mkv"). They are the show's, whichever of those they sit in.
+  try {
+    const found: FoundExtra[] = [];
+    let complete = true;
+    for (const listing of [rootChildren, ...[...sources.values()].filter((s) => s.folderId !== folder.id).map((s) => s.children)]) {
+      const r = await findExtras(provider, listing);
+      found.push(...r.found);
+      complete = complete && r.complete;
+    }
+    await syncTitleExtras(title.id, [...new Map(found.map((f) => [f.entry.id, f])).values()], complete);
+  } catch (err) {
+    console.error(`extras for ${title.id}:`, err);
   }
 
   return !existing;

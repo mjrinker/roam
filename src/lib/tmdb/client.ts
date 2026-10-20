@@ -102,6 +102,8 @@ export interface TmdbEpisode {
   overview?: string;
   still_path?: string | null;
   runtime?: number | null;
+  /** "YYYY-MM-DD": what a date-named episode file is matched on. */
+  air_date?: string | null;
 }
 
 export function tmdbImageUrl(path: string | null | undefined, size: "w342" | "w500" | "w1280" | "original" = "w500"): string | null {
@@ -215,6 +217,12 @@ export async function getPerson(personId: number): Promise<TmdbPerson> {
 export async function getSeasonEpisodes(tmdbId: number, seasonNumber: number): Promise<TmdbEpisode[]> {
   const data = await tmdbFetch<{ episodes: TmdbEpisode[] }>(`/tv/${tmdbId}/season/${seasonNumber}`);
   return data.episodes ?? [];
+}
+
+/** Resolves a TheTVDB series id ({tvdb-73244} in a folder name) to TMDB's show id; null when TMDB has none. */
+export async function findTmdbShowIdByTvdbId(tvdbId: number): Promise<number | null> {
+  const data = await tmdbFetch<{ tv_results?: { id: number }[] }>(`/find/${tvdbId}`, { external_source: "tvdb_id" });
+  return data.tv_results?.[0]?.id ?? null;
 }
 
 /**

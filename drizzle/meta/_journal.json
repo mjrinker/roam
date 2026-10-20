@@ -533,6 +533,13 @@
       "when": 1792423384210,
       "tag": "0075_photo_faces_thumb",
       "breakpoints": true
+    },
+    {
+      "idx": 76,
+      "version": "7",
+      "when": 1792455649660,
+      "tag": "0076_track_lyrics_files",
+      "breakpoints": true
     }
   ]
 }

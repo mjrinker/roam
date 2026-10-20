@@ -44,7 +44,7 @@ async function loadExtra(lib: LibraryActor, id: string) {
   return {
     displayTitle: row.extra.name,
     subtitle: `${row.movie.name} · ${EXTRA_LABELS[row.extra.category]}`,
-    backHref: `/s/${lib.serverId}/title/${row.movie.id}`,
+    backHref: `/s/${lib.serverId}/${row.movie.kind === "show" ? "show" : "title"}/${row.movie.id}`,
     nextHref: undefined,
     nextLabel: undefined,
     ratingAges: row.movie.ratingAges,

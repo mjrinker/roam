@@ -12,7 +12,7 @@ export const MAX_CUES = 20_000;
 const MAX_CUE_TEXT = 1_000;
 const MAX_SECONDS = 48 * 3600;
 
-export type ParseResult = { ok: true; cues: Cue[]; format: "srt" | "vtt" | "ass" } | { ok: false; error: string };
+export type ParseResult = { ok: true; cues: Cue[]; format: "srt" | "vtt" | "ass" | "smi" } | { ok: false; error: string };
 
 /** Bytes to text: a byte-order mark decides UTF-8 or UTF-16; otherwise valid UTF-8, else Windows-1252 (what old subtitle files usually are). */
 export function decodeSubtitleBytes(bytes: Uint8Array): string {
@@ -59,11 +59,12 @@ function parseAssClock(text: string): number | null {
 }
 
 /** Which format a file is, from what it starts with and what it contains. */
-export function detectFormat(text: string): "srt" | "vtt" | "ass" | null {
+export function detectFormat(text: string): "srt" | "vtt" | "ass" | "smi" | null {
   const head = text.slice(0, 2000).replace(/^﻿/, "").trimStart();
   if (/^WEBVTT/.test(head)) return "vtt";
   if (/^\[Script Info\]/i.test(head) || /\n\[Events\]/i.test(text.slice(0, 20_000)) || /^\[Events\]/i.test(head)) return "ass";
   if (text.indexOf("-->") !== -1) return "srt";
+  if (/<sami[\s>]/i.test(text.slice(0, 20_000)) && /<sync\s/i.test(text)) return "smi";
   return null;
 }
 
@@ -146,6 +147,32 @@ function parseAss(text: string): Cue[] {
   return cues;
 }
 
+/**
+ * SAMI (.smi): a <SYNC Start=milliseconds> marks each change of caption, and the text up to the next one is shown until it. A file with several
+ * languages (P Class=...) is read for the first one it names. A caption of only &nbsp; clears the screen.
+ */
+function parseSmi(text: string): Cue[] {
+  const body = text.replace(/\r\n?/g, "\n");
+  const cues: Cue[] = [];
+  const syncs = [...body.matchAll(/<sync\s+start\s*=\s*["']?(\d+)["']?[^>]*>/gi)];
+  let wantedClass: string | null = null;
+  for (let i = 0; i < syncs.length && cues.length < MAX_CUES; i++) {
+    const from = (syncs[i].index ?? 0) + syncs[i][0].length;
+    const to = i + 1 < syncs.length ? (syncs[i + 1].index ?? body.length) : body.length;
+    const chunk = body.slice(from, to);
+    const cls = /<p\s[^>]*class\s*=\s*["']?([\w-]+)/i.exec(chunk)?.[1] ?? null;
+    if (cls !== null && wantedClass === null) wantedClass = cls;
+    if (cls !== null && wantedClass !== null && cls.toLowerCase() !== wantedClass.toLowerCase()) continue;
+    const words = cleanCueText(chunk.replace(/<\/?(?:sami|body|head)[^>]*>/gi, "").replace(/<br\s*\/?>/gi, "\n").replace(/&nbsp;/gi, " "));
+    if (words === "") continue;
+    const start = Number(syncs[i][1]) / 1000;
+    // It lasts until the next caption change, whatever that is (a blank one included).
+    const end = i + 1 < syncs.length ? Number(syncs[i + 1][1]) / 1000 : start + 4;
+    cues.push([start, end, words]);
+  }
+  return cues;
+}
+
 /** Sorted, with impossible times mended or dropped. */
 function tidy(cues: Cue[]): Cue[] {
   const out: Cue[] = [];
@@ -159,8 +186,8 @@ function tidy(cues: Cue[]): Cue[] {
 /** Subtitle text to cues. Fails with a message a person can act on (wrong kind of file, nothing readable in it). */
 export function parseSubtitles(text: string): ParseResult {
   const format = detectFormat(text);
-  if (!format) return { ok: false, error: "That doesn't look like a subtitle file (SRT, WebVTT or ASS)." };
-  const cues = tidy(format === "ass" ? parseAss(text) : parseBlocks(text, format === "vtt"));
+  if (!format) return { ok: false, error: "That doesn't look like a subtitle file (SRT, WebVTT, ASS or SMI)." };
+  const cues = tidy(format === "ass" ? parseAss(text) : format === "smi" ? parseSmi(text) : parseBlocks(text, format === "vtt"));
   if (cues.length === 0) return { ok: false, error: "No subtitles could be read from that file." };
   return { ok: true, cues, format };
 }

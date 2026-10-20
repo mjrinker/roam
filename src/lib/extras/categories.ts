@@ -31,7 +31,8 @@ const SUFFIX_CATEGORY: Record<string, ExtraCategory> = {
   short: "shorts",
   other: "other",
 };
-const SUFFIX_RE = new RegExp(`-(${Object.keys(SUFFIX_CATEGORY).join("|")})(\\.[^.]+)$`, "i");
+// An episode can have several of one type: "-deleted1", "-deleted2".
+const SUFFIX_RE = new RegExp(`-(${Object.keys(SUFFIX_CATEGORY).join("|")})\\d*(\\.[^.]+)$`, "i");
 
 /** Folder names (letters only, lower case, so spacing and capitals don't matter) and their types; singular and plural both count. */
 const FOLDER_CATEGORY: Record<string, ExtraCategory> = {

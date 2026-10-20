@@ -1185,6 +1185,10 @@ export const trackLyrics = pgTable("track_lyrics", {
   plain: text("plain"),
   instrumental: boolean("instrumental").notNull().default(false),
   fetchedAt: timestamp("fetched_at", { withTimezone: true }).notNull().defaultNow(),
+  // Lyrics from a ".lrc" or ".txt" file beside the song (Plex's naming) say so, with the file they came from; those are never replaced by a look-up.
+  source: text("source").$type<"lrclib" | "file">().notNull().default("lrclib"),
+  fileId: text("file_id"),
+  fileModifiedAt: timestamp("file_modified_at", { withTimezone: true }),
 }).enableRLS();
 
 // ── collections ──────────────────────────────────────────────────────────

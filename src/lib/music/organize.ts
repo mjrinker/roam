@@ -8,7 +8,7 @@
 import { and, asc, eq, gt, isNotNull, notExists, sql } from "drizzle-orm";
 import { db } from "@/lib/db/client";
 import { mediaFiles, musicAlbums, musicArtists, titles } from "@/lib/db/schema";
-import { artistSortKey, nameKey, placeTrack } from "@/lib/music/placement";
+import { artistSortKey, nameKey, placeTrack, usesPlexDiscNumbers } from "@/lib/music/placement";
 
 const CHUNK = 500;
 const tidy = (name: string) => name.trim().replace(/\s+/g, " ");
@@ -75,7 +75,17 @@ export async function organizeMusicLibrary(libraryId: string, deadline = Infinit
     if (rows.length === 0) break;
     after = rows[rows.length - 1].id;
 
-    const placements = rows.map((r) => ({ row: r, p: placeTrack({ folderPath: r.folderPath ?? "", fileName: r.fileName, tagArtist: r.tagArtist?.[0] ?? null }) }));
+    // Plex numbers multi-disc albums "302 - Name" (disc 3, track 2): told from a big flat track number by looking at the whole folder.
+    const plexFolders = new Map<string, boolean>();
+    for (const folder of new Set(rows.map((r) => r.folderPath ?? ""))) {
+      const names = await db
+        .select({ name: mediaFiles.filename })
+        .from(titles)
+        .innerJoin(mediaFiles, and(eq(mediaFiles.ownerKind, "title"), eq(mediaFiles.ownerId, titles.id), eq(mediaFiles.partIndex, 0)))
+        .where(and(eq(titles.libraryId, libraryId), eq(titles.kind, "audiobook"), eq(titles.folderPath, folder)));
+      plexFolders.set(folder, usesPlexDiscNumbers(names.map((n) => n.name)));
+    }
+    const placements = rows.map((r) => ({ row: r, p: placeTrack({ folderPath: r.folderPath ?? "", fileName: r.fileName, tagArtist: r.tagArtist?.[0] ?? null, plexDiscs: plexFolders.get(r.folderPath ?? "") ?? false }) }));
 
     placed += await db.transaction(async (tx) => {
       await lockMusicLibrary(tx, libraryId);

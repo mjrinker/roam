@@ -36,6 +36,7 @@ import { enrichMusicLibrary } from "@/lib/music/enrich";
 import { organizeMusicLibrary } from "@/lib/music/organize";
 import { readPhotoMetadata } from "@/lib/scan/photo-meta";
 import { readTagsAndArtwork } from "@/lib/scan/video-artwork";
+import { syncMusicSidecars } from "@/lib/scan/music-sidecars";
 import { decodeSub, encodeSub, walkVideoTree } from "@/lib/scan/video-walk";
 import { CONTENTION_CODES, retryOnContention } from "@/lib/playlists/retry";
 
@@ -406,6 +407,8 @@ export async function syncVideoTopFolder(
         result.filesSeen += r.seen;
         result.unsupported += r.unsupported;
         if (r.conflicts > 0) opts.errors.push(`${where}: ${conflictNote(r.conflicts)}`);
+        // Lyrics and a cover picture beside the songs (Plex's naming).
+        if ((opts.profile ?? VIDEO_PROFILE).groupsIntoAlbums && "fetchByteRange" in provider) await syncMusicSidecars(provider as Pick<StorageProvider, "fetchByteRange">, libraryId, dir.entries);
       } catch (err) {
         if (err instanceof StorageReauthRequiredError) throw err;
         result.hadErrors = true;
@@ -427,7 +430,7 @@ export function conflictNote(count: number): string {
 }
 
 /** The summary line the admin sees after a scan that skipped files in formats Roam can't play. */
-export function unsupportedSummary(count: number, profile: TreeProfile = VIDEO_PROFILE): string | null {
+export function unsupportedSummary(count: number, profile: Pick<TreeProfile, "supportedHint"> = VIDEO_PROFILE): string | null {
   return count > 0
     ? `${count} file${count === 1 ? "" : "s"} skipped: unsupported format (${profile.supportedHint}).`
     : null;
