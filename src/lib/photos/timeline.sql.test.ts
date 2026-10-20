@@ -225,13 +225,17 @@ describe("hiding screenshots", () => {
     const shot = await w.add("2024-03-02T00:00:00Z", { isScreenshot: true });
     const b = await w.add("2024-03-01T00:00:00Z");
     expect(ids(await tl(w))).toEqual([a.id, shot.id, b.id]);
-    expect(ids(await tl(w, { hideScreenshots: true }))).toEqual([a.id, b.id]);
+    expect(ids(await tl(w, { screenshots: "hide" }))).toEqual([a.id, b.id]);
     expect((await listMonths(db, { actor: w.memberLib, viewer: everyone, libraryId: w.lib.id }))![0].count).toBe(3);
-    expect((await listMonths(db, { actor: w.memberLib, viewer: everyone, libraryId: w.lib.id, hideScreenshots: true }))![0].count).toBe(2);
+    expect((await listMonths(db, { actor: w.memberLib, viewer: everyone, libraryId: w.lib.id, screenshots: "hide" }))![0].count).toBe(2);
     // Stepping from one photo to the next skips it.
     const photo = (await loadPhoto(db, { actor: w.memberLib, viewer: everyone, id: a.id }))!;
     expect(await photoNeighbors(db, { actor: w.memberLib, viewer: everyone, photo, scope: { kind: "timeline" } })).toEqual({ prev: null, next: shot.id });
-    expect(await photoNeighbors(db, { actor: w.memberLib, viewer: everyone, photo, scope: { kind: "timeline" }, hideScreenshots: true })).toEqual({ prev: null, next: b.id });
+    expect(await photoNeighbors(db, { actor: w.memberLib, viewer: everyone, photo, scope: { kind: "timeline" }, screenshots: "hide" })).toEqual({ prev: null, next: b.id });
+    // "Only" shows just them, and a heart keeps a screenshot in Favorites even when hiding.
+    expect(ids(await tl(w, { screenshots: "only" }))).toEqual([shot.id]);
+    expect((await listMonths(db, { actor: w.memberLib, viewer: everyone, libraryId: w.lib.id, screenshots: "only" }))![0].count).toBe(1);
+    expect(await photoNeighbors(db, { actor: w.memberLib, viewer: everyone, photo, scope: { kind: "timeline" }, screenshots: "only" })).toEqual({ prev: null, next: shot.id });
     // A screenshot can still be opened by its address.
     expect(await loadPhoto(db, { actor: w.memberLib, viewer: everyone, id: shot.id })).not.toBeNull();
   });

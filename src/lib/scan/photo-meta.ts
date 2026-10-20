@@ -65,7 +65,7 @@ export async function readPhotoMetadata(provider: StorageProvider, libraryId: st
                     placeSource: sql`CASE WHEN ${titles.placeSource} = 'manual' THEN 'manual' ELSE 'exif' END`,
                   }
                 : {}),
-              ...(detectScreenshot({ filename: t.filename, container: t.filename.split(".").pop() ?? null, width: meta.width, height: meta.height, hasCameraDate: !!meta.takenAt, commentSaysScreenshot: meta.screenshot === true }) ? { isScreenshot: true } : {}),
+              ...(detectScreenshot({ filename: t.filename, container: t.filename.split(".").pop() ?? null, width: meta.width, height: meta.height, hasCameraDate: !!meta.takenAt, commentSaysScreenshot: meta.screenshot === true }) ? { isScreenshot: sql`CASE WHEN ${titles.screenshotLocked} THEN ${titles.isScreenshot} ELSE true END` } : {}),
               width: meta.width,
               height: meta.height,
               metaAttemptedAt: now,

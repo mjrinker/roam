@@ -52,7 +52,7 @@ export async function GET(request: Request, ctx: RouteContext<"/api/libraries/[i
     favoritesOnly: params.get("view") === "favorites",
     search: parseSearch(params.get("q")),
     bucket,
-    hideScreenshots: member.viewer.hideScreenshots,
+    screenshots: member.viewer.screenshotFilter,
   });
   if (!page) return notFound();
   return NextResponse.json({ items: page.items, next: page.next ? encodeCursor(page.next) : null }, { headers });

@@ -21,6 +21,7 @@ import {
 import { FavoriteButton } from "@/components/photos/favorite-button";
 import { decideSwipe } from "@/lib/photos/swipe";
 import type { ViewerItem } from "@/lib/photos/viewer-item";
+import { markScreenshots } from "@/components/photos/screenshot-bar";
 
 /** How long the slide to the next or previous item takes. */
 const SLIDE_MS = 180;
@@ -54,6 +55,8 @@ export interface PhotoViewerProps {
   serverId?: string;
   /** Told when a date was changed, so a list behind the viewer can follow. */
   onDateChange?: (id: string) => void;
+  /** Told when the admin marked this picture as a screenshot, or not. */
+  onScreenshotChange?: (id: string, screenshot: boolean) => void;
 }
 
 /**
@@ -63,7 +66,7 @@ export interface PhotoViewerProps {
  * start; iOS won't start one by itself) and swipe the same way. The arrow keys step and Escape closes.
  */
 export function PhotoViewer(props: PhotoViewerProps) {
-  const { current, prev, next, onPrev, onNext, onClose, libraryId, words, onFavoriteChange, canEditDate, onDateChange, serverId } = props;
+  const { current, prev, next, onPrev, onNext, onClose, libraryId, words, onFavoriteChange, canEditDate, onDateChange, onScreenshotChange, serverId } = props;
   const [chrome, setChrome] = useState(true);
   const [panel, setPanel] = useState(false);
 
@@ -155,6 +158,7 @@ export function PhotoViewer(props: PhotoViewerProps) {
             </a>
           )}
           {canEditDate && current.kind === "photo" && <DateEditor key={current.id} item={current} onSaved={() => onDateChange?.(current.id)} />}
+          {canEditDate && serverId && current.kind === "photo" && <ScreenshotToggle key={`shot:${current.id}`} serverId={serverId} item={current} onChange={(v) => onScreenshotChange?.(current.id, v)} />}
           {canEditDate && serverId && current.kind === "photo" && <PlaceEditor key={`place:${current.id}`} item={current} serverId={serverId} onSaved={() => onDateChange?.(current.id)} />}
         </aside>
       )}
@@ -547,6 +551,32 @@ const FILE_NOTES: Record<string, string> = {
 };
 
 /** Admin only: change when this picture was taken. Saved in Roam, and written into the file where that is possible. */
+/** Marks one picture as a screenshot, or as not (the admin's choice; scans leave it alone afterwards). */
+function ScreenshotToggle({ serverId, item, onChange }: { serverId: string; item: ViewerItem; onChange: (screenshot: boolean) => void }) {
+  const [on, setOn] = useState(item.isScreenshot);
+  const [busy, setBusy] = useState(false);
+  const [failed, setFailed] = useState(false);
+  async function toggle() {
+    setBusy(true);
+    setFailed(false);
+    const next = !on;
+    const changed = await markScreenshots(serverId, [item.id], next);
+    setBusy(false);
+    if (changed === null) return setFailed(true);
+    setOn(next);
+    onChange(next);
+  }
+  return (
+    <div className="mt-3">
+      <button type="button" aria-pressed={on} disabled={busy} onClick={() => void toggle()} className="text-sm text-primary hover:underline disabled:opacity-60">
+        {on ? "Not a screenshot" : "Mark as screenshot"}
+      </button>
+      {on && <span className="ml-2 text-xs text-white/50">Marked as a screenshot</span>}
+      {failed && <p className="mt-1 text-xs text-red-300">Couldn&apos;t change that.</p>}
+    </div>
+  );
+}
+
 function DateEditor({ item, onSaved }: { item: ViewerItem; onSaved: () => void }) {
   const [open, setOpen] = useState(false);
   const [value, setValue] = useState(item.takenInput ?? "");

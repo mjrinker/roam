@@ -561,6 +561,20 @@
       "when": 1792470513144,
       "tag": "0079_hide_screenshots",
       "breakpoints": true
+    },
+    {
+      "idx": 80,
+      "version": "7",
+      "when": 1792496122819,
+      "tag": "0080_screenshot_filter",
+      "breakpoints": true
+    },
+    {
+      "idx": 81,
+      "version": "7",
+      "when": 1792496131271,
+      "tag": "0081_drop_hide_screenshots",
+      "breakpoints": true
     }
   ]
 }

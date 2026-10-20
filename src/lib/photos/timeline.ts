@@ -8,6 +8,7 @@
  * EXIF has no fractions), so a cursor of {epoch seconds, id} is exact; it is "wall-clock time as UTC"
  * (see exif.ts), which is why the page formats it in UTC.
  */
+import { forFavorites, screenshotCondition, type ScreenshotFilter } from "@/lib/photos/screenshot-filter";
 import { and, asc, desc, eq, gt, inArray, isNotNull, isNull, lt, or, sql, type SQL } from "drizzle-orm";
 import type { PgDatabase, PgQueryResultHKT } from "drizzle-orm/pg-core";
 import { z } from "zod";
@@ -40,6 +41,8 @@ export interface TimelineItem {
   runtimeSeconds: number | null;
   /** Whether the viewer asking has hearted it. */
   favorite: boolean;
+  /** Marked (or found) to be a screenshot. */
+  isScreenshot: boolean;
   /** What the viewer's details panel shows (so opening an item needs no further request). */
   filename: string | null;
   sizeBytes: number | null;
@@ -58,7 +61,7 @@ export interface TimelinePage {
 const MAX_PAGE = 500;
 
 /** Library access, the age limit, and "this really is a photo library", for items of `libraryId`. */
-function visibleItems(ex: Db, args: { actor: LibraryActor; viewer: AccessProfile; libraryId: string; hideScreenshots?: boolean }) {
+function visibleItems(ex: Db, args: { actor: LibraryActor; viewer: AccessProfile; libraryId: string; screenshots?: ScreenshotFilter }) {
   return and(
     eq(titles.libraryId, args.libraryId),
     inArray(libraries.kind, [...PHOTO_LIBRARY_KINDS]),
@@ -67,7 +70,7 @@ function visibleItems(ex: Db, args: { actor: LibraryActor; viewer: AccessProfile
     // A copy an admin hid in favour of another photo (see lib/photos/dedupe) is left out of every listing.
     isNull(titles.duplicateOf),
     // A profile that hides screenshots does not see them (its own favorites excepted, see narrowed).
-    args.hideScreenshots ? eq(titles.isScreenshot, false) : undefined
+    screenshotCondition(args.screenshots)
   );
 }
 
@@ -95,7 +98,7 @@ function inBucket(bucket: { level: ZoomLevel; key: string } | null | undefined):
  */
 function narrowed(
   ex: Db,
-  args: { actor: LibraryActor; viewer: AccessProfile; viewerId?: string; libraryId: string; favoritesOnly?: boolean; search?: SearchSpec | null; hideScreenshots?: boolean }
+  args: { actor: LibraryActor; viewer: AccessProfile; viewerId?: string; libraryId: string; favoritesOnly?: boolean; search?: SearchSpec | null; screenshots?: ScreenshotFilter }
 ): SQL | undefined {
   const heart = args.viewerId ? sql`EXISTS (SELECT 1 FROM ${photoFavorites} f WHERE f.title_id = ${titles.id} AND f.viewer_id = ${args.viewerId})` : sql`false`;
   // A name matches the picture's file name, the place it was taken, or a person tagged in it.
@@ -109,7 +112,7 @@ function narrowed(
       : nameMatch
     : undefined;
   // What was hearted is shown even if it is a screenshot.
-  return and(visibleItems(ex, { ...args, hideScreenshots: args.hideScreenshots && !args.favoritesOnly }), args.favoritesOnly ? heart : undefined, search);
+  return and(visibleItems(ex, { ...args, screenshots: args.favoritesOnly ? forFavorites(args.screenshots) : args.screenshots }), args.favoritesOnly ? heart : undefined, search);
 }
 
 export interface MonthBucket {
@@ -124,7 +127,7 @@ const BUCKET_FORMAT: Record<ZoomLevel, string> = { day: "YYYY-MM-DD", month: "YY
 /** How many visible items fall in each day, month or year (newest first, undated last), under the same narrowing as the listing. Null if the viewer can't see such a library. */
 export async function listMonths(
   ex: Db,
-  args: { actor: LibraryActor; viewer: AccessProfile; viewerId?: string; libraryId: string; favoritesOnly?: boolean; search?: SearchSpec | null; level?: ZoomLevel; hideScreenshots?: boolean }
+  args: { actor: LibraryActor; viewer: AccessProfile; viewerId?: string; libraryId: string; favoritesOnly?: boolean; search?: SearchSpec | null; level?: ZoomLevel; screenshots?: ScreenshotFilter }
 ): Promise<MonthBucket[] | null> {
   const key = sql<string>`coalesce(to_char(${titles.takenAt} AT TIME ZONE 'UTC', ${sql.raw(`'${BUCKET_FORMAT[args.level ?? "month"]}'`)}), 'undated')`;
   const rows = await ex
@@ -164,7 +167,7 @@ export async function listTimeline(
     /** Only the items of one day, month or year (or "undated"): how the timeline fills each block as it comes into view. */
     bucket?: { level: ZoomLevel; key: string } | null;
     /** Leave screenshots out (a profile's choice; its favorites are still shown). */
-    hideScreenshots?: boolean;
+    screenshots?: ScreenshotFilter;
   }
 ): Promise<TimelinePage | null> {
   const limit = Math.min(Math.max(args.limit ?? 60, 1), MAX_PAGE);
@@ -181,6 +184,7 @@ export async function listTimeline(
       height: titles.height,
       posterUrl: titles.posterUrl,
       runtimeSeconds: titles.runtimeSeconds,
+      isScreenshot: titles.isScreenshot,
       favorite: args.viewerId ? sql<boolean>`EXISTS (SELECT 1 FROM ${photoFavorites} f WHERE f.title_id = ${titles.id} AND f.viewer_id = ${args.viewerId})` : sql<boolean>`false`,
       filename: sql<string | null>`(SELECT m.filename FROM media_files m WHERE m.owner_kind = 'title' AND m.owner_id = ${titles.id} AND m.part_index = 0 LIMIT 1)`,
       sizeBytes: sql<string | null>`(SELECT m.size_bytes::text FROM media_files m WHERE m.owner_kind = 'title' AND m.owner_id = ${titles.id} AND m.part_index = 0 LIMIT 1)`,
@@ -214,6 +218,7 @@ export async function listTimeline(
     posterUrl: r.posterUrl,
     runtimeSeconds: r.runtimeSeconds,
     favorite: r.favorite === true,
+    isScreenshot: r.isScreenshot,
     filename: r.filename,
     sizeBytes: r.sizeBytes === null ? null : Number(r.sizeBytes),
     container: r.container,
@@ -238,6 +243,8 @@ export interface PhotoDetail {
   posterUrl: string | null;
   /** Whether the viewer asking has hearted it. */
   favorite: boolean;
+  /** Marked (or found) to be a screenshot. */
+  isScreenshot: boolean;
   libraryId: string;
   libraryName: string;
   name: string;
@@ -257,6 +264,7 @@ export async function loadPhoto(ex: Db, args: { actor: LibraryActor; viewer: Acc
       kind: titles.kind,
       runtimeSeconds: titles.runtimeSeconds,
       posterUrl: titles.posterUrl,
+      isScreenshot: titles.isScreenshot,
       favorite: args.viewerId ? sql<boolean>`EXISTS (SELECT 1 FROM ${photoFavorites} f WHERE f.title_id = ${titles.id} AND f.viewer_id = ${args.viewerId})` : sql<boolean>`false`,
       filename: sql<string | null>`(SELECT m.filename FROM media_files m WHERE m.owner_kind = 'title' AND m.owner_id = ${titles.id} AND m.part_index = 0 LIMIT 1)`,
       sizeBytes: sql<string | null>`(SELECT m.size_bytes::text FROM media_files m WHERE m.owner_kind = 'title' AND m.owner_id = ${titles.id} AND m.part_index = 0 LIMIT 1)`,
@@ -305,11 +313,11 @@ export type NeighborScope = { kind: "timeline" } | { kind: "favorites"; viewerId
  */
 export async function photoNeighbors(
   ex: Db,
-  args: { actor: LibraryActor; viewer: AccessProfile; photo: PhotoDetail; scope: NeighborScope; hideScreenshots?: boolean }
+  args: { actor: LibraryActor; viewer: AccessProfile; photo: PhotoDetail; scope: NeighborScope; screenshots?: ScreenshotFilter }
 ): Promise<{ prev: Neighbor | null; next: Neighbor | null }> {
   const { photo } = args;
   const base = and(
-    visibleItems(ex, { ...args, libraryId: photo.libraryId, hideScreenshots: args.hideScreenshots && args.scope.kind !== "favorites" }),
+    visibleItems(ex, { ...args, libraryId: photo.libraryId, screenshots: args.scope.kind === "favorites" ? forFavorites(args.screenshots) : args.screenshots }),
     inArray(titles.kind, ["photo", "movie"]),
     // Stepping through favorites only visits favorites (the viewer's own).
     args.scope.kind === "favorites" ? sql`EXISTS (SELECT 1 FROM ${photoFavorites} f WHERE f.title_id = ${titles.id} AND f.viewer_id = ${args.scope.viewerId})` : undefined

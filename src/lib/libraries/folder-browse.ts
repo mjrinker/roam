@@ -4,6 +4,7 @@
  * the viewer can actually see (library access and age limit applied BEFORE grouping), so a folder
  * that is empty or holds only hidden videos never appears and its name never leaks.
  */
+import { screenshotCondition, type ScreenshotFilter } from "@/lib/photos/screenshot-filter";
 import { and, asc, desc, eq, gt, inArray, isNull, lt, or, sql } from "drizzle-orm";
 import type { PgDatabase, PgQueryResultHKT } from "drizzle-orm/pg-core";
 import { contentFilter, type AccessProfile } from "@/lib/content/access";
@@ -163,7 +164,7 @@ export async function listFolder(
     /** Only the files of one artist, album or genre (across the whole library, like `all`). */
     group?: { kind: GroupKind; name: string } | null;
     /** Photo libraries: leave screenshots out (a profile's choice). */
-    hideScreenshots?: boolean;
+    screenshots?: ScreenshotFilter;
   }
 ): Promise<FolderPage | null> {
   const limit = Math.min(Math.max(args.limit ?? 60, 1), 200);
@@ -174,7 +175,7 @@ export async function listFolder(
     contentFilter(args.viewer, titles.ratingAges),
     // A photo hidden as a copy of another (lib/photos/dedupe) is not listed.
     isNull(titles.duplicateOf),
-    args.hideScreenshots ? eq(titles.isScreenshot, false) : undefined
+    screenshotCondition(args.screenshots)
   );
 
   const depth = args.path === "" ? 0 : args.path.split("/").length;

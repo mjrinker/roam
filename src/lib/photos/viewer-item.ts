@@ -17,6 +17,8 @@ export interface ViewerItem {
   zoomOriginal: boolean;
   details: [string, string][];
   favorite: boolean;
+  /** Marked (or found) to be a screenshot. */
+  isScreenshot: boolean;
   /** Where it was taken, when known. */
   place: { latitude: number; longitude: number; name: string | null } | null;
   /** When it was taken as a date-time field takes it ("2015-06-01T08:30", the wall-clock time stored), or null when unknown. */
@@ -33,6 +35,7 @@ export interface ViewerSource {
   posterUrl: string | null;
   runtimeSeconds: number | null;
   favorite: boolean;
+  isScreenshot?: boolean;
   filename: string | null;
   sizeBytes: number | null;
   container: string | null;
@@ -63,6 +66,7 @@ export function viewerItem(s: ViewerSource): ViewerItem {
     zoomOriginal: s.kind === "photo" && ["jpg", "jpeg", "png", "webp"].includes((s.container ?? "").toLowerCase()),
     details: rows.filter((r): r is [string, string] => r[1] !== null),
     favorite: s.favorite,
+    isScreenshot: s.isScreenshot === true,
     place: s.place ?? null,
     takenInput: taken && !Number.isNaN(taken.getTime()) ? taken.toISOString().slice(0, 16) : null,
   };

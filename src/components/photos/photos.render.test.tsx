@@ -21,6 +21,7 @@ const item = (over: Partial<TimelineItem> = {}): TimelineItem => ({
   posterUrl: "/api/photos/11111111-1111-4111-8111-111111111111/thumb?v=1ab-2cd",
   runtimeSeconds: null,
   favorite: false,
+  isScreenshot: false,
   filename: "IMG_0042.JPG",
   sizeBytes: 3_453_641,
   container: "jpg",
@@ -163,6 +164,7 @@ describe("PhotoViewer", () => {
     zoomOriginal: true,
     details: [["Taken", "March 30, 2024 at 10:00 AM"], ["Size", "4000 × 3000"]],
     favorite: false,
+    isScreenshot: false,
     takenInput: "2024-03-30T10:00",
     place: null,
     ...over,
@@ -229,5 +231,32 @@ describe("typed coordinates", () => {
     expect(parseCoordinates("37.7749 -122.4194")).toEqual({ latitude: 37.7749, longitude: -122.4194 });
     expect(parseCoordinates(" -33.9;151.2 ")).toEqual({ latitude: -33.9, longitude: 151.2 });
     for (const bad of ["Lake Tahoe", "91, 10", "10, 181", "37.7749", "1,2,3", ""]) expect(parseCoordinates(bad), bad).toBeNull();
+  });
+});
+
+describe("selecting photos", () => {
+  it("a tile in select mode is a toggle that shows its state instead of opening the viewer", () => {
+    const off = renderToStaticMarkup(<PhotoTile serverId="srv" item={item()} from="from=timeline" selecting selected={false} />);
+    expect(off).toContain('aria-label="Select IMG 0042"');
+    expect(off).toContain('aria-pressed="false"');
+    const on = renderToStaticMarkup(<PhotoTile serverId="srv" item={item()} from="from=timeline" selecting selected />);
+    expect(on).toContain('aria-label="Deselect IMG 0042"');
+    expect(on).toContain('aria-pressed="true"');
+    expect(renderToStaticMarkup(<PhotoTile serverId="srv" item={item()} from="from=timeline" />)).toContain('aria-label="Open photo IMG 0042"');
+  });
+  it("only the admin is offered Select on the timeline", () => {
+    const base = { serverId: "srv", libraryId: "lib", words: W, initialItems: [item()], initialBuckets: [{ key: "2024-03", count: 1 }] };
+    expect(renderToStaticMarkup(<PhotoTimeline {...base} />)).not.toContain("Select</button>");
+    expect(renderToStaticMarkup(<PhotoTimeline {...base} canEditDate />)).toContain("Select</button>");
+  });
+});
+
+describe("the screenshot filter menu", () => {
+  it("is a Filter button that names the active choice", async () => {
+    const { ScreenshotFilterMenu } = await import("./screenshot-filter-menu");
+    vi.doMock("next/navigation", () => ({ useRouter: () => ({ refresh: () => undefined }) }));
+    expect(renderToStaticMarkup(<ScreenshotFilterMenu initial="show" />)).toContain(">Filter<");
+    expect(renderToStaticMarkup(<ScreenshotFilterMenu initial="hide" />)).toContain("Screenshots: Hide");
+    expect(renderToStaticMarkup(<ScreenshotFilterMenu initial="only" />)).toContain("Screenshots: Only");
   });
 });

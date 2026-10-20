@@ -197,10 +197,10 @@ describe("hiding screenshots", () => {
     const all = await listFolder(db, { actor: w.actor(w.member), viewer: adult, libraryId: w.library.id, path: "" });
     expect(all?.folders).toEqual(["Mixed", "Shots"]);
     expect(all?.items.map((i) => i.name).sort()).toEqual(["photo-in-root", "shot-in-root"]);
-    const hidden = await listFolder(db, { actor: w.actor(w.member), viewer: adult, libraryId: w.library.id, path: "", hideScreenshots: true });
+    const hidden = await listFolder(db, { actor: w.actor(w.member), viewer: adult, libraryId: w.library.id, path: "", screenshots: "hide" });
     expect(hidden?.folders).toEqual(["Mixed"]);
     expect(hidden?.items.map((i) => i.name)).toEqual(["photo-in-root"]);
-    const mixed = await listFolder(db, { actor: w.actor(w.member), viewer: adult, libraryId: w.library.id, path: "Mixed", hideScreenshots: true });
+    const mixed = await listFolder(db, { actor: w.actor(w.member), viewer: adult, libraryId: w.library.id, path: "Mixed", screenshots: "hide" });
     expect(mixed?.items.map((i) => i.name)).toEqual(["mixed-photo"]);
   });
 });

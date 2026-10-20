@@ -216,7 +216,7 @@ export async function syncVideoDirectory(
                 }
               : {}),
             // Found to be a screenshot, it stays one (the picture's own note or size may be what said so, which the name alone doesn't).
-            ...(profile.photoMeta ? { isScreenshot: sql`${titles.isScreenshot} OR excluded.is_screenshot` } : {}),
+            ...(profile.photoMeta ? { isScreenshot: sql`CASE WHEN ${titles.screenshotLocked} THEN ${titles.isScreenshot} ELSE ${titles.isScreenshot} OR excluded.is_screenshot END` } : {}),
             ...(cycleId !== null ? { lastSeenCycle: cycleId } : {}),
             // Seen in Box again: whatever made it look missing is over.
             missingSince: null,

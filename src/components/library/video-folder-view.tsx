@@ -1,7 +1,8 @@
 import Link from "next/link";
 import { Folder, FolderOpen } from "lucide-react";
 import { PosterCard } from "@/components/library/poster-card";
-import { PhotoTile } from "@/components/photos/photo-tile";
+import { SelectablePhotoGrid } from "@/components/photos/selectable-photo-grid";
+import type { ScreenshotFilter } from "@/lib/photos/screenshot-filter";
 import { SelectableFolderItems } from "@/components/library/selectable-views";
 import { DEFAULT_FOLDER_SORT, folderLink, folderTrail, parentFolder, type FolderItem, type FolderSort } from "@/lib/libraries/folder-browse";
 import { FolderToolbar } from "@/components/library/folder-toolbar";
@@ -20,6 +21,8 @@ export function VideoFolderView({
   sort = DEFAULT_FOLDER_SORT,
   sortable = false,
   search = null,
+  canMarkScreenshots = false,
+  screenshots = "show",
 }: {
   serverId: string;
   libraryId: string;
@@ -40,6 +43,10 @@ export function VideoFolderView({
   sortable?: boolean;
   /** A search through the whole library (instead of one folder), when there is one. */
   search?: string | null;
+  /** The server's admin may mark pictures as screenshots (a Select mode on an album). */
+  canMarkScreenshots?: boolean;
+  /** The profile's screenshot filter, to know whether marking changes what is listed. */
+  screenshots?: ScreenshotFilter;
 }) {
   const base = `/s/${serverId}/library/${libraryId}`;
   const extra = extraQuery ? `${extraQuery}&` : "";
@@ -103,18 +110,13 @@ export function VideoFolderView({
       )}
 
       {items.length > 0 && itemKind === "photo" && (
-        <ul className="grid grid-cols-3 gap-1 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-8">
-          {items.map((item, i) => (
-            <li key={item.id} className="min-w-0">
-              <PhotoTile
-                serverId={serverId}
-                item={{ id: item.id, kind: item.kind === "photo" ? "photo" : "movie", name: item.name, posterUrl: item.posterUrl, runtimeSeconds: item.runtimeSeconds, favorite: item.favorite }}
-                from={`from=album&path=${encodeURIComponent(path)}`}
-                priority={i < 12}
-              />
-            </li>
-          ))}
-        </ul>
+        <SelectablePhotoGrid
+          serverId={serverId}
+          from={`from=album&path=${encodeURIComponent(path)}`}
+          canMark={canMarkScreenshots}
+          screenshots={screenshots}
+          items={items.map((item) => ({ id: item.id, kind: item.kind === "photo" ? ("photo" as const) : ("movie" as const), name: item.name, posterUrl: item.posterUrl, runtimeSeconds: item.runtimeSeconds, favorite: item.favorite }))}
+        />
       )}
 
       {items.length > 0 && (itemKind === "movie" || itemKind === "audiobook") && <SelectableFolderItems serverId={serverId} libraryId={libraryId} path={path} items={items} itemKind={itemKind} sort={sort} search={search} />}

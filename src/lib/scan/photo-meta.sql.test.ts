@@ -183,6 +183,19 @@ describe("the metadata pass", () => {
     expect([(await byKey(`file:${p}b`)).isScreenshot, (await byKey(`file:${p}d`)).isScreenshot]).toEqual([true, true]);
   });
 
+  it("leaves a screenshot flag set by hand alone, whichever way a scan would have decided", async () => {
+    const { lib, p } = await photoLibrary();
+    await sync(lib.id, [entry("Screenshot_1.png", `${p}a`), entry("IMG_0001.PNG", `${p}b`)]);
+    const a = await byKey(`file:${p}a`);
+    const b = await byKey(`file:${p}b`);
+    await db.update(titles).set({ isScreenshot: false, screenshotLocked: true }).where(eq(titles.id, a.id)); // unmarked by the admin
+    await db.update(titles).set({ isScreenshot: false, screenshotLocked: true }).where(eq(titles.id, b.id));
+    h.files.set(`${p}b`, buildPng(1170, 2532)); // would be found by size
+    await sync(lib.id, [entry("Screenshot_1.png", `${p}a`), entry("IMG_0001.PNG", `${p}b`)]);
+    await run(lib.id);
+    expect([(await byKey(`file:${p}a`)).isScreenshot, (await byKey(`file:${p}b`)).isScreenshot]).toEqual([false, false]);
+  });
+
   it("never reads a video, a picture in another kind of library, or a file without a known size", async () => {
     const { lib, p } = await photoLibrary();
     await sync(lib.id, [entry("v.mp4", `${p}v`), entry("nosize.jpg", `${p}n`, { sizeBytes: undefined })]);

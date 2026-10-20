@@ -130,8 +130,8 @@ export const viewers = pgTable(
     groupCollections: boolean("group_collections").notNull().default(false),
     // Data saver: video plays at about 480p unless another quality is picked, artwork is fetched at lower quality, and the next song is not loaded ahead of time.
     dataSaver: boolean("data_saver").notNull().default(false),
-    // Photo libraries: leave screenshots out of the timeline, albums and search for this profile.
-    hideScreenshots: boolean("hide_screenshots").notNull().default(false),
+    // Photo libraries: show screenshots with the rest ("show"), leave them out ("hide") or show only them ("only"), for this profile.
+    screenshotFilter: text("screenshot_filter").$type<"show" | "hide" | "only">().notNull().default("show"),
     // The languages this profile wants: the audio track and the subtitles picked automatically when a video has them (ISO 639-2, "eng"). Null = no preference.
     // Screen time: the most this profile may watch in a day (minutes), and quiet hours it may not watch in (minutes after midnight; the window
     // may run past midnight), on the clock of time_zone (an IANA name the editor sent from the device). All null = no limits.
@@ -449,6 +449,8 @@ export const titles = pgTable(
     // Photo libraries: a screenshot (by its name, the iPhone's note in its EXIF, or a PNG with no camera date at a screen's exact size: see
     // lib/photos/screenshots), so a profile can hide them. Only ever turned on by a scan, never off.
     isScreenshot: boolean("is_screenshot").notNull().default(false),
+    // An admin said so by hand (marked, or marked not a screenshot): scans leave isScreenshot as it is.
+    screenshotLocked: boolean("screenshot_locked").notNull().default(false),
     // Photo libraries, finding faces (lib/faces): when this picture was last searched.
     facesScannedAt: timestamp("faces_scanned_at", { withTimezone: true }),
     // Reading the image's own metadata (EXIF, dimensions); separate from the MP4/ID3 tag counters above

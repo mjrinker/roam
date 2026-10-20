@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { memo, useEffect, useState } from "react";
-import { Heart, Image as ImageIcon, Play } from "lucide-react";
+import { Check, Heart, Image as ImageIcon, Play } from "lucide-react";
 import { Artwork } from "@/components/ui/artwork";
 import { cn } from "@/lib/utils";
 
@@ -31,7 +31,7 @@ export function photoHref(serverId: string, item: Pick<PhotoTileData, "id" | "ki
 }
 
 /** One square in a photo grid. A thumbnail that isn't ready (Box makes them on demand) or fails shows a quiet placeholder instead of a broken image. */
-export const PhotoTile = memo(function PhotoTile({ serverId, item, from, priority = false, onOpen }: { serverId: string; item: PhotoTileData; from: string; priority?: boolean; onOpen?: (id: string) => void }) {
+export const PhotoTile = memo(function PhotoTile({ serverId, item, from, priority = false, onOpen, selecting = false, selected = false, onToggle }: { serverId: string; item: PhotoTileData; from: string; priority?: boolean; onOpen?: (id: string) => void; selecting?: boolean; selected?: boolean; onToggle?: (id: string) => void }) {
   // A thumbnail Box hasn't made yet answers 404 (never cached): look once more after a few seconds before giving up.
   const [attempt, setAttempt] = useState(0);
   const [failed, setFailed] = useState(false);
@@ -48,13 +48,17 @@ export const PhotoTile = memo(function PhotoTile({ serverId, item, from, priorit
       // Each tile would otherwise prefetch its viewer page as it scrolls into view: dozens of server renders per screen.
       prefetch={false}
       // On the timeline the viewer opens over the page (instant, nothing reloads); the link still works for a new tab.
-      onClick={onOpen ? (e) => {
+      onClick={selecting ? (e) => {
+        e.preventDefault();
+        onToggle?.(item.id);
+      } : onOpen ? (e) => {
         if (e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
         e.preventDefault();
         onOpen(item.id);
       } : undefined}
-      aria-label={item.kind === "movie" ? `Play video ${item.name}` : `Open photo ${item.name}`}
-      className="group/tile relative block aspect-square overflow-hidden rounded-md bg-muted outline-none ring-1 ring-white/[0.06] focus-visible:ring-2 focus-visible:ring-primary"
+      aria-label={selecting ? `${selected ? "Deselect" : "Select"} ${item.name}` : item.kind === "movie" ? `Play video ${item.name}` : `Open photo ${item.name}`}
+      aria-pressed={selecting ? selected : undefined}
+      className={cn("group/tile relative block aspect-square overflow-hidden rounded-md bg-muted outline-none ring-1 focus-visible:ring-2 focus-visible:ring-primary", selected ? "ring-2 ring-primary" : "ring-white/[0.06]")}
     >
       {src && !failed ? (
         <Artwork
@@ -72,6 +76,12 @@ export const PhotoTile = memo(function PhotoTile({ serverId, item, from, priorit
           <ImageIcon className="size-6 text-muted-foreground/50" aria-hidden />
         </div>
       )}
+      {selecting && (
+        <span aria-hidden className={cn("absolute left-1.5 top-1.5 flex size-5 items-center justify-center rounded-full ring-2 ring-white/80", selected ? "bg-primary text-primary-foreground" : "bg-black/40")}>
+          {selected && <Check className="size-3.5" />}
+        </span>
+      )}
+      {selected && <span aria-hidden className="absolute inset-0 bg-primary/20" />}
       {item.favorite && <Heart aria-hidden className="absolute right-1.5 top-1.5 size-4 fill-rose-500 text-rose-500 drop-shadow" />}
       {item.kind === "movie" && (
         <span className={cn("absolute bottom-1.5 left-1.5 flex items-center gap-1 rounded-full bg-black/65 px-2 py-0.5 text-[11px] font-medium text-white")}>

@@ -46,6 +46,7 @@ export function PhotoPageViewer({
       canEditDate={canEditDate}
       serverId={serverId}
       onDateChange={() => router.refresh()}
+      onScreenshotChange={() => router.refresh()}
     />
   );
 }

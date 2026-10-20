@@ -4,6 +4,9 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import { ArrowDown, Loader2 } from "lucide-react";
 import { PhotoScrubber } from "@/components/photos/photo-scrubber";
 import { PhotoTile } from "@/components/photos/photo-tile";
+import { ScreenshotBar } from "@/components/photos/screenshot-bar";
+import { SelectToggle } from "@/components/photos/select-toggle";
+import type { ScreenshotFilter } from "@/lib/photos/screenshot-filter";
 import { PhotoViewer } from "@/components/photos/photo-viewer";
 import {
   BLOCK_GAP,
@@ -52,6 +55,7 @@ export function PhotoTimeline({
   emptyTitle = "No photos yet",
   emptyHint = "Photos and videos appear here once the first scan finishes.",
   canEditDate = false,
+  screenshots = "show",
 }: {
   serverId: string;
   libraryId: string;
@@ -69,6 +73,8 @@ export function PhotoTimeline({
   emptyHint?: string;
   /** The server's admin may change when a picture was taken (from the viewer). */
   canEditDate?: boolean;
+  /** The profile's screenshot filter: marking a picture while hiding (or showing only) screenshots changes what is listed, so the list is loaded afresh. */
+  screenshots?: ScreenshotFilter;
 }) {
   const extraQuery = `${view === "favorites" ? "&view=favorites" : ""}${q ? `&q=${encodeURIComponent(q)}` : ""}`;
   const storeKey = `roam:photos:scroll:${libraryId}:${view}:${q}`;
@@ -111,6 +117,8 @@ export function PhotoTimeline({
   // ── Looking for new photos: the library is checked from its newest photo forward when it opens and when it is pulled down ──
   const canRefresh = view === "timeline" && !q;
   const [refreshing, setRefreshing] = useState(false);
+  const [selecting, setSelecting] = useState(false);
+  const [picked, setPicked] = useState<Set<string>>(new Set());
   const [pull, setPull] = useState(0);
   const refreshingRef = useRef(false);
   /** Where the page was just before new photos were put in, so it can be put back (a block, and how far its top is above the line). */
@@ -520,6 +528,27 @@ export function PhotoTimeline({
     const next = run?.items[openIndex + offset];
     if (next && openId) setOpenId({ id: next.id, key: groupKey(next.takenAt, bucketsLevel) });
   };
+  const togglePicked = useCallback(
+    (id: string) =>
+      setPicked((p) => {
+        const next = new Set(p);
+        if (!next.delete(id)) next.add(id);
+        return next;
+      }),
+    []
+  );
+  const stopSelecting = useCallback(() => {
+    setSelecting(false);
+    setPicked(new Set());
+  }, []);
+  const setScreenshots = useCallback(
+    (ids: string[], isScreenshot: boolean) => {
+      const set = new Set(ids);
+      setLoaded((current) => Object.fromEntries(Object.entries(current).map(([k, b]) => [k, { ...b, items: b.items.map((i) => (set.has(i.id) ? { ...i, isScreenshot } : i)) }])));
+      if (screenshots !== "show") dateChangedRef.current = true;
+    },
+    [screenshots]
+  );
   const setFavorite = useCallback(
     (id: string, favorite: boolean) => setLoaded((current) => Object.fromEntries(Object.entries(current).map(([k, b]) => [k, { ...b, items: b.items.map((i) => (i.id === id ? { ...i, favorite } : i)) }]))),
     []
@@ -573,6 +602,7 @@ export function PhotoTimeline({
           </button>
         ))}
       </div>
+      {canEditDate && <SelectToggle selecting={selecting} onChange={(on) => (on ? setSelecting(true) : stopSelecting())} />}
       <div ref={listRef} className="flex flex-col" style={{ gap: BLOCK_GAP }}>
         {shown.map((bucket, g) => {
           const block = loaded[bucket.key];
@@ -587,7 +617,7 @@ export function PhotoTimeline({
                 <ul className={`grid gap-1 ${columnsClass}`}>
                   {block.items.map((item, i) => (
                     <li key={item.id} className="min-w-0">
-                      <PhotoTile serverId={serverId} item={item} from={from} priority={g === 0 && i < 12} onOpen={open} />
+                      <PhotoTile serverId={serverId} item={item} from={from} priority={g === 0 && i < 12} onOpen={open} selecting={selecting} selected={picked.has(item.id)} onToggle={togglePicked} />
                     </li>
                   ))}
                 </ul>
@@ -609,6 +639,18 @@ export function PhotoTimeline({
           if (!active) window.dispatchEvent(new Event("scroll")); // the marker takes up where the page ended
         }}
       />
+      {selecting && (
+        <ScreenshotBar
+          serverId={serverId}
+          ids={[...picked]}
+          onCancel={stopSelecting}
+          onDone={(ids, value) => {
+            setScreenshots(ids, value);
+            if (screenshots !== "show") window.location.reload();
+            else stopSelecting();
+          }}
+        />
+      )}
       {viewerItems && viewerItems[1] && (
         <PhotoViewer
           current={viewerItems[1]}
@@ -625,6 +667,7 @@ export function PhotoTimeline({
           onDateChange={() => {
             dateChangedRef.current = true;
           }}
+          onScreenshotChange={(id, value) => setScreenshots([id], value)}
         />
       )}
     </div>
