@@ -225,6 +225,8 @@ A small UWP app in [`xbox/`](xbox/README.md) shows the TV interface (above) in a
 
 ### Bringing a Plex library
 
+Users have a page for this, `/help/naming` (public, no sign-in; linked from the profile menu as **Naming your files**): how to name and arrange movies, shows, extras, subtitles, posters and music, with examples that a test keeps in step with the scanner.
+
 Roam reads what Plex's own naming articles describe (`src/lib/scan/plex-naming.test.ts` holds their examples as tests), so a library laid out for Plex can be pointed at as it is:
 
 - **Movies:** in a folder each (`Avatar (2009)/Avatar (2009).mp4`) or loose in the library folder (`Avatar (2009).mp4`); `{tmdb-272}` and `{imdb-tt0372784}` ids in the folder or file name; `- pt1`, `cd1`, `disc1`, `disk1`, `dvd1`, `part1` for split movies; versions as `Movie (Year) - AnyText.mp4` (or with dots), each its own version; **editions** as `{edition-Director's Cut}` in the folder name, the file name or both, in any order with an id, each edition its own title (several in one folder are fine).
