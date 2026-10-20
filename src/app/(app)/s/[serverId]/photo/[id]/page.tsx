@@ -31,6 +31,7 @@ export default async function PhotoPage({ params, searchParams }: PageProps<"/s/
     actor,
     viewer,
     photo,
+    hideScreenshots: viewer.hideScreenshots,
     scope: fromAlbum ? { kind: "folder", path: photo.folderPath } : fromFavorites ? { kind: "favorites", viewerId: viewer.id } : { kind: "timeline" },
   });
   const from = fromAlbum ? `from=album&path=${encodeURIComponent(photo.folderPath)}` : fromFavorites ? "from=favorites" : "from=timeline";

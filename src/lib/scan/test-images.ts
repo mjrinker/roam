@@ -13,6 +13,8 @@ export interface TiffOptions {
   dateTime?: string;
   pixelX?: number;
   pixelY?: number;
+  /** The EXIF user comment text (written with the "ASCII" character-set prefix). */
+  userComment?: string;
   /** A GPS position: hemisphere letters and degrees, minutes, seconds (whole numbers, seconds in hundredths). */
   gps?: { latRef: string; lat: [number, number, number]; lonRef: string; lon: [number, number, number] };
   /** Entries to add to IFD0 as-is (hostile cases). */
@@ -33,6 +35,7 @@ export function buildTiff(o: TiffOptions = {}): number[] {
   if (o.dateTimeDigitized !== undefined) exifEntries.push({ tag: 0x9004, type: 2, count: o.dateTimeDigitized.length + 1, data: asciiData(o.dateTimeDigitized) });
   if (o.pixelX !== undefined) exifEntries.push({ tag: 0xa002, type: 4, count: 1, inline: w32(o.pixelX) });
   if (o.pixelY !== undefined) exifEntries.push({ tag: 0xa003, type: 4, count: 1, inline: w32(o.pixelY) });
+  if (o.userComment !== undefined) exifEntries.push({ tag: 0x9286, type: 7, count: o.userComment.length + 8, data: [...chars("ASCII"), 0, 0, 0, ...chars(o.userComment)] });
 
   const ifd0: Entry[] = [];
   if (o.orientation !== undefined) ifd0.push({ tag: 0x0112, type: 3, count: 1, inline: [...w16(o.orientation), 0, 0] });

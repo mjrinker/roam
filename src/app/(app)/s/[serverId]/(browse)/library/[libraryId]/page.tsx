@@ -30,6 +30,7 @@ import { listMonths, listTimeline } from "@/lib/photos/timeline";
 import { favoriteWords } from "@/lib/photos/favorite-word";
 import { PhotoTimeline } from "@/components/photos/photo-timeline";
 import { PeopleGrid } from "@/components/photos/people-grid";
+import { HideScreenshots } from "@/components/photos/hide-screenshots";
 import { peopleInLibrary } from "@/lib/faces/service";
 import { decodeCursor, encodeCursor } from "@/lib/playlists/http";
 import { ratingsOf } from "@/lib/ratings/service";
@@ -103,7 +104,7 @@ export default async function LibraryDetailPage({
   }
   if (photoView === "timeline" || photoView === "favorites") {
     const search = parseSearch(typeof query.q === "string" ? query.q : null);
-    const narrowing = { actor: lib, viewer, viewerId: viewer.id, libraryId, favoritesOnly: photoView === "favorites", search };
+    const narrowing = { actor: lib, viewer, viewerId: viewer.id, libraryId, favoritesOnly: photoView === "favorites", search, hideScreenshots: viewer.hideScreenshots };
     // The newest photos (so the page paints at once) and every month's count (so the whole timeline can be laid out).
     const [page, buckets] = await Promise.all([listTimeline(db, { ...narrowing, limit: 60 }), listMonths(db, { ...narrowing, level: "month" })]);
     if (!page || !buckets) notFound();
@@ -136,9 +137,10 @@ export default async function LibraryDetailPage({
               className="h-9 min-w-0 flex-1 rounded-xl bg-white/[0.06] px-3 text-sm ring-1 ring-white/[0.08] placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary"
             />
           </form>
+          <HideScreenshots initial={viewer.hideScreenshots} />
         </div>
         <PhotoTimeline
-          key={`${photoView}:${search?.text ?? ""}`}
+          key={`${photoView}:${search?.text ?? ""}:${viewer.hideScreenshots}`}
           q={search?.text ?? ""}
           words={{ add: words.add, remove: words.remove }}
           serverId={serverId}
@@ -235,6 +237,7 @@ export default async function LibraryDetailPage({
       viewerId: viewer.id,
       libraryId,
       path,
+      hideScreenshots: !!photoView && viewer.hideScreenshots,
       limit: 60,
       after: after === "invalid" ? null : after,
       sort,
@@ -255,7 +258,12 @@ export default async function LibraryDetailPage({
           <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">{library.name}</h1>
           {!photoView && <ChooseButton serverId={serverId} libraryId={libraryId} className="ml-auto" />}
         </div>
-        {photoView && <PhotoViewTabs serverId={serverId} libraryId={libraryId} active="albums" favoritesLabel={words.plural} />}
+        {photoView && (
+          <div className="flex flex-wrap items-center gap-3">
+            <PhotoViewTabs serverId={serverId} libraryId={libraryId} active="albums" favoritesLabel={words.plural} />
+            <HideScreenshots initial={viewer.hideScreenshots} />
+          </div>
+        )}
         {library.kind === "audio" && <SongViewTabs serverId={serverId} libraryId={libraryId} kind="audio" active="folders" />}
         <VideoFolderView
           serverId={serverId}

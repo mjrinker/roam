@@ -18,9 +18,11 @@ export interface ExifData {
   height: number | null;
   /** Where it was taken, in degrees (north and east positive), or null when the file has no usable position. */
   gps: { latitude: number; longitude: number } | null;
+  /** The start of the EXIF user comment (an iPhone writes "Screenshot" in its screenshots'), or null. */
+  comment: string | null;
 }
 
-const NOTHING: ExifData = { takenAt: null, orientation: null, width: null, height: null, gps: null };
+const NOTHING: ExifData = { takenAt: null, orientation: null, width: null, height: null, gps: null, comment: null };
 const MAX_ENTRIES = 512;
 const EARLIEST_YEAR = 1826; // the oldest photograph
 const FUTURE_SLACK_MS = 24 * 60 * 60 * 1000;
@@ -47,7 +49,7 @@ interface Entry {
   at: number;
 }
 
-const TYPE_SIZE: Record<number, number> = { 1: 1, 2: 1, 3: 2, 4: 4, 5: 8 };
+const TYPE_SIZE: Record<number, number> = { 1: 1, 2: 1, 3: 2, 4: 4, 5: 8, 7: 1 };
 
 /** `tiff` starts at the TIFF header ("II*\0" or "MM\0*"). */
 export function parseExif(tiff: Uint8Array, now = Date.now()): ExifData {
@@ -127,6 +129,19 @@ function read(t: Uint8Array, now: number): ExifData {
       .map((s) => (s === null ? null : parseExifDate(s, now)))
       .find((d) => d !== null) ?? null;
 
+  // The user comment: an 8-byte name of its character set, then the text.
+  const commentEntry = exifIfd.get(0x9286);
+  let comment: string | null = null;
+  if (commentEntry && commentEntry.type === 7 && commentEntry.count > 8) {
+    let s = "";
+    for (let i = 8; i < Math.min(commentEntry.count, 8 + 48); i++) {
+      const c = t[commentEntry.at + i];
+      if (c === 0) break;
+      s += c >= 32 && c < 127 ? String.fromCharCode(c) : " ";
+    }
+    comment = s.trim() || null;
+  }
+
   const gpsPointer = number(ifd0.get(0x8825));
   const gpsIfd = gpsPointer === null ? new Map<number, Entry>() : directory(gpsPointer);
   const lat = degrees(gpsIfd.get(2));
@@ -150,5 +165,6 @@ function read(t: Uint8Array, now: number): ExifData {
     width: validDimension(width) ? width : null,
     height: validDimension(height) ? height : null,
     gps,
+    comment,
   };
 }

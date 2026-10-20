@@ -33,6 +33,7 @@ export async function GET(request: Request, ctx: RouteContext<"/api/libraries/[i
     favoritesOnly: params.get("view") === "favorites",
     search: parseSearch(params.get("q")),
     level: level.data,
+    hideScreenshots: member.viewer.hideScreenshots,
   });
   if (!months) return notFound();
   return NextResponse.json({ months }, { headers });

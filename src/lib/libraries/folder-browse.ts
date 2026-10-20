@@ -162,6 +162,8 @@ export async function listFolder(
     all?: boolean;
     /** Only the files of one artist, album or genre (across the whole library, like `all`). */
     group?: { kind: GroupKind; name: string } | null;
+    /** Photo libraries: leave screenshots out (a profile's choice). */
+    hideScreenshots?: boolean;
   }
 ): Promise<FolderPage | null> {
   const limit = Math.min(Math.max(args.limit ?? 60, 1), 200);
@@ -171,7 +173,8 @@ export async function listFolder(
     libraryVisible(ex, args.actor),
     contentFilter(args.viewer, titles.ratingAges),
     // A photo hidden as a copy of another (lib/photos/dedupe) is not listed.
-    isNull(titles.duplicateOf)
+    isNull(titles.duplicateOf),
+    args.hideScreenshots ? eq(titles.isScreenshot, false) : undefined
   );
 
   const depth = args.path === "" ? 0 : args.path.split("/").length;

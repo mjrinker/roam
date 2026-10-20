@@ -167,6 +167,22 @@ describe("the metadata pass", () => {
     expect(await byKey(`file:${p}b`)).toMatchObject({ takenAtSource: "manual" });
   });
 
+  it("marks screenshots: by name when scanned, by a PNG's screen-sized dimensions or the iPhone's note when read, and never turns it off", async () => {
+    const { lib, p } = await photoLibrary();
+    await sync(lib.id, [entry("Screenshot_2019-03-14.png", `${p}a`), entry("IMG_0001.PNG", `${p}b`), entry("IMG_0002.PNG", `${p}c`), entry("IMG_0003.JPG", `${p}d`), entry("IMG_0004.JPG", `${p}e`)]);
+    expect((await byKey(`file:${p}a`)).isScreenshot).toBe(true);
+    expect((await byKey(`file:${p}b`)).isScreenshot).toBe(false);
+    h.files.set(`${p}b`, buildPng(1170, 2532)); // a phone's screen, a PNG, no camera date
+    h.files.set(`${p}c`, buildPng(1200, 800)); // a PNG of no screen's size
+    h.files.set(`${p}d`, buildJpeg({ width: 1170, height: 2532, tiff: buildTiff({ dateTimeOriginal: "2019:05:06 07:08:09", userComment: "Screenshot" }) })); // the iPhone's note
+    h.files.set(`${p}e`, buildJpeg({ width: 4000, height: 3000, tiff: buildTiff({ dateTimeOriginal: "2019:05:06 07:08:09" }) }));
+    await run(lib.id);
+    expect([await byKey(`file:${p}a`), await byKey(`file:${p}b`), await byKey(`file:${p}c`), await byKey(`file:${p}d`), await byKey(`file:${p}e`)].map((t) => t.isScreenshot)).toEqual([true, true, false, true, false]);
+    // A rescan (which knows only the name) leaves what was found.
+    await sync(lib.id, [entry("IMG_0001.PNG", `${p}b`), entry("IMG_0003.JPG", `${p}d`)]);
+    expect([(await byKey(`file:${p}b`)).isScreenshot, (await byKey(`file:${p}d`)).isScreenshot]).toEqual([true, true]);
+  });
+
   it("never reads a video, a picture in another kind of library, or a file without a known size", async () => {
     const { lib, p } = await photoLibrary();
     await sync(lib.id, [entry("v.mp4", `${p}v`), entry("nosize.jpg", `${p}n`, { sizeBytes: undefined })]);

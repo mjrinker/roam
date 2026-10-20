@@ -186,6 +186,25 @@ describe("listFolder", () => {
   });
 });
 
+describe("hiding screenshots", () => {
+  it("leaves them out of a folder's files, and a folder that holds nothing else out of the folder list, only when asked", async () => {
+    const w = await world();
+    await w.add("shot-in-root", "", { isScreenshot: true });
+    await w.add("photo-in-root", "");
+    await w.add("only-shots", "Shots", { isScreenshot: true });
+    await w.add("mixed-shot", "Mixed", { isScreenshot: true });
+    await w.add("mixed-photo", "Mixed");
+    const all = await listFolder(db, { actor: w.actor(w.member), viewer: adult, libraryId: w.library.id, path: "" });
+    expect(all?.folders).toEqual(["Mixed", "Shots"]);
+    expect(all?.items.map((i) => i.name).sort()).toEqual(["photo-in-root", "shot-in-root"]);
+    const hidden = await listFolder(db, { actor: w.actor(w.member), viewer: adult, libraryId: w.library.id, path: "", hideScreenshots: true });
+    expect(hidden?.folders).toEqual(["Mixed"]);
+    expect(hidden?.items.map((i) => i.name)).toEqual(["photo-in-root"]);
+    const mixed = await listFolder(db, { actor: w.actor(w.member), viewer: adult, libraryId: w.library.id, path: "Mixed", hideScreenshots: true });
+    expect(mixed?.items.map((i) => i.name)).toEqual(["mixed-photo"]);
+  });
+});
+
 describe("sorting a folder's files", () => {
   async function album() {
     const w = await world();

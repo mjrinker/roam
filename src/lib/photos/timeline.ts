@@ -58,14 +58,16 @@ export interface TimelinePage {
 const MAX_PAGE = 500;
 
 /** Library access, the age limit, and "this really is a photo library", for items of `libraryId`. */
-function visibleItems(ex: Db, args: { actor: LibraryActor; viewer: AccessProfile; libraryId: string }) {
+function visibleItems(ex: Db, args: { actor: LibraryActor; viewer: AccessProfile; libraryId: string; hideScreenshots?: boolean }) {
   return and(
     eq(titles.libraryId, args.libraryId),
     inArray(libraries.kind, [...PHOTO_LIBRARY_KINDS]),
     libraryVisible(ex, args.actor),
     contentFilter(args.viewer, titles.ratingAges),
     // A copy an admin hid in favour of another photo (see lib/photos/dedupe) is left out of every listing.
-    isNull(titles.duplicateOf)
+    isNull(titles.duplicateOf),
+    // A profile that hides screenshots does not see them (its own favorites excepted, see narrowed).
+    args.hideScreenshots ? eq(titles.isScreenshot, false) : undefined
   );
 }
 
@@ -93,7 +95,7 @@ function inBucket(bucket: { level: ZoomLevel; key: string } | null | undefined):
  */
 function narrowed(
   ex: Db,
-  args: { actor: LibraryActor; viewer: AccessProfile; viewerId?: string; libraryId: string; favoritesOnly?: boolean; search?: SearchSpec | null }
+  args: { actor: LibraryActor; viewer: AccessProfile; viewerId?: string; libraryId: string; favoritesOnly?: boolean; search?: SearchSpec | null; hideScreenshots?: boolean }
 ): SQL | undefined {
   const heart = args.viewerId ? sql`EXISTS (SELECT 1 FROM ${photoFavorites} f WHERE f.title_id = ${titles.id} AND f.viewer_id = ${args.viewerId})` : sql`false`;
   // A name matches the picture's file name, the place it was taken, or a person tagged in it.
@@ -106,7 +108,8 @@ function narrowed(
       ? or(nameMatch, and(sql`${titles.takenAt} >= ${args.search.range.from.toISOString()}::timestamptz`, sql`${titles.takenAt} < ${args.search.range.to.toISOString()}::timestamptz`))
       : nameMatch
     : undefined;
-  return and(visibleItems(ex, args), args.favoritesOnly ? heart : undefined, search);
+  // What was hearted is shown even if it is a screenshot.
+  return and(visibleItems(ex, { ...args, hideScreenshots: args.hideScreenshots && !args.favoritesOnly }), args.favoritesOnly ? heart : undefined, search);
 }
 
 export interface MonthBucket {
@@ -121,7 +124,7 @@ const BUCKET_FORMAT: Record<ZoomLevel, string> = { day: "YYYY-MM-DD", month: "YY
 /** How many visible items fall in each day, month or year (newest first, undated last), under the same narrowing as the listing. Null if the viewer can't see such a library. */
 export async function listMonths(
   ex: Db,
-  args: { actor: LibraryActor; viewer: AccessProfile; viewerId?: string; libraryId: string; favoritesOnly?: boolean; search?: SearchSpec | null; level?: ZoomLevel }
+  args: { actor: LibraryActor; viewer: AccessProfile; viewerId?: string; libraryId: string; favoritesOnly?: boolean; search?: SearchSpec | null; level?: ZoomLevel; hideScreenshots?: boolean }
 ): Promise<MonthBucket[] | null> {
   const key = sql<string>`coalesce(to_char(${titles.takenAt} AT TIME ZONE 'UTC', ${sql.raw(`'${BUCKET_FORMAT[args.level ?? "month"]}'`)}), 'undated')`;
   const rows = await ex
@@ -160,6 +163,8 @@ export async function listTimeline(
     search?: SearchSpec | null;
     /** Only the items of one day, month or year (or "undated"): how the timeline fills each block as it comes into view. */
     bucket?: { level: ZoomLevel; key: string } | null;
+    /** Leave screenshots out (a profile's choice; its favorites are still shown). */
+    hideScreenshots?: boolean;
   }
 ): Promise<TimelinePage | null> {
   const limit = Math.min(Math.max(args.limit ?? 60, 1), MAX_PAGE);
@@ -300,11 +305,11 @@ export type NeighborScope = { kind: "timeline" } | { kind: "favorites"; viewerId
  */
 export async function photoNeighbors(
   ex: Db,
-  args: { actor: LibraryActor; viewer: AccessProfile; photo: PhotoDetail; scope: NeighborScope }
+  args: { actor: LibraryActor; viewer: AccessProfile; photo: PhotoDetail; scope: NeighborScope; hideScreenshots?: boolean }
 ): Promise<{ prev: Neighbor | null; next: Neighbor | null }> {
   const { photo } = args;
   const base = and(
-    visibleItems(ex, { ...args, libraryId: photo.libraryId }),
+    visibleItems(ex, { ...args, libraryId: photo.libraryId, hideScreenshots: args.hideScreenshots && args.scope.kind !== "favorites" }),
     inArray(titles.kind, ["photo", "movie"]),
     // Stepping through favorites only visits favorites (the viewer's own).
     args.scope.kind === "favorites" ? sql`EXISTS (SELECT 1 FROM ${photoFavorites} f WHERE f.title_id = ${titles.id} AND f.viewer_id = ${args.scope.viewerId})` : undefined

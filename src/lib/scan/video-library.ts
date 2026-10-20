@@ -20,6 +20,7 @@ import { StorageReauthRequiredError } from "@/lib/storage/reauth";
 import type { StorageEntry, StorageProvider } from "@/lib/storage/provider";
 import { PLAYABLE_TITLE_KINDS } from "@/lib/libraries/profile";
 import { boxTakenAt, photoThumbUrl, thumbVersion } from "@/lib/photos/urls";
+import { looksLikeScreenshotName } from "@/lib/photos/screenshots";
 import { naturalSortKey } from "@/lib/libraries/sort-key";
 import { releaseArtwork } from "@/lib/scan/artwork-store";
 import { isBrowserFriendlyVariant, stripVariantSuffix } from "@/lib/scan/conventions";
@@ -185,6 +186,7 @@ export async function syncVideoDirectory(
               nameSource: "filename" as const,
               ratingAges: rating,
               ...dated(f),
+              ...(profile.photoMeta ? { isScreenshot: looksLikeScreenshotName(f.name) } : {}),
               ...(cycleId !== null ? { lastSeenCycle: cycleId } : {}),
             };
           })
@@ -213,6 +215,8 @@ export async function syncVideoDirectory(
                   takenAtSource: sql`CASE WHEN ${titles.takenAtSource} IN ('exif', 'name', 'manual') THEN ${titles.takenAtSource} WHEN excluded.taken_at_source = 'scan' THEN COALESCE(${titles.takenAtSource}, 'scan') ELSE excluded.taken_at_source END`,
                 }
               : {}),
+            // Found to be a screenshot, it stays one (the picture's own note or size may be what said so, which the name alone doesn't).
+            ...(profile.photoMeta ? { isScreenshot: sql`${titles.isScreenshot} OR excluded.is_screenshot` } : {}),
             ...(cycleId !== null ? { lastSeenCycle: cycleId } : {}),
             // Seen in Box again: whatever made it look missing is over.
             missingSince: null,

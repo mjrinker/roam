@@ -12,6 +12,7 @@ import { StorageReauthRequiredError } from "@/lib/storage/reauth";
 import type { StorageProvider } from "@/lib/storage/provider";
 import { readImageMeta } from "@/lib/scan/image-meta";
 import { parseFilenameDate } from "@/lib/photos/filename-date";
+import { detectScreenshot } from "@/lib/photos/screenshots";
 
 export const MAX_META_ATTEMPTS = 3;
 const BATCH = 100;
@@ -64,6 +65,7 @@ export async function readPhotoMetadata(provider: StorageProvider, libraryId: st
                     placeSource: sql`CASE WHEN ${titles.placeSource} = 'manual' THEN 'manual' ELSE 'exif' END`,
                   }
                 : {}),
+              ...(detectScreenshot({ filename: t.filename, container: t.filename.split(".").pop() ?? null, width: meta.width, height: meta.height, hasCameraDate: !!meta.takenAt, commentSaysScreenshot: meta.screenshot === true }) ? { isScreenshot: true } : {}),
               width: meta.width,
               height: meta.height,
               metaAttemptedAt: now,

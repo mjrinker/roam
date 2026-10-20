@@ -4,7 +4,7 @@ import { eq } from "drizzle-orm";
 import type { AccessProfile } from "@/lib/content/access";
 import { libraryMembers, mediaFiles, titles } from "@/lib/db/schema";
 import { adminLib, createTestDb, joinServer, makeAccount, makeLibrary, makeServer, makeTitle, type TestDb } from "@/lib/playlists/test-db";
-import { listTimeline, loadPhoto, photoNeighbors as neighbors, type TimelineCursor } from "./timeline";
+import { listMonths, listTimeline, loadPhoto, photoNeighbors as neighbors, type TimelineCursor } from "./timeline";
 
 /** Neighbours as ids, which is what most of these tests care about. */
 async function photoNeighbors(ex: Parameters<typeof neighbors>[0], args: Parameters<typeof neighbors>[1]) {
@@ -215,5 +215,24 @@ describe("neighbours", () => {
     await w.add("2024-01-01T00:00:00Z");
     const photo = (await loadPhoto(db, { actor: w.memberLib, viewer: everyone, id: undated.id }))!;
     expect(await photoNeighbors(db, { actor: w.memberLib, viewer: everyone, photo, scope: { kind: "timeline" } })).toEqual({ prev: null, next: null });
+  });
+});
+
+describe("hiding screenshots", () => {
+  it("leaves them out of the timeline, the month counts and the neighbours, but only when asked, and a heart keeps one visible in Favorites", async () => {
+    const w = await world();
+    const a = await w.add("2024-03-03T00:00:00Z");
+    const shot = await w.add("2024-03-02T00:00:00Z", { isScreenshot: true });
+    const b = await w.add("2024-03-01T00:00:00Z");
+    expect(ids(await tl(w))).toEqual([a.id, shot.id, b.id]);
+    expect(ids(await tl(w, { hideScreenshots: true }))).toEqual([a.id, b.id]);
+    expect((await listMonths(db, { actor: w.memberLib, viewer: everyone, libraryId: w.lib.id }))![0].count).toBe(3);
+    expect((await listMonths(db, { actor: w.memberLib, viewer: everyone, libraryId: w.lib.id, hideScreenshots: true }))![0].count).toBe(2);
+    // Stepping from one photo to the next skips it.
+    const photo = (await loadPhoto(db, { actor: w.memberLib, viewer: everyone, id: a.id }))!;
+    expect(await photoNeighbors(db, { actor: w.memberLib, viewer: everyone, photo, scope: { kind: "timeline" } })).toEqual({ prev: null, next: shot.id });
+    expect(await photoNeighbors(db, { actor: w.memberLib, viewer: everyone, photo, scope: { kind: "timeline" }, hideScreenshots: true })).toEqual({ prev: null, next: b.id });
+    // A screenshot can still be opened by its address.
+    expect(await loadPhoto(db, { actor: w.memberLib, viewer: everyone, id: shot.id })).not.toBeNull();
   });
 });

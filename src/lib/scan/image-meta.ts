@@ -16,6 +16,8 @@ export interface ImageMeta {
   takenAt: Date | null;
   /** Where it was taken, from the file's GPS, when it has one. */
   gps?: { latitude: number; longitude: number };
+  /** The EXIF user comment says "Screenshot". */
+  screenshot?: true;
   width: number | null;
   height: number | null;
 }
@@ -72,7 +74,7 @@ function jpegMeta(b: Uint8Array): ImageMeta {
   const useSof = sof !== null && validDimension(sof.width) && validDimension(sof.height);
   const w = useSof ? sof.width : (exif?.width ?? null);
   const h = useSof ? sof.height : (exif?.height ?? null);
-  return { takenAt: exif?.takenAt ?? null, ...(exif?.gps ? { gps: exif.gps } : {}), ...oriented(w, h, exif?.orientation ?? null) };
+  return { takenAt: exif?.takenAt ?? null, ...(exif?.gps ? { gps: exif.gps } : {}), ...(/screenshot/i.test(exif?.comment ?? "") ? { screenshot: true as const } : {}), ...oriented(w, h, exif?.orientation ?? null) };
 }
 
 function pngMeta(b: Uint8Array): ImageMeta {
@@ -113,6 +115,7 @@ async function heicMeta(b: Uint8Array, fetchRange: FetchRange, size: number): Pr
   const info = parseHeif(b);
   let takenAt: Date | null = null;
   let gps: ImageMeta["gps"];
+  let screenshot = false;
   if (info.exif && info.exif.offset + info.exif.length <= size) {
     const { offset, length } = info.exif;
     // Usually just beyond what we read; ask for exactly the block (bounded at parse time).
@@ -125,10 +128,11 @@ async function heicMeta(b: Uint8Array, fetchRange: FetchRange, size: number): Pr
       const exif = parseExif(tiff);
       takenAt = exif.takenAt;
       gps = exif.gps ?? undefined;
+      screenshot = /screenshot/i.test(exif.comment ?? "");
     }
   }
   // A HEIC's rotation lives in its own `irot` (already applied by parseHeif); its EXIF orientation is not applied again.
-  return { takenAt, ...(gps ? { gps } : {}), ...oriented(info.width, info.height, null) };
+  return { takenAt, ...(gps ? { gps } : {}), ...(screenshot ? { screenshot: true as const } : {}), ...oriented(info.width, info.height, null) };
 }
 
 /**

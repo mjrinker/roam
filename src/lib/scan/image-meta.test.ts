@@ -30,7 +30,7 @@ describe("parseExif", () => {
   it("reads little- and big-endian TIFF alike: the three dates, orientation and pixel size", () => {
     for (const little of [true, false]) {
       const t = Uint8Array.from(buildTiff({ little, orientation: 6, dateTimeOriginal: "2019:05:06 07:08:09", dateTime: "2020:01:01 00:00:00", pixelX: 4000, pixelY: 3000 }));
-      expect(parseExif(t), String(little)).toEqual({ takenAt: NOON, orientation: 6, width: 4000, height: 3000, gps: null });
+      expect(parseExif(t), String(little)).toEqual({ takenAt: NOON, orientation: 6, width: 4000, height: 3000, gps: null, comment: null });
     }
   });
   it("prefers the shutter time, then the digitized time, then the file-written time; nothing when none is a real date", () => {
@@ -76,8 +76,19 @@ describe("GPS position", () => {
   });
 });
 
+describe("the EXIF user comment", () => {
+  it("is read after its character-set prefix, and says when a picture is a screenshot", async () => {
+    expect(parseExif(Uint8Array.from(buildTiff({ dateTimeOriginal: "2019:05:06 07:08:09", userComment: "Screenshot" }))).comment).toBe("Screenshot");
+    expect(parseExif(Uint8Array.from(buildTiff({ dateTimeOriginal: "2019:05:06 07:08:09" }))).comment).toBeNull();
+    const shot = await meta(buildJpeg({ width: 40, height: 30, tiff: buildTiff({ dateTimeOriginal: "2019:05:06 07:08:09", userComment: "Screenshot" }) }));
+    expect(shot.screenshot).toBe(true);
+    const plain = await meta(buildJpeg({ width: 40, height: 30, tiff: buildTiff({ dateTimeOriginal: "2019:05:06 07:08:09", userComment: "Taken at the beach" }) }));
+    expect(plain.screenshot).toBeUndefined();
+  });
+});
+
 describe("hostile TIFF", () => {
-  const nothing = { takenAt: null, orientation: null, width: null, height: null, gps: null };
+  const nothing = { takenAt: null, orientation: null, width: null, height: null, gps: null, comment: null };
   it("never throws on empty, tiny, wrong-magic or wrong-version data", () => {
     for (const bytes of [[], [0x49], [0x49, 0x49, 42, 0], [0x49, 0x49, 42, 0, 8, 0, 0, 0], [1, 2, 3, 4, 5, 6, 7, 8, 9], [0x49, 0x49, 43, 0, 8, 0, 0, 0, 0, 0]]) {
       expect(parseExif(Uint8Array.from(bytes)), JSON.stringify(bytes)).toEqual(nothing);
