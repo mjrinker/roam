@@ -534,7 +534,13 @@ export function LibraryManager({
           <form onSubmit={createLibrary} className="grid grid-cols-[minmax(0,1fr)] gap-4">
             <DialogHeader>
               <DialogTitle>New library</DialogTitle>
-              <DialogDescription>Pick the folder to share. You can add more folders, from any storage, afterwards.</DialogDescription>
+              <DialogDescription>
+                Pick the folder to share. You can add more folders, from any storage, afterwards. Files are found by how they are named:{" "}
+                <a href="/help/naming" target="_blank" rel="noreferrer" className="text-primary underline underline-offset-2">
+                  see how to name them
+                </a>
+                .
+              </DialogDescription>
             </DialogHeader>
             <div className="flex flex-col gap-3">
               <div className="grid gap-1.5">

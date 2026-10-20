@@ -446,6 +446,11 @@ export default async function LibraryDetailPage({
               Go to server settings
             </Button>
           )}
+          {role === "admin" && (
+            <Link href="/help/naming" className="text-sm text-primary underline underline-offset-2">
+              How to name and organize your files
+            </Link>
+          )}
         </div>
       ) : libraryView === "collections" ? (
         <CollectionGrid serverId={serverId} collections={collectionCards} />

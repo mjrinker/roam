@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { accountLabel } from "@/lib/auth/guests";
 import { asc, eq } from "drizzle-orm";
 import { db } from "@/lib/db/client";
@@ -57,7 +58,10 @@ export default async function BrowseLayout({
             isAdmin={role === "admin" && viewer.role !== "limited"}
           />
           <main className="flex-1">{children}</main>
-          <footer className="px-4 py-8">
+          <footer className="flex flex-col items-center gap-4 px-4 py-8">
+            <Link href="/help/naming" className="text-xs text-muted-foreground/80 underline-offset-2 hover:text-foreground hover:underline">
+              Naming your files
+            </Link>
             <TmdbAttribution creditsHref={serverRow?.isDemo ? `/s/${serverId}/credits` : undefined} />
           </footer>
           <PlayerErrorBoundary>
