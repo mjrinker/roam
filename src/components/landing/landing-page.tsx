@@ -66,8 +66,8 @@ export function LandingPage() {
           <Link href="/terms" className="hover:text-foreground hover:underline">
             Terms of Service
           </Link>
-          <Link href="/help/naming" className="hover:text-foreground hover:underline">
-            Naming your files
+          <Link href="/help" className="hover:text-foreground hover:underline">
+            Help
           </Link>
           <Link href="/sign-in" className="hover:text-foreground hover:underline">
             Sign in

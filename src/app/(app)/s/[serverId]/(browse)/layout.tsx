@@ -59,8 +59,8 @@ export default async function BrowseLayout({
           />
           <main className="flex-1">{children}</main>
           <footer className="flex flex-col items-center gap-4 px-4 py-8">
-            <Link href="/help/naming" className="text-xs text-muted-foreground/80 underline-offset-2 hover:text-foreground hover:underline">
-              Naming your files
+            <Link href="/help" className="text-xs text-muted-foreground/80 underline-offset-2 hover:text-foreground hover:underline">
+              Help
             </Link>
             <TmdbAttribution creditsHref={serverRow?.isDemo ? `/s/${serverId}/credits` : undefined} />
           </footer>

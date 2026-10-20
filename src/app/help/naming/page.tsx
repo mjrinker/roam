@@ -32,12 +32,17 @@ export default function NamingHelpPage() {
         <BrandLogo variant="gradient" className="h-10" />
       </Link>
       <header>
-        <h1 className="text-3xl font-semibold tracking-tight sm:text-4xl">Naming and organizing your files</h1>
+        <Link href="/help" className="text-sm text-muted-foreground hover:text-foreground hover:underline">
+          ← Help
+        </Link>
+        <h1 className="mt-2 text-3xl font-semibold tracking-tight sm:text-4xl">Naming and organizing your files</h1>
         <p className="mt-2 text-muted-foreground">
           Roam finds your movies, shows and music by how they are named, the same way Plex does. If your library is already set up for Plex, you can point Roam at it as it is.
         </p>
-        <nav aria-label="On this page" className="mt-4 flex flex-wrap gap-x-4 gap-y-1 text-sm">
-          {[
+        <nav aria-label="On this page" className="mt-5">
+          <h2 className="text-sm font-medium text-muted-foreground">On this page</h2>
+          <ul className="mt-2 flex flex-col gap-1 text-sm">
+            {[
             ["basics", "The basics"],
             ["movies", "Movies"],
             ["tv", "TV shows"],
@@ -47,11 +52,14 @@ export default function NamingHelpPage() {
             ["music", "Music"],
             ["more", "Photos, videos, books"],
             ["formats", "File types"],
-          ].map(([id, label]) => (
-            <a key={id} href={`#${id}`} className="text-primary hover:underline">
-              {label}
-            </a>
-          ))}
+            ].map(([id, label]) => (
+              <li key={id}>
+                <a href={`#${id}`} className="text-primary hover:underline">
+                  {label}
+                </a>
+              </li>
+            ))}
+          </ul>
         </nav>
       </header>
 
@@ -313,8 +321,8 @@ Music/
         <Link href="/" className="hover:text-foreground hover:underline">
           Back to Roam
         </Link>
-        <Link href="/help/tv" className="hover:text-foreground hover:underline">
-          Watch Roam on your TV
+        <Link href="/help" className="hover:text-foreground hover:underline">
+          All help
         </Link>
       </footer>
     </main>

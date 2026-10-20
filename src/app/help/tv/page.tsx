@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import Link from "next/link";
 import { headers } from "next/headers";
 import { BrandLogo } from "@/components/shell/brand";
 import { canonicalOrigin, tvHost } from "@/lib/tv/origin";
@@ -22,7 +23,10 @@ export default async function TvHelpPage() {
     <main className="mx-auto flex w-full max-w-2xl flex-col gap-8 px-5 py-10">
       <BrandLogo variant="gradient" className="h-10 self-start" />
       <header>
-        <h1 className="text-3xl font-semibold tracking-tight">Watch Roam on your TV</h1>
+        <Link href="/help" className="text-sm text-muted-foreground hover:text-foreground hover:underline">
+          ← Help
+        </Link>
+        <h1 className="mt-2 text-3xl font-semibold tracking-tight">Watch Roam on your TV</h1>
         <p className="mt-2 text-muted-foreground">It takes a few minutes the first time. After that, it is one click.</p>
       </header>
 

@@ -96,8 +96,8 @@ export default async function ServersPage({
         <CreateServerForm />
         <p className="text-center text-sm text-muted-foreground">
           Setting up your files?{" "}
-          <Link href="/help/naming" className="text-primary underline underline-offset-2">
-            How to name and organize them
+          <Link href="/help" className="text-primary underline underline-offset-2">
+            See the help guides
           </Link>
           .
         </p>

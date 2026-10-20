@@ -4,7 +4,7 @@ import { setOfflineViewer } from "@/lib/offline/viewer";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
-import { Database, FolderTree, Gauge, LayoutGrid, LogOut, Settings2, Users } from "lucide-react";
+import { CircleHelp, Database, Gauge, LayoutGrid, LogOut, Settings2, Users } from "lucide-react";
 import { DataSaverDialog } from "@/components/shell/data-saver-dialog";
 import { YourDataDialog } from "@/components/shell/your-data-dialog";
 import { useDataSaverState } from "@/components/ui/data-saver-context";
@@ -84,9 +84,9 @@ export function UserMenu({
           <Database className="size-4 text-muted-foreground" />
           Your data
         </DropdownMenuItem>
-        <DropdownMenuItem render={<Link href="/help/naming" />} className="gap-2.5">
-          <FolderTree className="size-4 text-muted-foreground" />
-          Naming your files
+        <DropdownMenuItem render={<Link href="/help" />} className="gap-2.5">
+          <CircleHelp className="size-4 text-muted-foreground" />
+          Help
         </DropdownMenuItem>
         <DropdownMenuSeparator />
         <DropdownMenuItem render={<Link href="/servers" />} className="gap-2.5">

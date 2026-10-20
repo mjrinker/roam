@@ -225,7 +225,7 @@ A small UWP app in [`xbox/`](xbox/README.md) shows the TV interface (above) in a
 
 ### Bringing a Plex library
 
-Users have a page for this, `/help/naming` (public, no sign-in; linked from the profile menu as **Naming your files**): how to name and arrange movies, shows, extras, subtitles, posters and music, with examples that a test keeps in step with the scanner.
+Users have a page for this, `/help/naming` (public, no sign-in; reached from **Help**, which is in the profile menu, the footer of every page and the home page, and lists this and the TV guide): how to name and arrange movies, shows, extras, subtitles, posters and music, with examples that a test keeps in step with the scanner.
 
 Roam reads what Plex's own naming articles describe (`src/lib/scan/plex-naming.test.ts` holds their examples as tests), so a library laid out for Plex can be pointed at as it is:
 
