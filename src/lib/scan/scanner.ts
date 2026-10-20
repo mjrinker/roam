@@ -36,7 +36,7 @@ import {
   isExtraFile,
   isUnplayableVideo,
   isVideoFile,
-  movieVersionLabel,
+  movieVersionLabeler,
   orderMediaSegments,
   parseEditionTag,
   parseEpisodeAirDate,
@@ -596,7 +596,7 @@ async function syncMovieGroup(
 
   // Each version ("- 1080p", "- hevc", "- Theatrical": Plex lets it be any text) is its own ordered set of parts, never appended to another's.
   const videoFiles = [...groupMovieVersions(g.files).values()].flatMap((group) => orderMediaSegments(group));
-  await upsertMediaSegments("title", title.id, videoFiles, movieVersionLabel);
+  await upsertMediaSegments("title", title.id, videoFiles, movieVersionLabeler(g.files));
   await linkVariantFiles("title", [title.id], videoFiles, side.variants);
   if (side.sideFiles) {
     // Chapter files beside the film ("Film (2020).chapters.xml"); a failure here never fails the film's own scan.

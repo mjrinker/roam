@@ -482,6 +482,9 @@ export function splitVersionLabel(fileName: string): { label: string; rest: stri
  * by a resolution word, as before.
  */
 export function movieVersionLabel(fileName: string): string {
+  // A resolution segment ("- 1080p", "- 4K - pt2") is the label, as it always was.
+  const resolution = splitVersionLabel(fileName).label;
+  if (resolution) return resolution;
   const name = normalizeDashes(fileName);
   const dot = name.lastIndexOf(".");
   const base = (dot > 0 && name.length - dot <= 6 ? name.slice(0, dot) : name).replace(/\{[^}]*\}/g, " ");
@@ -497,11 +500,25 @@ export function movieVersionLabel(fileName: string): string {
   return /^(?:cd|disc|disk|dvd|part|pt)\s*\d+$/.test(label) ? "" : label;
 }
 
-/** Groups a movie folder's files by version (see movieVersionLabel), plain first; each group is all the parts of one version. */
+/**
+ * The version label of each file of one movie (or edition). Text that isn't a resolution only tells versions apart when there is more than one
+ * kind of it: a folder whose files all say "- full" (or none says anything) has one version, not one called "full".
+ */
+export function movieVersionLabeler(files: { name: string }[]): (fileName: string) => string {
+  const raw = new Map(files.map((f) => [f.name, movieVersionLabel(f.name)]));
+  const plainish = new Set([...raw].filter(([name]) => !splitVersionLabel(name).label).map(([, label]) => label));
+  return (fileName) => {
+    const label = raw.get(fileName) ?? movieVersionLabel(fileName);
+    return !splitVersionLabel(fileName).label && plainish.size <= 1 ? "" : label;
+  };
+}
+
+/** Groups a movie folder's files by version (see movieVersionLabeler), plain first; each group is all the parts of one version. */
 export function groupMovieVersions<T extends { name: string }>(files: T[]): Map<string, T[]> {
+  const labelOf = movieVersionLabeler(files);
   const groups = new Map<string, T[]>();
   for (const file of files) {
-    const label = movieVersionLabel(file.name);
+    const label = labelOf(file.name);
     groups.set(label, [...(groups.get(label) ?? []), file]);
   }
   return new Map([...groups.entries()].sort(([a], [b]) => (a === "" ? -1 : b === "" ? 1 : a.localeCompare(b))));
