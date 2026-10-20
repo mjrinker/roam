@@ -1,25 +1,24 @@
 /**
  * Changing when a picture was taken, or where, by hand. The date is saved in Roam at once (the timeline moves it, and no scan ever replaces it). Where
- * Roam can write to the picture's storage (Box) and the file is a JPEG, the date is also written into the file's own EXIF, saved as a new
- * VERSION of the Box file (same file, so nothing keyed on it changes, and Box keeps the earlier version in its history). Other formats and
- * other storage services are read-only to Roam, so there the date lives in Roam only; the result says which happened.
+ * Roam may change the picture's storage and the file is a JPEG, the date is also written into the file's own EXIF, saved as a new VERSION of the
+ * file (same file, so nothing keyed on it changes, and the storage keeps the earlier version in its history). Box can always be changed; Dropbox,
+ * OneDrive and Google Drive only once an admin has allowed editing for the connection. Otherwise (and for other formats) the date lives in Roam only;
+ * the result says which happened.
  */
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { and, eq } from "drizzle-orm";
 import { db } from "@/lib/db/client";
 import { mediaFiles, titles } from "@/lib/db/schema";
 import { editJpegExif, type ExifEdit } from "@/lib/photos/exif-write";
-import { uploadFile, type TokenProvider } from "@/lib/remux/remux-core.mjs";
-import { createBoxProviderForServer, mintUploadToken } from "@/lib/storage/box";
-import { boxParentFolderId } from "@/lib/storage/box-sidecar";
-import { isOriginalBoxId } from "@/lib/storage/ids";
+import { createStorageForServer } from "@/lib/storage/server-storage";
 
 /** Photos bigger than this are not rewritten (the whole file is held in memory and sent back). */
 export const MAX_REWRITE_BYTES = 60 * 1024 * 1024;
 
-export type FileWrite = "written" | "not-box" | "not-jpeg" | "too-large" | "failed";
+/**
+ * What happened to the file: written, or why not. "read-only": the storage hasn't been allowed to be changed (an admin can turn editing on under
+ * Storage); "unsupported": that kind of storage can't be.
+ */
+export type FileWrite = "written" | "read-only" | "unsupported" | "not-jpeg" | "too-large" | "failed";
 export interface SetTakenAtResult {
   takenAt: string;
   file: FileWrite;
@@ -54,45 +53,27 @@ async function loadRow(titleId: string): Promise<PhotoFileRow | null> {
   return row ?? null;
 }
 
-/** Writes an EXIF edit into the picture's file where Roam can (a JPEG in Box), as a new version of the Box file. Says what happened. */
+/** Writes an EXIF edit into the picture's file where Roam may (a JPEG on storage that allows editing), as a new version of the file. Says what happened. */
 async function writeToFile(serverId: string, titleId: string, row: PhotoFileRow, edit: ExifEdit): Promise<FileWrite> {
-  if (!row.fileId || !isOriginalBoxId(row.fileId)) return "not-box";
+  if (!row.fileId) return "unsupported";
+  const storage = createStorageForServer(serverId);
+  const access = await storage.writeAccess(row.fileId);
+  if (access !== "ok") return access;
   const jpeg = ["jpg", "jpeg"].includes((row.container ?? "").toLowerCase()) || /\.jpe?g$/i.test(row.filename ?? "");
   if (!jpeg) return "not-jpeg";
   if (!row.size || row.size > MAX_REWRITE_BYTES) return "too-large";
 
-  let dir: string | null = null;
   try {
-    const provider = createBoxProviderForServer(serverId);
-    const { url } = await provider.getStreamingUrl(row.fileId);
-    const res = await fetch(url);
-    if (!res.ok) throw new Error(`download ${res.status}`);
-    const bytes = new Uint8Array(await res.arrayBuffer());
+    const bytes = await storage.readFile(row.fileId, MAX_REWRITE_BYTES);
     const edited = editJpegExif(bytes, edit);
     if (edited === bytes) return "written"; // nothing in the file to change (a position removed from a file that has none)
-
-    const folderId = await boxParentFolderId(serverId, row.fileId);
-    let cached: { token: string; expiresAt: number } | null = null;
-    const getToken: TokenProvider = async (force) => {
-      if (force || !cached || cached.expiresAt - Date.now() < 60_000) {
-        const t = await mintUploadToken(serverId, folderId);
-        cached = { token: t.accessToken, expiresAt: t.expiresAt.getTime() };
-      }
-      return cached.token;
-    };
-    dir = await mkdtemp(join(tmpdir(), "roam-exif-"));
-    const filePath = join(dir, "photo");
-    await writeFile(filePath, edited);
-    const done = await uploadFile({ getToken, folderId, name: row.filename ?? "photo.jpg", filePath, replaceFileId: row.fileId });
-    if ("conflictId" in done) throw new Error("Box would not replace the file");
+    await storage.replaceFile(row.fileId, edited);
     // The file is the size it now is, so the next scan does not take it for a different picture.
     await db.update(mediaFiles).set({ sizeBytes: edited.length }).where(and(eq(mediaFiles.ownerKind, "title"), eq(mediaFiles.ownerId, titleId), eq(mediaFiles.partIndex, 0)));
     return "written";
   } catch (err) {
     console.error("writing a photo's metadata into its file:", err);
     return "failed";
-  } finally {
-    if (dir) await rm(dir, { recursive: true, force: true });
   }
 }
 

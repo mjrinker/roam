@@ -14,6 +14,18 @@ export class StorageHttpError extends Error {
   }
 }
 
+/** The body of a response as bytes, refusing one bigger than `maxBytes` (by what it says first, and again by what arrived). */
+export async function readWhole(res: Response, maxBytes: number): Promise<Uint8Array> {
+  if (!res.ok) throw new Error(`The file couldn't be read (${res.status})`);
+  if (Number(res.headers.get("content-length") ?? 0) > maxBytes) {
+    await res.body?.cancel();
+    throw new Error("That file is too large to change from Roam.");
+  }
+  const bytes = new Uint8Array(await res.arrayBuffer());
+  if (bytes.length > maxBytes) throw new Error("That file is too large to change from Roam.");
+  return bytes;
+}
+
 const MAX_ATTEMPTS = 4;
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 

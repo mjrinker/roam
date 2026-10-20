@@ -14,7 +14,7 @@ const A = ({ href, children }: { href: string; children: React.ReactNode }) => (
 
 export default function PrivacyPage() {
   return (
-    <LegalPage title="Privacy Policy" updated="October 12, 2026">
+    <LegalPage title="Privacy Policy" updated="October 19, 2026">
       <p>
         Roam is a private media server: a person (the <strong>server admin</strong>) connects their own cloud storage, chooses folders of movies, shows, music, books and photos, and invites family and friends to
         watch and listen. This policy explains what information Roam handles, why, who else receives any of it, and how to have it removed. Roam is operated by Matt Rinker as a personal project.
@@ -60,7 +60,7 @@ export default function PrivacyPage() {
               <strong>Sign in with Google:</strong> your email address, name and profile picture, used only to create and identify your Roam account.
             </>,
             <>
-              <strong>Google Drive</strong> (the <code className="rounded bg-white/10 px-1">drive.readonly</code> permission, which is read-only): the names, folder structure, sizes, types and modified dates of files and folders in the Drive; Google&apos;s thumbnails of files; and the contents of media files, read to learn
+              <strong>Google Drive</strong> (the <code className="rounded bg-white/10 px-1">drive.readonly</code> permission, which is read-only; or, only if the admin chooses &quot;Allow editing&quot; for that Drive, the <code className="rounded bg-white/10 px-1">drive</code> permission, which also lets Roam change files): the names, folder structure, sizes, types and modified dates of files and folders in the Drive; Google&apos;s thumbnails of files; and the contents of media files, read to learn
               their duration, format and tags and to play them back. The admin grants this for their own Drive and can remove it at any time.
             </>,
           ]}
@@ -70,7 +70,7 @@ export default function PrivacyPage() {
         <Bullets
           items={[
             "Shows the admin their Drive folders so they can pick which ones to share, lists the files in the chosen folders, and streams those files to the people the admin invited, so they can play them. This is the only purpose.",
-            "Roam's access is read-only: it never modifies, deletes, uploads, moves or shares anything in the Drive, and it only reads the folders an admin chooses (plus folder names while choosing). It does not scan the rest of the Drive.",
+            "Roam's access is read-only by default: it reads only the folders an admin chooses (plus folder names while choosing) and does not scan the rest of the Drive. Only if the admin turns on \"Allow editing\" for a Drive does Roam change files, and then only to (1) replace the date taken and place stored inside a photo the admin edits, (2) save a small scene file beside a film when the admin marks scenes, and (3) rename a folder, or the video files in it, to add a title-matching tag when the admin picks a match. Roam never deletes, moves or shares anything in the Drive, and Google Drive keeps earlier revisions of a file that was changed. The admin can turn editing off again at any time.",
             "It is not used for advertising, is never sold, and is not used to develop, improve or train generalised AI or machine-learning models.",
           ]}
         />

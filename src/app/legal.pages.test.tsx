@@ -17,7 +17,10 @@ describe("the privacy policy", () => {
     expect(plain).toContain("Google user data");
     expect(plain).toContain("drive.readonly");
     expect(plain).toMatch(/read-only/i);
-    expect(plain).toMatch(/never modifies, deletes, uploads, moves or shares/);
+    expect(plain).toMatch(/read-only by default/);
+    expect(plain).toMatch(/Only if the admin turns on "Allow editing"/);
+    expect(plain).toMatch(/Roam never deletes, moves or shares anything in the Drive/);
+    expect(plain).toMatch(/Google Drive keeps earlier revisions/);
     expect(plain).toMatch(/sign-in tokens, encrypted at rest/);
     for (const heading of ["What Roam accesses", "How Roam uses it", "What Roam stores", "Who it is shared with", "Protecting it, keeping it, and removing it"]) expect(plain, heading).toContain(heading);
     expect(plain).toMatch(/not used to develop, improve or train generalised AI or machine-learning models/);

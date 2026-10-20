@@ -9,8 +9,7 @@ import type { FilterCue } from "@/lib/content-filter/categories";
 import { cleanMarks, liftFromRows, mcfNameFor, replaceInWindow, rowWindows, sameCues, serializeMcf, splitToRows } from "@/lib/content-filter/marks";
 import { mediaFiles } from "@/lib/db/schema";
 import { defaultVersionRows } from "@/lib/player/versions";
-import { isOriginalBoxId } from "@/lib/storage/ids";
-import { writeBoxSidecar } from "@/lib/storage/box-sidecar";
+import { createStorageForServer } from "@/lib/storage/server-storage";
 
 type Db = PgDatabase<PgQueryResultHKT, Record<string, unknown>>;
 type Row = typeof mediaFiles.$inferSelect;
@@ -18,15 +17,23 @@ type Row = typeof mediaFiles.$inferSelect;
 /** Where a scene file can be written. */
 export interface MarkWriter {
   /** Whether a scene file can be saved beside this video file. */
-  writable(row: Row): boolean;
+  writable(row: Row): Promise<boolean>;
   write(serverId: string, row: Row, name: string, text: string): Promise<void>;
 }
 
-export const boxMarkWriter: MarkWriter = {
-  writable: (row) => isOriginalBoxId(row.boxFileId),
-  write: async (serverId, row, name, text) => {
-    await writeBoxSidecar(serverId, row.boxFileId, name, text);
-  },
+/**
+ * Scene files are saved beside the video, in the storage it is on, when that storage may be changed (Box always; Dropbox, OneDrive and Google
+ * Drive once an admin allowed editing for the connection). Anywhere else the marks are kept in Roam.
+ */
+export const storageMarkWriter = (serverId: string): MarkWriter => {
+  const storage = createStorageForServer(serverId);
+  return {
+    writable: async (row) => (await storage.writeAccess(row.boxFileId)) === "ok",
+    write: async (_serverId, row, name, text) => {
+      const parent = await storage.parentFolderId(row.boxFileId);
+      await storage.createFile(parent, name, new TextEncoder().encode(text));
+    },
+  };
 };
 
 export interface MarkSet {
@@ -53,7 +60,7 @@ export async function loadMarks(ex: Db, ownerKind: "title" | "episode", ownerId:
   const rows = await markRowsFor(ex, ownerKind, ownerId, version);
   const windows = rowWindows(rows);
   if (rows.length === 0 || windows.length === 0) return null;
-  const writesFiles = rows.every((r) => writer.writable(r));
+  const writesFiles = (await Promise.all(rows.map((r) => writer.writable(r)))).every(Boolean);
   const fileCues = liftFromRows(new Map(rows.map((r) => [r.id, r.contentCues])), windows);
   const marked = liftFromRows(new Map(rows.map((r) => [r.id, r.markedCues])), windows);
   const durationSeconds = windows.reduce((s, w) => s + w.length, 0);
@@ -72,7 +79,7 @@ export async function saveMarks(
   if (rows.length === 0 || windows.length === 0) return { ok: false, error: "not_ready" };
   const durationSeconds = windows.reduce((s, w) => s + w.length, 0);
   const incoming = splitToRows(cleanMarks(opts.cues, durationSeconds), windows);
-  const writesFiles = rows.every((r) => opts.writer.writable(r));
+  const writesFiles = (await Promise.all(rows.map((r) => opts.writer.writable(r)))).every(Boolean);
   let filesWritten = 0;
   for (const row of rows) {
     const w = windows.find((x) => x.rowId === row.id)!;

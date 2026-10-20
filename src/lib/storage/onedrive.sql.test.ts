@@ -59,7 +59,7 @@ describe("signing in to Microsoft", () => {
   });
   it("trades the code for tokens, sending the app's id and secret", async () => {
     const calls = stub({ "login.microsoftonline.com/common/oauth2/v2.0/token": () => json({ access_token: "A", refresh_token: "R", expires_in: 3599 }) });
-    expect(await onedriveExchangeCode("code-1", "https://roam.example/cb")).toEqual({ accessToken: "A", refreshToken: "R", expiresInSeconds: 3599 });
+    expect(await onedriveExchangeCode("code-1", "https://roam.example/cb")).toEqual({ accessToken: "A", refreshToken: "R", expiresInSeconds: 3599, scope: null });
     const body = new URLSearchParams(String(calls[0].init.body));
     expect(Object.fromEntries(body)).toMatchObject({ client_id: "ms-id", client_secret: "ms-secret", grant_type: "authorization_code", code: "code-1" });
   });

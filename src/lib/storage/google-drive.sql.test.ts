@@ -64,7 +64,7 @@ describe("signing in to Google", () => {
       "oauth2.googleapis.com/token": () => json({ access_token: "A", refresh_token: "R", expires_in: 3599 }),
       "www.googleapis.com/drive/v3/about": (u) => (expect(u.searchParams.get("fields")).toContain("emailAddress"), json({ user: { emailAddress: "me@gmail.com", displayName: "Me" } })),
     });
-    expect(await googleExchangeCode("code-1", "https://roam.example.com/cb")).toEqual({ accessToken: "A", refreshToken: "R", expiresInSeconds: 3599 });
+    expect(await googleExchangeCode("code-1", "https://roam.example.com/cb")).toEqual({ accessToken: "A", refreshToken: "R", expiresInSeconds: 3599, scope: null });
     expect(Object.fromEntries(new URLSearchParams(String(calls[0].init.body)))).toMatchObject({ client_id: "g-id", client_secret: "g-secret", grant_type: "authorization_code", code: "code-1" });
     expect(await googleAccountName("tok")).toBe("me@gmail.com");
   });

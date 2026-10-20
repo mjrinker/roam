@@ -14,6 +14,8 @@ export interface OAuthTokens {
   /** Absent when the provider keeps the same refresh token (Dropbox, Google); present when it rotates it (Microsoft). */
   refreshToken?: string | null;
   expiresInSeconds?: number | null;
+  /** The permissions the provider says were granted (a space-separated list), when it says. Read when signing in, never on a refresh. */
+  scope?: string | null;
 }
 
 /** The refresh token was refused as dead (revoked, expired, wrong): the one failure that means "sign in again". */
@@ -31,7 +33,7 @@ const MARGIN_MS = 120_000;
 const inFlight = new Map<string, Promise<string>>();
 
 /** Stores a fresh set of tokens for a connection (after sign-in, or a refresh) and marks it connected. */
-export async function saveTokens(connectionId: string, tokens: OAuthTokens, accountName?: string | null): Promise<void> {
+export async function saveTokens(connectionId: string, tokens: OAuthTokens, accountName?: string | null, access?: { writeGranted: boolean }): Promise<void> {
   const [current] = await db.select({ refresh: storageConnections.refreshTokenEncrypted }).from(storageConnections).where(eq(storageConnections.id, connectionId)).limit(1);
   const refreshToken = tokens.refreshToken ?? (current?.refresh ? safeDecrypt(current.refresh) : null);
   await db
@@ -42,6 +44,8 @@ export async function saveTokens(connectionId: string, tokens: OAuthTokens, acco
       tokenExpiresAt: tokens.expiresInSeconds ? new Date(Date.now() + tokens.expiresInSeconds * 1000) : null,
       authStatus: "connected",
       ...(accountName ? { accountName } : {}),
+      // A new sign-in decides what Roam may do from then on: one without the write permission turns editing off.
+      ...(access ? { writeGranted: access.writeGranted, ...(access.writeGranted ? {} : { writeEnabled: false }) } : {}),
     })
     .where(eq(storageConnections.id, connectionId));
 }

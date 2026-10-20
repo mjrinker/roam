@@ -2,6 +2,7 @@ import { eq } from "drizzle-orm";
 import { db } from "@/lib/db/client";
 import { storageConnections, type StorageProviderKind } from "@/lib/db/schema";
 import { createBoxProviderForServer } from "@/lib/storage/box";
+import { boxWriteMethods } from "@/lib/storage/box-write";
 import { createDropboxProvider } from "@/lib/storage/dropbox";
 import { createGoogleDriveProvider } from "@/lib/storage/google-drive";
 import { createOneDriveProvider } from "@/lib/storage/onedrive";
@@ -23,7 +24,7 @@ export function providerForConnection(conn: Pick<StorageConnection, "id" | "prov
   switch (kind) {
     case "box":
       // Box's code is keyed by the connection's id (a server's original connection has the server's id).
-      return createBoxProviderForServer(conn.id);
+      return { ...createBoxProviderForServer(conn.id), ...boxWriteMethods(conn.id) };
     case "dropbox":
       return createDropboxProvider(conn.id);
     case "onedrive":

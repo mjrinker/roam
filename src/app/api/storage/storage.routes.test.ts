@@ -74,6 +74,35 @@ describe("storage connections", () => {
   });
 });
 
+describe("editing files on a connection", () => {
+  const ctx = (id: string) => ({ params: Promise.resolve({ id }) }) as never;
+  const patch = (id: string, body: unknown) => renameConnection(new Request("http://x", { method: "PATCH", body: JSON.stringify(body), headers: { "content-type": "application/json" } }), ctx(id));
+
+  it("is switched on only for a sign-in that was given the permission, and off at any time; Box is always editable", async () => {
+    const w = await world();
+    const dropbox = (await db.insert(storageConnections).values({ serverId: w.server.id, provider: "dropbox", label: "Dropbox", authStatus: "connected" }).returning())[0];
+    const list = async () => ((await (await listConnections(new Request(`http://x/api/storage/connections?serverId=${w.server.id}`))).json()).connections as { id: string; canEdit: boolean; editGranted: boolean }[]).find((c) => c.id === dropbox.id)!;
+    expect(await list()).toMatchObject({ canEdit: false, editGranted: false });
+    // Without the permission it can't be turned on: the admin is sent to sign in with it.
+    const refused = await patch(dropbox.id, { writeEnabled: true });
+    expect(refused.status).toBe(409);
+    await db.update(storageConnections).set({ writeGranted: true }).where(eq(storageConnections.id, dropbox.id));
+    expect(await list()).toMatchObject({ canEdit: false, editGranted: true });
+    expect((await patch(dropbox.id, { writeEnabled: true })).status).toBe(200);
+    expect(await list()).toMatchObject({ canEdit: true, editGranted: true });
+    expect((await patch(dropbox.id, { writeEnabled: false })).status).toBe(200);
+    expect(await list()).toMatchObject({ canEdit: false });
+    // Box has nothing to switch, and shows as editable.
+    expect((await patch(w.box.id, { writeEnabled: true })).status).toBe(400);
+    const box = ((await (await listConnections(new Request(`http://x/api/storage/connections?serverId=${w.server.id}`))).json()).connections as { id: string; canEdit: boolean }[]).find((c) => c.id === w.box.id)!;
+    expect(box.canEdit).toBe(true);
+    // Nothing else may be sent, and only the admin may.
+    expect((await patch(dropbox.id, { writeEnabled: true, label: "x" })).status).toBe(400);
+    await signInAs(w.member.accountId);
+    expect((await patch(dropbox.id, { writeEnabled: false })).status).toBe(404);
+  });
+});
+
 describe("a library's folders", () => {
   const lctx = (id: string) => ({ params: Promise.resolve({ id }) }) as never;
   it("adds a folder on another connection, refuses ones already used or on someone else's connection, and removes it again", async () => {

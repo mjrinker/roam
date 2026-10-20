@@ -225,6 +225,10 @@ export const storageConnections = pgTable(
     // The not-secret settings (an S3 endpoint, region and bucket).
     config: jsonb("config").$type<Record<string, unknown>>(),
     authStatus: boxAuthStatusEnum("auth_status").notNull().default("disconnected"),
+    // Editing files (a photo's date and place, scene files, renaming for a TMDB match). Box is always allowed; for the others the admin
+    // opts in (writeEnabled) AND the sign-in has to have been given the provider's write permission (writeGranted), so both must be true.
+    writeEnabled: boolean("write_enabled").notNull().default(false),
+    writeGranted: boolean("write_granted").notNull().default(false),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [index("storage_connections_server_idx").on(t.serverId)]

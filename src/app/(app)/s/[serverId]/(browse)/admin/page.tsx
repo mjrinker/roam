@@ -33,6 +33,7 @@ const BOX_ERROR_MESSAGES: Record<string, string> = {
   "box-connect-cancelled": "Box connection was cancelled.",
   "box-connect-failed": "Couldn't connect to Box. Try again.",
   "storage-connect-cancelled": "The connection was cancelled.",
+  "storage-write-denied": "Editing wasn't allowed: the permission to change files wasn't given. Try again and approve it (the storage app must also have that permission turned on).",
   "storage-connect-failed": "Couldn't connect that storage. Try again.",
 };
 

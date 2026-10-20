@@ -540,6 +540,13 @@
       "when": 1792455649660,
       "tag": "0076_track_lyrics_files",
       "breakpoints": true
+    },
+    {
+      "idx": 77,
+      "version": "7",
+      "when": 1792465174748,
+      "tag": "0077_storage_write_access",
+      "breakpoints": true
     }
   ]
 }

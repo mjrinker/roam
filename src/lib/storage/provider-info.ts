@@ -5,7 +5,7 @@ export interface ProviderInfo {
   kind: StorageProviderKind;
   name: string;
   /** Where the admin goes to sign in; `connectionId` is "new" for another connection, or an existing one to sign in again. */
-  connectHref(serverId: string, connectionId: string | "new", label: string): string;
+  connectHref(serverId: string, connectionId: string | "new", label: string, opts?: { write?: boolean }): string;
 }
 
 const q = (params: Record<string, string>) => new URLSearchParams(params).toString();
@@ -19,17 +19,17 @@ export const PROVIDERS: ProviderInfo[] = [
   {
     kind: "dropbox",
     name: "Dropbox",
-    connectHref: (serverId, connectionId, label) => `/api/dropbox/connect?${q({ serverId, connectionId, label })}`,
+    connectHref: (serverId, connectionId, label, opts) => `/api/dropbox/connect?${q({ serverId, connectionId, label, ...(opts?.write ? { write: "1" } : {}) })}`,
   },
   {
     kind: "onedrive",
     name: "OneDrive",
-    connectHref: (serverId, connectionId, label) => `/api/onedrive/connect?${q({ serverId, connectionId, label })}`,
+    connectHref: (serverId, connectionId, label, opts) => `/api/onedrive/connect?${q({ serverId, connectionId, label, ...(opts?.write ? { write: "1" } : {}) })}`,
   },
   {
     kind: "gdrive",
     name: "Google Drive",
-    connectHref: (serverId, connectionId, label) => `/api/google/connect?${q({ serverId, connectionId, label })}`,
+    connectHref: (serverId, connectionId, label, opts) => `/api/google/connect?${q({ serverId, connectionId, label, ...(opts?.write ? { write: "1" } : {}) })}`,
   },
 ];
 

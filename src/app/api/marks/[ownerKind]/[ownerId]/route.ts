@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { authorizeOwner } from "@/lib/auth/resolve-server";
 import { getCurrentServerAdmin } from "@/lib/auth/guards";
 import { db } from "@/lib/db/client";
-import { boxMarkWriter, loadMarks, saveMarks } from "@/lib/content-filter/save-marks";
+import { loadMarks, saveMarks, storageMarkWriter } from "@/lib/content-filter/save-marks";
 
 /**
  * A film's hand-marked scenes (see lib/content-filter/save-marks): read for the player's marking panel, and replaced when it saves. Only a
@@ -24,7 +24,7 @@ export async function GET(request: Request, ctx: RouteContext<"/api/marks/[owner
   const who = await authorize(ownerKind, ownerId);
   if (!who) return none();
   const version = new URL(request.url).searchParams.get("version");
-  const marks = await loadMarks(db, who.kind, ownerId, version === null ? null : version.trim().toLowerCase().slice(0, 60), boxMarkWriter);
+  const marks = await loadMarks(db, who.kind, ownerId, version === null ? null : version.trim().toLowerCase().slice(0, 60), storageMarkWriter(who.serverId));
   if (!marks) return NextResponse.json({ error: "This isn't ready to mark yet." }, { status: 409, headers });
   return NextResponse.json(marks, { headers });
 }
@@ -37,7 +37,7 @@ export async function PUT(request: Request, ctx: RouteContext<"/api/marks/[owner
   if (!body || !Array.isArray(body.cues)) return NextResponse.json({ error: "Send the list of scenes." }, { status: 400 });
   const version = typeof body.version === "string" ? body.version.trim().toLowerCase().slice(0, 60) : null;
   try {
-    const result = await saveMarks(db, { serverId: who.serverId, ownerKind: who.kind, ownerId, version, cues: body.cues, writer: boxMarkWriter });
+    const result = await saveMarks(db, { serverId: who.serverId, ownerKind: who.kind, ownerId, version, cues: body.cues, writer: storageMarkWriter(who.serverId) });
     if (!result.ok) return NextResponse.json({ error: "This isn't ready to mark yet." }, { status: 409, headers });
     return NextResponse.json({ ...result.marks, filesWritten: result.filesWritten }, { headers });
   } catch (err) {

@@ -2,6 +2,7 @@ import { asc, eq, inArray } from "drizzle-orm";
 import { db } from "@/lib/db/client";
 import { libraries, librarySources, storageConnections, type StorageProviderKind } from "@/lib/db/schema";
 import { parseStorageId } from "@/lib/storage/ids";
+import { connectionAllowsWrite } from "@/lib/storage/server-storage";
 
 export interface ConnectionSummary {
   id: string;
@@ -9,6 +10,10 @@ export interface ConnectionSummary {
   label: string;
   accountName: string | null;
   authStatus: "disconnected" | "connected" | "needs_reauth";
+  /** Roam may change files here (always true for Box; for the rest, the admin allowed it and the sign-in was given the permission). */
+  canEdit: boolean;
+  /** The sign-in has the provider's write permission, so editing can be switched on without signing in again. */
+  editGranted: boolean;
   /** How many of the server's libraries have a folder on it. */
   libraries: number;
 }
@@ -16,12 +21,12 @@ export interface ConnectionSummary {
 /** A server's storage connections, oldest first, with how many libraries use each (no secrets). */
 export async function listConnectionSummaries(serverId: string): Promise<ConnectionSummary[]> {
   const conns = await db
-    .select({ id: storageConnections.id, provider: storageConnections.provider, label: storageConnections.label, accountName: storageConnections.accountName, authStatus: storageConnections.authStatus })
+    .select({ id: storageConnections.id, provider: storageConnections.provider, label: storageConnections.label, accountName: storageConnections.accountName, authStatus: storageConnections.authStatus, writeEnabled: storageConnections.writeEnabled, writeGranted: storageConnections.writeGranted })
     .from(storageConnections)
     .where(eq(storageConnections.serverId, serverId))
     .orderBy(asc(storageConnections.createdAt), asc(storageConnections.id));
   const used = await connectionUse(serverId);
-  return conns.map((c) => ({ ...c, libraries: used.get(c.id)?.size ?? 0 }));
+  return conns.map(({ writeEnabled, writeGranted, ...c }) => ({ ...c, libraries: used.get(c.id)?.size ?? 0, canEdit: connectionAllowsWrite({ provider: c.provider, writeEnabled, writeGranted, authStatus: c.authStatus }), editGranted: c.provider === "box" || writeGranted }));
 }
 
 /** Which libraries have a folder (the first one, or one added later) on each connection. */

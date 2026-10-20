@@ -1,0 +1,2 @@
+ALTER TABLE "storage_connections" ADD COLUMN "write_enabled" boolean DEFAULT false NOT NULL;--> statement-breakpoint
+ALTER TABLE "storage_connections" ADD COLUMN "write_granted" boolean DEFAULT false NOT NULL;

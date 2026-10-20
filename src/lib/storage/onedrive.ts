@@ -5,12 +5,19 @@
  */
 import { ListingTruncatedError, type PreviewImage, type StorageEntry, type StorageProvider, type StreamingUrl } from "@/lib/storage/provider";
 import { OAuthInvalidGrantError, type OAuthTokens, type Refresher } from "@/lib/storage/oauth-tokens";
-import { authorizedCall, StorageHttpError } from "@/lib/storage/http";
+import { authorizedCall, readWhole, StorageHttpError } from "@/lib/storage/http";
 
 const GRAPH = "https://graph.microsoft.com/v1.0";
 const AUTHORITY = "https://login.microsoftonline.com/common/oauth2/v2.0";
-/** Reading files only; offline_access is what makes Microsoft hand back a refresh token. */
-const SCOPES = "offline_access Files.Read.All User.Read";
+/** Reading files; offline_access is what makes Microsoft hand back a refresh token. */
+export const ONEDRIVE_READ_SCOPES = "offline_access Files.Read.All User.Read";
+/** Reading and changing files: asked for only when an admin turns editing on. */
+export const ONEDRIVE_WRITE_SCOPES = "offline_access Files.ReadWrite.All User.Read";
+/** Largest file sent in one request (Graph's limit); a bigger one would need an upload session, which Roam has no use for. */
+export const ONEDRIVE_MAX_UPLOAD = 250 * 1024 * 1024;
+
+/** Whether a granted-permissions string (as Microsoft returns it) includes changing files. */
+export const onedriveScopeAllowsWrite = (scope: string | null | undefined): boolean => (scope ?? "").split(/\s+/).some((s) => /^files\.readwrite(\.all)?$/i.test(s));
 const LIST_LIMIT = 50_000;
 /** A download link lasts about an hour; it is treated as lasting this long so one is never handed out as it dies. */
 const LINK_TTL_MS = 45 * 60_000;
@@ -28,17 +35,19 @@ const clientSecret = (): string => {
 };
 
 /** `prompt=select_account` shows the account picker every time, instead of silently signing in as whoever the browser already is. */
-export function onedriveAuthorizeUrl(redirectUri: string, state: string): string {
+export function onedriveAuthorizeUrl(redirectUri: string, state: string, opts: { write?: boolean } = {}): string {
   const u = new URL(`${AUTHORITY}/authorize`);
-  u.search = new URLSearchParams({ client_id: clientId(), response_type: "code", redirect_uri: redirectUri, response_mode: "query", scope: SCOPES, state, prompt: "select_account" }).toString();
+  u.search = new URLSearchParams({ client_id: clientId(), response_type: "code", redirect_uri: redirectUri, response_mode: "query", scope: opts.write ? ONEDRIVE_WRITE_SCOPES : ONEDRIVE_READ_SCOPES, state, prompt: "select_account" }).toString();
   return u.toString();
 }
 
-async function tokenRequest(form: Record<string, string>): Promise<{ access_token: string; refresh_token?: string; expires_in?: number }> {
+async function tokenRequest(form: Record<string, string>): Promise<{ access_token: string; refresh_token?: string; expires_in?: number; scope?: string }> {
+  // A refresh names no scope: it renews exactly what the sign-in was given (naming the read-only list would take a connection's write permission
+  // away every hour). Trading the code names the list the sign-in asked for.
   const res = await fetch(`${AUTHORITY}/token`, {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body: new URLSearchParams({ client_id: clientId(), client_secret: clientSecret(), scope: SCOPES, ...form }),
+    body: new URLSearchParams({ client_id: clientId(), client_secret: clientSecret(), ...form }),
   });
   if (!res.ok) {
     const text = await res.text().catch(() => "");
@@ -49,9 +58,9 @@ async function tokenRequest(form: Record<string, string>): Promise<{ access_toke
   return res.json();
 }
 
-export async function onedriveExchangeCode(code: string, redirectUri: string): Promise<OAuthTokens> {
-  const t = await tokenRequest({ grant_type: "authorization_code", code, redirect_uri: redirectUri });
-  return { accessToken: t.access_token, refreshToken: t.refresh_token ?? null, expiresInSeconds: t.expires_in ?? null };
+export async function onedriveExchangeCode(code: string, redirectUri: string, opts: { write?: boolean } = {}): Promise<OAuthTokens> {
+  const t = await tokenRequest({ grant_type: "authorization_code", code, redirect_uri: redirectUri, scope: opts.write ? ONEDRIVE_WRITE_SCOPES : ONEDRIVE_READ_SCOPES });
+  return { accessToken: t.access_token, refreshToken: t.refresh_token ?? null, expiresInSeconds: t.expires_in ?? null, scope: t.scope ?? null };
 }
 
 /** Microsoft replaces the refresh token each time one is used, so the new one is returned and must be kept. */
@@ -196,5 +205,39 @@ export function createOneDriveProvider(connectionId: string): StorageProvider {
         throw err;
       }
     },
+
+    // ── Writing (only reached after the connection allows it) ──
+    async readFile(fileId, maxBytes) {
+      return readWhole(await fetch((await link(fileId, true)).url), maxBytes);
+    },
+
+    async replaceFile(fileId, bytes) {
+      await put(`${GRAPH}${itemPath(fileId)}/content`, bytes);
+    },
+
+    async createFile(parentFolderId, name, bytes) {
+      const made = (await (await put(`${GRAPH}${itemPath(parentFolderId)}:/${encodeURIComponent(name)}:/content?@microsoft.graph.conflictBehavior=replace`, bytes)).json()) as Item;
+      return { id: made.id };
+    },
+
+    async renameEntry(_kind, id, name) {
+      await authorizedCall(connectionId, onedriveRefresher, "OneDrive", (token) =>
+        fetch(`${GRAPH}${itemPath(id)}`, { method: "PATCH", headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" }, body: JSON.stringify({ name }) })
+      );
+    },
+
+    async parentFolderId(fileId) {
+      const i = await graph<{ parentReference?: { id?: string } }>(`${itemPath(fileId)}?$select=id,parentReference`);
+      if (!i.parentReference?.id) throw new Error("OneDrive gave no folder for that item");
+      return i.parentReference.id;
+    },
   };
+
+  /** Saves bytes as a file's content (OneDrive keeps the earlier version). */
+  async function put(url: string, bytes: Uint8Array): Promise<Response> {
+    if (bytes.length > ONEDRIVE_MAX_UPLOAD) throw new Error("That file is too large to change from Roam (OneDrive's limit for one upload is 250 MB).");
+    return authorizedCall(connectionId, onedriveRefresher, "OneDrive", (token) =>
+      fetch(url, { method: "PUT", headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/octet-stream" }, body: Buffer.from(bytes) })
+    );
+  }
 }

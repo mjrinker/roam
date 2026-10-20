@@ -6,7 +6,7 @@
  */
 import { ListingTruncatedError, type PreviewImage, type StorageEntry, type StorageProvider } from "@/lib/storage/provider";
 import { OAuthInvalidGrantError, accessTokenFor, accessTokenValidFor, type OAuthTokens, type Refresher } from "@/lib/storage/oauth-tokens";
-import { authorizedCall, StorageHttpError } from "@/lib/storage/http";
+import { authorizedCall, readWhole, StorageHttpError } from "@/lib/storage/http";
 import { sealedStreamUrl, streamWorkerConfig } from "@/lib/storage/stream-seal";
 import { signStreamToken, streamUrl } from "@/lib/storage/stream-token";
 
@@ -14,7 +14,15 @@ const API = "https://www.googleapis.com/drive/v3";
 const AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth";
 const TOKEN_URL = "https://oauth2.googleapis.com/token";
 /** Read-only access to the files in the account (and in shared drives). */
-const SCOPE = "https://www.googleapis.com/auth/drive.readonly";
+export const GOOGLE_READ_SCOPE = "https://www.googleapis.com/auth/drive.readonly";
+/** Full access to the files in the account: asked for only when an admin turns editing on. (drive.file would not do: it covers only files an app made.) */
+export const GOOGLE_WRITE_SCOPE = "https://www.googleapis.com/auth/drive";
+const UPLOAD_API = "https://www.googleapis.com/upload/drive/v3";
+/** Largest file sent in one request; Roam only changes pictures and small text files, so no resumable upload is needed. */
+export const GOOGLE_MAX_UPLOAD = 150 * 1024 * 1024;
+
+/** Whether a granted-permissions string (as Google returns it) includes changing files. */
+export const googleScopeAllowsWrite = (scope: string | null | undefined): boolean => (scope ?? "").split(/\s+/).includes(GOOGLE_WRITE_SCOPE);
 const LIST_LIMIT = 50_000;
 const FOLDER = "application/vnd.google-apps.folder";
 
@@ -29,15 +37,15 @@ const clientSecret = (): string => {
   return v;
 };
 
-export function googleAuthorizeUrl(redirectUri: string, state: string): string {
+export function googleAuthorizeUrl(redirectUri: string, state: string, opts: { write?: boolean } = {}): string {
   const u = new URL(AUTH_URL);
   // offline + consent: Google only hands out a refresh token when asked for one, and not again to an app that was approved before.
   // select_account: always show the account picker, so any of a person's accounts can be connected.
-  u.search = new URLSearchParams({ client_id: clientId(), redirect_uri: redirectUri, response_type: "code", scope: SCOPE, access_type: "offline", prompt: "select_account consent", include_granted_scopes: "true", state }).toString();
+  u.search = new URLSearchParams({ client_id: clientId(), redirect_uri: redirectUri, response_type: "code", scope: opts.write ? GOOGLE_WRITE_SCOPE : GOOGLE_READ_SCOPE, access_type: "offline", prompt: "select_account consent", include_granted_scopes: "true", state }).toString();
   return u.toString();
 }
 
-async function tokenRequest(form: Record<string, string>): Promise<{ access_token: string; refresh_token?: string; expires_in?: number }> {
+async function tokenRequest(form: Record<string, string>): Promise<{ access_token: string; refresh_token?: string; expires_in?: number; scope?: string }> {
   const res = await fetch(TOKEN_URL, { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" }, body: new URLSearchParams({ client_id: clientId(), client_secret: clientSecret(), ...form }) });
   if (!res.ok) {
     const text = await res.text().catch(() => "");
@@ -49,7 +57,7 @@ async function tokenRequest(form: Record<string, string>): Promise<{ access_toke
 
 export async function googleExchangeCode(code: string, redirectUri: string): Promise<OAuthTokens> {
   const t = await tokenRequest({ grant_type: "authorization_code", code, redirect_uri: redirectUri });
-  return { accessToken: t.access_token, refreshToken: t.refresh_token ?? null, expiresInSeconds: t.expires_in ?? null };
+  return { accessToken: t.access_token, refreshToken: t.refresh_token ?? null, expiresInSeconds: t.expires_in ?? null, scope: t.scope ?? null };
 }
 
 /** Google keeps the same refresh token, so none comes back. */
@@ -94,6 +102,8 @@ const isNotFound = (err: unknown) => err instanceof StorageHttpError && err.stat
 /** The id goes into a Drive query inside quotes. */
 const quoted = (id: string) => `'${id.replace(/\\/g, "\\\\").replace(/'/g, "\\'")}'`;
 const SHARED = "supportsAllDrives=true";
+/** The type to give a small file Roam creates (a scene file, a lyric file). */
+const mimeFor = (name: string): string => (/\.(?:mcf|txt|srt|lrc|xml|json)$/i.test(name) ? "text/plain" : "application/octet-stream");
 
 export function createGoogleDriveProvider(connectionId: string): StorageProvider {
   const call = (build: (token: string) => Promise<Response>) => authorizedCall(connectionId, googleRefresher, "Google Drive", build, isRateLimit);
@@ -204,7 +214,48 @@ export function createGoogleDriveProvider(connectionId: string): StorageProvider
         throw err;
       }
     },
+
+    // ── Writing (only reached after the connection allows it) ──
+    async readFile(fileId, maxBytes) {
+      return readWhole(await googleDownload(connectionId, fileId, null), maxBytes);
+    },
+
+    async replaceFile(fileId, bytes) {
+      // The content is sent as the type the file already has, so Drive doesn't change it.
+      const current = await meta(fileId, "id,mimeType");
+      await send(`${UPLOAD_API}/files/${encodeURIComponent(fileId)}?uploadType=media&${SHARED}`, "PATCH", current.mimeType ?? "application/octet-stream", bytes);
+    },
+
+    async createFile(parentFolderId, name, bytes) {
+      // A file of that name already there is replaced, not doubled.
+      const found = (await (await get(`${API}/files?${new URLSearchParams({ q: `${quoted(parentFolderId)} in parents and name = '${name.replace(/\\/g, "\\\\").replace(/'/g, "\\'")}' and trashed = false`, fields: "files(id)", pageSize: "1", supportsAllDrives: "true", includeItemsFromAllDrives: "true" })}`)).json()) as { files?: { id: string }[] };
+      if (found.files?.[0]) {
+        await send(`${UPLOAD_API}/files/${encodeURIComponent(found.files[0].id)}?uploadType=media&${SHARED}`, "PATCH", mimeFor(name), bytes);
+        return { id: found.files[0].id };
+      }
+      const boundary = `roam${Math.random().toString(36).slice(2)}`;
+      const head = Buffer.from(`--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify({ name, parents: [parentFolderId] })}\r\n--${boundary}\r\nContent-Type: ${mimeFor(name)}\r\n\r\n`);
+      const body = Buffer.concat([head, Buffer.from(bytes), Buffer.from(`\r\n--${boundary}--`)]);
+      const made = (await (await send(`${UPLOAD_API}/files?uploadType=multipart&fields=id&${SHARED}`, "POST", `multipart/related; boundary=${boundary}`, body)).json()) as { id: string };
+      return { id: made.id };
+    },
+
+    async renameEntry(_kind, id, name) {
+      await call((token) => fetch(`${API}/files/${encodeURIComponent(id)}?${SHARED}`, { method: "PATCH", headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" }, body: JSON.stringify({ name }) }));
+    },
+
+    async parentFolderId(fileId) {
+      const parent = (await (await get(`${API}/files/${encodeURIComponent(fileId)}?fields=parents&${SHARED}`)).json()) as { parents?: string[] };
+      if (!parent.parents?.[0]) throw new Error("Google Drive says that file has no folder");
+      return parent.parents[0];
+    },
   };
+
+  /** Sends bytes to an upload address (Drive keeps the earlier revision of a file that is replaced). */
+  async function send(url: string, method: "PATCH" | "POST", contentType: string, bytes: Uint8Array): Promise<Response> {
+    if (bytes.length > GOOGLE_MAX_UPLOAD) throw new Error("That file is too large to change from Roam (150 MB at most).");
+    return call((token) => fetch(url, { method, headers: { Authorization: `Bearer ${token}`, "Content-Type": contentType }, body: Buffer.from(bytes) }));
+  }
 }
 
 /** What the stream route needs: Google's bytes for one file, with the caller's Range, using the connection's token. */

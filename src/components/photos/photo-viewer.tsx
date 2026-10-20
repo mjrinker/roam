@@ -539,7 +539,8 @@ function VideoStage({ id, name, posterUrl }: { id: string; name: string; posterU
 
 const FILE_NOTES: Record<string, string> = {
   written: "Saved in Roam and written into the file (Box keeps the earlier version of the file).",
-  "not-box": "Saved in Roam. This storage can't be written to from Roam, so the file itself is unchanged.",
+  "read-only": "Saved in Roam. This storage is read-only to Roam, so the file itself is unchanged (an admin can allow editing under Server settings, Storage).",
+  unsupported: "Saved in Roam. This storage can't be changed from Roam, so the file itself is unchanged.",
   "not-jpeg": "Saved in Roam. Only JPEG files can have their date written in, so the file itself is unchanged.",
   "too-large": "Saved in Roam. The file is too large to rewrite, so the file itself is unchanged.",
   failed: "Saved in Roam, but writing it into the file didn't work, so the file itself is unchanged.",

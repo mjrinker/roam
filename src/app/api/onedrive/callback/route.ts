@@ -4,7 +4,7 @@ import { getCurrentServerAdmin } from "@/lib/auth/guards";
 import { db } from "@/lib/db/client";
 import { storageConnections } from "@/lib/db/schema";
 import { verifyBoxOAuthState } from "@/lib/storage/box-oauth-state";
-import { onedriveAccountName, onedriveExchangeCode } from "@/lib/storage/onedrive";
+import { onedriveAccountName, onedriveExchangeCode, onedriveScopeAllowsWrite } from "@/lib/storage/onedrive";
 import { recordProviderAccount } from "@/lib/platform/accounts";
 import { saveTokens } from "@/lib/storage/oauth-tokens";
 
@@ -25,19 +25,24 @@ export async function GET(request: Request) {
   const code = searchParams.get("code");
   if (!code) return fail(payload.serverId, "storage-connect-failed");
 
+  let granted = false;
   try {
     const [existing] = await db.select({ serverId: storageConnections.serverId, provider: storageConnections.provider }).from(storageConnections).where(eq(storageConnections.id, payload.connectionId)).limit(1);
     // An id that is some other server's, or another kind of storage, is never ours to write to.
     if (existing && (existing.serverId !== payload.serverId || existing.provider !== "onedrive")) throw new Error("not this server's OneDrive connection");
 
-    const tokens = await onedriveExchangeCode(code, `${origin}/api/onedrive/callback`);
+    const write = payload.write === true;
+    const tokens = await onedriveExchangeCode(code, `${origin}/api/onedrive/callback`, { write });
     if (!tokens.refreshToken) throw new Error("OneDrive gave no refresh token");
     if (!existing) await db.insert(storageConnections).values({ id: payload.connectionId, serverId: payload.serverId, provider: "onedrive", label: payload.label || "OneDrive" });
     const account = await onedriveAccountName(tokens.accessToken);
-    await saveTokens(payload.connectionId, tokens, account);
+    // Editing is on only when it was asked for and the provider says the write permission was given.
+    granted = write && onedriveScopeAllowsWrite(tokens.scope);
+    await saveTokens(payload.connectionId, tokens, account, { writeGranted: granted });
+    if (granted) await db.update(storageConnections).set({ writeEnabled: true }).where(eq(storageConnections.id, payload.connectionId));
     await recordProviderAccount("onedrive", account);
   } catch {
     return fail(payload.serverId, "storage-connect-failed");
   }
-  return NextResponse.redirect(`${origin}/s/${payload.serverId}/admin`);
+  return NextResponse.redirect(`${origin}/s/${payload.serverId}/admin${payload.write && !granted ? "?error=storage-write-denied" : ""}`);
 }

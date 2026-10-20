@@ -40,7 +40,7 @@ function writer(writable: boolean) {
   const written: { name: string; text: string; fileId: string }[] = [];
   const w: MarkWriter & { written: typeof written; failWith?: Error } = {
     written,
-    writable: () => writable,
+    writable: async () => writable,
     write: async (_server, row, name, text) => {
       if (w.failWith) throw w.failWith;
       written.push({ name, text, fileId: row.boxFileId });

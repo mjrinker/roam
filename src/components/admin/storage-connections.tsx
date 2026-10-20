@@ -35,6 +35,20 @@ export function StorageConnections({ serverId, connections, available }: { serve
     setRenaming(null);
     refresh();
   }
+  /** Editing on: with the permission already given it is a switch; without it, a sign-in that asks for it. Off is always just a switch. */
+  async function setEditing(c: ConnectionSummary, on: boolean) {
+    const info = providerInfo(c.provider);
+    if (on && !c.editGranted && info) {
+      window.location.href = info.connectHref(serverId, c.id, c.label, { write: true });
+      return;
+    }
+    const res = await fetch(`/api/storage/connections/${c.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ writeEnabled: on }) });
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      return toast.error(typeof body.error === "string" ? body.error : "Couldn't change that.");
+    }
+    refresh();
+  }
   async function remove(c: ConnectionSummary) {
     if (!window.confirm(`Remove "${c.label}"? Roam forgets the sign-in; nothing in ${providerName(c.provider)} is touched.`)) return;
     const res = await fetch(`/api/storage/connections/${c.id}`, { method: "DELETE" });
@@ -59,6 +73,10 @@ export function StorageConnections({ serverId, connections, available }: { serve
         </Button>
       </div>
       <p className="text-sm text-muted-foreground">Where your media is kept. A library can use folders from any of them.</p>
+      <p className="text-xs text-muted-foreground">
+        Roam only reads from Dropbox, OneDrive and Google Drive unless you choose <strong>Allow editing</strong> for one, which asks the provider for permission to change files. Roam then only replaces a photo&apos;s date and place inside the picture, saves scene
+        files beside a film, and renames a folder to add a TMDB tag. It never deletes anything, and your provider keeps earlier versions of a changed file.
+      </p>
 
       {adding && offered.length === 0 && <p className="text-sm text-muted-foreground">No storage is set up on this deployment yet: its sign-in keys are missing.</p>}
       {adding && offered.length > 0 && (
@@ -112,7 +130,7 @@ export function StorageConnections({ serverId, connections, available }: { serve
                       </p>
                     )}
                     <p className="text-xs break-words text-muted-foreground">
-                      {[status.text, c.accountName, c.libraries > 0 ? `${c.libraries} ${c.libraries === 1 ? "library" : "libraries"}` : null].filter(Boolean).join(" · ")}
+                      {[status.text, c.accountName, c.libraries > 0 ? `${c.libraries} ${c.libraries === 1 ? "library" : "libraries"}` : null, c.provider === "box" ? null : c.canEdit ? "Editing allowed" : "Read-only"].filter(Boolean).join(" · ")}
                     </p>
                   </div>
                 </div>
@@ -123,8 +141,13 @@ export function StorageConnections({ serverId, connections, available }: { serve
                     </Button>
                   )}
                   {info && c.authStatus === "connected" && (
-                    <Button render={<a href={info.connectHref(serverId, c.id, c.label)} />} size="sm" variant="ghost">
+                    <Button render={<a href={info.connectHref(serverId, c.id, c.label, c.canEdit ? { write: true } : undefined)} />} size="sm" variant="ghost">
                       Reconnect
+                    </Button>
+                  )}
+                  {c.provider !== "box" && c.authStatus === "connected" && (
+                    <Button size="sm" variant="secondary" onClick={() => void setEditing(c, !c.canEdit)}>
+                      {c.canEdit ? "Turn editing off" : "Allow editing"}
                     </Button>
                   )}
                   <Button size="sm" variant="ghost" onClick={() => setRenaming({ id: c.id, label: c.label })}>Rename</Button>

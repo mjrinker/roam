@@ -5,7 +5,7 @@
  */
 import { ListingTruncatedError, type PreviewImage, type StorageEntry, type StorageProvider, type StreamingUrl } from "@/lib/storage/provider";
 import { OAuthInvalidGrantError, type OAuthTokens, type Refresher } from "@/lib/storage/oauth-tokens";
-import { authorizedCall, StorageHttpError } from "@/lib/storage/http";
+import { authorizedCall, readWhole, StorageHttpError } from "@/lib/storage/http";
 
 const API = "https://api.dropboxapi.com/2";
 const CONTENT = "https://content.dropboxapi.com/2";
@@ -26,14 +26,24 @@ const appSecret = (): string => {
   return v;
 };
 
+/** What Roam asks Dropbox for: reading, and, only when an admin turns editing on, writing files. */
+export const DROPBOX_READ_SCOPE = "files.metadata.read files.content.read";
+export const DROPBOX_WRITE_SCOPE = "files.content.write";
+/** Largest file sent in one request (Dropbox's limit); a bigger one would need an upload session, which Roam has no use for. */
+export const DROPBOX_MAX_UPLOAD = 150 * 1024 * 1024;
+
+/** Whether a granted-permissions string (as Dropbox returns it) includes writing files. */
+export const dropboxScopeAllowsWrite = (scope: string | null | undefined): boolean => (scope ?? "").split(/\s+/).includes(DROPBOX_WRITE_SCOPE);
+
 /** Where to send an admin to approve access. Dropbox is told to ask who is signing in every time, so a second account can be connected from a browser that is already signed in to the first. `redirectUri` must be one registered on the Dropbox app. */
-export function dropboxAuthorizeUrl(redirectUri: string, state: string): string {
+export function dropboxAuthorizeUrl(redirectUri: string, state: string, opts: { write?: boolean } = {}): string {
   const u = new URL("https://www.dropbox.com/oauth2/authorize");
-  u.search = new URLSearchParams({ client_id: dropboxAppKey(), response_type: "code", token_access_type: "offline", redirect_uri: redirectUri, state, force_reauthentication: "true", force_reapprove: "true" }).toString();
+  // The permissions are named, so signing in only gets what Roam needs even if the app was given more on dropbox.com/developers.
+  u.search = new URLSearchParams({ client_id: dropboxAppKey(), response_type: "code", token_access_type: "offline", scope: opts.write ? `${DROPBOX_READ_SCOPE} ${DROPBOX_WRITE_SCOPE}` : DROPBOX_READ_SCOPE, redirect_uri: redirectUri, state, force_reauthentication: "true", force_reapprove: "true" }).toString();
   return u.toString();
 }
 
-async function tokenRequest(form: Record<string, string>): Promise<{ access_token: string; refresh_token?: string; expires_in?: number; account_id?: string }> {
+async function tokenRequest(form: Record<string, string>): Promise<{ access_token: string; refresh_token?: string; expires_in?: number; account_id?: string; scope?: string }> {
   const res = await fetch(TOKEN_URL, {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded", Authorization: `Basic ${Buffer.from(`${dropboxAppKey()}:${appSecret()}`).toString("base64")}` },
@@ -50,7 +60,7 @@ async function tokenRequest(form: Record<string, string>): Promise<{ access_toke
 /** Trades the code Dropbox sent back after the admin approved access for the tokens. */
 export async function dropboxExchangeCode(code: string, redirectUri: string): Promise<OAuthTokens> {
   const t = await tokenRequest({ grant_type: "authorization_code", code, redirect_uri: redirectUri });
-  return { accessToken: t.access_token, refreshToken: t.refresh_token ?? null, expiresInSeconds: t.expires_in ?? null };
+  return { accessToken: t.access_token, refreshToken: t.refresh_token ?? null, expiresInSeconds: t.expires_in ?? null, scope: t.scope ?? null };
 }
 
 /** Unlinks the account from Roam's Dropbox app (the access token stops working, and the account stops counting against the app's user limit). */
@@ -193,5 +203,52 @@ export function createDropboxProvider(connectionId: string): StorageProvider {
         throw err;
       }
     },
+
+    // ── Writing (only reached after the connection allows it) ──
+    async readFile(fileId, maxBytes) {
+      return readWhole(await fetch((await link(fileId, true)).url), maxBytes);
+    },
+
+    async replaceFile(fileId, bytes) {
+      await upload(fileId, bytes);
+    },
+
+    async createFile(parentFolderId, name, bytes) {
+      // The top of the account is the empty path, which get_metadata can't be asked about.
+      const parentPath = parentFolderId === "" ? "" : ((await rpc<Meta & { path_display?: string }>(connectionId, "/files/get_metadata", { path: parentFolderId })).path_display ?? "");
+      const made = await upload(`${parentPath}/${name}`, bytes);
+      return { id: made.id ?? `${parentPath}/${name}` };
+    },
+
+    async renameEntry(_kind, id, name) {
+      const meta = await rpc<Meta & { path_display?: string }>(connectionId, "/files/get_metadata", { path: id });
+      const here = meta.path_display ?? "";
+      const to = `${here.slice(0, here.lastIndexOf("/"))}/${name}`;
+      await rpc(connectionId, "/files/move_v2", { from_path: id, to_path: to, autorename: false, allow_ownership_transfer: false });
+    },
+
+    async parentFolderId(fileId) {
+      const meta = await rpc<Meta & { path_display?: string }>(connectionId, "/files/get_metadata", { path: fileId });
+      const here = meta.path_display ?? "";
+      const parentPath = here.slice(0, here.lastIndexOf("/"));
+      // The top of the account is the empty path, which is also its id.
+      if (parentPath === "") return "";
+      const parent = await rpc<Meta>(connectionId, "/files/get_metadata", { path: parentPath });
+      if (!parent.id) throw new Error("Dropbox gave no id for the folder");
+      return parent.id;
+    },
   };
+
+  /** Saves bytes at a path or at a file's id, replacing what is there (Dropbox keeps the earlier version). */
+  async function upload(path: string, bytes: Uint8Array): Promise<{ id?: string }> {
+    if (bytes.length > DROPBOX_MAX_UPLOAD) throw new Error("That file is too large to change from Roam (Dropbox's limit for one upload is 150 MB).");
+    const res = await call(connectionId, (token) =>
+      fetch(`${CONTENT}/files/upload`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/octet-stream", "Dropbox-API-Arg": JSON.stringify({ path, mode: "overwrite", autorename: false, mute: true }) },
+        body: Buffer.from(bytes),
+      })
+    );
+    return (await res.json()) as { id?: string };
+  }
 }

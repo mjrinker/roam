@@ -13,7 +13,7 @@ vi.mock("@/lib/db/client", () => ({ db: {} }));
 vi.mock("@/lib/auth/resolve-server", () => ({ authorizeOwner: async () => h.auth }));
 vi.mock("@/lib/auth/guards", () => ({ getCurrentServerAdmin: async () => (h.admin ? { role: "admin" } : null) }));
 vi.mock("@/lib/content-filter/save-marks", () => ({
-  boxMarkWriter: {},
+  storageMarkWriter: () => ({}),
   loadMarks: async () => h.marks,
   saveMarks: async (_db: unknown, opts: unknown) => {
     if (h.saveThrows) throw new Error("boom");

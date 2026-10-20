@@ -11,7 +11,7 @@ import { getMovieDetails, getTvShowDetails } from "@/lib/tmdb/cache";
 import { collectionColumnsOnMatch } from "@/lib/tmdb/project";
 import { ratingsFromMovieDetails, ratingsFromTvDetails } from "@/lib/content/ratings";
 import { refreshShowEpisodesFromTmdb } from "@/lib/scan/scanner";
-import { stampTmdbIdOnBox } from "@/lib/scan/tag-rename";
+import { stampTmdbIdOnStorage } from "@/lib/scan/tag-rename";
 import { yearOf } from "@/lib/tmdb/match";
 
 const bodySchema = z.object({ tmdbId: z.number().int().positive() });
@@ -107,7 +107,7 @@ export async function POST(
 
   // Failing to rename (Box permissions, a name clash) doesn't undo the match;
   // it just means a rescan won't be pinned to it by the folder name.
-  const { errors: renameErrors } = await stampTmdbIdOnBox(
+  const { errors: renameErrors } = await stampTmdbIdOnStorage(
     serverId,
     { kind: title.kind === "show" ? "show" : "movie", boxFolderId: title.boxFolderId },
     parsed.data.tmdbId,

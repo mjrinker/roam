@@ -83,6 +83,22 @@ export interface StorageProvider {
    */
   fileExists?(fileId: string): Promise<boolean>;
 
+  /**
+   * Writing, for providers that can. These are only ever called through ServerStorage, which first checks that the connection allows
+   * editing (the admin turned it on and the sign-in was given the provider's write permission). Roam only ever replaces a file's contents,
+   * saves a small file beside others, and renames: it never deletes. The provider's own version history keeps what a replaced file was.
+   */
+  /** The whole of a file, for Roam to change and send back; throws when it is bigger than `maxBytes`. */
+  readFile?(fileId: string, maxBytes: number): Promise<Uint8Array>;
+  /** Replaces a file's contents with `bytes`, keeping the file (its id, its place and its name). */
+  replaceFile?(fileId: string, bytes: Uint8Array): Promise<void>;
+  /** Saves a file in a folder, replacing one of that name if there is one. Returns the file's id. */
+  createFile?(parentFolderId: string, name: string, bytes: Uint8Array): Promise<{ id: string }>;
+  /** Renames a file or folder in place. */
+  renameEntry?(kind: "file" | "folder", id: string, name: string): Promise<void>;
+  /** The folder a file is in. */
+  parentFolderId?(fileId: string): Promise<string>;
+
   /** Fetches an inclusive byte range of a file's raw bytes (for format probing). */
   fetchByteRange(
     fileId: string,

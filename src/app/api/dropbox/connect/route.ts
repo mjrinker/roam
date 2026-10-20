@@ -14,7 +14,8 @@ export async function GET(request: Request) {
 
   const requested = searchParams.get("connectionId");
   const label = searchParams.get("label")?.trim().slice(0, 60) || undefined;
+  const write = searchParams.get("write") === "1";
   const connectionId = !requested || requested === "new" ? randomUUID() : requested;
-  const state = signBoxOAuthState(serverId, member.profile.id, { connectionId, label });
-  return NextResponse.redirect(dropboxAuthorizeUrl(`${origin}/api/dropbox/callback`, state));
+  const state = signBoxOAuthState(serverId, member.profile.id, { connectionId, label, write });
+  return NextResponse.redirect(dropboxAuthorizeUrl(`${origin}/api/dropbox/callback`, state, { write }));
 }

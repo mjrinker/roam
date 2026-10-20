@@ -43,7 +43,7 @@ export function LandingPage() {
         <h2 className="text-xl font-semibold">How Roam uses your Google account and data</h2>
         <p className="text-sm leading-relaxed text-foreground/85">
           You can sign in to Roam with Google; Roam then receives your email address and basic profile, only to identify your account. A server&apos;s owner can also connect their <strong>Google Drive</strong> so Roam can list the folders they choose and stream the media in them to the people
-          they invite. That access is <strong>read-only</strong>: Roam never changes, deletes, uploads or shares anything in the Drive. Roam does not sell your data or use it for advertising.
+          they invite. That access is <strong>read-only</strong> unless the owner chooses to allow editing for that Drive: then Roam asks Google for permission to change files, and uses it only to replace the date and place stored inside a photo, save a scene file beside a film, and rename a folder to add a title-matching tag. Roam never deletes, moves or shares anything in the Drive, and Google Drive keeps the earlier version of any file Roam changes. Roam does not sell your data or use it for advertising.
         </p>
         <p className="text-sm leading-relaxed text-foreground/85">
           Roam&apos;s use and transfer to any other app of information received from Google APIs will adhere to the{" "}
