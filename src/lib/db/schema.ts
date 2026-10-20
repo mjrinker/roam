@@ -1688,3 +1688,56 @@ export const photoFaces = pgTable(
   },
   (t) => [index("photo_faces_title_idx").on(t.titleId), index("photo_faces_person_idx").on(t.personId), index("photo_faces_suggested_idx").on(t.suggestedPersonId)]
 ).enableRLS();
+
+// ── feedback_items / feedback_votes / feedback_comments ──────────────────
+// Bug reports and feature requests from the people who use this deployment, and the board where requests can be voted on. A report is private to
+// its author and the platform admin until the admin (or, for a feature request, the author's choice at the start) makes it public. `diagnostics`
+// (the page, browser and app version the author chose to send) is only ever shown to the platform admin. A GitHub issue may be kept in step
+// (`github_*`); nothing identifying the author is ever sent there.
+export const feedbackItems = pgTable(
+  "feedback_items",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    kind: text("kind").$type<"bug" | "feature">().notNull(),
+    title: text("title").notNull(),
+    body: text("body").notNull(),
+    status: text("status").$type<"new" | "planned" | "in_progress" | "done" | "declined" | "duplicate">().notNull().default("new"),
+    visibility: text("visibility").$type<"private" | "public">().notNull().default("private"),
+    authorId: uuid("author_id").references(() => profiles.id, { onDelete: "set null" }),
+    // The server the author was in, for the admin's context.
+    serverId: uuid("server_id").references(() => servers.id, { onDelete: "set null" }),
+    diagnostics: jsonb("diagnostics").$type<Record<string, string | number | boolean | null>>(),
+    // For a duplicate: the report it is the same as.
+    duplicateOf: uuid("duplicate_of").references((): AnyPgColumn => feedbackItems.id, { onDelete: "set null" }),
+    githubIssueNumber: integer("github_issue_number"),
+    githubIssueUrl: text("github_issue_url"),
+    githubError: text("github_error"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("feedback_items_visibility_idx").on(t.visibility, t.kind, t.createdAt), index("feedback_items_author_idx").on(t.authorId)]
+).enableRLS();
+
+export const feedbackVotes = pgTable(
+  "feedback_votes",
+  {
+    itemId: uuid("item_id").notNull().references(() => feedbackItems.id, { onDelete: "cascade" }),
+    accountId: uuid("account_id").notNull().references(() => profiles.id, { onDelete: "cascade" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [primaryKey({ columns: [t.itemId, t.accountId] })]
+).enableRLS();
+
+export const feedbackComments = pgTable(
+  "feedback_comments",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    itemId: uuid("item_id").notNull().references(() => feedbackItems.id, { onDelete: "cascade" }),
+    authorId: uuid("author_id").references(() => profiles.id, { onDelete: "set null" }),
+    // A reply from the platform admin, shown as "Roam team" rather than by name.
+    official: boolean("official").notNull().default(false),
+    body: text("body").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("feedback_comments_item_idx").on(t.itemId, t.createdAt)]
+).enableRLS();

@@ -144,6 +144,14 @@ export default function PrivacyPage() {
         </p>
       </Section>
 
+      <Section title="Feedback you send">
+        <p>
+          If you send a bug report or feature request from Roam, we keep what you wrote and the account it came from. The people who run Roam can see who sent it. If you choose to include technical details, they are the page you were on (with any ids removed), your browser and your screen size, and are
+          seen only by them. A feature request is shown on a public board to the people who use this Roam, with its text and comments but not your name, unless you keep it private; a bug report stays private unless the people who run Roam publish it. If the operator has set it up, each report is also
+          filed as an issue on the project&apos;s GitHub with only what you wrote and those anonymised details, never your name or account; the form tells you when this happens and whether that repository is public. To have a report removed, contact the operator below.
+        </p>
+      </Section>
+
       <Section title="How long we keep it, and deleting it">
         <p>
           Information is kept while your account or the server it belongs to exists. Removing a storage connection deletes its stored tokens. Deleting a library removes everything Roam kept about it, and deleting a server removes its libraries, memberships, invitations, playlists and storage sign-ins, as

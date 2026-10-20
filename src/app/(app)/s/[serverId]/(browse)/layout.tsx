@@ -59,9 +59,14 @@ export default async function BrowseLayout({
           />
           <main className="flex-1">{children}</main>
           <footer className="flex flex-col items-center gap-4 px-4 py-8">
-            <Link href="/help" className="text-xs text-muted-foreground/80 underline-offset-2 hover:text-foreground hover:underline">
-              Help
-            </Link>
+            <span className="flex gap-4 text-xs text-muted-foreground/80">
+              <Link href="/help" className="underline-offset-2 hover:text-foreground hover:underline">
+                Help
+              </Link>
+              <Link href={`/s/${serverId}/feedback`} className="underline-offset-2 hover:text-foreground hover:underline">
+                Feedback
+              </Link>
+            </span>
             <TmdbAttribution creditsHref={serverRow?.isDemo ? `/s/${serverId}/credits` : undefined} />
           </footer>
           <PlayerErrorBoundary>

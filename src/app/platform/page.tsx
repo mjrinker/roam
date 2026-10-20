@@ -1,7 +1,9 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
+import { eq, sql } from "drizzle-orm";
 import { db } from "@/lib/db/client";
+import { feedbackItems } from "@/lib/db/schema";
 import { requireViewer } from "@/lib/auth/guards";
 import { requirePlatformAdmin } from "@/lib/platform/guard";
 import { loadPlatformStats } from "@/lib/platform/stats";
@@ -23,6 +25,7 @@ export const dynamic = "force-dynamic";
 export default async function PlatformPage() {
   await requirePlatformAdmin();
   const stats = await loadPlatformStats(db);
+  const [{ n: newFeedback }] = await db.select({ n: sql<number>`count(*)::int` }).from(feedbackItems).where(eq(feedbackItems.status, "new"));
   const dddUsage = dddConfigured() ? await readUsage() : null;
   const { totals, activity, health } = stats;
   const lastRun = health.tmdb.lastRun;
@@ -34,6 +37,9 @@ export default async function PlatformPage() {
         </Link>
         <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">Platform admin</h1>
         <p className="text-sm text-muted-foreground">Every server at a glance, the limits outside services put on Roam, and what needs attention.</p>
+        <Link href="/platform/feedback" className="w-fit text-sm text-primary underline underline-offset-2">
+          Feedback inbox{newFeedback > 0 ? ` (${newFeedback} new)` : ""}
+        </Link>
       </header>
 
       <Panel title="Outside accounts and their limits" note="Accounts linked to Roam, counted once however many servers use them. Only Dropbox and Google have limits; Box and OneDrive are just counted. Dropbox's app console is the final word on its count.">

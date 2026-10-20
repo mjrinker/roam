@@ -4,9 +4,10 @@ import { setOfflineViewer } from "@/lib/offline/viewer";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
-import { CircleHelp, Database, Gauge, LayoutGrid, LogOut, Settings2, Users } from "lucide-react";
+import { CircleHelp, Database, Gauge, LayoutGrid, LogOut, MessageSquarePlus, Settings2, Users } from "lucide-react";
 import { DataSaverDialog } from "@/components/shell/data-saver-dialog";
 import { YourDataDialog } from "@/components/shell/your-data-dialog";
+import { FeedbackDialog } from "@/components/feedback/feedback-dialog";
 import { useDataSaverState } from "@/components/ui/data-saver-context";
 import { describeDataSaver } from "@/lib/player/data-saver-mode";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
@@ -35,6 +36,7 @@ export function UserMenu({
   const router = useRouter();
   const [saverOpen, setSaverOpen] = useState(false);
   const [dataOpen, setDataOpen] = useState(false);
+  const [feedbackOpen, setFeedbackOpen] = useState(false);
   const saver = useDataSaverState();
 
   async function signOut() {
@@ -88,6 +90,14 @@ export function UserMenu({
           <CircleHelp className="size-4 text-muted-foreground" />
           Help
         </DropdownMenuItem>
+        <DropdownMenuItem onClick={() => setFeedbackOpen(true)} className="gap-2.5">
+          <MessageSquarePlus className="size-4 text-muted-foreground" />
+          Send feedback
+        </DropdownMenuItem>
+        <DropdownMenuItem render={<Link href={`/s/${serverId}/feedback`} />} className="gap-2.5">
+          <MessageSquarePlus className="size-4 text-muted-foreground" />
+          Feedback board
+        </DropdownMenuItem>
         <DropdownMenuSeparator />
         <DropdownMenuItem render={<Link href="/servers" />} className="gap-2.5">
           <LayoutGrid className="size-4 text-muted-foreground" />
@@ -100,6 +110,7 @@ export function UserMenu({
       </DropdownMenuContent>
     </DropdownMenu>
     <DataSaverDialog open={saverOpen} onOpenChange={setSaverOpen} />
+    <FeedbackDialog serverId={serverId} open={feedbackOpen} onOpenChange={setFeedbackOpen} />
     <YourDataDialog serverId={serverId} open={dataOpen} onOpenChange={setDataOpen} isAdmin={isAdmin} />
     </>
   );
